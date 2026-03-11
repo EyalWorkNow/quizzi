@@ -4,6 +4,8 @@ dist/
 coverage/
 .DS_Store
 *.log
+__pycache__/
+*.pyc
 quizzi.db*
 .env*
 !.env.example
