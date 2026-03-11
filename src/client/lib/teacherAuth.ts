@@ -60,7 +60,7 @@ function syncTeacherProfile(email: string, name?: string, school?: string) {
 async function readJsonOrThrow(response: Response) {
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(payload?.error || 'Teacher authentication request failed');
+    throw new Error(payload?.error || response.statusText || 'Teacher authentication request failed');
   }
   return payload;
 }
@@ -121,25 +121,42 @@ export async function signInTeacherWithPassword({
   return payload;
 }
 
-export async function signInTeacherWithProvider({
-  provider,
+export async function registerTeacherWithPassword({
+  email,
+  password,
   name,
   school,
 }: {
-  provider: 'google' | 'facebook';
+  email: string;
+  password: string;
   name?: string;
   school?: string;
 }) {
-  const response = await fetch('/api/auth/social', {
+  const response = await fetch('/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'same-origin',
-    body: JSON.stringify({ provider }),
+    body: JSON.stringify({
+      email: email.trim().toLowerCase(),
+      password,
+      name: String(name || '').trim(),
+      school: String(school || '').trim(),
+    }),
   });
   const payload = (await readJsonOrThrow(response)) as TeacherAuthSession;
   syncTeacherProfile(payload.email, name, school);
   writeAuth(payload);
   return payload;
+}
+
+export async function signInTeacherWithProvider({
+  provider,
+}: {
+  provider: 'google' | 'facebook';
+}): Promise<TeacherAuthSession> {
+  throw new Error(
+    `${provider === 'google' ? 'Google' : 'Facebook'} sign-in is not configured yet. Use email registration or the demo account for now.`,
+  );
 }
 
 export async function signOutTeacher() {

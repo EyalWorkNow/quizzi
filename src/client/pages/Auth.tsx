@@ -19,6 +19,7 @@ import {
   DEMO_TEACHER_PASSWORD,
   loadTeacherAuth,
   refreshTeacherSession,
+  registerTeacherWithPassword,
   signInTeacherWithPassword,
   signInTeacherWithProvider,
   signOutTeacher,
@@ -39,6 +40,7 @@ export default function Auth() {
   const [school, setSchool] = useState(teacherSettings.profile.school);
   const [email, setEmail] = useState(DEMO_TEACHER_EMAIL);
   const [password, setPassword] = useState(DEMO_TEACHER_PASSWORD);
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
   const [existingSession, setExistingSession] = useState<TeacherAuthSession | null>(() => loadTeacherAuth());
@@ -100,7 +102,7 @@ export default function Auth() {
     navigate(targetPath);
   };
 
-  const handlePasswordLogin = async (event: React.FormEvent) => {
+  const handlePasswordAccess = async (event: React.FormEvent) => {
     event.preventDefault();
     setError('');
     setFeedback('');
@@ -113,15 +115,32 @@ export default function Auth() {
     });
 
     try {
-      const session = await signInTeacherWithPassword({
-        email,
-        password,
-        name,
-        school,
-      });
+      if (mode === 'create') {
+        if (password !== confirmPassword) {
+          throw new Error('Password confirmation does not match.');
+        }
+      }
+
+      const session =
+        mode === 'create'
+          ? await registerTeacherWithPassword({
+              email,
+              password,
+              name,
+              school,
+            })
+          : await signInTeacherWithPassword({
+              email,
+              password,
+              name,
+              school,
+            });
       completeAccess({
         session,
-        successMessage: 'Signed in with the demo teacher account.',
+        successMessage:
+          mode === 'create'
+            ? 'Teacher account created and signed in.'
+            : 'Signed in successfully.',
       });
       void trackTeacherAuthEvent({
         action: 'sign_in',
@@ -157,8 +176,6 @@ export default function Auth() {
     try {
       const session = await signInTeacherWithProvider({
         provider,
-        name: name.trim() || (provider === 'google' ? 'Google Teacher' : 'Facebook Teacher'),
-        school,
       });
       completeAccess({
         session,
@@ -334,22 +351,32 @@ export default function Auth() {
           <div className="grid grid-cols-2 gap-3 mb-8">
             <button
               type="button"
-              onClick={() => {
-                setMode('login');
-                setError('');
-                setFeedback('');
-              }}
+          onClick={() => {
+            setMode('login');
+            setError('');
+            setFeedback('');
+            setEmail(DEMO_TEACHER_EMAIL);
+            setPassword(DEMO_TEACHER_PASSWORD);
+            setConfirmPassword('');
+          }}
               className={`px-5 py-4 rounded-2xl border-2 border-brand-dark font-black ${mode === 'login' ? 'bg-brand-dark text-white' : 'bg-brand-bg text-brand-dark'}`}
             >
               Sign In
             </button>
             <button
               type="button"
-              onClick={() => {
-                setMode('create');
-                setError('');
-                setFeedback('');
-              }}
+          onClick={() => {
+            setMode('create');
+            setError('');
+            setFeedback('');
+            if (email === DEMO_TEACHER_EMAIL) {
+              setEmail(teacherSettings.profile.email || '');
+            }
+            if (password === DEMO_TEACHER_PASSWORD) {
+              setPassword('');
+            }
+            setConfirmPassword('');
+          }}
               className={`px-5 py-4 rounded-2xl border-2 border-brand-dark font-black ${mode === 'create' ? 'bg-brand-dark text-white' : 'bg-brand-bg text-brand-dark'}`}
             >
               Create Account
@@ -369,7 +396,7 @@ export default function Auth() {
             </div>
           )}
 
-          <form onSubmit={handlePasswordLogin} className="space-y-5">
+          <form onSubmit={handlePasswordAccess} className="space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field
                 label="Display Name"
@@ -411,9 +438,19 @@ export default function Auth() {
                   icon={<Lock className="w-5 h-5" />}
                   value={password}
                   onChange={setPassword}
-                  placeholder={DEMO_TEACHER_PASSWORD}
+                  placeholder={mode === 'login' ? DEMO_TEACHER_PASSWORD : 'Create a password'}
                   type="password"
                 />
+                {mode === 'create' && (
+                  <Field
+                    label="Confirm Password"
+                    icon={<Lock className="w-5 h-5" />}
+                    value={confirmPassword}
+                    onChange={setConfirmPassword}
+                    placeholder="Repeat your password"
+                    type="password"
+                  />
+                )}
               </div>
 
               <button
@@ -422,7 +459,13 @@ export default function Auth() {
                 className="mt-5 w-full px-6 py-5 bg-brand-orange text-white border-4 border-brand-dark rounded-[1.75rem] font-black text-xl flex items-center justify-center gap-3 shadow-[8px_8px_0px_0px_#1A1A1A] disabled:opacity-60"
               >
                 {pendingAction === 'password' ? <LoaderCircle className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5" />}
-                {pendingAction === 'password' ? 'Signing In...' : 'Enter Teacher Area'}
+                {pendingAction === 'password'
+                  ? mode === 'create'
+                    ? 'Creating Account...'
+                    : 'Signing In...'
+                  : mode === 'create'
+                    ? 'Create Teacher Account'
+                    : 'Enter Teacher Area'}
               </button>
             </div>
           </form>
@@ -437,7 +480,7 @@ export default function Auth() {
             <SocialAccessButton
               brand="google"
               title={`${socialLabel} Google`}
-              body="Mocked Google flow for now, with the same protected teacher access."
+              body="Requires provider activation. Use email registration until Google sign-in is configured."
               loading={pendingAction === 'google'}
               disabled={pendingAction !== null}
               onClick={() => handleSocialAccess('google')}
@@ -445,7 +488,7 @@ export default function Auth() {
             <SocialAccessButton
               brand="facebook"
               title={`${socialLabel} Facebook`}
-              body="Mocked Facebook flow for now, useful for quick onboarding demos."
+              body="Requires provider activation. Use email registration until Facebook sign-in is configured."
               loading={pendingAction === 'facebook'}
               disabled={pendingAction !== null}
               onClick={() => handleSocialAccess('facebook')}

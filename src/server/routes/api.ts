@@ -6,7 +6,6 @@ import mammoth from 'mammoth';
 import { createRequire } from 'module';
 import { runPythonEngine } from '../services/pythonEngine.js';
 import {
-  authConfig,
   clearTeacherSession,
   createTeacherSession,
   isDemoTeacherEmail,
@@ -16,6 +15,13 @@ import {
   requireTeacherSession,
   verifyDemoPassword,
 } from '../services/demoAuth.js';
+import {
+  createTeacherUser,
+  getTeacherUserByEmail,
+  validateTeacherEmail,
+  validateTeacherPassword,
+  verifyTeacherPassword,
+} from '../services/teacherUsers.js';
 import {
   buildGenerationSource,
   getCachedQuestionGeneration,
@@ -246,6 +252,30 @@ function getPacksForIds(packIds: number[]) {
   return db.prepare(`SELECT * FROM quiz_packs WHERE id IN (${placeholders})`).all(...packIds);
 }
 
+function getQuestionsForPackIds(packIds: number[]) {
+  if (packIds.length === 0) return [];
+  const placeholders = packIds.map(() => '?').join(', ');
+  return db.prepare(`SELECT * FROM questions WHERE quiz_pack_id IN (${placeholders})`).all(...packIds);
+}
+
+function getParticipantsForSessionIds(sessionIds: number[]) {
+  if (sessionIds.length === 0) return [];
+  const placeholders = sessionIds.map(() => '?').join(', ');
+  return db.prepare(`SELECT * FROM participants WHERE session_id IN (${placeholders})`).all(...sessionIds);
+}
+
+function getAnswersForSessionIds(sessionIds: number[]) {
+  if (sessionIds.length === 0) return [];
+  const placeholders = sessionIds.map(() => '?').join(', ');
+  return db.prepare(`SELECT * FROM answers WHERE session_id IN (${placeholders})`).all(...sessionIds);
+}
+
+function getBehaviorLogsForSessionIds(sessionIds: number[]) {
+  if (sessionIds.length === 0) return [];
+  const placeholders = sessionIds.map(() => '?').join(', ');
+  return db.prepare(`SELECT * FROM student_behavior_logs WHERE session_id IN (${placeholders})`).all(...sessionIds);
+}
+
 function buildAnalyticsComparison(sessionAnalytics: any, overallAnalytics: any) {
   const sessionSignals = Array.isArray(sessionAnalytics?.behaviorSignals) ? sessionAnalytics.behaviorSignals : [];
   const overallSignals = new Map<string, any>(
@@ -362,6 +392,45 @@ async function getSessionStudentContext(sessionId: number, participantId: number
 
 // --- Teacher Routes ---
 
+router.post('/auth/register', (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  if (!enforceRateLimit(req, res, 'auth-register', 8, 10 * 60 * 1000)) return;
+
+  const email = normalizeTeacherEmail(String(req.body?.email || ''));
+  const password = String(req.body?.password || '');
+  const name = sanitizeLine(req.body?.name, 120);
+  const school = sanitizeLine(req.body?.school, 120);
+
+  const emailError = validateTeacherEmail(email);
+  if (emailError) {
+    return res.status(400).json({ error: emailError });
+  }
+
+  const passwordError = validateTeacherPassword(password);
+  if (passwordError) {
+    return res.status(400).json({ error: passwordError });
+  }
+
+  if (!name.trim()) {
+    return res.status(400).json({ error: 'Display name is required.' });
+  }
+
+  const existingUser = getTeacherUserByEmail(email);
+  if (existingUser) {
+    return res.status(409).json({ error: 'An account with this email already exists. Try signing in instead.' });
+  }
+
+  const createdUser = createTeacherUser({
+    email,
+    password,
+    name,
+    school,
+  });
+  const { session, token } = createTeacherSession({ email: createdUser.email, provider: 'password' });
+  issueTeacherSession(req, res, token);
+  res.status(201).json(session);
+});
+
 router.get('/auth/session', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const session = readTeacherSession(req);
@@ -377,8 +446,16 @@ router.post('/auth/login', (req, res) => {
 
   const email = normalizeTeacherEmail(String(req.body?.email || ''));
   const password = String(req.body?.password || '');
+  const teacherUser = getTeacherUserByEmail(email);
+
+  if (teacherUser?.password_hash && verifyTeacherPassword(password, teacherUser.password_hash)) {
+    const { session, token } = createTeacherSession({ email: teacherUser.email, provider: 'password' });
+    issueTeacherSession(req, res, token);
+    return res.json(session);
+  }
+
   if (!isDemoTeacherEmail(email) || !verifyDemoPassword(password)) {
-    return res.status(401).json({ error: `Use ${authConfig.demoEmail} / 123123 for the demo teacher account.` });
+    return res.status(401).json({ error: 'Invalid email or password.' });
   }
 
   const { session, token } = createTeacherSession({ email, provider: 'password' });
@@ -388,18 +465,9 @@ router.post('/auth/login', (req, res) => {
 
 router.post('/auth/social', (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
-  if (!enforceRateLimit(req, res, 'auth-social', 12, 10 * 60 * 1000)) return;
-
-  const provider = String(req.body?.provider || '').trim();
-  if (provider !== 'google' && provider !== 'facebook') {
-    return res.status(400).json({ error: 'Unsupported social provider' });
-  }
-
-  const email =
-    provider === 'google' ? 'teacher.google@quizzi.app' : 'teacher.facebook@quizzi.app';
-  const { session, token } = createTeacherSession({ email, provider });
-  issueTeacherSession(req, res, token);
-  res.json(session);
+  res.status(501).json({
+    error: 'Google and Facebook sign-in are not configured yet. Use email registration or the demo account for now.',
+  });
 });
 
 router.post('/auth/logout', (req, res) => {
@@ -606,6 +674,8 @@ ${generationSource.material}`;
 router.post('/packs', requireTeacherSession, (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
   if (!enforceRateLimit(req, res, 'teacher-pack-create', 30, 10 * 60 * 1000)) return;
+  const teacherSession = readTeacherSession(req);
+  const teacherUserId = Number((teacherSession && getTeacherUserByEmail(teacherSession.email)?.id) || 1);
   const title = sanitizeLine(req.body?.title, 120);
   const source_text = sanitizeMultiline(req.body?.source_text, 120000);
   const questions = Array.isArray(req.body?.questions) ? req.body.questions : [];
@@ -635,7 +705,7 @@ router.post('/packs', requireTeacherSession, (req, res) => {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const info = insertPack.run(
-    1,
+    teacherUserId,
     title,
     source_text,
     materialProfile.source_hash,
@@ -1103,6 +1173,7 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
     const originalPackTitle = context.classPayload.pack?.title || `Pack ${context.classPayload.session.quiz_pack_id}`;
     const adaptiveTitle = `Adaptive: ${context.participant.nickname} - ${originalPackTitle}`;
     const adaptiveProfile = getOrCreateMaterialProfile(context.classPayload.pack?.source_text || '');
+    const teacherUserId = Number(getTeacherUserByEmail(session.email)?.id || 1);
     const packInfo = db
       .prepare(`
         INSERT INTO quiz_packs (
@@ -1117,7 +1188,7 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
-        1,
+        teacherUserId,
         adaptiveTitle,
         context.classPayload.pack?.source_text || '',
         adaptiveProfile.source_hash,
@@ -1320,13 +1391,25 @@ router.get('/dashboard/teacher/overview', async (req, res) => {
   const session = readTeacherSession(req);
   if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
   try {
+    const teacherUserId = Number(getTeacherUserByEmail(session.email)?.id || 1);
+    const packs = db.prepare('SELECT * FROM quiz_packs WHERE teacher_id = ?').all(teacherUserId);
+    const packIds = uniqueNumbers(packs.map((pack: any) => pack.id));
+    const sessions = packIds.length
+      ? db
+          .prepare(
+            `SELECT * FROM sessions WHERE quiz_pack_id IN (${packIds.map(() => '?').join(', ')})`,
+          )
+          .all(...packIds)
+      : [];
+    const sessionIds = uniqueNumbers(sessions.map((row: any) => row.id));
+
     const overview = await runPythonEngine<unknown>('teacher-overview', {
-      packs: db.prepare('SELECT * FROM quiz_packs').all(),
-      sessions: db.prepare('SELECT * FROM sessions').all(),
-      participants: db.prepare('SELECT * FROM participants').all(),
-      answers: db.prepare('SELECT * FROM answers').all(),
-      questions: db.prepare('SELECT * FROM questions').all(),
-      behavior_logs: db.prepare('SELECT * FROM student_behavior_logs').all(),
+      packs,
+      sessions,
+      participants: getParticipantsForSessionIds(sessionIds),
+      answers: getAnswersForSessionIds(sessionIds),
+      questions: getQuestionsForPackIds(packIds),
+      behavior_logs: getBehaviorLogsForSessionIds(sessionIds),
     });
 
     res.json(overview);

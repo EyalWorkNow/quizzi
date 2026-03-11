@@ -173,6 +173,11 @@ export function initDb() {
   `);
 
   ensureColumn('quiz_packs', 'source_hash', 'TEXT');
+  ensureColumn('users', 'first_name', 'TEXT');
+  ensureColumn('users', 'last_name', 'TEXT');
+  ensureColumn('users', 'school', 'TEXT');
+  ensureColumn('users', 'auth_provider', "TEXT DEFAULT 'password'");
+  ensureColumn('users', 'updated_at', 'DATETIME');
   ensureColumn('quiz_packs', 'source_excerpt', 'TEXT');
   ensureColumn('quiz_packs', 'source_language', "TEXT DEFAULT 'English'");
   ensureColumn('quiz_packs', 'source_word_count', 'INTEGER DEFAULT 0');
@@ -197,6 +202,7 @@ export function initDb() {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_quiz_packs_profile ON quiz_packs(material_profile_id);
     CREATE INDEX IF NOT EXISTS idx_quiz_packs_source_hash ON quiz_packs(source_hash);
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_questions_pack_question_order ON questions(quiz_pack_id, question_order, id);
     CREATE INDEX IF NOT EXISTS idx_sessions_game_type ON sessions(game_type);
     CREATE INDEX IF NOT EXISTS idx_participants_session_team ON participants(session_id, team_id);
@@ -226,6 +232,14 @@ export function initDb() {
       WHERE questions.quiz_pack_id = quiz_packs.id
     )
     WHERE question_count_cache IS NULL OR question_count_cache = 0;
+
+    UPDATE users
+    SET auth_provider = 'password'
+    WHERE auth_provider IS NULL OR auth_provider = '';
+
+    UPDATE users
+    SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+    WHERE updated_at IS NULL;
   `);
 }
 
