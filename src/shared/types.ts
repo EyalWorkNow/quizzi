@@ -1,0 +1,101 @@
+export type SessionStatus = 'LOBBY' | 'QUESTION_ACTIVE' | 'QUESTION_REVEAL' | 'LEADERBOARD' | 'ENDED';
+
+export interface User {
+  id: number;
+  email: string;
+  password_hash: string;
+  created_at: string;
+}
+
+export interface QuizPack {
+  id: number;
+  teacher_id: number;
+  title: string;
+  source_text: string;
+  created_at: string;
+}
+
+export interface Question {
+  id: number;
+  quiz_pack_id: number;
+  type: string;
+  prompt: string;
+  answers_json: string; // stringified array of strings
+  correct_index: number;
+  explanation: string;
+  tags_json: string; // stringified array of strings
+  difficulty: number; // 1-5
+  time_limit_seconds: number;
+}
+
+export interface Session {
+  id: number;
+  quiz_pack_id: number;
+  pin: string;
+  status: SessionStatus;
+  current_question_index: number;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+export interface Participant {
+  id: number;
+  session_id: number;
+  nickname: string;
+  created_at: string;
+}
+
+export interface Answer {
+  id: number;
+  session_id: number;
+  question_id: number;
+  participant_id: number;
+  chosen_index: number;
+  is_correct: boolean;
+  response_ms: number;
+  score_awarded: number;
+  created_at: string;
+}
+
+export interface Mastery {
+  id: number;
+  nickname: string;
+  tag: string;
+  score: number;
+  updated_at: string;
+}
+
+export interface PracticeAttempt {
+  id: number;
+  nickname: string;
+  question_id: number;
+  is_correct: boolean;
+  response_ms: number;
+  created_at: string;
+}
+
+// API Payloads
+export interface CreatePackPayload {
+  title: string;
+  source_text: string;
+}
+
+export interface HostSessionPayload {
+  quiz_pack_id: number;
+}
+
+export interface JoinSessionPayload {
+  nickname: string;
+}
+
+export interface SubmitAnswerPayload {
+  participant_id: number;
+  question_id: number;
+  chosen_index: number;
+  response_ms: number;
+}
+
+export interface UpdateSessionStatePayload {
+  status: SessionStatus;
+  current_question_index: number;
+}

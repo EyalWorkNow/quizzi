@@ -1,0 +1,562 @@
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  ArrowRight,
+  BookOpen,
+  BrainCircuit,
+  Calculator,
+  Filter,
+  FlaskConical,
+  Globe,
+  History,
+  Languages,
+  Laptop,
+  Music,
+  Palette,
+  Search,
+  Sparkles,
+  Trophy,
+  XCircle,
+} from 'lucide-react';
+import { motion } from 'motion/react';
+import { isTeacherAuthenticated, refreshTeacherSession } from '../lib/teacherAuth.ts';
+
+const CATEGORY_ICONS: Record<string, any> = {
+  Math: Calculator,
+  Sports: Trophy,
+  Music: Music,
+  Science: FlaskConical,
+  Art: Palette,
+  Languages: Languages,
+  History: History,
+  Tech: Laptop,
+  Geography: Globe,
+  General: BookOpen,
+};
+
+const SORT_OPTIONS = [
+  { id: 'newest', label: 'Newest' },
+  { id: 'questions', label: 'Most Questions' },
+  { id: 'lean', label: 'Lean Prompt' },
+];
+
+async function fetchJson(url: string) {
+  const response = await fetch(url);
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error || `Request failed for ${url}`);
+  }
+  return payload;
+}
+
+export default function Explore() {
+  const navigate = useNavigate();
+  const [teacherSignedIn, setTeacherSignedIn] = useState(() => isTeacherAuthenticated());
+  const [packs, setPacks] = useState<any[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('newest');
+  const [selectedPack, setSelectedPack] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetchJson('/api/packs')
+      .then((data) => setPacks(Array.isArray(data) ? data : []))
+      .catch((loadError: any) => setError(loadError?.message || 'Failed to load packs'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    refreshTeacherSession()
+      .then((session) => {
+        if (!cancelled) {
+          setTeacherSignedIn(!!session);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTeacherSignedIn(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const categories = useMemo(() => {
+    const counts = new Map<string, number>();
+    packs.forEach((pack) => {
+      const tags = (pack.top_tags?.length ? pack.top_tags : pack.topic_fingerprint?.slice(0, 2) || ['General']) as string[];
+      tags.forEach((tag) => counts.set(tag, (counts.get(tag) || 0) + 1));
+    });
+    return Array.from(counts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
+  }, [packs]);
+
+  const filteredPacks = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+
+    const scoped = packs.filter((pack) => {
+      const haystack = [
+        pack.title,
+        pack.source_excerpt,
+        pack.teaching_brief,
+        ...(pack.top_tags || []),
+        ...(pack.topic_fingerprint || []),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      const matchesSearch = !normalizedSearch || haystack.includes(normalizedSearch);
+      const matchesCategory =
+        selectedCategory === 'All' ||
+        (pack.top_tags || []).includes(selectedCategory) ||
+        (pack.topic_fingerprint || []).includes(selectedCategory);
+
+      return matchesSearch && matchesCategory;
+    });
+
+    const sorted = [...scoped];
+    sorted.sort((left, right) => {
+      if (sortBy === 'questions') {
+        return Number(right.question_count || 0) - Number(left.question_count || 0);
+      }
+      if (sortBy === 'lean') {
+        return Number(right.token_savings_pct || 0) - Number(left.token_savings_pct || 0);
+      }
+      return String(right.created_at || '').localeCompare(String(left.created_at || ''));
+    });
+
+    return sorted;
+  }, [packs, searchQuery, selectedCategory, sortBy]);
+
+  const featuredPack = filteredPacks[0] || packs[0] || null;
+
+  const stats = useMemo(() => {
+    const totalQuestions = packs.reduce((sum, pack) => sum + Number(pack.question_count || 0), 0);
+    const avgSavings =
+      packs.length > 0
+        ? Math.round(
+            packs.reduce((sum, pack) => sum + Number(pack.token_savings_pct || 0), 0) / packs.length,
+          )
+        : 0;
+    const languages = new Set(packs.map((pack) => pack.source_language).filter(Boolean)).size;
+
+    return {
+      totalPacks: packs.length,
+      totalQuestions,
+      avgSavings,
+      languages,
+    };
+  }, [packs]);
+
+  return (
+    <div className="min-h-screen bg-brand-bg font-sans text-brand-dark selection:bg-brand-orange selection:text-white pb-20 overflow-hidden">
+      <div className="absolute inset-x-0 top-0 h-[430px] bg-[radial-gradient(circle_at_top_left,_rgba(255,90,54,0.16),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(180,136,255,0.18),_transparent_36%)] pointer-events-none" />
+
+      <nav className="flex items-center justify-between p-6 lg:px-12 relative z-20">
+        <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
+          <span className="text-brand-orange">Quiz</span>zi
+        </div>
+        <div className="hidden md:flex items-center gap-10 font-bold text-lg">
+          <button onClick={() => navigate('/explore')} className="text-brand-orange transition-colors flex items-center gap-1">Discover</button>
+          <button onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')} className="hover:text-brand-orange transition-colors">
+            {teacherSignedIn ? 'Teacher Studio' : 'For Teachers'}
+          </button>
+        </div>
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate('/')} className="font-bold px-8 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">
+            Home
+          </button>
+        </div>
+      </nav>
+
+      <main className="max-w-[1450px] mx-auto px-6 lg:px-12 relative z-10">
+        <section className="pt-8 pb-10">
+          <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-8 items-start">
+            <div>
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border-2 border-brand-dark shadow-[3px_3px_0px_0px_#1A1A1A] text-sm font-black uppercase tracking-[0.18em] mb-6">
+                <Sparkles className="w-4 h-4 text-brand-orange" />
+                Discover High-Signal Packs
+              </div>
+              <h1 className="text-[3.2rem] sm:text-[4.6rem] font-black leading-[0.95] tracking-tight mb-5">
+                Browse packs built from
+                <span className="text-brand-orange"> compressed course intel</span>, not raw noise.
+              </h1>
+              <p className="text-xl font-bold text-brand-dark/65 max-w-3xl mb-8">
+                Every pack now carries a deterministic teaching brief, topic fingerprint and token-efficient prompt profile, so you can discover stronger material and generate with less model waste.
+              </p>
+
+              <div className="flex flex-col md:flex-row gap-4 mb-8">
+                <div className="relative flex-1">
+                  <input
+                    id="search-explore"
+                    type="text"
+                    placeholder="Search packs, concepts, tags, or summaries..."
+                    aria-label="Search collections"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    className="w-full px-8 py-5 pl-14 rounded-full border-2 border-brand-dark bg-white text-xl font-bold placeholder:text-brand-dark/35 focus:outline-none focus:ring-4 focus:ring-brand-purple/20 shadow-[4px_4px_0px_0px_#1A1A1A]"
+                  />
+                  <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-6 h-6 text-brand-dark/40" />
+                </div>
+                <button
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSelectedCategory('All');
+                    setSortBy('newest');
+                  }}
+                  className="w-16 h-16 flex items-center justify-center rounded-full border-2 border-brand-dark bg-white shadow-[4px_4px_0px_0px_#1A1A1A]"
+                >
+                  <Filter className="w-6 h-6" />
+                </button>
+                <button
+                  onClick={() => navigate('/teacher/pack/create')}
+                  className="px-8 py-5 rounded-full border-2 border-brand-dark bg-brand-purple text-white font-black text-xl shadow-[4px_4px_0px_0px_#1A1A1A] flex items-center gap-3"
+                >
+                  Build New Pack
+                  <ArrowRight className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard label="Live Packs" value={stats.totalPacks} tone="dark" />
+                <StatCard label="Questions" value={stats.totalQuestions} tone="light" />
+                <StatCard label="Avg Token Save" value={`${stats.avgSavings}%`} tone="orange" />
+                <StatCard label="Languages" value={stats.languages} tone="purple" />
+              </div>
+            </div>
+
+            {featuredPack && (
+              <motion.div
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-brand-dark text-white rounded-[2.8rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#FF5A36] p-8 overflow-hidden relative"
+              >
+                <div className="absolute top-[-30px] right-[-12px] w-52 h-52 rounded-full bg-white/10" />
+                <div className="relative z-10">
+                  <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-yellow mb-3">Featured Pack</p>
+                  <h2 className="text-4xl font-black leading-tight mb-3">{featuredPack.title}</h2>
+                  <p className="font-medium text-white/75 mb-6">{featuredPack.source_excerpt}</p>
+
+                  <div className="grid grid-cols-2 gap-4 mb-6">
+                    <SignalTile label="Questions" value={featuredPack.question_count || 0} />
+                    <SignalTile label="Token Save" value={`${featuredPack.token_savings_pct || 0}%`} />
+                    <SignalTile label="Words" value={featuredPack.source_word_count || 0} />
+                    <SignalTile label="Language" value={featuredPack.source_language || 'N/A'} />
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 mb-6">
+                    {(featuredPack.top_tags?.length ? featuredPack.top_tags : featuredPack.topic_fingerprint || []).slice(0, 5).map((tag: string) => (
+                      <span key={`hero-${tag}`} className="px-4 py-2 rounded-full bg-white/10 border border-white/15 font-black text-xs uppercase tracking-[0.14em]">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={() => setSelectedPack(featuredPack)}
+                    className="px-7 py-4 bg-brand-yellow text-brand-dark rounded-full font-black border-2 border-brand-dark flex items-center gap-2"
+                  >
+                    Open Pack Intel
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 xl:grid-cols-[280px_1fr] gap-8">
+          <aside className="space-y-6">
+            <div className="bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 xl:sticky xl:top-24">
+              <div className="flex items-center gap-3 mb-5">
+                <BrainCircuit className="w-6 h-6 text-brand-purple" />
+                <h3 className="text-2xl font-black">Browse Filters</h3>
+              </div>
+
+              <div className="mb-6">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-3">Sort by</p>
+                <div className="flex flex-wrap gap-2">
+                  {SORT_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      onClick={() => setSortBy(option.id)}
+                      className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${sortBy === option.id ? 'bg-brand-yellow' : 'bg-brand-bg'}`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-3">Concept clusters</p>
+                <div className="space-y-2">
+                  <CategoryChip
+                    name="All"
+                    count={packs.length}
+                    active={selectedCategory === 'All'}
+                    onClick={() => setSelectedCategory('All')}
+                    icon={<BookOpen className="w-4 h-4" />}
+                  />
+                  {categories.slice(0, 10).map((category) => {
+                    const Icon = CATEGORY_ICONS[category.name] || BookOpen;
+                    return (
+                      <div key={category.name}>
+                        <CategoryChip
+                          name={category.name}
+                          count={category.count}
+                          active={selectedCategory === category.name}
+                          onClick={() => setSelectedCategory(category.name)}
+                          icon={<Icon className="w-4 h-4" />}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <section className="space-y-6 pb-16">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-4xl font-black tracking-tight">Pack Atlas</h2>
+                <p className="font-bold text-brand-dark/60 mt-2">
+                  {filteredPacks.length} results · {selectedCategory === 'All' ? 'All concepts' : selectedCategory}
+                </p>
+              </div>
+              <button
+                onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')}
+                className="px-5 py-3 rounded-full bg-white border-2 border-brand-dark font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
+              >
+                {teacherSignedIn ? 'Open Studio' : 'Teacher Access'}
+              </button>
+            </div>
+
+            {loading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className="h-[320px] rounded-[2rem] border-4 border-brand-dark bg-white animate-pulse shadow-[8px_8px_0px_0px_#1A1A1A]" />
+                ))}
+              </div>
+            ) : error ? (
+              <div className="bg-white border-4 border-brand-dark rounded-[2rem] p-10 shadow-[6px_6px_0px_0px_#1A1A1A]">
+                <p className="text-2xl font-black mb-2">Discover is currently unavailable.</p>
+                <p className="font-bold text-brand-dark/60">{error}</p>
+              </div>
+            ) : filteredPacks.length > 0 ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {filteredPacks.map((pack, index) => (
+                  <div key={pack.id}>
+                    <PackCard pack={pack} index={index} onOpen={() => setSelectedPack(pack)} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white border-4 border-brand-dark rounded-[2rem] p-12 shadow-[8px_8px_0px_0px_#1A1A1A] text-center">
+                <p className="text-3xl font-black mb-3">No packs matched this filter.</p>
+                <p className="font-bold text-brand-dark/60">Try another concept, broader search, or reset the filters.</p>
+              </div>
+            )}
+          </section>
+        </section>
+      </main>
+
+      {selectedPack && (
+        <div className="fixed inset-0 z-40 bg-black/30 flex justify-end">
+          <div className="w-full max-w-[620px] h-full bg-white border-l-4 border-brand-dark p-6 overflow-y-auto shadow-[-8px_0_0_0_#1A1A1A]">
+            <div className="flex items-start justify-between gap-4 mb-6">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Pack Intel</p>
+                <h2 className="text-4xl font-black leading-tight">{selectedPack.title}</h2>
+              </div>
+              <button onClick={() => setSelectedPack(null)} className="w-11 h-11 rounded-full border-2 border-brand-dark flex items-center justify-center">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <DrawerStat label="Questions" value={selectedPack.question_count || 0} />
+              <DrawerStat label="Token Save" value={`${selectedPack.token_savings_pct || 0}%`} />
+              <DrawerStat label="Words" value={selectedPack.source_word_count || 0} />
+              <DrawerStat label="Language" value={selectedPack.source_language || 'N/A'} />
+            </div>
+
+            <div className="rounded-[1.8rem] border-2 border-brand-dark bg-brand-bg p-5 mb-6">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Teaching Brief</p>
+              <p className="font-medium text-brand-dark/75 whitespace-pre-line">{selectedPack.teaching_brief || selectedPack.source_excerpt}</p>
+            </div>
+
+            <div className="mb-6">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-3">Key points</p>
+              <div className="space-y-3">
+                {(selectedPack.key_points || []).slice(0, 4).map((point: string) => (
+                  <div key={point} className="rounded-[1.3rem] border-2 border-brand-dark bg-white p-4 font-medium text-brand-dark/75">
+                    {point}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-8">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-3">Concept fingerprint</p>
+              <div className="flex flex-wrap gap-2">
+                {(selectedPack.topic_fingerprint?.length ? selectedPack.topic_fingerprint : selectedPack.top_tags || []).slice(0, 8).map((tag: string) => (
+                  <span key={tag} className="px-3 py-2 rounded-full bg-brand-purple/10 border-2 border-brand-purple/20 text-brand-purple text-xs font-black uppercase">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')} className="flex-1 px-6 py-4 bg-brand-dark text-white rounded-2xl border-2 border-brand-dark font-black">
+                {teacherSignedIn ? 'Open In Studio' : 'Teacher Access'}
+              </button>
+              <button onClick={() => navigate('/teacher/pack/create')} className="px-6 py-4 bg-brand-orange text-white rounded-2xl border-2 border-brand-dark font-black">
+                Create Similar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatCard({ label, value, tone }: { label: string; value: string | number; tone: 'dark' | 'light' | 'orange' | 'purple' }) {
+  const classes =
+    tone === 'dark'
+      ? 'bg-brand-dark text-white'
+      : tone === 'orange'
+        ? 'bg-brand-orange text-white'
+        : tone === 'purple'
+          ? 'bg-brand-purple text-white'
+          : 'bg-white text-brand-dark';
+
+  return (
+    <div className={`${classes} rounded-[1.8rem] border-4 border-brand-dark p-5 shadow-[6px_6px_0px_0px_#1A1A1A]`}>
+      <p className="text-xs font-black uppercase tracking-[0.2em] opacity-70 mb-2">{label}</p>
+      <p className="text-3xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function SignalTile({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-[1.4rem] border border-white/15 bg-white/10 p-4">
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-white/40 mb-2">{label}</p>
+      <p className="text-2xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function CategoryChip({
+  name,
+  count,
+  active,
+  onClick,
+  icon,
+}: {
+  name: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center justify-between gap-3 rounded-[1.25rem] border-2 border-brand-dark px-4 py-3 text-left font-black ${active ? 'bg-brand-yellow' : 'bg-brand-bg'}`}
+    >
+      <span className="flex items-center gap-3">
+        {icon}
+        {name}
+      </span>
+      <span className="text-xs uppercase tracking-[0.2em] text-brand-dark/45">{count}</span>
+    </button>
+  );
+}
+
+function PackCard({ pack, index, onOpen }: { pack: any; index: number; onOpen: () => void }) {
+  const accent = index % 3 === 0 ? 'bg-brand-yellow' : index % 3 === 1 ? 'bg-brand-orange' : 'bg-brand-purple';
+
+  return (
+    <motion.button
+      type="button"
+      onClick={onOpen}
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: Math.min(index * 0.04, 0.25) }}
+      className="text-left bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 overflow-hidden hover:-translate-y-1 transition-transform"
+    >
+      <div className={`rounded-[1.8rem] border-2 border-brand-dark ${accent} p-5 mb-5`}>
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50 mb-2">{pack.source_language || 'N/A'}</p>
+            <h3 className="text-3xl font-black leading-tight">{pack.title}</h3>
+          </div>
+          <div className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark text-xs font-black uppercase tracking-[0.15em]">
+            {pack.question_count || 0} Q
+          </div>
+        </div>
+        <p className="font-bold text-brand-dark/75 line-clamp-3">{pack.source_excerpt}</p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        <PackMetric label="Token save" value={`${pack.token_savings_pct || 0}%`} />
+        <PackMetric label="Words" value={pack.source_word_count || 0} />
+        <PackMetric label="Prompt" value={pack.estimated_prompt_tokens || 0} />
+      </div>
+
+      <div className="flex flex-wrap gap-2 mb-5">
+        {(pack.top_tags?.length ? pack.top_tags : pack.topic_fingerprint || []).slice(0, 4).map((tag: string) => (
+          <span key={`${pack.id}-${tag}`} className="px-3 py-1 rounded-full bg-brand-bg border-2 border-brand-dark text-xs font-black uppercase tracking-[0.12em]">
+            {tag}
+          </span>
+        ))}
+      </div>
+
+      <div className="space-y-3 mb-5">
+        {(pack.key_points || []).slice(0, 2).map((point: string) => (
+          <div key={point} className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg px-4 py-3 font-medium text-brand-dark/75">
+            {point}
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-black text-brand-purple uppercase tracking-[0.14em]">Open pack intel</span>
+        <div className="w-11 h-11 rounded-full bg-brand-dark text-white border-2 border-brand-dark flex items-center justify-center">
+          <ArrowRight className="w-4 h-4" />
+        </div>
+      </div>
+    </motion.button>
+  );
+}
+
+function PackMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-1">{label}</p>
+      <p className="text-lg font-black">{value}</p>
+    </div>
+  );
+}
+
+function DrawerStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-1">{label}</p>
+      <p className="text-2xl font-black">{value}</p>
+    </div>
+  );
+}
