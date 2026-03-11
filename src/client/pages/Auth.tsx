@@ -86,6 +86,15 @@ export default function Auth() {
     });
   };
 
+  const applyDemoCredentials = () => {
+    setMode('login');
+    setEmail(DEMO_TEACHER_EMAIL);
+    setPassword(DEMO_TEACHER_PASSWORD);
+    setConfirmPassword('');
+    setError('');
+    setFeedback('');
+  };
+
   const completeAccess = ({
     session,
     successMessage,
@@ -107,22 +116,26 @@ export default function Auth() {
     setError('');
     setFeedback('');
     setPendingAction('password');
+    const normalizedEmail = email.trim().toLowerCase();
+    const useDemoAccount =
+      normalizedEmail === DEMO_TEACHER_EMAIL.toLowerCase() && password === DEMO_TEACHER_PASSWORD;
+    const accessMode: AccessMode = useDemoAccount ? 'login' : mode;
     void trackTeacherAuthEvent({
       action: 'sign_in',
       provider: 'password',
       result: 'attempt',
-      mode,
+      mode: accessMode,
     });
 
     try {
-      if (mode === 'create') {
+      if (accessMode === 'create') {
         if (password !== confirmPassword) {
           throw new Error('Password confirmation does not match.');
         }
       }
 
       const session =
-        mode === 'create'
+        accessMode === 'create'
           ? await registerTeacherWithPassword({
               email,
               password,
@@ -138,15 +151,17 @@ export default function Auth() {
       completeAccess({
         session,
         successMessage:
-          mode === 'create'
+          accessMode === 'create'
             ? 'Teacher account created and signed in.'
-            : 'Signed in successfully.',
+            : useDemoAccount
+              ? 'Signed in with the demo teacher account.'
+              : 'Signed in successfully.',
       });
       void trackTeacherAuthEvent({
         action: 'sign_in',
         provider: 'password',
         result: 'success',
-        mode,
+        mode: accessMode,
       });
     } catch (loginError: any) {
       setError(loginError?.message || 'Unable to sign in right now.');
@@ -154,7 +169,48 @@ export default function Auth() {
         action: 'sign_in',
         provider: 'password',
         result: 'failure',
-        mode,
+        mode: accessMode,
+        errorCode: toAnalyticsErrorCode(loginError),
+      });
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const handleDemoAccess = async () => {
+    applyDemoCredentials();
+    setPendingAction('password');
+    void trackTeacherAuthEvent({
+      action: 'sign_in',
+      provider: 'password',
+      result: 'attempt',
+      mode: 'login',
+    });
+
+    try {
+      const session = await signInTeacherWithPassword({
+        email: DEMO_TEACHER_EMAIL,
+        password: DEMO_TEACHER_PASSWORD,
+        name,
+        school,
+      });
+      completeAccess({
+        session,
+        successMessage: 'Signed in with the demo teacher account.',
+      });
+      void trackTeacherAuthEvent({
+        action: 'sign_in',
+        provider: 'password',
+        result: 'success',
+        mode: 'login',
+      });
+    } catch (loginError: any) {
+      setError(loginError?.message || 'Demo sign-in is unavailable right now.');
+      void trackTeacherAuthEvent({
+        action: 'sign_in',
+        provider: 'password',
+        result: 'failure',
+        mode: 'login',
         errorCode: toAnalyticsErrorCode(loginError),
       });
     } finally {
@@ -273,14 +329,10 @@ export default function Auth() {
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  setEmail(DEMO_TEACHER_EMAIL);
-                  setPassword(DEMO_TEACHER_PASSWORD);
-                  setError('');
-                }}
+                onClick={applyDemoCredentials}
                 className="px-5 py-3 rounded-full bg-brand-yellow border-2 border-brand-dark font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
               >
-                Autofill Demo Access
+                Load Demo Login
               </button>
             </div>
 
@@ -288,6 +340,16 @@ export default function Auth() {
               <CredentialCard label="Email" value={DEMO_TEACHER_EMAIL} />
               <CredentialCard label="Password" value={DEMO_TEACHER_PASSWORD} />
             </div>
+
+            <button
+              type="button"
+              onClick={handleDemoAccess}
+              disabled={pendingAction !== null}
+              className="mt-5 w-full px-6 py-4 bg-brand-dark text-white border-4 border-brand-dark rounded-[1.75rem] font-black text-lg flex items-center justify-center gap-3 shadow-[6px_6px_0px_0px_#FF5A36] disabled:opacity-60"
+            >
+              {pendingAction === 'password' ? <LoaderCircle className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5" />}
+              Enter With Demo Account
+            </button>
           </motion.div>
         </section>
 
@@ -351,32 +413,25 @@ export default function Auth() {
           <div className="grid grid-cols-2 gap-3 mb-8">
             <button
               type="button"
-          onClick={() => {
-            setMode('login');
-            setError('');
-            setFeedback('');
-            setEmail(DEMO_TEACHER_EMAIL);
-            setPassword(DEMO_TEACHER_PASSWORD);
-            setConfirmPassword('');
-          }}
+              onClick={applyDemoCredentials}
               className={`px-5 py-4 rounded-2xl border-2 border-brand-dark font-black ${mode === 'login' ? 'bg-brand-dark text-white' : 'bg-brand-bg text-brand-dark'}`}
             >
               Sign In
             </button>
             <button
               type="button"
-          onClick={() => {
-            setMode('create');
-            setError('');
-            setFeedback('');
-            if (email === DEMO_TEACHER_EMAIL) {
-              setEmail(teacherSettings.profile.email || '');
-            }
-            if (password === DEMO_TEACHER_PASSWORD) {
-              setPassword('');
-            }
-            setConfirmPassword('');
-          }}
+              onClick={() => {
+                setMode('create');
+                setError('');
+                setFeedback('');
+                if (email === DEMO_TEACHER_EMAIL) {
+                  setEmail(teacherSettings.profile.email || '');
+                }
+                if (password === DEMO_TEACHER_PASSWORD) {
+                  setPassword('');
+                }
+                setConfirmPassword('');
+              }}
               className={`px-5 py-4 rounded-2xl border-2 border-brand-dark font-black ${mode === 'create' ? 'bg-brand-dark text-white' : 'bg-brand-bg text-brand-dark'}`}
             >
               Create Account
@@ -418,10 +473,10 @@ export default function Auth() {
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Email Access</p>
-                  <h3 className="text-2xl font-black">Use the demo teacher login</h3>
+                  <h3 className="text-2xl font-black">{mode === 'create' ? 'Create a teacher account' : 'Use the demo teacher login'}</h3>
                 </div>
-                <span className="px-3 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark text-xs font-black uppercase tracking-[0.15em]">
-                  Demo Only
+                <span className={`px-3 py-2 rounded-full border-2 border-brand-dark text-xs font-black uppercase tracking-[0.15em] ${mode === 'create' ? 'bg-white' : 'bg-brand-yellow'}`}>
+                  {mode === 'create' ? 'Secure Sign-Up' : 'Demo Ready'}
                 </span>
               </div>
 
