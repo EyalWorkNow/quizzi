@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Filter, Compass, ChevronLeft, HelpCircle, LogOut, Play, Library, BarChart, Users, Settings, XCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { loadTeacherSettings } from '../lib/localData.ts';
+import { trackTeacherSessionLaunch } from '../lib/appAnalytics.ts';
 import { signOutTeacher } from '../lib/teacherAuth.ts';
 import { GAME_MODES, getGameMode } from '../lib/gameModes.ts';
 
@@ -57,6 +58,10 @@ export default function TeacherDashboard() {
     });
     const data = await res.json();
     setHostingPack(null);
+    void trackTeacherSessionLaunch({
+      gameType,
+      teamCount: getGameMode(gameType).teamBased ? teamCount : 0,
+    });
     navigate(`/teacher/session/${data.pin}/host`, { state: { sessionId: data.id, packId } });
   };
 

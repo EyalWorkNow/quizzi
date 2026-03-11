@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import Home from './client/pages/Home.tsx';
 import Explore from './client/pages/Explore.tsx';
 import Contact from './client/pages/Contact.tsx';
@@ -21,11 +22,23 @@ import TeacherClasses from './client/pages/TeacherClasses.tsx';
 import TeacherSettings from './client/pages/TeacherSettings.tsx';
 import TeacherStudentAnalytics from './client/pages/TeacherStudentAnalytics.tsx';
 import ProtectedTeacherRoute from './client/components/ProtectedTeacherRoute.tsx';
+import { trackPageView } from './client/lib/appAnalytics.ts';
+
+function RouteAnalytics() {
+  const location = useLocation();
+
+  useEffect(() => {
+    void trackPageView(location.pathname);
+  }, [location.pathname]);
+
+  return null;
+}
 
 export default function App() {
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+        <RouteAnalytics />
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/explore" element={<Explore />} />

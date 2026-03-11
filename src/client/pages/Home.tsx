@@ -3,7 +3,9 @@ import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Star } from 'lucide-react';
 import { motion } from 'motion/react';
+import { trackStudentJoinEvent, trackTeacherAuthEvent, toAnalyticsErrorCode } from '../lib/appAnalytics.ts';
 import {
+  loadTeacherAuth,
   isTeacherAuthenticated,
   refreshTeacherSession,
   signOutTeacher,
@@ -68,6 +70,10 @@ export default function Home() {
     }
 
     setJoining(true);
+    void trackStudentJoinEvent({
+      result: 'attempt',
+      pinLength: pin.trim().length,
+    });
 
     try {
       const fullNickname = `${selectedAvatar} ${nickname.trim()}`;
@@ -88,16 +94,32 @@ export default function Home() {
       else localStorage.removeItem('team_name');
       if (data.game_type) localStorage.setItem('game_type', data.game_type);
 
+      void trackStudentJoinEvent({
+        result: 'success',
+        pinLength: pin.trim().length,
+      });
       navigate(`/student/session/${pin}/play`);
     } catch (err: any) {
       setError(err.message);
+      void trackStudentJoinEvent({
+        result: 'failure',
+        pinLength: pin.trim().length,
+        errorCode: toAnalyticsErrorCode(err),
+      });
     } finally {
       setJoining(false);
     }
   };
 
   const handleLogout = async () => {
+    const provider = loadTeacherAuth()?.provider || 'password';
     await signOutTeacher();
+    void trackTeacherAuthEvent({
+      action: 'sign_out',
+      provider,
+      result: 'success',
+      mode: 'login',
+    });
     setTeacherSignedIn(false);
     navigate('/');
   };

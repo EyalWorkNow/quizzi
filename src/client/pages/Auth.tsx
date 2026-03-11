@@ -13,6 +13,7 @@ import {
   User,
 } from 'lucide-react';
 import { loadTeacherSettings, saveTeacherSettings } from '../lib/localData.ts';
+import { trackTeacherAuthEvent, toAnalyticsErrorCode } from '../lib/appAnalytics.ts';
 import {
   DEMO_TEACHER_EMAIL,
   DEMO_TEACHER_PASSWORD,
@@ -104,6 +105,12 @@ export default function Auth() {
     setError('');
     setFeedback('');
     setPendingAction('password');
+    void trackTeacherAuthEvent({
+      action: 'sign_in',
+      provider: 'password',
+      result: 'attempt',
+      mode,
+    });
 
     try {
       const session = await signInTeacherWithPassword({
@@ -116,8 +123,21 @@ export default function Auth() {
         session,
         successMessage: 'Signed in with the demo teacher account.',
       });
+      void trackTeacherAuthEvent({
+        action: 'sign_in',
+        provider: 'password',
+        result: 'success',
+        mode,
+      });
     } catch (loginError: any) {
       setError(loginError?.message || 'Unable to sign in right now.');
+      void trackTeacherAuthEvent({
+        action: 'sign_in',
+        provider: 'password',
+        result: 'failure',
+        mode,
+        errorCode: toAnalyticsErrorCode(loginError),
+      });
     } finally {
       setPendingAction(null);
     }
@@ -127,6 +147,12 @@ export default function Auth() {
     setError('');
     setFeedback('');
     setPendingAction(provider);
+    void trackTeacherAuthEvent({
+      action: 'sign_in',
+      provider,
+      result: 'attempt',
+      mode,
+    });
 
     try {
       const session = await signInTeacherWithProvider({
@@ -138,8 +164,21 @@ export default function Auth() {
         session,
         successMessage: `${mode === 'login' ? 'Signed in' : 'Account created'} with ${provider === 'google' ? 'Google' : 'Facebook'}.`,
       });
+      void trackTeacherAuthEvent({
+        action: 'sign_in',
+        provider,
+        result: 'success',
+        mode,
+      });
     } catch (socialError: any) {
       setError(socialError?.message || 'Social access is unavailable right now.');
+      void trackTeacherAuthEvent({
+        action: 'sign_in',
+        provider,
+        result: 'failure',
+        mode,
+        errorCode: toAnalyticsErrorCode(socialError),
+      });
     } finally {
       setPendingAction(null);
     }
@@ -152,6 +191,12 @@ export default function Auth() {
       await signOutTeacher();
       setExistingSession(null);
       setFeedback('Signed out.');
+      void trackTeacherAuthEvent({
+        action: 'sign_out',
+        provider: existingSession?.provider || 'password',
+        result: 'success',
+        mode,
+      });
     } finally {
       setPendingAction(null);
     }
