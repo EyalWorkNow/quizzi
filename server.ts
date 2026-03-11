@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { initDb, seedAnalyticsShowcase, seedDemoData } from './src/server/db/index.js';
 import apiRouter from './src/server/routes/api.js';
@@ -7,6 +8,7 @@ import apiRouter from './src/server/routes/api.js';
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
+  const distDir = path.resolve(process.cwd(), 'dist');
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
@@ -56,7 +58,14 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static('dist'));
+    app.use(express.static(distDir));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) {
+        next();
+        return;
+      }
+      res.sendFile(path.join(distDir, 'index.html'));
+    });
   }
 
   app.listen(PORT, '0.0.0.0', () => {
