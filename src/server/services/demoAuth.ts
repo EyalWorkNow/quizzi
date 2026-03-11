@@ -22,7 +22,12 @@ function parseCookies(headerValue?: string | null) {
   return raw.split(';').reduce<Record<string, string>>((cookies, chunk) => {
     const [key, ...rest] = chunk.trim().split('=');
     if (!key) return cookies;
-    cookies[key] = decodeURIComponent(rest.join('=') || '');
+    const value = rest.join('=') || '';
+    try {
+      cookies[key] = decodeURIComponent(value);
+    } catch {
+      cookies[key] = value;
+    }
     return cookies;
   }, {});
 }

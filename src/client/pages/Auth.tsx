@@ -459,6 +459,7 @@ export default function Auth() {
                 value={name}
                 onChange={setName}
                 placeholder="Teacher name"
+                autoComplete="name"
               />
               <Field
                 label="School"
@@ -466,6 +467,7 @@ export default function Auth() {
                 value={school}
                 onChange={setSchool}
                 placeholder="Your school"
+                autoComplete="organization"
               />
             </div>
 
@@ -487,6 +489,7 @@ export default function Auth() {
                   value={email}
                   onChange={setEmail}
                   placeholder={DEMO_TEACHER_EMAIL}
+                  autoComplete="email"
                 />
                 <Field
                   label="Password"
@@ -495,6 +498,7 @@ export default function Auth() {
                   onChange={setPassword}
                   placeholder={mode === 'login' ? DEMO_TEACHER_PASSWORD : 'Create a password'}
                   type="password"
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                 />
                 {mode === 'create' && (
                   <Field
@@ -504,6 +508,7 @@ export default function Auth() {
                     onChange={setConfirmPassword}
                     placeholder="Repeat your password"
                     type="password"
+                    autoComplete="new-password"
                   />
                 )}
               </div>
@@ -566,6 +571,7 @@ function Field({
   onChange,
   placeholder,
   type = 'text',
+  autoComplete,
 }: {
   label: string;
   icon: React.ReactNode;
@@ -573,6 +579,7 @@ function Field({
   onChange: (value: string) => void;
   placeholder: string;
   type?: string;
+  autoComplete?: string;
 }) {
   return (
     <label className="block">
@@ -584,6 +591,7 @@ function Field({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
+          autoComplete={autoComplete}
           className="w-full bg-white border-2 border-brand-dark rounded-2xl py-4 pl-12 pr-4 text-base font-bold placeholder:text-brand-dark/30 focus:outline-none focus:ring-4 focus:ring-brand-orange/15"
         />
       </div>
