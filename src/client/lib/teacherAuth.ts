@@ -4,6 +4,7 @@ export const DEMO_TEACHER_EMAIL = 'mail@mail.com';
 export const DEMO_TEACHER_PASSWORD = '123123';
 
 const AUTH_KEY = 'quizzi.teacher.auth';
+const AUTH_REQUEST_TIMEOUT_MS = 8000;
 
 export interface TeacherAuthSession {
   email: string;
@@ -65,6 +66,25 @@ async function readJsonOrThrow(response: Response) {
   return payload;
 }
 
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new Error('Authentication request timed out. Please try again.');
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export function loadTeacherAuth() {
   return readAuth();
 }
@@ -78,7 +98,7 @@ export function getTeacherEntryRoute() {
 }
 
 export async function refreshTeacherSession() {
-  const response = await fetch('/api/auth/session', {
+  const response = await fetchWithTimeout('/api/auth/session', {
     method: 'GET',
     headers: { Accept: 'application/json' },
     credentials: 'same-origin',
@@ -106,7 +126,7 @@ export async function signInTeacherWithPassword({
   name?: string;
   school?: string;
 }) {
-  const response = await fetch('/api/auth/login', {
+  const response = await fetchWithTimeout('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'same-origin',
@@ -132,7 +152,7 @@ export async function registerTeacherWithPassword({
   name?: string;
   school?: string;
 }) {
-  const response = await fetch('/api/auth/register', {
+  const response = await fetchWithTimeout('/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'same-origin',
@@ -162,7 +182,7 @@ export async function signInTeacherWithProvider({
 export async function signOutTeacher() {
   writeAuth(null);
   try {
-    await fetch('/api/auth/logout', {
+    await fetchWithTimeout('/api/auth/logout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
