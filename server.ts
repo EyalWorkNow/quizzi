@@ -15,9 +15,22 @@ async function startServer() {
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
-  // Enable CORS
+  // Enable CORS — explicit origin required when credentials: true
+  const ALLOWED_ORIGINS = [
+    'https://quizzi-ivory.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+  ];
   app.use(cors({
-    origin: true, // Allow all origins for now, or use req.header('Origin')
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      if (ALLOWED_ORIGINS.includes(origin)) return callback(null, origin);
+      // In production, reflect known origins only; in dev, allow all
+      if (process.env.NODE_ENV !== 'production') return callback(null, origin);
+      console.warn(`[cors] Blocked origin: ${origin}`);
+      callback(null, false);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],

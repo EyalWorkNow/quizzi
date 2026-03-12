@@ -105,7 +105,7 @@ export async function refreshTeacherSession() {
   const response = await fetchWithTimeout('/api/auth/session', {
     method: 'GET',
     headers: { Accept: 'application/json' },
-    credentials: 'same-origin',
+    credentials: 'include',
     cache: 'no-store',
   });
 
@@ -133,7 +133,7 @@ export async function signInTeacherWithPassword({
   const response = await fetchWithTimeout('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
+    credentials: 'include',
     body: JSON.stringify({
       email: email.trim().toLowerCase(),
       password,
@@ -159,7 +159,7 @@ export async function registerTeacherWithPassword({
   const response = await fetchWithTimeout('/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
+    credentials: 'include',
     body: JSON.stringify({
       email: email.trim().toLowerCase(),
       password,
@@ -213,7 +213,7 @@ export async function handleTeacherAuthRedirect() {
     const response = await fetchWithTimeout('/api/auth/social', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
+      credentials: 'include',
       body: JSON.stringify({
         provider: 'google',
         idToken,
@@ -236,7 +236,7 @@ export async function signOutTeacher() {
     await fetchWithTimeout('/api/auth/logout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
+      credentials: 'include',
     });
   } catch {
     // Keep logout resilient even if the network request fails.

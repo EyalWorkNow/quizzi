@@ -54,7 +54,9 @@ function serializeCookie(value: string, maxAgeSeconds: number, secure: boolean) 
     `${AUTH_COOKIE}=${encodeURIComponent(value)}`,
     'Path=/',
     'HttpOnly',
-    'SameSite=Lax',
+    // SameSite=None is REQUIRED for cross-origin cookies (Vercel frontend → Render backend)
+    // Secure is mandatory when SameSite=None
+    secure ? 'SameSite=None' : 'SameSite=Lax',
     `Max-Age=${maxAgeSeconds}`,
   ];
   if (secure) {
@@ -68,7 +70,7 @@ function serializeExpiredCookie(secure: boolean) {
     `${AUTH_COOKIE}=`,
     'Path=/',
     'HttpOnly',
-    'SameSite=Lax',
+    secure ? 'SameSite=None' : 'SameSite=Lax',
     'Max-Age=0',
   ];
   if (secure) {
