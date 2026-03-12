@@ -21,6 +21,50 @@
     @apply bg-brand-bg text-brand-dark font-sans antialiased;
     background-color: hsl(var(--brand-bg));
   }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    width: 100%;
+  }
+
+  html,
+  body {
+    overflow-x: clip;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p,
+  li,
+  dt,
+  dd,
+  td,
+  th,
+  label,
+  button,
+  a {
+    overflow-wrap: anywhere;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    min-width: 0;
+  }
+
+  img,
+  svg,
+  canvas,
+  video {
+    max-width: 100%;
+  }
 }
 
 @layer components {
@@ -59,6 +103,38 @@
   .magic-glow:hover::after {
     opacity: 0.5;
   }
+
+  .page-shell {
+    @apply mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-10;
+  }
+
+  .page-shell-wide {
+    @apply mx-auto w-full max-w-[1520px] px-4 sm:px-6 lg:px-8;
+  }
+
+  .action-row {
+    @apply flex flex-wrap items-stretch gap-3;
+  }
+
+  .action-pill {
+    @apply w-full justify-center sm:w-auto;
+  }
+
+  .safe-grid-2 {
+    @apply grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4;
+  }
+
+  .safe-grid-4 {
+    @apply grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 sm:gap-4;
+  }
+
+  .chip-row {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .chart-scroll-shell {
+    @apply overflow-x-auto overscroll-x-contain rounded-[1.35rem] border-2 border-brand-dark bg-brand-bg p-3 sm:rounded-[1.7rem] sm:p-4;
+  }
 }
 
 /* Custom Utilities */
@@ -76,4 +152,16 @@
 
 ::-webkit-scrollbar-thumb {
   @apply bg-brand-dark/10 rounded-full hover:bg-brand-dark/20;
+}
+
+@media (max-width: 640px) {
+  .premium-card {
+    border-radius: 2rem;
+    box-shadow: 6px 6px 0 0 #1a1a1a;
+  }
+
+  .premium-card:hover {
+    transform: none;
+    box-shadow: 6px 6px 0 0 #1a1a1a;
+  }
 }

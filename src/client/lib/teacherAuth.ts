@@ -1,4 +1,5 @@
 import { loadTeacherSettings, saveTeacherSettings } from './localData.ts';
+import { getFirebaseAuth, googleProvider, signInWithPopup } from './firebase.ts';
 
 export const DEMO_TEACHER_EMAIL = 'mail@mail.com';
 export const DEMO_TEACHER_PASSWORD = '123123';
@@ -174,9 +175,39 @@ export async function signInTeacherWithProvider({
 }: {
   provider: 'google' | 'facebook';
 }): Promise<TeacherAuthSession> {
-  throw new Error(
-    `${provider === 'google' ? 'Google' : 'Facebook'} sign-in is not configured yet. Use email registration or the demo account for now.`,
-  );
+  if (provider === 'facebook') {
+    throw new Error('Facebook sign-in is not configured yet. Use Google or email registration for now.');
+  }
+
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    throw new Error('Firebase Authentication is not available. Please check your configuration.');
+  }
+
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const idToken = await result.user.getIdToken();
+
+    const response = await fetchWithTimeout('/api/auth/social', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        provider: 'google',
+        idToken,
+      }),
+    });
+
+    const payload = (await readJsonOrThrow(response)) as TeacherAuthSession;
+    syncTeacherProfile(payload.email, result.user.displayName || undefined);
+    writeAuth(payload);
+    return payload;
+  } catch (error: any) {
+    if (error?.code === 'auth/popup-closed-by-user') {
+      throw new Error('Sign-in popup was closed before completion.');
+    }
+    throw error;
+  }
 }
 
 export async function signOutTeacher() {

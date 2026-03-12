@@ -191,8 +191,8 @@ export default function Auth() {
       const session = await signInTeacherWithPassword({
         email: DEMO_TEACHER_EMAIL,
         password: DEMO_TEACHER_PASSWORD,
-        name,
-        school,
+        name: name.trim() || 'Demo Teacher',
+        school: school.trim() || 'Quizzi Academy',
       });
       completeAccess({
         session,
@@ -276,8 +276,8 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen bg-brand-bg text-brand-dark font-sans selection:bg-brand-orange selection:text-white overflow-hidden">
-      <nav className="flex items-center justify-between p-6 lg:px-12 relative z-20">
+    <div className="min-h-screen bg-brand-bg text-brand-dark font-sans selection:bg-brand-orange selection:text-white overflow-x-clip">
+      <nav className="page-shell relative z-20 flex items-center justify-between gap-4 py-5">
         <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
           <span className="text-brand-orange">Quiz</span>zi
         </div>
@@ -289,26 +289,26 @@ export default function Auth() {
         </button>
       </nav>
 
-      <main className="max-w-[1320px] mx-auto px-6 lg:px-12 pt-4 pb-16 grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-8 items-start">
+      <main className="page-shell grid grid-cols-1 gap-8 items-start pt-4 pb-16 xl:grid-cols-[1.05fr_0.95fr]">
         <section className="space-y-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-brand-dark text-white rounded-[3rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#FF5A36] p-8 lg:p-10 relative overflow-hidden"
+            className="bg-brand-dark text-white rounded-[2.3rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#FF5A36] p-6 sm:p-8 lg:p-10 relative overflow-hidden"
           >
             <div className="absolute top-[-30px] right-[-20px] w-56 h-56 rounded-full bg-white/10" />
             <div className="absolute bottom-[-30px] right-28 w-32 h-32 rounded-full bg-brand-yellow/20" />
 
             <div className="relative z-10">
               <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-yellow mb-3">Teacher Access</p>
-              <h1 className="text-5xl lg:text-6xl font-black leading-[0.95] tracking-tight mb-5">
+              <h1 className="text-[2.9rem] xs:text-[3.3rem] lg:text-6xl font-black leading-[0.95] tracking-tight mb-5">
                 Move from quiz creation to live analytics without friction.
               </h1>
-              <p className="text-lg font-medium text-white/75 max-w-2xl">
+              <p className="text-base sm:text-lg font-medium text-white/75 max-w-2xl">
                 One entry point for pack creation, live hosting, class analytics, and student-specific follow-up games.
               </p>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+              <div className="grid grid-cols-1 gap-4 mt-8 sm:grid-cols-2 xl:grid-cols-3">
                 <BenefitCard title="Create" body="Generate or edit question packs from uploaded material." />
                 <BenefitCard title="Host" body="Launch a live lobby, watch players join, and run the session." />
                 <BenefitCard title="Adapt" body="Open a student drill-down and build a same-material follow-up game." />
@@ -320,7 +320,7 @@ export default function Auth() {
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.05 }}
-            className="bg-white rounded-[2.5rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#1A1A1A] p-8"
+            className="bg-white rounded-[2rem] sm:rounded-[2.5rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#1A1A1A] p-6 sm:p-8"
           >
             <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
               <div>
@@ -357,12 +357,12 @@ export default function Auth() {
           initial={{ opacity: 0, scale: 0.96 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.08 }}
-          className="bg-white rounded-[3rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#1A1A1A] p-8 lg:p-10"
+          className="bg-white rounded-[2.2rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#1A1A1A] p-6 sm:p-8 lg:p-10"
         >
           <div className="flex items-center justify-between gap-3 mb-8">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Access Flow</p>
-              <h2 className="text-4xl font-black tracking-tight">{mode === 'login' ? 'Sign in to teacher studio' : 'Create your teacher profile'}</h2>
+              <h2 className="text-3xl sm:text-4xl font-black tracking-tight">{mode === 'login' ? 'Sign in to teacher studio' : 'Create your teacher profile'}</h2>
             </div>
             <ShieldCheck className="w-10 h-10 text-brand-purple" />
           </div>
@@ -410,7 +410,7 @@ export default function Auth() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3 mb-8">
+          <div className="grid grid-cols-1 gap-3 mb-8 xs:grid-cols-2">
             <button
               type="button"
               onClick={applyDemoCredentials}
@@ -516,7 +516,7 @@ export default function Auth() {
               <button
                 type="submit"
                 disabled={pendingAction !== null}
-                className="mt-5 w-full px-6 py-5 bg-brand-orange text-white border-4 border-brand-dark rounded-[1.75rem] font-black text-xl flex items-center justify-center gap-3 shadow-[8px_8px_0px_0px_#1A1A1A] disabled:opacity-60"
+                className="mt-5 w-full px-6 py-4 sm:py-5 bg-brand-orange text-white border-4 border-brand-dark rounded-[1.75rem] font-black text-lg sm:text-xl flex items-center justify-center gap-3 shadow-[8px_8px_0px_0px_#1A1A1A] disabled:opacity-60"
               >
                 {pendingAction === 'password' ? <LoaderCircle className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5" />}
                 {pendingAction === 'password'
@@ -540,7 +540,7 @@ export default function Auth() {
             <SocialAccessButton
               brand="google"
               title={`${socialLabel} Google`}
-              body="Requires provider activation. Use email registration until Google sign-in is configured."
+              body="Fast and secure access with your Google account."
               loading={pendingAction === 'google'}
               disabled={pendingAction !== null}
               onClick={() => handleSocialAccess('google')}

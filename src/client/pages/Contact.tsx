@@ -41,7 +41,7 @@ export default function Contact() {
 
   return (
     <div className="min-h-screen bg-brand-bg font-sans text-brand-dark flex flex-col selection:bg-brand-orange selection:text-white">
-      <nav className="flex items-center justify-between p-6 lg:px-12 border-b-4 border-brand-dark bg-white relative z-20">
+      <nav className="page-shell flex items-center justify-between gap-4 border-b-4 border-brand-dark bg-white py-5 relative z-20">
         <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
           <span className="text-brand-orange">Quiz</span>zi
         </div>
@@ -52,7 +52,7 @@ export default function Contact() {
         </div>
       </nav>
 
-      <main className="flex-1 flex items-center justify-center p-6 lg:px-12 relative overflow-hidden">
+      <main className="page-shell relative flex flex-1 items-center justify-center py-6 sm:py-8 overflow-x-clip">
         <div className="absolute top-20 left-20 w-64 h-64 bg-brand-yellow rounded-full border-4 border-brand-dark opacity-20 -z-10"></div>
         <div className="absolute bottom-20 right-20 w-96 h-96 bg-brand-purple rounded-full border-4 border-brand-dark opacity-20 -z-10"></div>
 
@@ -61,8 +61,8 @@ export default function Contact() {
             {step === 0 && (
               <motion.div key="step0" initial="initial" animate="in" exit="out" variants={pageVariants} transition={pageTransition} className="flex flex-col gap-8">
                 <div>
-                  <h1 className="text-4xl font-black mb-4">Let's talk</h1>
-                  <p className="text-xl font-bold text-brand-dark/60 max-w-lg">
+                  <h1 className="text-3xl sm:text-4xl font-black mb-4">Let's talk</h1>
+                  <p className="text-lg sm:text-xl font-bold text-brand-dark/60 max-w-lg">
                     Start a conversation around support, new work, or anything that needs a human response.
                   </p>
                 </div>
@@ -77,12 +77,12 @@ export default function Contact() {
                           setFormData((current) => ({ ...current, inquiryType: type }));
                           setTimeout(() => setStep(1), 250);
                         }}
-                        className="group flex items-center gap-6 text-left transition-all"
+                        className="group flex items-center gap-4 sm:gap-6 text-left transition-all"
                       >
-                        <div className={`w-12 h-12 rounded-full border-4 border-brand-dark flex items-center justify-center transition-colors ${isSelected ? 'bg-brand-orange' : 'bg-transparent group-hover:bg-brand-orange/20'}`}>
+                        <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full border-4 border-brand-dark flex items-center justify-center transition-colors shrink-0 ${isSelected ? 'bg-brand-orange' : 'bg-transparent group-hover:bg-brand-orange/20'}`}>
                           {isSelected && <div className="w-4 h-4 bg-brand-dark rounded-full"></div>}
                         </div>
-                        <span className={`text-5xl sm:text-6xl lg:text-7xl font-black tracking-tight transition-all duration-300 ${isSelected ? 'text-brand-dark' : 'text-transparent'}`} style={{ WebkitTextStroke: isSelected ? '0px' : '2px #1A1A1A' }}>
+                        <span className={`text-3xl xs:text-4xl sm:text-5xl lg:text-7xl font-black tracking-tight transition-all duration-300 ${isSelected ? 'text-brand-dark' : 'text-transparent'}`} style={{ WebkitTextStroke: isSelected ? '0px' : '2px #1A1A1A' }}>
                           {type}
                         </span>
                       </button>
@@ -127,10 +127,10 @@ export default function Contact() {
                         placeholder="Write your message"
                         value={formData.message}
                         onChange={(event) => setFormData((current) => ({ ...current, message: event.target.value }))}
-                        className="w-full bg-transparent text-3xl sm:text-4xl font-black outline-none min-h-48 resize-none placeholder:text-transparent placeholder:[-webkit-text-stroke:2px_#1A1A1A] placeholder:opacity-30"
+                        className="w-full bg-transparent text-2xl xs:text-3xl sm:text-4xl font-black outline-none min-h-40 sm:min-h-48 resize-none placeholder:text-transparent placeholder:[-webkit-text-stroke:2px_#1A1A1A] placeholder:opacity-30"
                       />
                     </div>
-                    <div className="flex items-center justify-between mt-4">
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-sm font-bold text-brand-dark/40">Describe the context, goal and urgency.</p>
                       <button
                         onClick={submit}
@@ -150,12 +150,12 @@ export default function Contact() {
                 <div className="w-32 h-32 bg-brand-yellow rounded-full border-4 border-brand-dark flex items-center justify-center shadow-[8px_8px_0px_0px_#1A1A1A] mb-8">
                   <span className="text-6xl">🎉</span>
                 </div>
-                <h2 className="text-5xl sm:text-6xl font-black mb-4">Thanks, {formData.name}!</h2>
-                <p className="text-2xl font-bold text-brand-dark/60">
+                <h2 className="text-4xl sm:text-6xl font-black mb-4">Thanks, {formData.name}!</h2>
+                <p className="text-xl sm:text-2xl font-bold text-brand-dark/60">
                   Your {formData.inquiryType.toLowerCase()} was saved for {formData.organization}.<br />
                   We'll answer at {formData.email}.
                 </p>
-                <button onClick={() => navigate('/teacher/help')} className="mt-8 bg-brand-dark text-white px-10 py-5 rounded-full font-black text-xl hover:bg-brand-orange transition-all shadow-[6px_6px_0px_0px_#1A1A1A]">
+                <button onClick={() => navigate('/teacher/help')} className="mt-8 bg-brand-dark text-white px-8 py-4 sm:px-10 sm:py-5 rounded-full font-black text-lg sm:text-xl hover:bg-brand-orange transition-all shadow-[6px_6px_0px_0px_#1A1A1A]">
                   Back to Help Center
                 </button>
               </motion.div>
@@ -182,14 +182,14 @@ function StepCard({
   children: React.ReactNode;
 }) {
   return (
-    <motion.div initial="initial" animate="in" exit="out" variants={{ initial: { opacity: 0, y: 40 }, in: { opacity: 1, y: 0 }, out: { opacity: 0, y: -40 } }} transition={{ type: 'tween', ease: 'anticipate', duration: 0.5 }} className="flex flex-col gap-8 w-full max-w-3xl mx-auto">
-      <div className="flex items-center gap-4 mb-4">
+    <motion.div initial="initial" animate="in" exit="out" variants={{ initial: { opacity: 0, y: 40 }, in: { opacity: 1, y: 0 }, out: { opacity: 0, y: -40 } }} transition={{ type: 'tween', ease: 'anticipate', duration: 0.5 }} className="flex flex-col gap-6 sm:gap-8 w-full max-w-3xl mx-auto">
+      <div className="flex items-center gap-4 mb-2 sm:mb-4">
         <button onClick={onPrev} className="w-10 h-10 rounded-full border-2 border-brand-dark flex items-center justify-center hover:bg-brand-dark hover:text-white transition-colors">
           <ArrowLeft className="w-5 h-5" />
         </button>
         <span className="font-bold text-brand-dark/60 tracking-widest">{String(step).padStart(2, '0')}/{String(total).padStart(2, '0')}</span>
       </div>
-      <h2 className="text-4xl font-black mb-8">{title}</h2>
+      <h2 className="text-3xl sm:text-4xl font-black mb-4 sm:mb-8">{title}</h2>
       {children}
     </motion.div>
   );
@@ -219,7 +219,7 @@ function AdvanceField({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => event.key === 'Enter' && value.trim() && onAdvance()}
-          className="w-full bg-transparent text-5xl sm:text-6xl font-black outline-none placeholder:text-transparent placeholder:[-webkit-text-stroke:2px_#1A1A1A] placeholder:opacity-30"
+          className="w-full bg-transparent text-3xl xs:text-4xl sm:text-6xl font-black outline-none placeholder:text-transparent placeholder:[-webkit-text-stroke:2px_#1A1A1A] placeholder:opacity-30"
         />
         <AnimatePresence>
           {value.trim() && (
@@ -228,9 +228,9 @@ function AdvanceField({
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.5 }}
               onClick={onAdvance}
-              className="w-16 h-16 rounded-full bg-brand-dark text-white flex items-center justify-center flex-shrink-0 hover:bg-brand-orange transition-colors shadow-[4px_4px_0px_0px_#FF5A36]"
+              className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-brand-dark text-white flex items-center justify-center flex-shrink-0 hover:bg-brand-orange transition-colors shadow-[4px_4px_0px_0px_#FF5A36]"
             >
-              <ArrowRight className="w-8 h-8" />
+              <ArrowRight className="w-7 h-7 sm:w-8 sm:h-8" />
             </motion.button>
           )}
         </AnimatePresence>

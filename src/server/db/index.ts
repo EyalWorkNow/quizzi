@@ -1,11 +1,28 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 
 const dbPath = path.resolve(process.cwd(), 'quizzi.db');
-const db = new Database(dbPath);
+let db: Database.Database;
 
-// Enable WAL mode for better concurrency
-db.pragma('journal_mode = WAL');
+try {
+  const isVercel = !!process.env.VERCEL;
+  if (isVercel) {
+    // Vercel Serverless has a read-only filesystem.
+    if (fs.existsSync(dbPath)) {
+      db = new Database(dbPath, { readonly: true });
+    } else {
+      db = new Database(':memory:');
+    }
+  } else {
+    db = new Database(dbPath);
+    // Enable WAL mode for better concurrency (local)
+    db.pragma('journal_mode = WAL');
+  }
+} catch (error) {
+  console.warn('SQLite init failed (e.g., read-only filesystem). Falling back to in-memory DB.', error);
+  db = new Database(':memory:');
+}
 
 function columnExists(table: string, column: string) {
   return db
