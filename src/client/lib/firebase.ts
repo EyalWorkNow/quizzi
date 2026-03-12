@@ -1,10 +1,14 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';
 import { getAnalytics, isSupported, logEvent, type Analytics } from 'firebase/analytics';
+import { getAuth, signInAnonymously, type Auth } from 'firebase/auth';
+import { getDatabase, type Database } from 'firebase/database';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyAh6g2xKQgJBwZSzvFyD5gw2mtAMBVcstw',
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'quizzi-4dece.firebaseapp.com',
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'quizzi-4dece',
+  databaseURL:
+    import.meta.env.VITE_FIREBASE_DATABASE_URL || 'https://quizzi-4dece-default-rtdb.firebaseio.com',
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'quizzi-4dece.firebasestorage.app',
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '619365392780',
   appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:619365392780:web:7b44f21304a3fed08c76a9',
@@ -12,6 +16,7 @@ const firebaseConfig = {
 };
 
 let analyticsPromise: Promise<Analytics | null> | null = null;
+let realtimeAuthPromise: Promise<Database | null> | null = null;
 
 function hasFirebaseConfig() {
   return Boolean(
@@ -22,12 +27,58 @@ function hasFirebaseConfig() {
   );
 }
 
+function hasRealtimeConfig() {
+  return Boolean(hasFirebaseConfig() && firebaseConfig.databaseURL);
+}
+
 export function getFirebaseApp(): FirebaseApp | null {
   if (typeof window === 'undefined' || !hasFirebaseConfig()) {
     return null;
   }
 
   return getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+}
+
+export function getFirebaseAuth(): Auth | null {
+  const app = getFirebaseApp();
+  return app ? getAuth(app) : null;
+}
+
+export function getFirebaseDatabase(): Database | null {
+  if (typeof window === 'undefined' || !hasRealtimeConfig()) {
+    return null;
+  }
+
+  const app = getFirebaseApp();
+  return app ? getDatabase(app) : null;
+}
+
+export function ensureFirebaseRealtimeReady(): Promise<Database | null> {
+  if (!hasRealtimeConfig()) {
+    return Promise.resolve(null);
+  }
+
+  if (!realtimeAuthPromise) {
+    realtimeAuthPromise = (async () => {
+      const db = getFirebaseDatabase();
+      if (!db) {
+        return null;
+      }
+
+      const auth = getFirebaseAuth();
+      if (!auth?.currentUser) {
+        try {
+          await signInAnonymously(auth);
+        } catch {
+          // Keep realtime optional. Public rules can still allow reads and writes.
+        }
+      }
+
+      return db;
+    })().catch(() => null);
+  }
+
+  return realtimeAuthPromise;
 }
 
 export function getFirebaseAnalytics(): Promise<Analytics | null> {

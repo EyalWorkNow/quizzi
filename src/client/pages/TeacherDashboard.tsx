@@ -1,33 +1,140 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, Compass, ChevronLeft, HelpCircle, LogOut, Play, Library, BarChart, Users, Settings, XCircle } from 'lucide-react';
+import {
+  ArrowUpRight,
+  BarChart,
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  Compass,
+  Copy,
+  Filter,
+  HelpCircle,
+  Library,
+  LogOut,
+  Play,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+  Sparkles,
+  Trash2,
+  Users,
+  XCircle,
+} from 'lucide-react';
 import { motion } from 'motion/react';
 import { loadTeacherSettings } from '../lib/localData.ts';
 import { trackTeacherSessionLaunch } from '../lib/appAnalytics.ts';
 import { signOutTeacher } from '../lib/teacherAuth.ts';
 import { GAME_MODES, getGameMode } from '../lib/gameModes.ts';
 
+const SORT_OPTIONS = [
+  { id: 'recent', label: 'Recent activity' },
+  { id: 'newest', label: 'Newest first' },
+  { id: 'questions', label: 'Most questions' },
+  { id: 'usage', label: 'Most used' },
+  { id: 'az', label: 'A to Z' },
+] as const;
+
+type SortOption = (typeof SORT_OPTIONS)[number]['id'];
+
+function formatRelativeTime(value?: string | null) {
+  if (!value) return 'Not run yet';
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return 'Recently';
+
+  const diffMs = Date.now() - timestamp;
+  const diffMinutes = Math.round(diffMs / 60000);
+  if (diffMinutes < 1) return 'Just now';
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.round(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+
+  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(new Date(timestamp));
+}
+
+function getPackState(pack: any) {
+  if (Number(pack.active_session_count || 0) > 0) {
+    return {
+      label: 'Live now',
+      body: `PIN ${pack.last_session_pin || 'ready'} is still open for students.`,
+      tone: 'bg-brand-orange text-white',
+    };
+  }
+  if (Number(pack.session_count || 0) > 0) {
+    return {
+      label: 'Re-run ready',
+      body: `Last live run ${formatRelativeTime(pack.last_session_at)} with ${pack.last_session_players || 0} students.`,
+      tone: 'bg-brand-yellow text-brand-dark',
+    };
+  }
+  return {
+    label: 'Ready to host',
+    body: `${pack.question_count || 0} questions are ready for the first live run.`,
+    tone: 'bg-emerald-200 text-brand-dark',
+  };
+}
+
+async function readApiError(response: Response) {
+  try {
+    const payload = await response.json();
+    return payload?.error || 'Request failed';
+  } catch {
+    return 'Request failed';
+  }
+}
+
 export default function TeacherDashboard() {
   const [packs, setPacks] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
+  const [sortBy, setSortBy] = useState<SortOption>('recent');
   const [selectedPack, setSelectedPack] = useState<any>(null);
   const [hostingPack, setHostingPack] = useState<any>(null);
+  const [deletingPack, setDeletingPack] = useState<any>(null);
   const [selectedGameMode, setSelectedGameMode] = useState<string>('classic_quiz');
   const [selectedTeamCount, setSelectedTeamCount] = useState<number>(4);
+  const [busyAction, setBusyAction] = useState<{ packId: number; action: string } | null>(null);
+  const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const navigate = useNavigate();
   const teacherProfile = loadTeacherSettings().profile;
+
+  const loadPacks = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const response = await fetch('/api/teacher/packs');
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      const payload = await response.json();
+      setPacks(Array.isArray(payload) ? payload : []);
+    } catch (loadError: any) {
+      setError(loadError?.message || 'Failed to load your packs');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadPacks();
+  }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(null), 4200);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
   const handleLogout = async () => {
     await signOutTeacher();
     navigate('/');
   };
-
-  useEffect(() => {
-    fetch('/api/packs')
-      .then((res) => res.json())
-      .then((data) => setPacks(data));
-  }, []);
 
   const categories = useMemo(() => {
     const tags = Array.from(new Set(packs.flatMap((pack) => pack.top_tags || []))).filter(Boolean);
@@ -35,34 +142,108 @@ export default function TeacherDashboard() {
   }, [packs]);
 
   const filteredPacks = useMemo(() => {
-    return packs.filter((pack) => {
-      const matchesSearch =
-        !searchQuery ||
-        pack.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (pack.source_text || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (pack.top_tags || []).some((tag: string) => tag.toLowerCase().includes(searchQuery.toLowerCase()));
-      const matchesCategory = activeCategory === 'All' || (pack.top_tags || []).includes(activeCategory);
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const scoped = packs.filter((pack) => {
+      const searchFields = [
+        pack.title,
+        pack.source_text,
+        pack.source_excerpt,
+        pack.teaching_brief,
+        ...(pack.top_tags || []),
+        ...(pack.topic_fingerprint || []),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      const matchesSearch = !normalizedQuery || searchFields.includes(normalizedQuery);
+      const matchesCategory =
+        activeCategory === 'All' ||
+        (pack.top_tags || []).includes(activeCategory) ||
+        (pack.topic_fingerprint || []).includes(activeCategory);
       return matchesSearch && matchesCategory;
     });
-  }, [packs, searchQuery, activeCategory]);
+
+    return [...scoped].sort((left, right) => {
+      if (sortBy === 'az') {
+        return String(left.title || '').localeCompare(String(right.title || ''));
+      }
+      if (sortBy === 'questions') {
+        return Number(right.question_count || 0) - Number(left.question_count || 0);
+      }
+      if (sortBy === 'usage') {
+        return Number(right.session_count || 0) - Number(left.session_count || 0);
+      }
+
+      const leftDate =
+        new Date((sortBy === 'recent' ? left.last_session_at : left.created_at) || 0).getTime() || 0;
+      const rightDate =
+        new Date((sortBy === 'recent' ? right.last_session_at : right.created_at) || 0).getTime() || 0;
+      return rightDate - leftDate || Number(right.id || 0) - Number(left.id || 0);
+    });
+  }, [activeCategory, packs, searchQuery, sortBy]);
+
+  const dashboardStats = useMemo(() => {
+    const totalQuestions = packs.reduce((sum, pack) => sum + Number(pack.question_count || 0), 0);
+    return [
+      {
+        id: 'packs',
+        label: 'My packs',
+        value: packs.length,
+        body: 'Everything you can host, copy, or retire from one board.',
+        tone: 'bg-white',
+      },
+      {
+        id: 'questions',
+        label: 'Questions',
+        value: totalQuestions,
+        body: 'Total question inventory across your teaching library.',
+        tone: 'bg-brand-yellow',
+      },
+      {
+        id: 'live',
+        label: 'Live rooms',
+        value: packs.filter((pack) => Number(pack.active_session_count || 0) > 0).length,
+        body: 'Reopen these rooms instantly without creating another session.',
+        tone: 'bg-brand-orange text-white',
+      },
+      {
+        id: 'history',
+        label: 'Re-run ready',
+        value: packs.filter((pack) => Number(pack.session_count || 0) > 0).length,
+        body: 'Packs with prior session history and reports attached.',
+        tone: 'bg-brand-purple text-white',
+      },
+    ];
+  }, [packs]);
 
   const handleHost = async (packId: number, gameType = selectedGameMode, teamCount = selectedTeamCount) => {
-    const res = await fetch('/api/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        quiz_pack_id: packId,
-        game_type: gameType,
-        team_count: getGameMode(gameType).teamBased ? teamCount : 0,
-      }),
-    });
-    const data = await res.json();
-    setHostingPack(null);
-    void trackTeacherSessionLaunch({
-      gameType,
-      teamCount: getGameMode(gameType).teamBased ? teamCount : 0,
-    });
-    navigate(`/teacher/session/${data.pin}/host`, { state: { sessionId: data.id, packId } });
+    try {
+      setBusyAction({ packId, action: 'host' });
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quiz_pack_id: packId,
+          game_type: gameType,
+          team_count: getGameMode(gameType).teamBased ? teamCount : 0,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(await readApiError(res));
+      }
+      const data = await res.json();
+      setHostingPack(null);
+      void trackTeacherSessionLaunch({
+        gameType,
+        teamCount: getGameMode(gameType).teamBased ? teamCount : 0,
+      });
+      navigate(`/teacher/session/${data.pin}/host`, { state: { sessionId: data.id, packId } });
+    } catch (hostError: any) {
+      setNotice({ tone: 'error', message: hostError?.message || 'Failed to start the live session.' });
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   const openHostModal = (pack: any) => {
@@ -72,10 +253,75 @@ export default function TeacherDashboard() {
     setSelectedTeamCount(defaultMode.defaultTeamCount || 4);
   };
 
-  const handlePreview = async (packId: number) => {
-    const res = await fetch(`/api/packs/${packId}`);
-    const data = await res.json();
-    setSelectedPack(data);
+  const openLiveRoom = (pack: any) => {
+    if (!pack?.last_session_pin) return;
+    navigate(`/teacher/session/${pack.last_session_pin}/host`, {
+      state: { sessionId: pack.last_session_id, packId: pack.id },
+    });
+  };
+
+  const handlePreview = async (pack: any) => {
+    try {
+      setBusyAction({ packId: Number(pack.id), action: 'preview' });
+      const res = await fetch(`/api/packs/${pack.id}`);
+      if (!res.ok) {
+        throw new Error(await readApiError(res));
+      }
+      const data = await res.json();
+      setSelectedPack({ ...pack, ...data });
+    } catch (previewError: any) {
+      setNotice({ tone: 'error', message: previewError?.message || 'Failed to open the pack preview.' });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDuplicate = async (pack: any) => {
+    try {
+      setBusyAction({ packId: Number(pack.id), action: 'duplicate' });
+      const response = await fetch(`/api/teacher/packs/${pack.id}/duplicate`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      const duplicatedPack = await response.json();
+      await loadPacks();
+      setNotice({
+        tone: 'success',
+        message: `${pack.title} was copied as ${duplicatedPack?.title || 'a new pack'}.`,
+      });
+    } catch (duplicateError: any) {
+      setNotice({ tone: 'error', message: duplicateError?.message || 'Failed to duplicate this pack.' });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deletingPack) return;
+    try {
+      setBusyAction({ packId: Number(deletingPack.id), action: 'delete' });
+      const response = await fetch(`/api/teacher/packs/${deletingPack.id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      const payload = await response.json();
+      setDeletingPack(null);
+      setSelectedPack((current: any) => (Number(current?.id) === Number(payload.pack_id) ? null : current));
+      setHostingPack((current: any) => (Number(current?.id) === Number(payload.pack_id) ? null : current));
+      await loadPacks();
+      setNotice({
+        tone: 'success',
+        message: `${payload.title} was deleted${payload?.impact?.sessions ? ` together with ${payload.impact.sessions} old session${payload.impact.sessions === 1 ? '' : 's'}` : ''}.`,
+      });
+    } catch (deleteError: any) {
+      setNotice({ tone: 'error', message: deleteError?.message || 'Failed to delete this pack.' });
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   return (
@@ -152,105 +398,289 @@ export default function TeacherDashboard() {
       </motion.aside>
 
       <main className="flex-1 h-screen overflow-y-auto p-6 lg:p-8 relative bg-brand-bg">
-        <div className="absolute top-[-10%] right-[-5%] w-64 h-64 border-[3px] border-brand-dark/5 rounded-full pointer-events-none"></div>
-        <div className="absolute bottom-[-10%] left-[-5%] w-48 h-48 border-[3px] border-brand-dark/5 rounded-full pointer-events-none"></div>
+        <div className="absolute top-[-10%] right-[-5%] w-64 h-64 border-[3px] border-brand-dark/5 rounded-full pointer-events-none" />
+        <div className="absolute bottom-[-10%] left-[-5%] w-48 h-48 border-[3px] border-brand-dark/5 rounded-full pointer-events-none" />
 
-        <div className="max-w-[1200px] mx-auto relative z-10">
-          <h1 className="text-3xl lg:text-4xl font-black mb-6 tracking-tight">Welcome back, {teacherProfile.firstName}!</h1>
-
-          <div className="flex flex-col md:flex-row gap-3 mb-6">
-            <div className="flex-1 relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-brand-dark/40" />
-              <input
-                id="search-quizzes"
-                type="text"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search your quizzes, subjects, or topics..."
-                aria-label="Search your quizzes"
-                className="w-full bg-white border-2 border-brand-dark rounded-full py-3 pl-12 pr-4 text-base font-bold placeholder:text-brand-dark/40 focus:outline-none focus:ring-2 focus:ring-brand-orange/20 shadow-[2px_2px_0px_0px_#1A1A1A]"
-              />
+        <div className="max-w-[1280px] mx-auto relative z-10">
+          <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 mb-6">
+            <div className="max-w-3xl">
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-brand-purple mb-2">My Quizzes</p>
+              <h1 className="text-4xl lg:text-5xl font-black tracking-tight leading-tight">Run, reuse, and clean up your pack library</h1>
+              <p className="font-bold text-brand-dark/62 mt-3">
+                This board is now tuned for fast pack management: reopen live rooms, duplicate strong material, and delete retired packs without hunting through other screens.
+              </p>
             </div>
-            <button
-              aria-label="Reset quiz filters"
-              onClick={() => {
-                setSearchQuery('');
-                setActiveCategory('All');
-              }}
-              className="px-6 py-3 bg-white border-2 border-brand-dark rounded-full flex items-center gap-2 hover:bg-brand-yellow transition-colors font-black text-base shadow-[2px_2px_0px_0px_#1A1A1A]"
-            >
-              <Filter className="w-5 h-5" />
-              Reset
-            </button>
-          </div>
-
-          <div className="flex gap-2 overflow-x-auto hide-scrollbar mb-8 pb-2">
-            {categories.map((cat) => (
+            <div className="flex flex-wrap gap-3">
               <button
-                key={cat}
-                aria-pressed={activeCategory === cat}
-                onClick={() => setActiveCategory(cat)}
-                className={`px-5 py-2 rounded-full whitespace-nowrap text-sm font-black border-2 border-brand-dark transition-all shadow-[2px_2px_0px_0px_#1A1A1A] ${activeCategory === cat ? 'bg-brand-purple text-white' : 'bg-white text-brand-dark hover:bg-brand-yellow'}`}
+                onClick={() => void loadPacks()}
+                className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
               >
-                {cat}
+                <RefreshCw className="w-4 h-4" />
+                Refresh
               </button>
+              <button
+                onClick={() => navigate('/teacher/pack/create')}
+                className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
+              >
+                <Plus className="w-4 h-4" />
+                Create Pack
+              </button>
+            </div>
+          </div>
+
+          {notice && (
+            <div className={`mb-6 rounded-[1.5rem] border-2 border-brand-dark p-4 shadow-[3px_3px_0px_0px_#1A1A1A] ${notice.tone === 'success' ? 'bg-emerald-100' : 'bg-brand-orange/15'}`}>
+              <div className="flex items-start gap-3">
+                <div className={`w-10 h-10 rounded-full border-2 border-brand-dark flex items-center justify-center ${notice.tone === 'success' ? 'bg-white text-emerald-600' : 'bg-white text-brand-orange'}`}>
+                  {notice.tone === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+                </div>
+                <div>
+                  <p className="font-black">{notice.tone === 'success' ? 'Done' : 'Something needs attention'}</p>
+                  <p className="font-medium text-brand-dark/75">{notice.message}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+            {dashboardStats.map((stat) => (
+              <div key={stat.id} className={`${stat.tone} rounded-[1.7rem] border-4 border-brand-dark p-5 shadow-[6px_6px_0px_0px_#1A1A1A]`}>
+                <p className="text-xs font-black uppercase tracking-[0.2em] opacity-70 mb-3">{stat.label}</p>
+                <p className="text-4xl font-black leading-none">{stat.value}</p>
+                <p className="font-medium text-sm opacity-80 mt-3">{stat.body}</p>
+              </div>
             ))}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
-            <motion.div whileHover={{ scale: 1.02, rotate: 1 }} whileTap={{ scale: 0.98 }} onClick={() => navigate('/teacher/pack/create')} className="premium-card min-h-[340px] border-dashed border-brand-dark/20 bg-brand-yellow/5 flex flex-col items-center justify-center gap-8 cursor-pointer group">
-              <div className="w-24 h-24 bg-brand-yellow border-4 border-brand-dark rounded-[2rem] flex items-center justify-center shadow-[6px_6px_0px_0px_#1A1A1A] group-hover:rotate-12 transition-transform duration-500">
-                <Plus className="w-12 h-12 text-brand-dark" />
-              </div>
-              <div className="text-center">
-                <h3 className="text-2xl font-black text-brand-dark uppercase tracking-tight">Forge New Pack</h3>
-                <p className="text-xs font-bold text-brand-dark/30 tracking-widest mt-2">MANUAL OR AI-POWERED</p>
-              </div>
-            </motion.div>
-
-            {filteredPacks.map((pack, i) => (
-              <motion.div key={pack.id} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="premium-card group overflow-hidden bg-white min-h-[340px] flex flex-col">
-                <div className="h-40 bg-brand-bg border-b-4 border-brand-dark relative overflow-hidden">
-                  <div className={`absolute inset-0 opacity-10 bg-gradient-to-br ${i % 3 === 0 ? 'from-brand-orange' : i % 3 === 1 ? 'from-brand-purple' : 'from-brand-yellow'} to-transparent`} />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Library className="w-20 h-20 text-brand-dark/5 group-hover:scale-110 transition-transform duration-700" />
+          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-5 lg:p-6 mb-6">
+            <div className="flex flex-col lg:flex-row gap-3 lg:items-center justify-between mb-4">
+              <div className="flex-1 flex flex-col md:flex-row gap-3">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-brand-dark/40" />
+                  <input
+                    id="search-quizzes"
+                    type="text"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder="Search packs, concepts, tags, or teaching briefs..."
+                    aria-label="Search your quizzes"
+                    className="w-full bg-brand-bg border-2 border-brand-dark rounded-full py-3 pl-12 pr-4 text-base font-bold placeholder:text-brand-dark/40 focus:outline-none focus:ring-2 focus:ring-brand-orange/20"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="min-w-[180px] rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-3 flex items-center gap-3">
+                    <Filter className="w-4 h-4 shrink-0" />
+                    <select
+                      value={sortBy}
+                      onChange={(event) => setSortBy(event.target.value as SortOption)}
+                      className="bg-transparent w-full font-black focus:outline-none"
+                    >
+                      {SORT_OPTIONS.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                  <div className="absolute top-6 left-6">
-                    <span className="bg-white border-2 border-brand-dark px-4 py-1 rounded-2xl text-[10px] font-black shadow-[4px_4px_0px_0px_#1A1A1A] uppercase tracking-wider">
-                      {pack.question_count || 0} Questions
-                    </span>
+                  <button
+                    aria-label="Reset quiz filters"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setActiveCategory('All');
+                      setSortBy('recent');
+                    }}
+                    className="px-5 py-3 bg-brand-bg border-2 border-brand-dark rounded-full flex items-center gap-2 hover:bg-brand-yellow transition-colors font-black"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+                {categories.map((category) => (
+                  <button
+                    key={category}
+                    aria-pressed={activeCategory === category}
+                    onClick={() => setActiveCategory(category)}
+                    className={`px-4 py-2 rounded-full whitespace-nowrap text-sm font-black border-2 border-brand-dark transition-all ${activeCategory === category ? 'bg-brand-purple text-white shadow-[2px_2px_0px_0px_#1A1A1A]' : 'bg-white text-brand-dark hover:bg-brand-yellow'}`}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-3 text-sm font-black text-brand-dark/60">
+                <span>{filteredPacks.length} of {packs.length} packs visible</span>
+                <span className="hidden md:inline">•</span>
+                <span>{packs.filter((pack) => Number(pack.active_session_count || 0) > 0).length} live now</span>
+              </div>
+            </div>
+          </div>
+
+          {error && !loading && (
+            <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-8 mb-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
+              <p className="text-2xl font-black mb-2">Your pack board did not load cleanly.</p>
+              <p className="font-bold text-brand-dark/60 mb-4">{error}</p>
+              <button
+                onClick={() => void loadPacks()}
+                className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={`skeleton-${index}`} className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[6px_6px_0px_0px_#1A1A1A] min-h-[320px] animate-pulse">
+                  <div className="h-6 w-24 rounded-full bg-brand-bg mb-4" />
+                  <div className="h-12 rounded-2xl bg-brand-bg mb-5" />
+                  <div className="grid grid-cols-2 gap-3 mb-5">
+                    <div className="h-16 rounded-2xl bg-brand-bg" />
+                    <div className="h-16 rounded-2xl bg-brand-bg" />
+                    <div className="h-16 rounded-2xl bg-brand-bg" />
+                    <div className="h-16 rounded-2xl bg-brand-bg" />
+                  </div>
+                  <div className="h-20 rounded-2xl bg-brand-bg mb-5" />
+                  <div className="grid grid-cols-2 gap-3 mt-auto">
+                    <div className="h-12 rounded-2xl bg-brand-bg" />
+                    <div className="h-12 rounded-2xl bg-brand-bg" />
+                    <div className="h-12 rounded-2xl bg-brand-bg" />
+                    <div className="h-12 rounded-2xl bg-brand-bg" />
                   </div>
                 </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              <motion.button
+                whileHover={{ scale: 1.02, rotate: 1 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => navigate('/teacher/pack/create')}
+                className="rounded-[2rem] border-4 border-dashed border-brand-dark bg-brand-yellow/10 min-h-[320px] p-8 flex flex-col items-center justify-center text-center shadow-[6px_6px_0px_0px_#1A1A1A]"
+              >
+                <div className="w-24 h-24 bg-brand-yellow border-4 border-brand-dark rounded-[2rem] flex items-center justify-center shadow-[6px_6px_0px_0px_#1A1A1A] mb-6">
+                  <Plus className="w-12 h-12 text-brand-dark" />
+                </div>
+                <h3 className="text-2xl font-black uppercase tracking-tight">Create New Pack</h3>
+                <p className="font-bold text-brand-dark/60 mt-3 max-w-xs">
+                  Start from source material, generate a fresh set of questions, or draft one manually from scratch.
+                </p>
+              </motion.button>
 
-                <div className="p-8 flex flex-col flex-1">
-                  <h3 className="text-2xl font-black text-brand-dark mb-2 group-hover:text-brand-orange transition-colors line-clamp-1">{pack.title}</h3>
-                  <div className="flex gap-2 mb-4 flex-wrap">
-                    {(pack.top_tags?.length ? pack.top_tags : ['general']).map((tag: string) => (
-                      <span key={tag} className="px-3 py-1 bg-brand-purple/10 text-brand-purple text-[10px] font-black rounded-lg border-2 border-brand-purple/20 uppercase">
-                        {tag}
+              {filteredPacks.map((pack, index) => {
+                const state = getPackState(pack);
+                const isBusy = Number(busyAction?.packId) === Number(pack.id);
+                return (
+                  <motion.div
+                    key={pack.id}
+                    initial={{ opacity: 0, y: 24 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.03 }}
+                    className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A] flex flex-col min-h-[320px]"
+                  >
+                    <div className="flex items-start justify-between gap-4 mb-4">
+                      <div className="min-w-0">
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">
+                          Created {formatRelativeTime(pack.created_at)}
+                        </p>
+                        <h3 className="text-2xl font-black leading-tight line-clamp-2">{pack.title}</h3>
+                      </div>
+                      <span className={`${state.tone} shrink-0 rounded-full border-2 border-brand-dark px-3 py-2 text-[11px] font-black uppercase tracking-[0.16em]`}>
+                        {state.label}
                       </span>
-                    ))}
-                  </div>
-                  <p className="text-sm font-bold text-brand-dark/60 line-clamp-3">{pack.source_text}</p>
+                    </div>
 
-                  <div className="mt-auto flex items-center gap-3 pt-6">
-                    <button onClick={() => openHostModal(pack)} className="flex-1 bg-brand-orange text-white py-4 rounded-2xl font-black shadow-[4px_4px_0px_0px_#1A1A1A] border-2 border-brand-dark transition-all flex items-center justify-center gap-3">
-                      <Play className="w-5 h-5 fill-current" />
-                      Host Session
-                    </button>
-                    <button onClick={() => handlePreview(pack.id)} className="p-4 bg-white border-2 border-brand-dark rounded-2xl hover:bg-brand-bg transition-colors shadow-[4px_4px_0px_0px_#1A1A1A]">
-                      <Settings className="w-6 h-6 text-brand-dark" />
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <PackMetric label="Questions" value={pack.question_count || 0} />
+                      <PackMetric label="Sessions" value={pack.session_count || 0} />
+                      <PackMetric label="Last live" value={formatRelativeTime(pack.last_session_at)} />
+                      <PackMetric label="Players" value={pack.last_session_players || 0} />
+                    </div>
 
-          {filteredPacks.length === 0 && (
-            <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-10 mt-8 shadow-[4px_4px_0px_0px_#1A1A1A] text-center">
-              <p className="text-2xl font-black mb-2">No packs matched this search.</p>
-              <p className="font-bold text-brand-dark/60">Try another term or create a new pack.</p>
+                    <p className="font-medium text-brand-dark/72 mb-4 line-clamp-3">
+                      {pack.teaching_brief || pack.source_excerpt || pack.source_text || 'No teaching summary is available for this pack yet.'}
+                    </p>
+
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {(pack.top_tags?.length ? pack.top_tags : ['General']).slice(0, 4).map((tag: string) => (
+                        <span key={`${pack.id}-${tag}`} className="px-3 py-1 rounded-full bg-brand-bg border-2 border-brand-dark text-[11px] font-black uppercase tracking-[0.14em]">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="rounded-[1.3rem] border-2 border-brand-dark bg-brand-bg p-4 mb-4">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-full bg-white border-2 border-brand-dark flex items-center justify-center shrink-0">
+                          {Number(pack.active_session_count || 0) > 0 ? <Sparkles className="w-5 h-5 text-brand-orange" /> : <CalendarDays className="w-5 h-5 text-brand-purple" />}
+                        </div>
+                        <div>
+                          <p className="font-black leading-tight">{state.body}</p>
+                          <p className="font-medium text-sm text-brand-dark/62 mt-1">
+                            {Number(pack.session_count || 0) > 0
+                              ? `${pack.session_count} prior session${Number(pack.session_count) === 1 ? '' : 's'} remain attached to this pack.`
+                              : 'This pack has not been used live yet.'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 mt-auto">
+                      <button
+                        onClick={() => (Number(pack.active_session_count || 0) > 0 ? openLiveRoom(pack) : openHostModal(pack))}
+                        disabled={isBusy}
+                        className="bg-brand-orange text-white py-3 rounded-2xl font-black shadow-[3px_3px_0px_0px_#1A1A1A] border-2 border-brand-dark transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                      >
+                        {Number(pack.active_session_count || 0) > 0 ? <ArrowUpRight className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+                        {Number(pack.active_session_count || 0) > 0 ? 'Open Live' : 'Host'}
+                      </button>
+                      <button
+                        onClick={() => void handlePreview(pack)}
+                        disabled={isBusy}
+                        className="bg-white border-2 border-brand-dark rounded-2xl py-3 font-black shadow-[3px_3px_0px_0px_#1A1A1A] hover:bg-brand-bg transition-colors disabled:opacity-60"
+                      >
+                        Preview
+                      </button>
+                      <button
+                        onClick={() => void handleDuplicate(pack)}
+                        disabled={isBusy}
+                        className="bg-brand-bg border-2 border-brand-dark rounded-2xl py-3 font-black shadow-[3px_3px_0px_0px_#1A1A1A] hover:bg-white transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                      >
+                        <Copy className="w-4 h-4" />
+                        Duplicate
+                      </button>
+                      <button
+                        onClick={() => setDeletingPack(pack)}
+                        disabled={isBusy}
+                        className="bg-white border-2 border-brand-dark rounded-2xl py-3 font-black shadow-[3px_3px_0px_0px_#1A1A1A] hover:bg-brand-orange hover:text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                      </button>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          )}
+
+          {!loading && filteredPacks.length === 0 && (
+            <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-10 mt-6 shadow-[4px_4px_0px_0px_#1A1A1A] text-center">
+              <p className="text-2xl font-black mb-2">No packs matched this view.</p>
+              <p className="font-bold text-brand-dark/60 mb-4">Try another term, clear filters, or build a new pack.</p>
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setActiveCategory('All');
+                  setSortBy('recent');
+                }}
+                className="px-5 py-3 bg-brand-yellow border-2 border-brand-dark rounded-full font-black"
+              >
+                Clear filters
+              </button>
             </div>
           )}
         </div>
@@ -260,30 +690,143 @@ export default function TeacherDashboard() {
         <div className="fixed inset-0 bg-black/25 z-40 flex justify-end">
           <div className="w-full max-w-xl h-full bg-white border-l-4 border-brand-dark p-6 overflow-y-auto shadow-[-8px_0_0_0_#1A1A1A]">
             <div className="flex items-start justify-between gap-4 mb-6">
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Pack Preview</p>
-                <h2 className="text-3xl font-black">{selectedPack.title}</h2>
+                <h2 className="text-3xl font-black break-words">{selectedPack.title}</h2>
+                <p className="font-bold text-brand-dark/60 mt-2">
+                  {selectedPack.question_count || selectedPack.questions?.length || 0} questions • {selectedPack.session_count || 0} session{Number(selectedPack.session_count || 0) === 1 ? '' : 's'}
+                </p>
               </div>
-              <button onClick={() => setSelectedPack(null)} className="w-10 h-10 rounded-full border-2 border-brand-dark flex items-center justify-center">
+              <button onClick={() => setSelectedPack(null)} className="w-10 h-10 rounded-full border-2 border-brand-dark flex items-center justify-center shrink-0">
                 <XCircle className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="font-bold text-brand-dark/70 leading-relaxed mb-6">{selectedPack.source_text}</p>
-            <div className="space-y-4 mb-8">
-              {selectedPack.questions?.map((question: any, index: number) => (
-                <div key={question.id} className="bg-brand-bg rounded-2xl border-2 border-brand-dark/10 p-4">
-                  <p className="font-black mb-2">Q{index + 1}. {question.prompt}</p>
-                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-dark/40">{question.time_limit_seconds || 20}s · {(question.tags_json && JSON.parse(question.tags_json).join(', ')) || 'general'}</p>
-                </div>
-              ))}
+            <div className="grid grid-cols-2 gap-3 mb-6">
+              <PackMetric label="Last live" value={formatRelativeTime(selectedPack.last_session_at)} />
+              <PackMetric label="Players" value={selectedPack.last_session_players || 0} />
+              <PackMetric label="Language" value={selectedPack.source_language || 'N/A'} />
+              <PackMetric label="Token save" value={`${selectedPack.token_savings_pct || 0}%`} />
             </div>
-            <div className="flex gap-3">
-              <button onClick={() => openHostModal(selectedPack)} className="flex-1 bg-brand-orange text-white border-2 border-brand-dark rounded-2xl py-4 font-black">
-                Host This Pack
+
+            <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5 mb-6">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Teaching brief</p>
+              <p className="font-medium text-brand-dark/72 leading-relaxed">
+                {selectedPack.teaching_brief || selectedPack.source_excerpt || selectedPack.source_text || 'No source summary is available.'}
+              </p>
+            </div>
+
+            <div className="space-y-4 mb-8">
+              {(selectedPack.questions || []).map((question: any, index: number) => {
+                const tags = Array.isArray(question.tags)
+                  ? question.tags
+                  : (() => {
+                      try {
+                        return JSON.parse(question.tags_json || '[]');
+                      } catch {
+                        return [];
+                      }
+                    })();
+                return (
+                  <div key={question.id || `question-${index}`} className="bg-white rounded-2xl border-2 border-brand-dark p-4 shadow-[3px_3px_0px_0px_#1A1A1A]">
+                    <p className="font-black mb-3">Q{index + 1}. {question.prompt}</p>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {tags.map((tag: string) => (
+                        <span key={`${question.id}-${tag}`} className="px-3 py-1 rounded-full bg-brand-bg border-2 border-brand-dark text-[11px] font-black uppercase tracking-[0.14em]">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-dark/40">
+                      {question.time_limit_seconds || 20}s per question
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => {
+                  setSelectedPack(null);
+                  Number(selectedPack.active_session_count || 0) > 0 ? openLiveRoom(selectedPack) : openHostModal(selectedPack);
+                }}
+                className="bg-brand-orange text-white border-2 border-brand-dark rounded-2xl py-4 font-black"
+              >
+                {Number(selectedPack.active_session_count || 0) > 0 ? 'Open Live Room' : 'Host This Pack'}
               </button>
-              <button onClick={() => navigate('/teacher/pack/create')} className="px-5 bg-white border-2 border-brand-dark rounded-2xl font-black">
-                Create Another
+              <button
+                onClick={() => void handleDuplicate(selectedPack)}
+                className="bg-white border-2 border-brand-dark rounded-2xl py-4 font-black"
+              >
+                Duplicate
+              </button>
+              <button
+                onClick={() => {
+                  setDeletingPack(selectedPack);
+                  setSelectedPack(null);
+                }}
+                className="col-span-2 bg-brand-bg border-2 border-brand-dark rounded-2xl py-4 font-black flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Pack
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletingPack && (
+        <div className="fixed inset-0 bg-black/35 z-50 flex items-center justify-center p-6">
+          <div className="w-full max-w-xl bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#1A1A1A] p-6 lg:p-7">
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Delete pack</p>
+                <h2 className="text-3xl font-black">{deletingPack.title}</h2>
+              </div>
+              <button
+                onClick={() => setDeletingPack(null)}
+                className="w-11 h-11 rounded-full border-2 border-brand-dark flex items-center justify-center bg-brand-bg"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5 mb-5">
+              <p className="font-black mb-3">
+                {Number(deletingPack.can_delete) === 0
+                  ? 'This pack still has an active live room.'
+                  : 'Deleting this pack is permanent.'}
+              </p>
+              <p className="font-medium text-brand-dark/72">
+                {Number(deletingPack.can_delete) === 0
+                  ? 'End the active session first, then come back here to delete the pack safely.'
+                  : Number(deletingPack.session_count || 0) > 0
+                    ? 'We will remove the pack together with its old sessions, participants, answers, and behavior logs.'
+                    : 'Only this pack and its questions will be removed.'}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-6">
+              <PackMetric label="Questions" value={deletingPack.question_count || 0} />
+              <PackMetric label="Sessions" value={deletingPack.session_count || 0} />
+              <PackMetric label="Players" value={deletingPack.last_session_players || 0} />
+              <PackMetric label="Last live" value={formatRelativeTime(deletingPack.last_session_at)} />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeletingPack(null)}
+                className="flex-1 bg-white border-2 border-brand-dark rounded-2xl py-4 font-black"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleDelete()}
+                disabled={!deletingPack.can_delete || Number(busyAction?.packId) === Number(deletingPack.id)}
+                className="flex-1 bg-brand-orange text-white border-2 border-brand-dark rounded-2xl py-4 font-black disabled:opacity-50"
+              >
+                Delete Permanently
               </button>
             </div>
           </div>
@@ -369,7 +912,7 @@ export default function TeacherDashboard() {
                 </p>
               </div>
               <button
-                onClick={() => handleHost(hostingPack.id, selectedGameMode, selectedTeamCount)}
+                onClick={() => void handleHost(hostingPack.id, selectedGameMode, selectedTeamCount)}
                 className="px-8 py-4 rounded-full bg-brand-orange text-white border-2 border-brand-dark font-black flex items-center gap-3 shadow-[4px_4px_0px_0px_#1A1A1A]"
               >
                 <Play className="w-5 h-5 fill-current" />
@@ -383,7 +926,19 @@ export default function TeacherDashboard() {
   );
 }
 
-function NavItem({ icon, label, isOpen, active, onClick }: { icon: React.ReactNode; label: string; isOpen: boolean; active?: boolean; onClick?: () => void }) {
+function NavItem({
+  icon,
+  label,
+  isOpen,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  isOpen: boolean;
+  active?: boolean;
+  onClick?: () => void;
+}) {
   return (
     <button onClick={onClick} aria-label={label} className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange ${active ? 'bg-brand-dark text-white border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A]' : 'bg-transparent border-transparent text-brand-dark/70 hover:bg-white hover:border-brand-dark hover:text-brand-dark hover:shadow-[2px_2px_0px_0px_#1A1A1A]'}`}>
       <div className="flex items-center gap-3">
@@ -393,5 +948,14 @@ function NavItem({ icon, label, isOpen, active, onClick }: { icon: React.ReactNo
         {isOpen && <span className="font-bold text-sm">{label}</span>}
       </div>
     </button>
+  );
+}
+
+function PackMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-[1.1rem] border-2 border-brand-dark bg-brand-bg p-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-1">{label}</p>
+      <p className="font-black">{value}</p>
+    </div>
   );
 }

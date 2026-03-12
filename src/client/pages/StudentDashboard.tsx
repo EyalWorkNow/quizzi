@@ -18,6 +18,12 @@ import {
   Zap,
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import {
+  MasteryBarChart,
+  QuestionFlowChart,
+  QuestionStatusStripChart,
+  SessionHistoryTrendChart,
+} from '../components/studentDashboardCharts.tsx';
 
 async function fetchJson(url: string) {
   const response = await fetch(url);
@@ -367,6 +373,8 @@ export default function StudentDashboard() {
           >
             {latestGame ? (
               <div className="space-y-5">
+                <QuestionFlowChart rows={questionReview} />
+
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <CompactMetric label="Accuracy" value={`${Number(latestGame?.stats?.accuracy || 0).toFixed(0)}%`} />
                   <CompactMetric label="Stress" value={`${Number(latestGame?.risk?.stress_index || 0).toFixed(0)}%`} />
@@ -411,6 +419,8 @@ export default function StudentDashboard() {
           >
             {sessionHistory.length > 0 ? (
               <div className="space-y-4">
+                <SessionHistoryTrendChart rows={sessionHistory} />
+
                 {sessionHistory.slice(0, 5).map((session: any) => (
                   <div key={session.session_id} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
@@ -447,6 +457,8 @@ export default function StudentDashboard() {
           >
             {mastery.length > 0 ? (
               <div className="space-y-4">
+                <MasteryBarChart rows={mastery} limit={6} />
+
                 {mastery.map((item: any) => (
                   <div key={item.tag} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-4">
                     <div className="flex items-center justify-between gap-4 mb-3">
@@ -477,6 +489,8 @@ export default function StudentDashboard() {
           >
             {questionReview.length > 0 ? (
               <div className="space-y-4">
+                <QuestionStatusStripChart rows={questionReview} />
+
                 {questionReview.map((question: any) => (
                   <div key={question.question_id} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
                     <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">

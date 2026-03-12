@@ -18,6 +18,13 @@ import {
   Users,
   XCircle,
 } from 'lucide-react';
+import {
+  MasteryBarChart,
+  QuestionFlowChart,
+  QuestionStatusStripChart,
+  RevisionCategoryChart,
+  SessionHistoryTrendChart,
+} from '../components/studentDashboardCharts.tsx';
 
 async function fetchJson(url: string, init?: RequestInit) {
   const response = await fetch(url, init);
@@ -67,6 +74,25 @@ function buildSessionComparison(sessionAnalytics: any, overallAnalytics: any) {
       Number(sessionAnalytics?.profile?.focus_score || 0) - Number(overallAnalytics?.profile?.focus_score || 0),
     behavior_signals: buildSignalComparisons(sessionAnalytics, overallAnalytics),
   };
+}
+
+function formatMs(value: number) {
+  if (!Number.isFinite(value)) return '0ms';
+  if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(1)}s`;
+  return `${Math.round(value)}ms`;
+}
+
+function formatSigned(value: number, suffix = '') {
+  const numericValue = Number(value || 0);
+  return `${numericValue >= 0 ? '+' : ''}${numericValue.toFixed(1)}${suffix}`;
+}
+
+function formatDeltaMs(value: number) {
+  const numericValue = Number(value || 0);
+  if (Math.abs(numericValue) >= 1000) {
+    return `${numericValue >= 0 ? '+' : ''}${(numericValue / 1000).toFixed(1)}s`;
+  }
+  return `${numericValue >= 0 ? '+' : ''}${Math.round(numericValue)}ms`;
 }
 
 export default function TeacherStudentAnalytics() {
@@ -152,7 +178,30 @@ export default function TeacherStudentAnalytics() {
   const classSummary = data?.class_summary;
   const preview = data?.adaptive_game_preview;
   const questionReview = analytics?.questionReview || [];
-  const attentionQueue = questionReview.filter((row: any) => row.status !== 'solid');
+  const revisionInsights = analytics?.revisionInsights || {};
+  const deadlineProfile = analytics?.deadlineProfile || {};
+  const recoveryProfile = analytics?.recoveryProfile || {};
+  const fatigueDrift = analytics?.fatigueDrift || {};
+  const misconceptionPatterns = analytics?.misconceptionPatterns || [];
+  const tagBehaviorProfiles = analytics?.tagPerformance || [];
+  const stabilityScore = Number(analytics?.stabilityScore || analytics?.aggregates?.stability_score || 0);
+  const attentionQueue = useMemo(
+    () =>
+      [...questionReview]
+        .filter((row: any) => row.status !== 'solid')
+        .sort((left: any, right: any) => {
+          const severity = (row: any) =>
+            (row.status === 'missed' ? 3 : 1)
+            + (row.revision_outcome === 'correct_to_incorrect' ? 2 : 0)
+            + (Number(row.deadline_dependent) ? 1 : 0);
+          return (
+            severity(right) - severity(left)
+            || Number(right.stress_index || 0) - Number(left.stress_index || 0)
+            || Number(left.question_index || 0) - Number(right.question_index || 0)
+          );
+        }),
+    [questionReview],
+  );
   const sessionHistory = overallAnalytics?.sessionHistory || analytics?.sessionHistory || [];
   const signalComparisons =
     comparison?.behavior_signals?.length > 0 ? comparison.behavior_signals : buildSignalComparisons(analytics, overallAnalytics);
@@ -182,6 +231,24 @@ export default function TeacherStudentAnalytics() {
       moves.push({
         title: 'Aim the next round at weak tags',
         body: `Focus the adaptive game on ${(analytics?.profile?.weak_tags || []).slice(0, 2).join(', ')} before returning to mixed review.`,
+      });
+    }
+    if ((analytics?.revisionInsights?.changed_away_from_correct_count || 0) > 0) {
+      moves.push({
+        title: 'Coach commitment after correct starts',
+        body: 'This learner sometimes begins on the right answer and revises away from it. Add short explain-your-choice pauses before lock-in.',
+      });
+    }
+    if ((analytics?.deadlineProfile?.last_second_rate || 0) >= 30) {
+      moves.push({
+        title: 'Reduce deadline dependence',
+        body: 'A large share of decisions are landing in the final second. Reuse the same material with calmer pacing or explicit early-commit prompts.',
+      });
+    }
+    if ((analytics?.recoveryProfile?.total_followups || 0) > 0 && (analytics?.recoveryProfile?.recovery_rate || 0) < 50) {
+      moves.push({
+        title: 'Support recovery after misses',
+        body: 'The question after an error often stays unstable. A short reteach loop immediately after mistakes should help.',
       });
     }
 
@@ -357,6 +424,100 @@ export default function TeacherStudentAnalytics() {
           </InfoPanel>
         </section>
 
+        <section className="grid grid-cols-1 xl:grid-cols-[1.08fr_0.92fr] gap-8 mb-8">
+          <TeacherSurface
+            title="Decision Intelligence"
+            subtitle="Separate content knowledge from hesitation, revision quality, and last-second dependency."
+            icon={<BrainCircuit className="w-6 h-6 text-brand-purple" />}
+          >
+            <div className="mb-6">
+              <RevisionCategoryChart categories={revisionInsights?.categories || []} />
+            </div>
+
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+              <CompactMetric label="1st Choice" value={`${Number(revisionInsights?.first_choice_correct_rate || 0).toFixed(1)}%`} />
+              <CompactMetric label="Recovered" value={`${Number(revisionInsights?.corrected_after_wrong_rate || 0).toFixed(1)}%`} />
+              <CompactMetric label="Wrong Revision" value={`${Number(revisionInsights?.changed_away_from_correct_rate || 0).toFixed(1)}%`} />
+              <CompactMetric label="Commit Latency" value={formatMs(Number(analytics?.aggregates?.avg_commitment_latency_ms || 0))} />
+              <CompactMetric label="Deadline Dep." value={`${Number(deadlineProfile?.last_second_rate || 0).toFixed(1)}%`} />
+              <CompactMetric label="Stability" value={stabilityScore.toFixed(0)} />
+              <CompactMetric label="Verified Correct" value={`${Number(revisionInsights?.verified_correct_rate || 0).toFixed(1)}%`} />
+              <CompactMetric label="Stayed Wrong" value={`${Number(revisionInsights?.stayed_wrong_rate || 0).toFixed(1)}%`} />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {(revisionInsights?.categories || []).map((category: any) => (
+                <div key={category.id} className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div className="min-w-0">
+                      <p className="font-black">{category.label}</p>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{category.count} questions</p>
+                    </div>
+                    <span className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark font-black">
+                      {Number(category.rate || 0).toFixed(1)}%
+                    </span>
+                  </div>
+                  <MetricBar
+                    value={Number(category.rate || 0)}
+                    tone={category.id === 'incorrect_to_correct' || category.id === 'correct_verified' ? 'good' : category.id === 'correct_to_incorrect' ? 'bad' : 'mid'}
+                  />
+                </div>
+              ))}
+            </div>
+          </TeacherSurface>
+
+          <TeacherSurface
+            title="Recovery And Fatigue"
+            subtitle="What happens after errors, and whether the student fades or stabilizes as the game goes on."
+            icon={<Clock3 className="w-6 h-6 text-brand-orange" />}
+          >
+            <div className="space-y-5">
+              <div className={`rounded-[1.75rem] border-2 border-brand-dark p-5 ${fatigueTone(fatigueDrift?.direction)}`}>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Fatigue Drift</p>
+                <p className="text-2xl font-black mb-2">{fatigueDrift?.headline || 'No drift estimate yet'}</p>
+                <p className="font-medium text-brand-dark/70">{fatigueDrift?.body || 'There are not enough answered questions yet to estimate drift.'}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <CompactMetric label="Recovery Rate" value={`${Number(recoveryProfile?.recovery_rate || 0).toFixed(1)}%`} />
+                <CompactMetric label="Pattern" value={recoveryProfile?.dominant_pattern || 'No misses yet'} />
+                <CompactMetric label="Early Accuracy" value={`${Number(fatigueDrift?.early_accuracy || 0).toFixed(0)}%`} />
+                <CompactMetric label="Late Accuracy" value={`${Number(fatigueDrift?.late_accuracy || 0).toFixed(0)}%`} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <CompactMetric label="Resp Delta" value={formatDeltaMs(Number(fatigueDrift?.response_delta_ms || 0))} />
+                <CompactMetric label="Volatility Delta" value={formatSigned(Number(fatigueDrift?.volatility_delta || 0), '%')} />
+                <CompactMetric label="Pressure Errors" value={`${Number(deadlineProfile?.errors_under_pressure_rate || 0).toFixed(1)}%`} />
+                <CompactMetric label="Last-second Success" value={`${Number(deadlineProfile?.last_second_correct_rate || 0).toFixed(1)}%`} />
+              </div>
+
+              <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Topic behavior profile</p>
+                <MasteryBarChart rows={tagBehaviorProfiles} limit={4} />
+              </div>
+
+              <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-3">Repeated misconception pattern</p>
+                {misconceptionPatterns.length > 0 ? (
+                  <div className="space-y-3">
+                    {misconceptionPatterns.slice(0, 3).map((pattern: any) => (
+                      <div key={`${pattern.tag}-${pattern.choice_label}-${pattern.choice_text}`} className="rounded-[1.3rem] border-2 border-brand-dark bg-white p-4">
+                        <p className="font-black mb-1 capitalize">{pattern.tag}</p>
+                        <p className="font-medium text-brand-dark/70">
+                          Keeps landing on {pattern.choice_label}. {pattern.choice_text} across {pattern.question_count} questions.
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="font-medium text-brand-dark/70">No repeated distractor pattern rose above the minimum confidence threshold.</p>
+                )}
+              </div>
+            </div>
+          </TeacherSurface>
+        </section>
+
         <section className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-8 mb-8">
           <TeacherSurface
             title="Behavior Architecture"
@@ -384,6 +545,8 @@ export default function TeacherStudentAnalytics() {
             icon={<Clock3 className="w-6 h-6 text-brand-orange" />}
           >
             <div className="space-y-5">
+              <QuestionFlowChart rows={questionReview} />
+
               <div className={`rounded-[1.75rem] border-2 border-brand-dark p-5 ${momentumTone(analytics?.momentum?.direction)}`}>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Momentum</p>
                 <p className="text-2xl font-black mb-2">{analytics?.momentum?.headline}</p>
@@ -421,6 +584,8 @@ export default function TeacherStudentAnalytics() {
           >
             {sessionHistory.length > 0 ? (
               <div className="space-y-4">
+                <SessionHistoryTrendChart rows={sessionHistory} />
+
                 {sessionHistory.slice(0, 6).map((session: any) => (
                   <div key={session.session_id} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
                     <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
@@ -437,6 +602,8 @@ export default function TeacherStudentAnalytics() {
                     <div className="grid grid-cols-2 gap-3">
                       <CompactMetric label="Commit Window" value={`${(Number(session.avg_commit_window_ms || 0) / 1000).toFixed(1)}s`} />
                       <CompactMetric label="Focus Events" value={session.focus_events} />
+                      <CompactMetric label="1st Choice" value={`${Number(session.first_choice_accuracy || 0).toFixed(0)}%`} />
+                      <CompactMetric label="Deadline Dep." value={`${Number(session.deadline_dependency_rate || 0).toFixed(0)}%`} />
                     </div>
                   </div>
                 ))}
@@ -507,6 +674,8 @@ export default function TeacherStudentAnalytics() {
             icon={<Users className="w-6 h-6 text-brand-purple" />}
           >
             <div className="space-y-4">
+              <QuestionStatusStripChart rows={questionReview} />
+
               {questionReview.map((question: any) => (
                 <div key={question.question_id} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
                   <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
@@ -536,6 +705,36 @@ export default function TeacherStudentAnalytics() {
                     <CompactMetric label="Flip-Flops" value={question.flip_flops} />
                     <CompactMetric label="Revisits" value={question.revisit_count} />
                     <CompactMetric label="Deadline Buffer" value={`${(Number(question.deadline_buffer_ms || 0) / 1000).toFixed(1)}s`} />
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-[0.95fr_1.05fr] gap-4 mb-4">
+                    <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Choice Journey</p>
+                      <div className="space-y-2">
+                        <p className="font-medium text-brand-dark/70">
+                          First choice: <span className="font-black text-brand-dark">{question.first_choice_label}. {question.first_choice_text}</span>
+                        </p>
+                        <p className="font-medium text-brand-dark/70">
+                          Final choice: <span className="font-black text-brand-dark">{question.final_choice_label}. {question.final_choice_text}</span>
+                        </p>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <JourneyBadge tone={question.first_choice_correct ? 'good' : 'mid'}>
+                            {question.first_choice_correct ? 'Started correct' : 'Started wrong'}
+                          </JourneyBadge>
+                          <JourneyBadge tone={question.revision_outcome === 'correct_to_incorrect' ? 'bad' : question.revision_outcome === 'incorrect_to_correct' ? 'good' : 'mid'}>
+                            {question.revision_outcome_label}
+                          </JourneyBadge>
+                          {question.verification_behavior && <JourneyBadge tone="good">Verified</JourneyBadge>}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <CompactMetric label="Commit Latency" value={formatMs(Number(question.commitment_latency_ms || 0))} />
+                      <CompactMetric label="1st Choice" value={question.first_choice_correct ? 'Right' : 'Wrong'} />
+                      <CompactMetric label="Deadline Dep." value={question.deadline_dependent ? 'Yes' : 'No'} />
+                      <CompactMetric label="Pressure" value={question.under_time_pressure ? 'High' : 'Normal'} />
+                    </div>
                   </div>
 
                   <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
@@ -573,6 +772,8 @@ export default function TeacherStudentAnalytics() {
                     <div className="grid grid-cols-2 gap-3 mb-3">
                       <CompactMetric label="Pace" value={question.pace_label} />
                       <CompactMetric label="Focus Loss" value={question.focus_loss_count} />
+                      <CompactMetric label="Revision" value={question.revision_outcome_label} />
+                      <CompactMetric label="Commit" value={formatMs(Number(question.commitment_latency_ms || 0))} />
                     </div>
                     <p className="font-medium text-brand-dark/70">{question.recommendation}</p>
                   </div>
@@ -749,7 +950,7 @@ function CompactMetric({ label, value }: { label: string; value: string | number
   return (
     <div className="rounded-[1.25rem] border-2 border-brand-dark bg-white p-4">
       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-2">{label}</p>
-      <p className="text-xl font-black">{value}</p>
+      <p className="text-xl font-black break-words leading-tight">{value}</p>
     </div>
   );
 }
@@ -807,6 +1008,30 @@ function EmptyState({
   );
 }
 
+function MetricBar({ value, tone }: { value: number; tone: 'good' | 'mid' | 'bad' }) {
+  const color = tone === 'good' ? 'bg-emerald-400' : tone === 'mid' ? 'bg-brand-yellow' : 'bg-brand-orange';
+  return (
+    <div className="h-3 rounded-full border-2 border-brand-dark bg-white overflow-hidden">
+      <div className={`h-full ${color}`} style={{ width: `${Math.max(0, Math.min(100, Number(value) || 0))}%` }} />
+    </div>
+  );
+}
+
+function JourneyBadge({
+  tone,
+  children,
+}: {
+  tone: 'good' | 'mid' | 'bad';
+  children: ReactNode;
+}) {
+  const toneClass = tone === 'good' ? 'bg-emerald-100' : tone === 'mid' ? 'bg-brand-yellow/30' : 'bg-brand-orange/15';
+  return (
+    <span className={`${toneClass} px-3 py-2 rounded-full border-2 border-brand-dark text-xs font-black`}>
+      {children}
+    </span>
+  );
+}
+
 function riskChip(level?: string) {
   if (level === 'high') return 'bg-brand-orange text-white';
   if (level === 'medium') return 'bg-brand-yellow text-brand-dark';
@@ -822,5 +1047,11 @@ function scoreTone(score: number) {
 function momentumTone(direction?: string) {
   if (direction === 'up') return 'bg-emerald-100';
   if (direction === 'down') return 'bg-brand-orange/10';
+  return 'bg-brand-bg';
+}
+
+function fatigueTone(direction?: string) {
+  if (direction === 'fatigue') return 'bg-brand-orange/10';
+  if (direction === 'settling_in' || direction === 'stabilizing') return 'bg-emerald-100';
   return 'bg-brand-bg';
 }

@@ -9,10 +9,13 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "seed:analytics-showcase": "tsx scripts/seedAnalyticsShowcase.ts"
+    "seed:analytics-showcase": "tsx scripts/seedAnalyticsShowcase.ts",
+    "db:bootstrap:supabase": "tsx scripts/bootstrapSupabase.ts",
+    "db:migrate:sqlite-to-supabase": "tsx scripts/migrateSqliteToSupabase.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
+    "@supabase/supabase-js": "^2.78.0",
     "@types/canvas-confetti": "^1.9.0",
     "@types/multer": "^2.1.0",
     "@vitejs/plugin-react": "^5.0.4",
@@ -26,6 +29,8 @@
     "motion": "^12.23.24",
     "multer": "^2.1.1",
     "pdf-parse": "^1.1.1",
+    "pg": "^8.20.0",
+    "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.13.1",

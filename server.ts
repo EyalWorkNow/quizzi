@@ -3,6 +3,8 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { initDb, seedAnalyticsShowcase, seedDemoData } from './src/server/db/index.js';
+import { checkPostgresHealth } from './src/server/db/postgres.js';
+import { checkSupabaseRestHealth } from './src/server/services/supabaseAdmin.js';
 import apiRouter from './src/server/routes/api.js';
 
 async function startServer() {
@@ -16,18 +18,45 @@ async function startServer() {
   initDb();
   seedDemoData();
   seedAnalyticsShowcase();
+  const postgresHealth = await checkPostgresHealth();
+  const supabaseRestHealth = await checkSupabaseRestHealth();
+
+  if (postgresHealth.configured) {
+    const prefix = postgresHealth.ok ? '[supabase]' : '[supabase warning]';
+    console[postgresHealth.ok ? 'log' : 'warn'](
+      `${prefix} ${postgresHealth.message}${postgresHealth.host ? ` Host: ${postgresHealth.host}.` : ''}`,
+    );
+  }
+
+  if (supabaseRestHealth.configured) {
+    const prefix = supabaseRestHealth.ok ? '[supabase rest]' : '[supabase rest warning]';
+    console[supabaseRestHealth.ok ? 'log' : 'warn'](`${prefix} ${supabaseRestHealth.message}`);
+  }
 
   app.use((req, res, next) => {
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     next();
   });
 
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false, limit: '1mb' }));
+
+  app.get('/healthz', async (_req, res) => {
+    const latestPostgresHealth = await checkPostgresHealth();
+    const latestSupabaseRestHealth = await checkSupabaseRestHealth();
+    res.json({
+      status: 'ok',
+      app: 'quizzi',
+      primary_db: 'sqlite',
+      sqlite_seeded: true,
+      supabase_postgres: latestPostgresHealth,
+      supabase_rest: latestSupabaseRestHealth,
+    });
+  });
 
   // API Routes
   app.use('/api', apiRouter);

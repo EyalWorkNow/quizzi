@@ -331,6 +331,8 @@ type ShowcaseQuestion = {
   tags: string[];
   difficulty: number;
   timeLimitSeconds: number;
+  seductiveIndex?: number;
+  alternateDistractorIndex?: number;
 };
 
 type ShowcaseStudentProfile = {
@@ -409,8 +411,36 @@ function buildShowcaseAnswerPath({
     .sort((left, right) => left.timestamp_ms - right.timestamp_ms);
 }
 
+function buildShowcaseOptionDwell({
+  answerCount,
+  chosenIndex,
+  correctIndex,
+  responseMs,
+  totalSwaps,
+  seed,
+}: {
+  answerCount: number;
+  chosenIndex: number;
+  correctIndex: number;
+  responseMs: number;
+  totalSwaps: number;
+  seed: number;
+}) {
+  return Object.fromEntries(
+    Array.from({ length: Math.max(2, answerCount) }, (_, index) => {
+      const base =
+        120 +
+        ((seed + index * 17) % 150) +
+        (index === chosenIndex ? responseMs * (0.2 + totalSwaps * 0.025) : 0) +
+        (index === correctIndex ? responseMs * (chosenIndex === correctIndex ? 0.08 : 0.14) : 0) +
+        (index !== chosenIndex && index !== correctIndex ? responseMs * 0.05 : 0);
+      return [String(index), Math.round(base)];
+    }),
+  );
+}
+
 export function seedAnalyticsShowcase() {
-  const packTitle = 'Showcase: Statistical Reasoning Live Game';
+  const packTitle = 'spain pain';
   const existingPack = db.prepare('SELECT id FROM quiz_packs WHERE title = ?').get(packTitle) as any;
   if (existingPack?.id) {
     const existingSession = db
@@ -434,102 +464,141 @@ export function seedAnalyticsShowcase() {
 
   const teacherId = showcaseTeacherId();
   const sourceText = [
-    'Statistical reasoning in higher education depends on recognizing the difference between descriptive summaries, evidence thresholds, and causal claims.',
-    'Students should distinguish mean, median, standard deviation, correlation, p-values, confidence intervals, and the role of random assignment in experimental design.',
-    'The strongest learners can interpret evidence under time pressure without overreacting to distractors, while struggling learners often confuse inference with description.',
+    'Spain sits on the Iberian Peninsula and combines layered geography, strong regional identities, and a twentieth-century political history that students often confuse under pressure.',
+    'Common confusions include mixing up Madrid and Barcelona, reversing the Mediterranean and Atlantic coastlines, blending Catalonia with the Basque Country, and mistiming the Spanish Civil War.',
+    'A good quiz on Spain should reveal whether students truly know the map, the monarchy, and the history, or whether they are leaning on seductive half-memories and last-second guesses.',
   ].join(' ');
 
   const questions: ShowcaseQuestion[] = [
     {
-      prompt: 'Which measure of central tendency is most resistant to extreme outliers?',
-      answers: ['Mean', 'Median', 'Standard deviation', 'Correlation'],
+      prompt: 'What is the capital city of Spain?',
+      answers: ['Barcelona', 'Madrid', 'Seville', 'Valencia'],
       correctIndex: 1,
-      explanation: 'The median depends on order rather than magnitude, so one extreme score shifts it much less than the mean.',
-      tags: ['descriptive-statistics', 'robust-measures'],
+      seductiveIndex: 0,
+      alternateDistractorIndex: 2,
+      explanation: 'Madrid is the capital of Spain. Barcelona is the largest city many students remember first, which makes it a classic distractor.',
+      tags: ['geography-core', 'cities'],
       difficulty: 2,
       timeLimitSeconds: 18,
     },
     {
-      prompt: 'A p-value below .05 is typically used to suggest what?',
-      answers: ['The effect is large', 'The null model is less compatible with the data', 'The result is definitely causal', 'The sample was random'],
+      prompt: 'Which sea borders Spain to the east?',
+      answers: ['Atlantic Ocean', 'Mediterranean Sea', 'Cantabrian Sea', 'North Sea'],
       correctIndex: 1,
-      explanation: 'A small p-value does not prove causality or effect size; it indicates the observed data would be less expected under the null model.',
-      tags: ['hypothesis-testing', 'p-values'],
-      difficulty: 4,
-      timeLimitSeconds: 24,
-    },
-    {
-      prompt: 'Random assignment primarily helps the researcher reduce which threat?',
-      answers: ['Measurement error', 'Confounding between groups', 'Missing data', 'Ceiling effects'],
-      correctIndex: 1,
-      explanation: 'Random assignment balances unknown influences across conditions, making confounding less likely.',
-      tags: ['experimental-design', 'causal-inference'],
-      difficulty: 3,
-      timeLimitSeconds: 22,
-    },
-    {
-      prompt: 'A correlation of r = .78 supports which interpretation?',
-      answers: ['A strong positive relationship', 'A strong causal effect', 'A weak positive relationship', 'A negative relationship'],
-      correctIndex: 0,
-      explanation: 'Correlation size indicates association strength and direction, not causality.',
-      tags: ['correlation', 'effect-interpretation'],
-      difficulty: 2,
-      timeLimitSeconds: 18,
-    },
-    {
-      prompt: 'Type I error means that the researcher has:',
-      answers: ['Missed a true effect', 'Rejected a true null hypothesis', 'Chosen the wrong dependent variable', 'Used too large a sample'],
-      correctIndex: 1,
-      explanation: 'Type I error is a false positive: rejecting the null when it is actually true.',
-      tags: ['hypothesis-testing', 'error-types'],
-      difficulty: 5,
-      timeLimitSeconds: 24,
-    },
-    {
-      prompt: 'If standard deviation is large, the scores are generally:',
-      answers: ['Clustered tightly around the mean', 'Spread far from the mean', 'All statistically significant', 'Normally distributed'],
-      correctIndex: 1,
-      explanation: 'Large standard deviation reflects greater spread around the mean.',
-      tags: ['descriptive-statistics', 'variability'],
-      difficulty: 2,
-      timeLimitSeconds: 18,
-    },
-    {
-      prompt: 'Which variable is manipulated by the researcher in an experiment?',
-      answers: ['Dependent variable', 'Control variable', 'Independent variable', 'Outcome variance'],
-      correctIndex: 2,
-      explanation: 'The independent variable is the factor deliberately changed across conditions.',
-      tags: ['experimental-design', 'variables'],
+      seductiveIndex: 0,
+      explanation: 'Spain faces the Mediterranean to the east. Students often overgeneralize that Spain is mainly Atlantic because of its west-facing coastline.',
+      tags: ['physical-geography', 'geography-core'],
       difficulty: 3,
       timeLimitSeconds: 20,
     },
     {
-      prompt: 'A 95% confidence interval most directly gives the researcher:',
-      answers: ['A guarantee about the next sample', 'A range of plausible parameter values under the model', 'The exact probability the null is true', 'Proof of replication'],
+      prompt: 'Which mountain range forms the natural border between Spain and France?',
+      answers: ['The Alps', 'The Pyrenees', 'The Apennines', 'The Sierra Nevada'],
       correctIndex: 1,
-      explanation: 'Confidence intervals summarize a range of parameter values that remain plausible given the sample and model assumptions.',
-      tags: ['confidence-intervals', 'estimation'],
+      seductiveIndex: 0,
+      explanation: 'The Pyrenees separate Spain from France. The Alps are a common Europe-wide distractor that captures students who know the map only vaguely.',
+      tags: ['physical-geography'],
+      difficulty: 3,
+      timeLimitSeconds: 18,
+    },
+    {
+      prompt: 'Barcelona is located in which autonomous community?',
+      answers: ['Andalusia', 'Catalonia', 'The Basque Country', 'Madrid'],
+      correctIndex: 1,
+      seductiveIndex: 2,
+      alternateDistractorIndex: 0,
+      explanation: 'Barcelona is in Catalonia. Students often confuse Catalonia and the Basque Country because both are strongly associated with regional identity politics.',
+      tags: ['regions', 'cities', 'language-culture'],
       difficulty: 4,
+      timeLimitSeconds: 22,
+    },
+    {
+      prompt: 'In which year did the Spanish Civil War begin?',
+      answers: ['1931', '1936', '1939', '1945'],
+      correctIndex: 1,
+      seductiveIndex: 2,
+      alternateDistractorIndex: 0,
+      explanation: 'The war began in 1936 and ended in 1939. Students who remember only the end of the war often choose 1939.',
+      tags: ['history'],
+      difficulty: 5,
       timeLimitSeconds: 24,
+    },
+    {
+      prompt: 'Who ruled Spain as dictator after the Civil War?',
+      answers: ['Francisco Franco', 'Felipe VI', 'Adolfo Suarez', 'Juan Carlos I'],
+      correctIndex: 0,
+      seductiveIndex: 1,
+      alternateDistractorIndex: 3,
+      explanation: 'Franco ruled Spain after the Civil War. Felipe VI and Juan Carlos I are monarchs from a much later period, which makes them seductive but wrong answers.',
+      tags: ['history', 'monarchy-politics'],
+      difficulty: 5,
+      timeLimitSeconds: 24,
+    },
+    {
+      prompt: 'What is the current official currency of Spain?',
+      answers: ['Peseta', 'Euro', 'Franc', 'Escudo'],
+      correctIndex: 1,
+      seductiveIndex: 0,
+      explanation: 'Spain uses the euro. The peseta is a strong distractor because it was the pre-euro currency and still sticks in memory.',
+      tags: ['economy-eu'],
+      difficulty: 2,
+      timeLimitSeconds: 18,
+    },
+    {
+      prompt: 'Which language is co-official in Catalonia alongside Spanish?',
+      answers: ['Basque', 'Galician', 'Catalan', 'Portuguese'],
+      correctIndex: 2,
+      seductiveIndex: 0,
+      alternateDistractorIndex: 1,
+      explanation: 'Catalan is co-official in Catalonia. Basque and Galician are also real regional languages in Spain, which makes them powerful misconceptions.',
+      tags: ['language-culture', 'regions'],
+      difficulty: 4,
+      timeLimitSeconds: 20,
+    },
+    {
+      prompt: 'The Guggenheim Museum is in which Spanish city?',
+      answers: ['Madrid', 'Bilbao', 'Valencia', 'Malaga'],
+      correctIndex: 1,
+      seductiveIndex: 0,
+      alternateDistractorIndex: 2,
+      explanation: 'The Guggenheim Museum is in Bilbao. Students often guess Madrid because it is the capital and the most familiar city name.',
+      tags: ['cities', 'regions'],
+      difficulty: 3,
+      timeLimitSeconds: 18,
+    },
+    {
+      prompt: 'What body of water separates Spain from Morocco?',
+      answers: ['Bay of Biscay', 'English Channel', 'Strait of Gibraltar', 'Suez Canal'],
+      correctIndex: 2,
+      seductiveIndex: 0,
+      explanation: 'Spain and Morocco are separated by the Strait of Gibraltar. Students who only remember “Spain touches the Atlantic” are often pulled toward the Bay of Biscay.',
+      tags: ['physical-geography', 'geography-core'],
+      difficulty: 4,
+      timeLimitSeconds: 22,
     },
   ];
 
   const profiles: ShowcaseStudentProfile[] = [
-    { nickname: 'Maya', mastery: 0.93, speed: 0.82, stability: 0.92, focus: 0.95, pressure: 0.12, strengths: ['hypothesis-testing', 'confidence-intervals'], weaknesses: [] },
-    { nickname: 'Noam', mastery: 0.88, speed: 0.74, stability: 0.83, focus: 0.88, pressure: 0.2, strengths: ['experimental-design', 'causal-inference'], weaknesses: ['confidence-intervals'] },
-    { nickname: 'Lior', mastery: 0.84, speed: 0.68, stability: 0.8, focus: 0.82, pressure: 0.28, strengths: ['descriptive-statistics', 'variability'], weaknesses: ['p-values'] },
-    { nickname: 'Tamar', mastery: 0.8, speed: 0.58, stability: 0.77, focus: 0.9, pressure: 0.22, strengths: ['robust-measures'], weaknesses: ['error-types'] },
-    { nickname: 'Yael', mastery: 0.78, speed: 0.72, stability: 0.66, focus: 0.72, pressure: 0.35, strengths: ['correlation'], weaknesses: ['confidence-intervals'] },
-    { nickname: 'Omer', mastery: 0.74, speed: 0.86, stability: 0.5, focus: 0.7, pressure: 0.4, strengths: ['experimental-design'], weaknesses: ['p-values', 'error-types'] },
-    { nickname: 'Dana', mastery: 0.71, speed: 0.64, stability: 0.7, focus: 0.8, pressure: 0.3, strengths: ['descriptive-statistics'], weaknesses: ['causal-inference'] },
-    { nickname: 'Eyal', mastery: 0.68, speed: 0.78, stability: 0.54, focus: 0.58, pressure: 0.44, strengths: ['variables'], weaknesses: ['confidence-intervals', 'p-values'] },
-    { nickname: 'Shira', mastery: 0.66, speed: 0.55, stability: 0.74, focus: 0.86, pressure: 0.29, strengths: ['descriptive-statistics'], weaknesses: ['experimental-design'] },
-    { nickname: 'Amit', mastery: 0.63, speed: 0.71, stability: 0.48, focus: 0.63, pressure: 0.5, strengths: ['correlation'], weaknesses: ['hypothesis-testing'] },
-    { nickname: 'Neta', mastery: 0.61, speed: 0.52, stability: 0.69, focus: 0.77, pressure: 0.34, strengths: ['variability'], weaknesses: ['confidence-intervals'] },
-    { nickname: 'Gal', mastery: 0.57, speed: 0.76, stability: 0.42, focus: 0.52, pressure: 0.56, strengths: ['variables'], weaknesses: ['p-values', 'error-types'] },
-    { nickname: 'Roni', mastery: 0.55, speed: 0.49, stability: 0.63, focus: 0.69, pressure: 0.46, strengths: ['robust-measures'], weaknesses: ['causal-inference', 'p-values'] },
-    { nickname: 'Yuval', mastery: 0.51, speed: 0.59, stability: 0.46, focus: 0.57, pressure: 0.58, strengths: ['correlation'], weaknesses: ['confidence-intervals', 'error-types'] },
-    { nickname: 'Alma', mastery: 0.47, speed: 0.44, stability: 0.38, focus: 0.48, pressure: 0.66, strengths: ['descriptive-statistics'], weaknesses: ['hypothesis-testing', 'causal-inference'] },
+    { nickname: 'Maya', mastery: 0.94, speed: 0.84, stability: 0.92, focus: 0.96, pressure: 0.12, strengths: ['history', 'monarchy-politics'], weaknesses: [] },
+    { nickname: 'Noam', mastery: 0.9, speed: 0.76, stability: 0.86, focus: 0.9, pressure: 0.18, strengths: ['geography-core', 'physical-geography'], weaknesses: ['language-culture'] },
+    { nickname: 'Lior', mastery: 0.87, speed: 0.7, stability: 0.82, focus: 0.84, pressure: 0.24, strengths: ['cities', 'regions'], weaknesses: ['history'] },
+    { nickname: 'Tamar', mastery: 0.84, speed: 0.64, stability: 0.8, focus: 0.9, pressure: 0.22, strengths: ['language-culture'], weaknesses: ['economy-eu'] },
+    { nickname: 'Yael', mastery: 0.81, speed: 0.72, stability: 0.68, focus: 0.76, pressure: 0.34, strengths: ['physical-geography'], weaknesses: ['monarchy-politics'] },
+    { nickname: 'Omer', mastery: 0.79, speed: 0.86, stability: 0.54, focus: 0.72, pressure: 0.42, strengths: ['geography-core'], weaknesses: ['history', 'economy-eu'] },
+    { nickname: 'Dana', mastery: 0.76, speed: 0.66, stability: 0.72, focus: 0.82, pressure: 0.28, strengths: ['cities'], weaknesses: ['language-culture'] },
+    { nickname: 'Eyal', mastery: 0.72, speed: 0.8, stability: 0.56, focus: 0.58, pressure: 0.48, strengths: ['monarchy-politics'], weaknesses: ['regions', 'history'] },
+    { nickname: 'Shira', mastery: 0.69, speed: 0.58, stability: 0.74, focus: 0.86, pressure: 0.31, strengths: ['language-culture'], weaknesses: ['physical-geography'] },
+    { nickname: 'Amit', mastery: 0.67, speed: 0.73, stability: 0.5, focus: 0.64, pressure: 0.52, strengths: ['cities'], weaknesses: ['history'] },
+    { nickname: 'Neta', mastery: 0.65, speed: 0.54, stability: 0.68, focus: 0.78, pressure: 0.36, strengths: ['economy-eu'], weaknesses: ['regions'] },
+    { nickname: 'Gal', mastery: 0.62, speed: 0.78, stability: 0.44, focus: 0.54, pressure: 0.58, strengths: ['geography-core'], weaknesses: ['history', 'language-culture'] },
+    { nickname: 'Roni', mastery: 0.59, speed: 0.5, stability: 0.64, focus: 0.7, pressure: 0.44, strengths: ['physical-geography'], weaknesses: ['economy-eu', 'monarchy-politics'] },
+    { nickname: 'Yuval', mastery: 0.56, speed: 0.61, stability: 0.48, focus: 0.59, pressure: 0.6, strengths: ['regions'], weaknesses: ['history', 'economy-eu'] },
+    { nickname: 'Alma', mastery: 0.53, speed: 0.46, stability: 0.4, focus: 0.5, pressure: 0.68, strengths: ['cities'], weaknesses: ['history', 'geography-core'] },
+    { nickname: 'Ido', mastery: 0.75, speed: 0.69, stability: 0.62, focus: 0.73, pressure: 0.39, strengths: ['history'], weaknesses: ['physical-geography'] },
+    { nickname: 'Hila', mastery: 0.7, speed: 0.62, stability: 0.58, focus: 0.67, pressure: 0.47, strengths: ['language-culture'], weaknesses: ['geography-core', 'cities'] },
+    { nickname: 'Tom', mastery: 0.64, speed: 0.83, stability: 0.41, focus: 0.55, pressure: 0.62, strengths: ['economy-eu'], weaknesses: ['history', 'regions'] },
+    { nickname: 'Or', mastery: 0.6, speed: 0.57, stability: 0.52, focus: 0.6, pressure: 0.54, strengths: ['physical-geography'], weaknesses: ['language-culture', 'cities'] },
+    { nickname: 'Adi', mastery: 0.58, speed: 0.48, stability: 0.43, focus: 0.52, pressure: 0.64, strengths: ['regions'], weaknesses: ['economy-eu', 'monarchy-politics'] },
   ];
 
   const packInsert = db.prepare(`
@@ -550,11 +619,11 @@ export function seedAnalyticsShowcase() {
     teacherId,
     packTitle,
     sourceText,
-    'showcase-statistical-reasoning-live-game-v1',
+    'showcase-spain-pain-v2',
     sourceText.slice(0, 320),
     'English',
     sourceText.split(/\s+/).length,
-    JSON.stringify(['hypothesis-testing', 'experimental-design', 'descriptive-statistics', 'confidence-intervals']),
+    JSON.stringify(['history', 'geography-core', 'regions', 'language-culture', 'physical-geography']),
     questions.length,
   );
   const packId = Number(packResult.lastInsertRowid);
@@ -592,6 +661,13 @@ export function seedAnalyticsShowcase() {
   const questionRows = db
     .prepare('SELECT * FROM questions WHERE quiz_pack_id = ? ORDER BY question_order ASC, id ASC')
     .all(packId) as any[];
+  const showcaseQuestionMetaById = new Map<number, ShowcaseQuestion>();
+  questionRows.forEach((row, index) => {
+    const metadata = questions[index];
+    if (metadata) {
+      showcaseQuestionMetaById.set(Number(row.id), metadata);
+    }
+  });
 
   const insertSession = db.prepare(`
     INSERT INTO sessions (
@@ -631,8 +707,15 @@ export function seedAnalyticsShowcase() {
       answer_path_json,
       focus_loss_count,
       idle_time_ms,
+      blur_time_ms,
+      longest_idle_streak_ms,
+      pointer_activity_count,
+      keyboard_activity_count,
+      touch_activity_count,
+      same_answer_reclicks,
+      option_dwell_json,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const upsertMastery = db.prepare(`
     INSERT INTO mastery (nickname, tag, score)
@@ -645,19 +728,14 @@ export function seedAnalyticsShowcase() {
   `);
 
   const baseTagScores: Record<string, number> = {
-    'descriptive-statistics': 70,
-    'robust-measures': 66,
-    'hypothesis-testing': 62,
-    'p-values': 58,
-    'experimental-design': 68,
-    'causal-inference': 60,
-    'correlation': 67,
-    'effect-interpretation': 64,
-    'error-types': 56,
-    'variability': 64,
-    'variables': 65,
-    'confidence-intervals': 54,
-    estimation: 57,
+    'geography-core': 67,
+    cities: 65,
+    'physical-geography': 63,
+    regions: 58,
+    history: 57,
+    'monarchy-politics': 54,
+    'economy-eu': 61,
+    'language-culture': 59,
   };
 
   const createSessionRun = db.transaction((config: {
@@ -685,10 +763,12 @@ export function seedAnalyticsShowcase() {
       const participantId = Number(participantResult.lastInsertRowid);
 
       questionRows.forEach((question, questionIndex) => {
+        const questionMeta = showcaseQuestionMetaById.get(Number(question.id));
         const tags = JSON.parse(question.tags_json || '[]') as string[];
         const answers = JSON.parse(question.answers_json || '[]') as string[];
         const difficulty = Number(question.difficulty || 3) / 5;
         const timeLimitMs = Number(question.time_limit_seconds || 20) * 1000;
+        const fatiguePenalty = Math.max(0, questionIndex - 5) * (0.015 + profile.pressure * 0.02);
         const tagShift = tags.reduce((accumulator, tag) => {
           if (profile.strengths.includes(tag)) return accumulator + 0.1;
           if (profile.weaknesses.includes(tag)) return accumulator - 0.18;
@@ -702,14 +782,16 @@ export function seedAnalyticsShowcase() {
           tagShift +
           variation -
           difficulty * 0.23 -
-          profile.pressure * 0.16;
-        const isCorrect = abilitySignal >= 0.5;
+          profile.pressure * 0.16 -
+          fatiguePenalty;
+        const isCorrect = abilitySignal >= 0.51;
 
         const paceRatio = numericClamp(
           0.3 +
             (1 - profile.speed) * 0.38 +
             difficulty * 0.18 +
             profile.pressure * 0.08 +
+            fatiguePenalty * 0.8 +
             (isCorrect ? -0.03 : 0.07) +
             Math.abs(variation) * 0.4,
           0.18,
@@ -727,7 +809,7 @@ export function seedAnalyticsShowcase() {
         );
         const tfiMs = Math.round(timeLimitMs * tfiRatio);
         const totalSwaps = numericClamp(
-          Math.round((1 - profile.stability) * 3 + difficulty * 2 + profile.pressure * 1.6 + (isCorrect ? 0 : 1)),
+          Math.round((1 - profile.stability) * 3 + difficulty * 2 + profile.pressure * 1.6 + fatiguePenalty * 8 + (isCorrect ? 0 : 1)),
           0,
           5,
         );
@@ -737,7 +819,7 @@ export function seedAnalyticsShowcase() {
           3,
         );
         const focusLossCount = numericClamp(
-          Math.round((1 - profile.focus) * 2.4 + (questionIndex >= 4 ? 0.4 : 0) + (profile.pressure > 0.5 ? 0.5 : 0)),
+          Math.round((1 - profile.focus) * 2.4 + (questionIndex >= 4 ? 0.4 : 0) + fatiguePenalty * 10 + (profile.pressure > 0.5 ? 0.5 : 0)),
           0,
           3,
         );
@@ -745,9 +827,52 @@ export function seedAnalyticsShowcase() {
           numericClamp(
             (1 - profile.focus) * 1800 +
               difficulty * 900 +
+              fatiguePenalty * 2600 +
               Math.max(0, totalSwaps - 1) * 260,
             80,
             4200,
+          ),
+        );
+        const blurTimeMs = Math.round(
+          numericClamp(
+            focusLossCount * 420 +
+              (1 - profile.focus) * 900 +
+              fatiguePenalty * 1800,
+            0,
+            4200,
+          ),
+        );
+        const longestIdleStreakMs = Math.round(
+          numericClamp(
+            idleTimeMs * (0.42 + profile.pressure * 0.28 + (questionIndex >= 6 ? 0.12 : 0)),
+            120,
+            3100,
+          ),
+        );
+        const pointerActivityCount = Math.round(
+          numericClamp(
+            8 + profile.speed * 8 + totalSwaps * 2 + focusLossCount + questionIndex * 0.6,
+            4,
+            28,
+          ),
+        );
+        const keyboardActivityCount = Math.round(
+          numericClamp(
+            profile.stability < 0.55 ? 1 + ((studentIndex + questionIndex) % 3) : (studentIndex + questionIndex) % 2,
+            0,
+            5,
+          ),
+        );
+        const touchActivityCount = Math.round(
+          numericClamp((studentIndex + questionIndex) % 5 === 0 ? 1 : 0, 0, 2),
+        );
+        const sameAnswerReclicks = Math.round(
+          numericClamp(
+            isCorrect && totalSwaps === 0
+              ? (profile.stability < 0.7 ? 1 : 0)
+              : Math.max(0, totalSwaps - 1),
+            0,
+            3,
           ),
         );
         const finalDecisionBufferMs = Math.round(
@@ -761,9 +886,17 @@ export function seedAnalyticsShowcase() {
           ),
         );
 
-        const chosenIndex = isCorrect
-          ? Number(question.correct_index)
-          : (Number(question.correct_index) + 1 + ((studentIndex + questionIndex) % Math.max(1, answers.length - 1))) % answers.length;
+        let chosenIndex = Number(question.correct_index);
+        if (!isCorrect) {
+          const weaknessHit = tags.some((tag) => profile.weaknesses.includes(tag));
+          if ((weaknessHit || profile.pressure > 0.44 || questionIndex >= 6) && typeof questionMeta?.seductiveIndex === 'number') {
+            chosenIndex = Number(questionMeta.seductiveIndex);
+          } else if ((studentIndex + questionIndex) % 3 === 0 && typeof questionMeta?.alternateDistractorIndex === 'number') {
+            chosenIndex = Number(questionMeta.alternateDistractorIndex);
+          } else {
+            chosenIndex = (Number(question.correct_index) + 1 + ((studentIndex + questionIndex) % Math.max(1, answers.length - 1))) % answers.length;
+          }
+        }
         const answerPath = buildShowcaseAnswerPath({
           answerCount: answers.length,
           chosenIndex,
@@ -773,6 +906,14 @@ export function seedAnalyticsShowcase() {
           tfiMs,
           finalBufferMs: finalDecisionBufferMs,
           seed: (studentIndex + 1) * 13 + (questionIndex + 1) * 7,
+        });
+        const optionDwell = buildShowcaseOptionDwell({
+          answerCount: answers.length,
+          chosenIndex,
+          correctIndex: Number(question.correct_index),
+          responseMs,
+          totalSwaps,
+          seed: (studentIndex + 2) * 19 + (questionIndex + 1) * 11,
         });
         const speedFactor = numericClamp(1 - responseMs / timeLimitMs, 0, 1);
         const scoreAwarded = isCorrect ? 1000 + Math.round(speedFactor * 1000) : 0;
@@ -804,6 +945,13 @@ export function seedAnalyticsShowcase() {
           JSON.stringify(answerPath),
           focusLossCount,
           idleTimeMs,
+          blurTimeMs,
+          longestIdleStreakMs,
+          pointerActivityCount,
+          keyboardActivityCount,
+          touchActivityCount,
+          sameAnswerReclicks,
+          JSON.stringify(optionDwell),
           answerTimestamp,
         );
       });
@@ -813,16 +961,16 @@ export function seedAnalyticsShowcase() {
   });
 
   const historicalSessionId = createSessionRun({
-    pin: '761451',
-    startedAt: '2026-02-26 09:00:00',
-    endedAt: '2026-02-26 09:18:00',
-    abilityShift: -0.08,
+    pin: '382641',
+    startedAt: '2026-03-06 10:05:00',
+    endedAt: '2026-03-06 10:26:00',
+    abilityShift: -0.04,
   });
   const mainSessionId = createSessionRun({
-    pin: '761452',
-    startedAt: '2026-03-10 10:00:00',
-    endedAt: '2026-03-10 10:20:00',
-    abilityShift: 0.03,
+    pin: '382642',
+    startedAt: '2026-03-11 09:40:00',
+    endedAt: '2026-03-11 10:03:00',
+    abilityShift: 0.05,
   });
 
   profiles.forEach((profile, studentIndex) => {
@@ -879,7 +1027,7 @@ export function seedAnalyticsShowcase() {
     packId,
     sessionId: mainSessionId,
     historicalSessionId,
-    pin: '761452',
+    pin: '382642',
     title: packTitle,
   };
 }

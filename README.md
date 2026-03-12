@@ -47,6 +47,7 @@ The system is designed to keep language-model usage narrow and deliberate:
 flowchart LR
   A["React + Vite Frontend"] --> B["Express API"]
   B --> C["SQLite (better-sqlite3)"]
+  B -. "phased migration path" .-> G["Supabase Postgres"]
   B --> D["Python behavior engine"]
   B --> E["Gemini question generation"]
   A --> F["Firebase Analytics (optional product analytics)"]
@@ -57,7 +58,7 @@ flowchart LR
 
 - Frontend: React 19, Vite, React Router, Tailwind, Motion
 - Backend: Express, TypeScript
-- Database: SQLite via `better-sqlite3`
+- Database: SQLite via `better-sqlite3`, with phased Supabase Postgres support for migration
 - Analytics engine: Python
 - Question generation: Gemini via `@google/genai`
 - Product analytics: Firebase Analytics
@@ -132,6 +133,27 @@ http://localhost:3000
 
 The SQLite database file `quizzi.db` is created automatically in the project root. Demo data and analytics showcase data are seeded on server startup.
 
+### Optional: prepare Supabase Postgres
+
+If you want to phase the backend into Supabase Postgres without breaking the existing runtime:
+
+1. Fill `DATABASE_URL` and/or `DIRECT_URL` in `.env`.
+2. Bootstrap the schema:
+
+```bash
+npm run db:bootstrap:supabase
+```
+
+3. Copy the current SQLite snapshot into Supabase:
+
+```bash
+npm run db:migrate:sqlite-to-supabase
+```
+
+4. Optional but recommended: run [`supabase/rls.sql`](supabase/rls.sql) in the Supabase SQL Editor before exposing the publishable key to browser code.
+
+The app still uses SQLite as the live source of truth today. The Supabase path is added so the database can be validated and migrated safely before a full runtime cutover.
+
 ## Environment Variables
 
 | Variable | Required | Purpose |
@@ -145,6 +167,16 @@ The SQLite database file `quizzi.db` is created automatically in the project roo
 | `VITE_FIREBASE_MESSAGING_SENDER_ID` | No | Firebase web config |
 | `VITE_FIREBASE_APP_ID` | No | Firebase web config |
 | `VITE_FIREBASE_MEASUREMENT_ID` | No | Firebase analytics measurement ID |
+| `NEXT_PUBLIC_SUPABASE_URL` | No | Supabase project URL for future client integration |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY` | No | Supabase publishable key |
+| `EXPO_PUBLIC_SUPABASE_URL` | No | Supabase project URL for the Expo client |
+| `EXPO_PUBLIC_SUPABASE_KEY` | No | Supabase publishable key for the Expo client |
+| `VITE_SUPABASE_URL` | No | Supabase URL exposed to the Vite client |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | No | Supabase publishable key exposed to the Vite client |
+| `SUPABASE_SECRET_KEY` | No | Server-only Supabase secret key for admin REST access |
+| `DATABASE_URL` | No | Pooled Supabase Postgres connection string |
+| `DIRECT_URL` | No | Direct Supabase Postgres connection string for schema and migration |
+| `SQLITE_DB_PATH` | No | Override the local SQLite file used during migration |
 
 ## Authentication
 
@@ -257,6 +289,13 @@ This makes it possible to inspect a rich “already played” classroom dashboar
 ## Verification
 
 Useful checks before pushing changes:
+
+```bash
+npm run lint
+npm run build
+npm run db:bootstrap:supabase
+npm run db:migrate:sqlite-to-supabase
+```
 
 ```bash
 npm run lint
