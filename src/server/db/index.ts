@@ -24,6 +24,9 @@ try {
   db = new Database(':memory:');
 }
 
+// Call initDb immediately to ensure tables exist before any route modules try to prepare statements
+initDb();
+
 function columnExists(table: string, column: string) {
   return db
     .prepare(`PRAGMA table_info(${table})`)

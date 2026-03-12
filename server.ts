@@ -24,7 +24,6 @@ async function startServer() {
   }));
 
   // Initialize DB
-  initDb();
   seedDemoData();
   seedAnalyticsShowcase();
   const postgresHealth = await checkPostgresHealth();
