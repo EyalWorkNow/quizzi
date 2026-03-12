@@ -67,12 +67,14 @@ async function readJsonOrThrow(response: Response) {
   return payload;
 }
 
+import { apiFetch } from './api.ts';
+
 async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit) {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
 
   try {
-    return await fetch(input, {
+    return await apiFetch(input, {
       ...init,
       signal: controller.signal,
     });
@@ -85,6 +87,7 @@ async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit) {
     window.clearTimeout(timeoutId);
   }
 }
+
 
 export function loadTeacherAuth() {
   return readAuth();
