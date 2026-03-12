@@ -129,6 +129,18 @@ function enforceTrustedOrigin(req: any, res: any) {
   const origin = String(req.headers.origin || '').trim();
   if (!origin) return true;
 
+  // In cross-origin deployments (Vercel front → Render back), the Origin header
+  // will be the Vercel domain, NOT matching x-forwarded-host (which is the Render domain).
+  // We must allow known frontend origins explicitly.
+  const TRUSTED_ORIGINS = [
+    'https://quizzi-ivory.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+  ];
+
+  if (TRUSTED_ORIGINS.includes(origin)) return true;
+
+  // Fallback: allow same-origin requests (origin matches the backend host)
   const forwardedProto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http')
     .split(',')[0]
     .trim();
@@ -138,12 +150,14 @@ function enforceTrustedOrigin(req: any, res: any) {
   if (!forwardedHost) return true;
 
   const expectedOrigin = `${forwardedProto}://${forwardedHost}`;
-  if (origin !== expectedOrigin) {
-    res.status(403).json({ error: 'Origin mismatch' });
-    return false;
-  }
+  if (origin === expectedOrigin) return true;
 
-  return true;
+  // In development, allow all origins
+  if (process.env.NODE_ENV !== 'production') return true;
+
+  console.warn(`[security] Origin mismatch: got "${origin}", expected "${expectedOrigin}" or a trusted origin`);
+  res.status(403).json({ error: 'Origin mismatch' });
+  return false;
 }
 
 function sanitizeLine(value: unknown, maxLength = 120) {
