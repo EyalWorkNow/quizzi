@@ -99,7 +99,22 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    
+    // Automatic Keep-Alive Ping for Render Free Tier Instances
+    const renderExternalUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
+    if (renderExternalUrl) {
+      console.log(`[keep-alive] Auto-ping activated for ${renderExternalUrl}`);
+      setInterval(async () => {
+        try {
+          const res = await fetch(`${renderExternalUrl}/healthz`);
+          console.log(`[keep-alive] Pinged ${renderExternalUrl}/healthz: ${res.status}`);
+        } catch (err) {
+          console.error('[keep-alive] Ping failed:', err);
+        }
+      }, 5 * 60 * 1000); // 5 minutes
+    }
   });
+
 }
 
 startServer();
