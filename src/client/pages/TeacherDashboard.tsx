@@ -26,6 +26,7 @@ import { motion } from 'motion/react';
 import { loadTeacherSettings } from '../lib/localData.ts';
 import { trackTeacherSessionLaunch } from '../lib/appAnalytics.ts';
 import { signOutTeacher } from '../lib/teacherAuth.ts';
+import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { GAME_MODES, getGameMode } from '../lib/gameModes.ts';
 
 const SORT_OPTIONS = [
@@ -108,11 +109,7 @@ export default function TeacherDashboard() {
     try {
       setLoading(true);
       setError('');
-      const response = await fetch('/api/teacher/packs');
-      if (!response.ok) {
-        throw new Error(await readApiError(response));
-      }
-      const payload = await response.json();
+      const payload = await apiFetchJson('/api/teacher/packs');
       setPacks(Array.isArray(payload) ? payload : []);
     } catch (loadError: any) {
       setError(loadError?.message || 'Failed to load your packs');
