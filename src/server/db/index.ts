@@ -24,8 +24,12 @@ try {
   db = new Database(':memory:');
 }
 
-// Call initDb immediately to ensure tables exist before any route modules try to prepare statements
-initDb();
+// Hard-initialize tables before exporting the db instance to routes
+try {
+  initDb();
+} catch (err) {
+  console.error('[db] CRITICAL initialization error:', err);
+}
 
 function columnExists(table: string, column: string) {
   return db

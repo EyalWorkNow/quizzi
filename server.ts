@@ -26,20 +26,21 @@ async function startServer() {
   // Initialize DB
   seedDemoData();
   seedAnalyticsShowcase();
-  const postgresHealth = await checkPostgresHealth();
-  const supabaseRestHealth = await checkSupabaseRestHealth();
-
-  if (postgresHealth.configured) {
-    const prefix = postgresHealth.ok ? '[supabase]' : '[supabase warning]';
-    console[postgresHealth.ok ? 'log' : 'warn'](
-      `${prefix} ${postgresHealth.message}${postgresHealth.host ? ` Host: ${postgresHealth.host}.` : ''}`,
-    );
-  }
-
-  if (supabaseRestHealth.configured) {
-    const prefix = supabaseRestHealth.ok ? '[supabase rest]' : '[supabase rest warning]';
-    console[supabaseRestHealth.ok ? 'log' : 'warn'](`${prefix} ${supabaseRestHealth.message}`);
-  }
+  // Move health checks after listen to avoid delaying port binding
+  const runHealthChecks = async () => {
+    try {
+      const postgresHealth = await checkPostgresHealth();
+      const supabaseRestHealth = await checkSupabaseRestHealth();
+      if (postgresHealth.configured) {
+        console.log(`[supabase] ${postgresHealth.message}`);
+      }
+      if (supabaseRestHealth.configured) {
+        console.log(`[supabase rest] ${supabaseRestHealth.message}`);
+      }
+    } catch (err) {
+      console.warn('[health] Background check failed:', err);
+    }
+  };
 
   app.use((req, res, next) => {
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -105,9 +106,15 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[server] QUIZZI back-end listening on 0.0.0.0:${PORT}`);
+    console.log(`[server] Production mode: ${process.env.NODE_ENV === 'production'}`);
     
+    // Start background background tasks (non-blocking)
+    runHealthChecks();
+    seedDemoData();
+    seedAnalyticsShowcase();
+
     // Automatic Keep-Alive Ping for Render Free Tier Instances
     const renderExternalUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
     if (renderExternalUrl) {
