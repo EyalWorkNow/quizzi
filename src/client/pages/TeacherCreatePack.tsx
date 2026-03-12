@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { apiFetch, apiFetchJson } from '../lib/api.ts';
 
 export default function TeacherCreatePack() {
   const navigate = useNavigate();
@@ -30,7 +31,7 @@ export default function TeacherCreatePack() {
     formData.append('file', file);
 
     try {
-      const res = await fetch('/api/extract-text', {
+      const res = await apiFetch('/api/extract-text', {
         method: 'POST',
         body: formData,
       });
@@ -60,7 +61,7 @@ export default function TeacherCreatePack() {
       setTimeout(() => setGenerationStep('Formulating questions...'), 1500);
       setTimeout(() => setGenerationStep('Crafting tricky answers...'), 3000);
 
-      const res = await fetch('/api/packs/generate', {
+      const data = await apiFetchJson('/api/packs/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -70,7 +71,6 @@ export default function TeacherCreatePack() {
           language
         })
       });
-      const data = await res.json();
       if (data.questions) {
         setQuestions(data.questions);
         setMaterialProfile(data.material_profile || materialProfile);
@@ -88,7 +88,7 @@ export default function TeacherCreatePack() {
     if (!title.trim() || questions.length === 0) return;
     setIsSaving(true);
     try {
-      const res = await fetch('/api/packs', {
+      const res = await apiFetch('/api/packs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title, source_text: sourceText, questions })

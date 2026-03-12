@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { isTeacherAuthenticated, refreshTeacherSession } from '../lib/teacherAuth.ts';
+import { apiFetchJson } from '../lib/api.ts';
 
 const CATEGORY_ICONS: Record<string, any> = {
   Math: Calculator,
@@ -40,14 +41,7 @@ const SORT_OPTIONS = [
   { id: 'lean', label: 'Lean Prompt' },
 ];
 
-async function fetchJson(url: string) {
-  const response = await fetch(url);
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(payload?.error || `Request failed for ${url}`);
-  }
-  return payload;
-}
+// Replaced by central apiFetchJson
 
 export default function Explore() {
   const navigate = useNavigate();
@@ -61,7 +55,7 @@ export default function Explore() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetchJson('/api/packs')
+    apiFetchJson('/api/packs')
       .then((data) => setPacks(Array.isArray(data) ? data : []))
       .catch((loadError: any) => setError(loadError?.message || 'Failed to load packs'))
       .finally(() => setLoading(false));

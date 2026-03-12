@@ -17,6 +17,7 @@ import {
 import { motion } from 'motion/react';
 import { loadTeacherSettings } from '../lib/localData.ts';
 import { signOutTeacher } from '../lib/teacherAuth.ts';
+import { apiFetchJson } from '../lib/api.ts';
 
 export default function TeacherReports() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -29,8 +30,7 @@ export default function TeacherReports() {
   };
 
   const loadReport = () => {
-    fetch('/api/dashboard/teacher/overview')
-      .then((res) => res.json())
+    apiFetchJson('/api/dashboard/teacher/overview')
       .then(setReport)
       .catch((error) => console.error('Failed to load teacher overview:', error));
   };

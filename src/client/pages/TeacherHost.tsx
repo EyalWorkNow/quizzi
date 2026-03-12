@@ -11,6 +11,7 @@ import {
 } from '../lib/firebaseRealtime.ts';
 import { getGameMode } from '../lib/gameModes.ts';
 import { buildSessionJoinUrl } from '../lib/joinCodes.ts';
+import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
 
 export default function TeacherHost() {
   const { pin } = useParams();
@@ -59,8 +60,7 @@ export default function TeacherHost() {
 
   useEffect(() => {
     if (!pin) return;
-    fetch(`/api/sessions/${pin}`)
-      .then(res => res.json())
+    apiFetchJson(`/api/sessions/${pin}`)
       .then(data => {
         setSessionMeta(data);
         setSessionId(data.id);
@@ -72,8 +72,7 @@ export default function TeacherHost() {
 
   useEffect(() => {
     if (!pin || !sessionId) return;
-    fetch(`/api/sessions/${pin}/participants`)
-      .then((res) => res.json())
+    apiFetchJson(`/api/sessions/${pin}/participants`)
       .then((data) => {
         const nextParticipants = data.participants || [];
         setParticipants(nextParticipants);
@@ -94,8 +93,7 @@ export default function TeacherHost() {
 
   const loadLeaderboard = () => {
     if (!sessionId) return;
-    fetch(`/api/analytics/class/${sessionId}`)
-      .then((res) => res.json())
+    apiFetchJson(`/api/analytics/class/${sessionId}`)
       .then((analytics) => {
         setLeaderboard(analytics.participants || []);
         setTeamBoard(analytics.teams || []);
@@ -209,8 +207,7 @@ export default function TeacherHost() {
 
   useEffect(() => {
     if (packId) {
-      fetch(`/api/packs/${packId}`)
-        .then(res => res.json())
+      apiFetchJson(`/api/packs/${packId}`)
         .then(data => setPack(data));
     }
   }, [packId]);
@@ -225,7 +222,7 @@ export default function TeacherHost() {
     const startEventSource = () => {
       if (cancelled || eventSource) return;
 
-      eventSource = new EventSource(`/api/sessions/${pin}/stream`);
+      eventSource = apiEventSource(`/api/sessions/${pin}/stream`);
 
       eventSource.addEventListener('PARTICIPANT_JOINED', (event) => {
         const data = JSON.parse(event.data);
@@ -341,7 +338,7 @@ export default function TeacherHost() {
   }, [pin, sessionId, packId, pack, sessionMeta, questionIndex, status]);
 
   const updateState = async (newStatus: string, index: number) => {
-    const response = await fetch(`/api/sessions/${sessionId}/state`, {
+    const response = await apiFetch(`/api/sessions/${sessionId}/state`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus, current_question_index: index })

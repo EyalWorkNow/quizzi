@@ -26,6 +26,7 @@ import {
   type TeacherClass,
 } from '../lib/localData.ts';
 import { signOutTeacher } from '../lib/teacherAuth.ts';
+import { apiFetchJson } from '../lib/api.ts';
 
 const COLOR_OPTIONS = ['bg-brand-purple', 'bg-brand-orange', 'bg-brand-yellow', 'bg-brand-dark', 'bg-white'];
 
@@ -59,8 +60,8 @@ export default function TeacherClasses() {
 
   useEffect(() => {
     setClasses(loadTeacherClasses());
-    fetch('/api/packs').then((res) => res.json()).then(setPacks);
-    fetch('/api/dashboard/teacher/overview').then((res) => res.json()).then(setOverview);
+    apiFetchJson('/api/packs').then(setPacks);
+    apiFetchJson('/api/dashboard/teacher/overview').then(setOverview);
   }, []);
 
   const subjects = useMemo(() => ['All', ...Array.from(new Set(classes.map((item) => item.subject))).filter(Boolean)], [classes]);

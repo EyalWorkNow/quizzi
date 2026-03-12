@@ -1,11 +1,11 @@
 import { loadTeacherSettings, saveTeacherSettings } from './localData.ts';
-import { getFirebaseAuth, googleProvider, signInWithPopup } from './firebase.ts';
+import { getFirebaseAuth, googleProvider, signInWithRedirect, getRedirectResult } from './firebase.ts';
 
 export const DEMO_TEACHER_EMAIL = 'mail@mail.com';
 export const DEMO_TEACHER_PASSWORD = '123123';
 
 const AUTH_KEY = 'quizzi.teacher.auth';
-const AUTH_REQUEST_TIMEOUT_MS = 8000;
+const AUTH_REQUEST_TIMEOUT_MS = 30000;
 
 export interface TeacherAuthSession {
   email: string;
@@ -188,7 +188,26 @@ export async function signInTeacherWithProvider({
   }
 
   try {
-    const result = await signInWithPopup(auth, googleProvider);
+    await signInWithRedirect(auth, googleProvider);
+    // The page will redirect. The result will be handled on return.
+    return {} as TeacherAuthSession; // Temporary return to satisfy type
+  } catch (error: any) {
+    throw error;
+  }
+}
+
+/**
+ * Handles the redirect result after coming back from Google Sign-In.
+ * This should be called in the /auth page component.
+ */
+export async function handleTeacherAuthRedirect() {
+  const auth = getFirebaseAuth();
+  if (!auth) return null;
+
+  try {
+    const result = await getRedirectResult(auth);
+    if (!result) return null;
+
     const idToken = await result.user.getIdToken();
 
     const response = await fetchWithTimeout('/api/auth/social', {
@@ -206,9 +225,7 @@ export async function signInTeacherWithProvider({
     writeAuth(payload);
     return payload;
   } catch (error: any) {
-    if (error?.code === 'auth/popup-closed-by-user') {
-      throw new Error('Sign-in popup was closed before completion.');
-    }
+    console.error('Redirect auth handling failed:', error);
     throw error;
   }
 }

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { CheckCircle, XCircle, ArrowRight, BrainCircuit, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { apiFetch, apiFetchJson } from '../lib/api.ts';
 
 const COLORS = [
   { bg: 'bg-rose-500', shadow: 'shadow-[0_8px_0_0_#be123c]' },
@@ -22,8 +23,7 @@ export default function StudentPractice() {
   const [startTime, setStartTime] = useState(0);
 
   useEffect(() => {
-    fetch(`/api/practice/${nickname}`)
-      .then(res => res.json())
+    apiFetchJson(`/api/practice/${nickname}`)
       .then(data => {
         setQuestions(data.questions || []);
         setStrategy(data.strategy || null);
@@ -39,7 +39,7 @@ export default function StudentPractice() {
     const question = questions[currentIndex];
     
     try {
-      const res = await fetch(`/api/practice/${nickname}/answer`, {
+      const data = await apiFetchJson(`/api/practice/${nickname}/answer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -48,7 +48,6 @@ export default function StudentPractice() {
           response_ms: responseMs
         })
       });
-      const data = await res.json();
       setFeedback({ ...data, chosen_index: index });
       setStatus('FEEDBACK');
     } catch (err) {

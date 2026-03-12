@@ -24,15 +24,9 @@ import {
   QuestionStatusStripChart,
   SessionHistoryTrendChart,
 } from '../components/studentDashboardCharts.tsx';
+import { apiFetchJson } from '../lib/api.ts';
 
-async function fetchJson(url: string) {
-  const response = await fetch(url);
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(payload?.error || `Request failed for ${url}`);
-  }
-  return payload;
-}
+// Replaced by central apiFetchJson
 
 export default function StudentDashboard() {
   const { nickname } = useParams();
@@ -58,8 +52,8 @@ export default function StudentDashboard() {
       setError('');
 
       const [overallResult, gameResult] = await Promise.allSettled([
-        fetchJson(`/api/analytics/student/${encodeURIComponent(nickname)}`),
-        participantId ? fetchJson(`/api/reports/student/${participantId}`) : Promise.resolve(null),
+        apiFetchJson(`/api/analytics/student/${encodeURIComponent(nickname)}`),
+        participantId ? apiFetchJson(`/api/reports/student/${participantId}`) : Promise.resolve(null),
       ]);
 
       if (cancelled) return;

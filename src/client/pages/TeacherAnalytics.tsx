@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getGameMode } from '../lib/gameModes.ts';
+import { apiFetchJson } from '../lib/api.ts';
 
 const compactNumber = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 
@@ -109,11 +110,7 @@ export default function TeacherAnalytics() {
     try {
       setLoading(true);
       setError('');
-      const response = await fetch(`/api/analytics/class/${sessionId}`);
-      if (!response.ok) {
-        throw new Error('Failed to load class analytics');
-      }
-      const payload = await response.json();
+      const payload = await apiFetchJson(`/api/analytics/class/${sessionId}`);
       setData(payload);
       setSelectedStudentId((current) => current ?? (Number(payload?.participants?.[0]?.id ?? 0) || null));
     } catch (loadError: any) {

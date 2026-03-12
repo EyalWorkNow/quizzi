@@ -18,7 +18,11 @@ export function getApiUrl(path: string): string {
   
   // In development, API_BASE is empty (Vite proxy handles it)
   // In production, API_BASE is the Render URL (e.g. https://quizzi.onrender.com)
-  return `${API_BASE}${cleanPath}`;
+  const finalUrl = `${API_BASE}${cleanPath}`;
+  if (import.meta.env.PROD) {
+    console.log(`[api] Production hit: ${finalUrl}`);
+  }
+  return finalUrl;
 }
 
 /**
@@ -50,4 +54,11 @@ export async function apiFetchJson<T = any>(input: RequestInfo | URL, init?: Req
   }
   
   return response.json();
+}
+
+/**
+ * Helper for EventSource (Server-Sent Events) that handles the base URL.
+ */
+export function apiEventSource(path: string): EventSource {
+  return new EventSource(getApiUrl(path));
 }

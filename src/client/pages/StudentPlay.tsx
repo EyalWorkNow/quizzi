@@ -10,6 +10,7 @@ import {
   publishLiveSelection,
   subscribeToStudentSessionRealtime,
 } from '../lib/firebaseRealtime.ts';
+import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
 
 const COLORS = [
   { bg: 'bg-brand-purple', text: 'text-white', border: 'border-brand-dark', shadow: 'shadow-[8px_8px_0px_0px_#1A1A1A]' },
@@ -168,14 +169,13 @@ export default function StudentPlay() {
     const startEventSource = () => {
       if (cancelled || eventSource) return;
 
-      eventSource = new EventSource(`/api/sessions/${pin}/stream`);
+      eventSource = apiEventSource(`/api/sessions/${pin}/stream`);
       eventSource.addEventListener('STATE_CHANGE', (event) => {
         applyLiveStateChange(JSON.parse(event.data));
       });
     };
 
-    fetch(`/api/sessions/${pin}`)
-      .then((res) => res.json())
+    apiFetchJson(`/api/sessions/${pin}`)
       .then((data) => setSessionMeta(data))
       .catch((error) => console.error('Failed to load session meta:', error));
 
@@ -248,7 +248,7 @@ export default function StudentPlay() {
         }
         flushHoverDwell(now);
         // Report to host
-        fetch(`/api/sessions/${pin}/focus-loss`, {
+        apiFetch(`/api/sessions/${pin}/focus-loss`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ participant_id: Number(participantId) })
@@ -348,7 +348,7 @@ export default function StudentPlay() {
     };
 
     try {
-      const response = await fetch(`/api/sessions/${pin}/answer`, {
+      const response = await apiFetch(`/api/sessions/${pin}/answer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -394,7 +394,7 @@ export default function StudentPlay() {
 
     // Broadcast selection change to host for real-time "thinking" pulse
     try {
-      fetch(`/api/sessions/${pin}/selection`, {
+      apiFetch(`/api/sessions/${pin}/selection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

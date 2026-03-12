@@ -22,6 +22,7 @@ import {
   registerTeacherWithPassword,
   signInTeacherWithPassword,
   signInTeacherWithProvider,
+  handleTeacherAuthRedirect,
   signOutTeacher,
   type TeacherAuthSession,
 } from '../lib/teacherAuth.ts';
@@ -54,13 +55,25 @@ export default function Auth() {
 
     const restoreSession = async () => {
       try {
+        // First check for redirect results (Google Sign-In return)
+        const redirectSession = await handleTeacherAuthRedirect();
+        if (redirectSession && !cancelled) {
+          completeAccess({
+            session: redirectSession,
+            successMessage: 'Signed in successfully via Google.',
+          });
+          return;
+        }
+
         const session = await refreshTeacherSession();
         if (!cancelled) {
           setExistingSession(session);
         }
-      } catch {
+      } catch (err: any) {
+        console.error('Session restoration failed:', err);
         if (!cancelled) {
           setExistingSession(null);
+          setError(err?.message || '');
         }
       } finally {
         if (!cancelled) {

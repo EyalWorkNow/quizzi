@@ -1,10 +1,10 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';
 import { getAnalytics, isSupported, logEvent, type Analytics } from 'firebase/analytics';
-import { getAuth, signInAnonymously, GoogleAuthProvider, signInWithPopup, type Auth } from 'firebase/auth';
+import { getAuth, signInAnonymously, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, type Auth } from 'firebase/auth';
 import { getDatabase, type Database } from 'firebase/database';
 
 export const googleProvider = new GoogleAuthProvider();
-export { signInWithPopup };
+export { signInWithPopup, signInWithRedirect, getRedirectResult, signOut };
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyAh6g2xKQgJBwZSzvFyD5gw2mtAMBVcstw',

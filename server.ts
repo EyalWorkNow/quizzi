@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import cors from 'cors';
 import { createServer as createViteServer } from 'vite';
 import { initDb, seedAnalyticsShowcase, seedDemoData } from './src/server/db/index.js';
 import { checkPostgresHealth } from './src/server/db/postgres.js';
@@ -13,6 +14,14 @@ async function startServer() {
   const distDir = path.resolve(process.cwd(), 'dist');
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
+
+  // Enable CORS
+  app.use(cors({
+    origin: true, // Allow all origins for now, or use req.header('Origin')
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],
+  }));
 
   // Initialize DB
   initDb();
@@ -38,7 +47,7 @@ async function startServer() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
-    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
     next();
   });
 

@@ -25,15 +25,7 @@ import {
   RevisionCategoryChart,
   SessionHistoryTrendChart,
 } from '../components/studentDashboardCharts.tsx';
-
-async function fetchJson(url: string, init?: RequestInit) {
-  const response = await fetch(url, init);
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(payload?.error || `Request failed for ${url}`);
-  }
-  return payload;
-}
+import { apiFetchJson } from '../lib/api.ts';
 
 function buildSignalComparisons(sessionAnalytics: any, overallAnalytics: any) {
   const overallSignals = new Map(
@@ -104,16 +96,16 @@ export default function TeacherStudentAnalytics() {
   const [isCreatingGame, setIsCreatingGame] = useState(false);
 
   const buildFallbackPayload = async () => {
-    const classPayload = await fetchJson(`/api/analytics/class/${sessionId}`);
+    const classPayload = await apiFetchJson(`/api/analytics/class/${sessionId}`);
     const studentSummary = classPayload?.participants?.find((row: any) => Number(row.id) === Number(participantId));
-    const reportPayload = await fetchJson(`/api/reports/student/${participantId}`);
+    const reportPayload = await apiFetchJson(`/api/reports/student/${participantId}`);
 
     const overallPayload = studentSummary?.nickname
-      ? await fetchJson(`/api/analytics/student/${encodeURIComponent(studentSummary.nickname)}`)
+      ? await apiFetchJson(`/api/analytics/student/${encodeURIComponent(studentSummary.nickname)}`)
       : null;
 
     const previewPayload = studentSummary?.nickname
-      ? await fetchJson(`/api/practice/${encodeURIComponent(studentSummary.nickname)}`).catch(() => ({
+      ? await apiFetchJson(`/api/practice/${encodeURIComponent(studentSummary.nickname)}`).catch(() => ({
           questions: [],
           strategy: null,
         }))
@@ -148,7 +140,7 @@ export default function TeacherStudentAnalytics() {
     try {
       setLoading(true);
       setError('');
-      const payload = await fetchJson(`/api/analytics/class/${sessionId}/student/${participantId}`);
+      const payload = await apiFetchJson(`/api/analytics/class/${sessionId}/student/${participantId}`);
       if (!payload?.session_vs_overall && payload?.analytics && payload?.overall_analytics) {
         payload.session_vs_overall = buildSessionComparison(payload.analytics, payload.overall_analytics);
       }
@@ -260,7 +252,7 @@ export default function TeacherStudentAnalytics() {
 
     try {
       setIsCreatingGame(true);
-      const payload = await fetchJson(`/api/analytics/class/${sessionId}/student/${participantId}/adaptive-game`, {
+      const payload = await apiFetchJson(`/api/analytics/class/${sessionId}/student/${participantId}/adaptive-game`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count: preview?.questions?.length || 5 }),
