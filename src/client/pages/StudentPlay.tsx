@@ -3,6 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { CheckCircle, XCircle, Clock, Trophy, Sparkles, Flame, Star, Zap } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'motion/react';
+import {
+  attachParticipantPresence,
+  publishAnswerProgress,
+  publishFocusAlert,
+  publishLiveSelection,
+  subscribeToStudentSessionRealtime,
+} from '../lib/firebaseRealtime.ts';
 
 const COLORS = [
   { bg: 'bg-brand-purple', text: 'text-white', border: 'border-brand-dark', shadow: 'shadow-[8px_8px_0px_0px_#1A1A1A]' },
@@ -125,18 +132,22 @@ export default function StudentPlay() {
       return;
     }
 
-    fetch(`/api/sessions/${pin}`)
-      .then((res) => res.json())
-      .then((data) => setSessionMeta(data))
-      .catch((error) => console.error('Failed to load session meta:', error));
+    let cancelled = false;
+    let realtimeCleanup: (() => void) | null = null;
+    let presenceCleanup: (() => void) | null = null;
+    let eventSource: EventSource | null = null;
 
-    const eventSource = new EventSource(`/api/sessions/${pin}/stream`);
+    const applyLiveStateChange = (data: any) => {
+      const nextStatus = data?.status || 'LOBBY';
+      setStatus(nextStatus);
+      setSessionMeta((current: any) => ({
+        ...(current || {}),
+        status: nextStatus,
+        game_type: data?.game_type || current?.game_type || savedGameType || 'classic_quiz',
+        current_question_index: Number(data?.current_question_index ?? data?.currentQuestionIndex ?? current?.current_question_index ?? 0),
+      }));
 
-    eventSource.addEventListener('STATE_CHANGE', (e) => {
-      const data = JSON.parse(e.data);
-      setStatus(data.status);
-
-      if (data.status === 'QUESTION_ACTIVE') {
+      if (nextStatus === 'QUESTION_ACTIVE') {
         setQuestion(data.question);
         setHasAnswered(false);
         setIsCorrect(null);
@@ -144,14 +155,76 @@ export default function StudentPlay() {
         setTimeLeft(data.question?.time_limit_seconds || 30);
         setCurrentSelectedAnswer(null);
         resetTelemetry();
-      } else if (data.status === 'QUESTION_REVEAL') {
+      } else if (nextStatus === 'QUESTION_REVEAL') {
+        if (data?.question) {
+          setQuestion(data.question);
+        }
         flushHoverDwell();
-      } else if (data.status === 'ENDED') {
+      } else if (nextStatus === 'ENDED') {
         navigate(`/student/dashboard/${nickname}`);
+      }
+    };
+
+    const startEventSource = () => {
+      if (cancelled || eventSource) return;
+
+      eventSource = new EventSource(`/api/sessions/${pin}/stream`);
+      eventSource.addEventListener('STATE_CHANGE', (event) => {
+        applyLiveStateChange(JSON.parse(event.data));
+      });
+    };
+
+    fetch(`/api/sessions/${pin}`)
+      .then((res) => res.json())
+      .then((data) => setSessionMeta(data))
+      .catch((error) => console.error('Failed to load session meta:', error));
+
+    void attachParticipantPresence(String(pin || ''), {
+      participantId: Number(participantId),
+      nickname,
+      teamName: teamName || null,
+      createdAt: new Date().toISOString(),
+      online: true,
+    }).then((cleanup) => {
+      if (cancelled) {
+        cleanup?.();
+        return;
+      }
+      if (cleanup) {
+        presenceCleanup = cleanup;
       }
     });
 
-    return () => eventSource.close();
+    void subscribeToStudentSessionRealtime(String(pin || ''), {
+      onMeta: (meta) => {
+        if (!meta) return;
+        applyLiveStateChange({
+          status: meta.status,
+          question: meta.question,
+          game_type: meta.gameType,
+        });
+      },
+      onError: () => {
+        startEventSource();
+      },
+    }).then((cleanup) => {
+      if (cancelled) {
+        cleanup?.();
+        return;
+      }
+      if (cleanup) {
+        realtimeCleanup = cleanup;
+      } else {
+        startEventSource();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      realtimeCleanup?.();
+      presenceCleanup?.();
+      eventSource?.close();
+    };
   }, [pin, navigate, participantId, nickname]);
 
   // Timer effect & telemetry watchers
@@ -180,6 +253,10 @@ export default function StudentPlay() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ participant_id: Number(participantId) })
         }).catch(err => console.error('Focus loss report failed:', err));
+        void publishFocusAlert(String(pin || ''), {
+          participantId: Number(participantId),
+          nickname: String(nickname || ''),
+        });
       }
     };
     const handleVisibility = () => {
@@ -271,7 +348,7 @@ export default function StudentPlay() {
     };
 
     try {
-      await fetch(`/api/sessions/${pin}/answer`, {
+      const response = await fetch(`/api/sessions/${pin}/answer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -282,6 +359,18 @@ export default function StudentPlay() {
           telemetry
         })
       });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to submit answer');
+      }
+      if (response.ok) {
+        setScore((current) => current + Number(payload?.score_awarded || 0));
+        void publishAnswerProgress(String(pin || ''), {
+          participantId: Number(participantId),
+          totalAnswers: Number(payload?.total_answers || 0),
+          expected: Number(payload?.expected || 0),
+        });
+      }
     } catch (err) {
       console.error(err);
     }
@@ -312,6 +401,11 @@ export default function StudentPlay() {
           participant_id: Number(participantId),
           chosen_index: index
         })
+      });
+      void publishLiveSelection(String(pin || ''), {
+        participantId: Number(participantId),
+        nickname: String(nickname || ''),
+        chosenIndex: index,
       });
     } catch (err) {
       console.error('Failed to broadcast selection:', err);

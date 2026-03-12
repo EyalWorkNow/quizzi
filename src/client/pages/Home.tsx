@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Sparkles, Star } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { CheckCircle2, QrCode, ScanLine, Sparkles, Star } from 'lucide-react';
 import { motion } from 'motion/react';
+import JoinScannerModal from '../components/JoinScannerModal.tsx';
 import { trackStudentJoinEvent, trackTeacherAuthEvent, toAnalyticsErrorCode } from '../lib/appAnalytics.ts';
+import { announceParticipantJoin } from '../lib/firebaseRealtime.ts';
+import { isValidSessionPin, sanitizeSessionPin } from '../lib/joinCodes.ts';
 import {
   loadTeacherAuth,
   isTeacherAuthenticated,
@@ -17,12 +20,18 @@ const HOME_NICKNAME_KEY = 'quizzi.home.nickname';
 const HOME_AVATAR_KEY = 'quizzi.home.avatar';
 
 export default function Home() {
+  const { pin: routePinParam } = useParams();
   const [pin, setPin] = useState(() => localStorage.getItem(HOME_PIN_KEY) || '');
   const [nickname, setNickname] = useState(() => localStorage.getItem(HOME_NICKNAME_KEY) || '');
   const [selectedAvatar, setSelectedAvatar] = useState(() => localStorage.getItem(HOME_AVATAR_KEY) || AVATARS[0]);
   const [error, setError] = useState('');
   const [joining, setJoining] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerSupported, setScannerSupported] = useState(false);
+  const [joinAssistMessage, setJoinAssistMessage] = useState('');
   const [teacherSignedIn, setTeacherSignedIn] = useState(() => isTeacherAuthenticated());
+  const nicknameInputRef = useRef<HTMLInputElement | null>(null);
+  const autoResolvedPinRef = useRef('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -57,14 +66,21 @@ export default function Home() {
     };
   }, []);
 
-  const handleJoin = async (e: FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    const BarcodeDetectorClass = (window as Window & { BarcodeDetector?: unknown }).BarcodeDetector;
+    setScannerSupported(Boolean(BarcodeDetectorClass && navigator.mediaDevices?.getUserMedia));
+  }, []);
+
+  const joinSession = async (nextPin = pin) => {
+    const sessionPin = sanitizeSessionPin(nextPin);
+    const trimmedNickname = nickname.trim();
+
     setError('');
-    if (pin.trim().length !== 6) {
+    if (!isValidSessionPin(sessionPin)) {
       setError('Enter a 6-digit game PIN before joining.');
       return;
     }
-    if (nickname.trim().length < 2) {
+    if (trimmedNickname.length < 2) {
       setError('Nickname must be at least 2 characters.');
       return;
     }
@@ -72,12 +88,12 @@ export default function Home() {
     setJoining(true);
     void trackStudentJoinEvent({
       result: 'attempt',
-      pinLength: pin.trim().length,
+      pinLength: sessionPin.length,
     });
 
     try {
-      const fullNickname = `${selectedAvatar} ${nickname.trim()}`;
-      const res = await fetch(`/api/sessions/${pin}/join`, {
+      const fullNickname = `${selectedAvatar} ${trimmedNickname}`;
+      const res = await fetch(`/api/sessions/${sessionPin}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nickname: fullNickname })
@@ -88,27 +104,86 @@ export default function Home() {
 
       localStorage.setItem('participant_id', data.participant_id.toString());
       localStorage.setItem('session_id', data.session_id.toString());
-      localStorage.setItem('session_pin', pin);
+      localStorage.setItem('session_pin', sessionPin);
       localStorage.setItem('nickname', fullNickname);
       if (data.team_name) localStorage.setItem('team_name', data.team_name);
       else localStorage.removeItem('team_name');
       if (data.game_type) localStorage.setItem('game_type', data.game_type);
 
+      void announceParticipantJoin(sessionPin, {
+        participantId: Number(data.participant_id),
+        nickname: fullNickname,
+        teamId: Number(data.team_id || 0),
+        teamName: data.team_name || null,
+        seatIndex: Number(data.seat_index || 0),
+        createdAt: new Date().toISOString(),
+        online: true,
+      });
+
       void trackStudentJoinEvent({
         result: 'success',
-        pinLength: pin.trim().length,
+        pinLength: sessionPin.length,
       });
-      navigate(`/student/session/${pin}/play`);
+      navigate(`/student/session/${sessionPin}/play`);
     } catch (err: any) {
       setError(err.message);
       void trackStudentJoinEvent({
         result: 'failure',
-        pinLength: pin.trim().length,
+        pinLength: sessionPin.length,
         errorCode: toAnalyticsErrorCode(err),
       });
     } finally {
       setJoining(false);
     }
+  };
+
+  useEffect(() => {
+    const routePin = sanitizeSessionPin(routePinParam || '');
+    if (!isValidSessionPin(routePin) || autoResolvedPinRef.current === routePin) {
+      return;
+    }
+
+    autoResolvedPinRef.current = routePin;
+    setPin(routePin);
+    setError('');
+
+    if (nickname.trim().length >= 2) {
+      setJoinAssistMessage(`Session ${routePin} detected from scan. Joining now...`);
+      void joinSession(routePin);
+      return;
+    }
+
+    setJoinAssistMessage(`Session ${routePin} detected from scan. Add your nickname and join.`);
+    window.setTimeout(() => {
+      nicknameInputRef.current?.focus();
+    }, 40);
+  }, [routePinParam]);
+
+  const handleJoin = async (e: FormEvent) => {
+    e.preventDefault();
+    await joinSession();
+  };
+
+  const handleDetectedPin = (detectedPin: string) => {
+    const sessionPin = sanitizeSessionPin(detectedPin);
+    if (!isValidSessionPin(sessionPin)) {
+      return;
+    }
+
+    setScannerOpen(false);
+    setPin(sessionPin);
+    setError('');
+
+    if (nickname.trim().length >= 2) {
+      setJoinAssistMessage(`Session ${sessionPin} scanned. Joining now...`);
+      void joinSession(sessionPin);
+      return;
+    }
+
+    setJoinAssistMessage(`Session ${sessionPin} scanned. Add your nickname to jump in.`);
+    window.setTimeout(() => {
+      nicknameInputRef.current?.focus();
+    }, 40);
   };
 
   const handleLogout = async () => {
@@ -180,22 +255,24 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
             onSubmit={handleJoin}
-            className="flex flex-col gap-4 max-w-2xl relative"
+            className="flex flex-col gap-4 max-w-3xl relative"
           >
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-4">
               <input
                 id="game-pin"
                 type="text"
                 placeholder="Game PIN"
                 aria-label="Enter Game PIN"
                 value={pin}
-                onChange={(e) => setPin(e.target.value.trim().toUpperCase())}
+                onChange={(e) => setPin(sanitizeSessionPin(e.target.value))}
                 maxLength={6}
                 required
-                className="flex-1 px-8 py-5 rounded-full border-2 border-brand-dark bg-white text-xl font-bold placeholder:text-brand-dark/40 focus:outline-none focus:ring-4 focus:ring-brand-orange/20 uppercase tracking-wider"
+                inputMode="numeric"
+                className="w-full min-w-0 px-8 py-5 rounded-full border-2 border-brand-dark bg-white text-xl font-bold placeholder:text-brand-dark/40 focus:outline-none focus:ring-4 focus:ring-brand-orange/20 tracking-[0.18em]"
               />
               <input
                 id="nickname"
+                ref={nicknameInputRef}
                 type="text"
                 placeholder="Nickname"
                 aria-label="Enter your nickname"
@@ -203,15 +280,50 @@ export default function Home() {
                 onChange={(e) => setNickname(e.target.value)}
                 maxLength={12}
                 required
-                className="flex-1 px-8 py-5 rounded-full border-2 border-brand-dark bg-white text-xl font-bold placeholder:text-brand-dark/40 focus:outline-none focus:ring-4 focus:ring-brand-orange/20"
+                className="w-full min-w-0 px-8 py-5 rounded-full border-2 border-brand-dark bg-white text-xl font-bold placeholder:text-brand-dark/40 focus:outline-none focus:ring-4 focus:ring-brand-orange/20"
               />
               <button
                 type="submit"
                 disabled={joining}
-                className="px-10 py-5 rounded-full bg-brand-orange text-white font-bold text-xl border-2 border-brand-dark hover:bg-[#e84d2a] transition-all shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[4px] active:translate-x-[4px]"
+                className="w-full md:w-auto px-10 py-5 rounded-full bg-brand-orange text-white font-bold text-xl border-2 border-brand-dark hover:bg-[#e84d2a] transition-all shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[4px] active:translate-x-[4px]"
               >
                 {joining ? 'Joining...' : 'Join'}
               </button>
+            </div>
+
+            <div className="flex flex-col lg:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setError('');
+                  setScannerOpen(true);
+                }}
+                className="w-full lg:w-auto px-6 py-4 rounded-[1.4rem] border-2 border-brand-dark bg-white font-black text-lg flex items-center justify-center gap-3 shadow-[4px_4px_0px_0px_#1A1A1A]"
+              >
+                <ScanLine className="w-5 h-5 text-brand-orange" />
+                Scan QR / barcode
+              </button>
+
+              <div className={`min-w-0 flex-1 rounded-[1.4rem] border-2 border-brand-dark p-4 ${joinAssistMessage ? 'bg-brand-yellow' : 'bg-white/75'}`}>
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full border-2 border-brand-dark bg-white flex items-center justify-center shrink-0">
+                    {joinAssistMessage ? <CheckCircle2 className="w-5 h-5 text-brand-orange" /> : <QrCode className="w-5 h-5 text-brand-purple" />}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-1">
+                      {joinAssistMessage ? 'Session detected' : 'Fast lane'}
+                    </p>
+                    <p className="font-black leading-snug">
+                      {joinAssistMessage || 'Skip typing the PIN. Scan the host code and we will pull the session automatically.'}
+                    </p>
+                    <p className="text-sm text-brand-dark/65 font-medium mt-1">
+                      {scannerSupported
+                        ? 'If a nickname is already saved on this device, the join can complete immediately after the scan.'
+                        : 'If in-app scanning is not available on this browser, use your device camera on the host QR and the session link will open automatically.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Avatar Selection */}
@@ -237,7 +349,7 @@ export default function Home() {
             </div>
 
             {error && (
-              <div role="alert" aria-live="single" className="absolute -bottom-14 left-0 text-red-500 font-bold bg-red-50 px-4 py-2 rounded-xl border border-red-200 shadow-sm">
+              <div role="alert" aria-live="single" className="text-red-500 font-bold bg-red-50 px-4 py-3 rounded-2xl border border-red-200 shadow-sm">
                 {error}
               </div>
             )}
@@ -317,6 +429,7 @@ export default function Home() {
           </motion.div>
         </div>
       </main>
+      <JoinScannerModal open={scannerOpen} onClose={() => setScannerOpen(false)} onDetected={handleDetectedPin} />
     </div>
   );
 }

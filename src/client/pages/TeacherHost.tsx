@@ -1,9 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Users, Play, CheckCircle, XCircle, BarChart3, ChevronRight, Sparkles, Clock, AlertTriangle, Copy, Check, BookOpen, Rocket } from 'lucide-react';
+import { Users, Play, CheckCircle, XCircle, BarChart3, ChevronRight, Sparkles, Clock, AlertTriangle, Copy, Check, BookOpen, Rocket, Link2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
+import { QRCodeSVG } from 'qrcode.react';
+import {
+  subscribeToHostedSessionRealtime,
+  syncHostedParticipants,
+  writeHostedSessionMeta,
+} from '../lib/firebaseRealtime.ts';
 import { getGameMode } from '../lib/gameModes.ts';
+import { buildSessionJoinUrl } from '../lib/joinCodes.ts';
 
 export default function TeacherHost() {
   const { pin } = useParams();
@@ -23,10 +30,14 @@ export default function TeacherHost() {
   const [studentSelections, setStudentSelections] = useState<Record<number, number>>({});
   const [focusAlerts, setFocusAlerts] = useState<Set<string>>(new Set());
   const [isPinCopied, setIsPinCopied] = useState(false);
+  const [isJoinLinkCopied, setIsJoinLinkCopied] = useState(false);
   const participantCountRef = useRef(0);
   const questionIndexRef = useRef(0);
+  const statusRef = useRef(status);
+  const focusAlertTimeoutsRef = useRef<Record<string, number>>({});
   const gameMode = getGameMode(sessionMeta?.game_type);
   const isTeamMode = gameMode.teamBased;
+  const joinUrl = pin && typeof window !== 'undefined' ? buildSessionJoinUrl(pin, window.location.origin) : '';
   const groupedParticipants = participants.reduce((groups: Record<string, any[]>, participant: any) => {
     const key = participant.team_name || 'Solo';
     groups[key] = groups[key] || [];
@@ -41,6 +52,10 @@ export default function TeacherHost() {
   useEffect(() => {
     questionIndexRef.current = questionIndex;
   }, [questionIndex]);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   useEffect(() => {
     if (!pin) return;
@@ -60,93 +75,243 @@ export default function TeacherHost() {
     fetch(`/api/sessions/${pin}/participants`)
       .then((res) => res.json())
       .then((data) => {
-        setParticipants(data.participants || []);
+        const nextParticipants = data.participants || [];
+        setParticipants(nextParticipants);
+        void syncHostedParticipants(
+          pin,
+          nextParticipants.map((participant: any) => ({
+            participantId: Number(participant.id || participant.participantId || 0),
+            nickname: participant.nickname || '',
+            teamId: Number(participant.team_id || participant.teamId || 0),
+            teamName: participant.team_name || participant.teamName || null,
+            seatIndex: Number(participant.seat_index || participant.seatIndex || 0),
+            createdAt: participant.created_at || participant.createdAt || null,
+            online: true,
+          })),
+        );
       });
   }, [pin, sessionId]);
 
+  const loadLeaderboard = () => {
+    if (!sessionId) return;
+    fetch(`/api/analytics/class/${sessionId}`)
+      .then((res) => res.json())
+      .then((analytics) => {
+        setLeaderboard(analytics.participants || []);
+        setTeamBoard(analytics.teams || []);
+      })
+      .catch(() => {});
+  };
+
+  const queueFocusAlert = (nickname?: string) => {
+    if (!nickname) return;
+
+    const existingTimeout = focusAlertTimeoutsRef.current[nickname];
+    if (existingTimeout) {
+      window.clearTimeout(existingTimeout);
+    }
+
+    setFocusAlerts((prev) => {
+      const next = new Set(prev);
+      next.add(nickname);
+      return next;
+    });
+
+    focusAlertTimeoutsRef.current[nickname] = window.setTimeout(() => {
+      setFocusAlerts((prev) => {
+        const next = new Set(prev);
+        next.delete(nickname);
+        return next;
+      });
+      delete focusAlertTimeoutsRef.current[nickname];
+    }, 5000);
+  };
+
+  const handleParticipantJoined = (data: any) => {
+    setParticipants((prev) =>
+      prev.some((participant) => Number(participant.id) === Number(data.participant_id) || participant.nickname === data.nickname)
+        ? prev
+        : [
+            ...prev,
+            {
+              id: data.participant_id,
+              nickname: data.nickname,
+              team_id: data.team_id,
+              team_name: data.team_name,
+              seat_index: data.seat_index,
+              online: true,
+            },
+          ],
+    );
+  };
+
+  const handleLiveStateChange = (data: any) => {
+    const nextStatus = data?.status || 'LOBBY';
+    const nextQuestionIndex = Number(data?.current_question_index ?? data?.currentQuestionIndex ?? 0);
+    const nextGameType = data?.game_type || data?.gameType;
+    const nextTeamCount = data?.team_count ?? data?.teamCount;
+
+    setStatus(nextStatus);
+    setQuestionIndex(nextQuestionIndex);
+    setSessionMeta((current: any) => {
+      if (!current) return current;
+      const resolved = {
+        ...current,
+        status: nextStatus,
+        current_question_index: nextQuestionIndex,
+        game_type: nextGameType || current.game_type,
+        team_count: nextTeamCount ?? current.team_count,
+      };
+      if (
+        current.status === resolved.status &&
+        Number(current.current_question_index || 0) === Number(resolved.current_question_index || 0) &&
+        current.game_type === resolved.game_type &&
+        Number(current.team_count || 0) === Number(resolved.team_count || 0)
+      ) {
+        return current;
+      }
+      return {
+        ...resolved,
+      };
+    });
+
+    if (nextStatus === 'QUESTION_ACTIVE' || nextStatus === 'LOBBY') {
+      setTotalAnswers(0);
+      setStudentSelections({});
+      setFocusAlerts(new Set());
+    } else if (nextStatus === 'LEADERBOARD' && statusRef.current !== 'LEADERBOARD') {
+      loadLeaderboard();
+    }
+  };
+
+  const buildRealtimeQuestionPayload = (nextStatus: string, index: number) => {
+    const question = pack?.questions?.[index];
+    if (!question || (nextStatus !== 'QUESTION_ACTIVE' && nextStatus !== 'QUESTION_REVEAL')) {
+      return null;
+    }
+
+    const answers =
+      Array.isArray(question.answers) ? question.answers : JSON.parse(question.answers_json || '[]');
+    const payload = {
+      id: question.id,
+      prompt: question.prompt,
+      answers,
+      time_limit_seconds: Number(question.time_limit_seconds || 30),
+    } as Record<string, unknown>;
+
+    if (nextStatus !== 'QUESTION_ACTIVE') {
+      payload.correct_index = question.correct_index;
+      payload.explanation = question.explanation;
+    }
+
+    return payload;
+  };
+
   useEffect(() => {
-    // Fetch pack details to know questions
     if (packId) {
       fetch(`/api/packs/${packId}`)
         .then(res => res.json())
         .then(data => setPack(data));
     }
+  }, [packId]);
 
-    if (!sessionId) return;
+  useEffect(() => {
+    if (!pin || !sessionId) return;
 
-    const eventSource = new EventSource(`/api/sessions/${pin}/stream`);
+    let cancelled = false;
+    let eventSource: EventSource | null = null;
+    let realtimeCleanup: (() => void) | null = null;
 
-    eventSource.addEventListener('PARTICIPANT_JOINED', (e) => {
-      const data = JSON.parse(e.data);
-      setParticipants(prev =>
-        prev.some((participant) => Number(participant.id) === Number(data.participant_id) || participant.nickname === data.nickname)
-          ? prev
-          : [
-              ...prev,
-              {
-                id: data.participant_id,
-                nickname: data.nickname,
-                team_id: data.team_id,
-                team_name: data.team_name,
-              },
-            ],
-      );
-    });
+    const startEventSource = () => {
+      if (cancelled || eventSource) return;
 
-    eventSource.addEventListener('STATE_CHANGE', (e) => {
-      const data = JSON.parse(e.data);
-      setStatus(data.status);
-      setQuestionIndex(data.current_question_index);
-      if (data.status === 'QUESTION_ACTIVE') {
-        setTotalAnswers(0);
-        setStudentSelections({});
-        setFocusAlerts(new Set());
-      } else if (data.status === 'LEADERBOARD') {
-        fetch(`/api/analytics/class/${sessionId}`)
-          .then(res => res.json())
-          .then(analytics => {
-            setLeaderboard(analytics.participants || []);
-            setTeamBoard(analytics.teams || []);
-          });
-      }
-    });
+      eventSource = new EventSource(`/api/sessions/${pin}/stream`);
 
-    eventSource.addEventListener('SELECTION_CHANGE', (e) => {
-      const data = JSON.parse(e.data);
-      setStudentSelections(prev => ({
-        ...prev,
-        [data.participant_id]: data.chosen_index
-      }));
-    });
-
-    eventSource.addEventListener('FOCUS_LOST', (e) => {
-      const data = JSON.parse(e.data);
-      const nickname = data.nickname;
-      setFocusAlerts(prev => {
-        const next = new Set(prev);
-        next.add(nickname);
-        return next;
+      eventSource.addEventListener('PARTICIPANT_JOINED', (event) => {
+        const data = JSON.parse(event.data);
+        handleParticipantJoined(data);
       });
-      // Auto-remove alert after 5 seconds
-      setTimeout(() => {
-        setFocusAlerts(prev => {
-          const next = new Set(prev);
-          next.delete(nickname);
-          return next;
-        });
-      }, 5000);
-    });
 
-    eventSource.addEventListener('ANSWER_RECEIVED', (e) => {
-      const data = JSON.parse(e.data);
-      setTotalAnswers(data.total_answers);
-      // Auto-advance if everyone answered
-      if (data.total_answers >= participantCountRef.current && participantCountRef.current > 0) {
-        updateState('QUESTION_REVEAL', questionIndexRef.current);
+      eventSource.addEventListener('STATE_CHANGE', (event) => {
+        handleLiveStateChange(JSON.parse(event.data));
+      });
+
+      eventSource.addEventListener('SELECTION_CHANGE', (event) => {
+        const data = JSON.parse(event.data);
+        setStudentSelections((prev) => ({
+          ...prev,
+          [data.participant_id]: data.chosen_index,
+        }));
+      });
+
+      eventSource.addEventListener('FOCUS_LOST', (event) => {
+        const data = JSON.parse(event.data);
+        queueFocusAlert(data.nickname);
+      });
+
+      eventSource.addEventListener('ANSWER_RECEIVED', (event) => {
+        const data = JSON.parse(event.data);
+        setTotalAnswers(data.total_answers);
+        if (data.total_answers >= participantCountRef.current && participantCountRef.current > 0) {
+          void updateState('QUESTION_REVEAL', questionIndexRef.current);
+        }
+      });
+    };
+
+    void subscribeToHostedSessionRealtime(pin, {
+      onMeta: (meta) => {
+        if (!meta) return;
+        handleLiveStateChange(meta);
+      },
+      onParticipants: (realtimeParticipants) => {
+        if (!realtimeParticipants.length) return;
+        setParticipants(
+          realtimeParticipants.map((participant) => ({
+            id: participant.participantId,
+            nickname: participant.nickname,
+            team_id: participant.teamId,
+            team_name: participant.teamName,
+            seat_index: participant.seatIndex,
+            created_at: participant.createdAt,
+            online: participant.online,
+          })),
+        );
+      },
+      onSelections: (selections) => {
+        setStudentSelections(selections);
+      },
+      onFocusAlerts: (alerts) => {
+        alerts.forEach((alert) => queueFocusAlert(alert.nickname));
+      },
+      onAnswerProgress: ({ totalAnswers: nextTotalAnswers }) => {
+        setTotalAnswers(nextTotalAnswers);
+        if (nextTotalAnswers >= participantCountRef.current && participantCountRef.current > 0) {
+          void updateState('QUESTION_REVEAL', questionIndexRef.current);
+        }
+      },
+      onError: () => {
+        startEventSource();
+      },
+    }).then((cleanup) => {
+      if (cancelled) {
+        cleanup?.();
+        return;
+      }
+
+      if (cleanup) {
+        realtimeCleanup = cleanup;
+      } else {
+        startEventSource();
       }
     });
 
-    return () => eventSource.close();
+    return () => {
+      cancelled = true;
+      realtimeCleanup?.();
+      eventSource?.close();
+      (Object.values(focusAlertTimeoutsRef.current) as number[]).forEach((timeoutId) => window.clearTimeout(timeoutId));
+      focusAlertTimeoutsRef.current = {};
+    };
   }, [pin, sessionId]);
 
   useEffect(() => {
@@ -159,11 +324,42 @@ export default function TeacherHost() {
     });
   }, [status]);
 
+  useEffect(() => {
+    if (!pin || !sessionId || !sessionMeta) return;
+
+    void writeHostedSessionMeta(pin, {
+      sessionId: Number(sessionId),
+      quizPackId: Number(packId || sessionMeta?.quiz_pack_id || 0),
+      packTitle: pack?.title || sessionMeta?.pack_title || '',
+      gameType: sessionMeta?.game_type || 'classic_quiz',
+      teamCount: Number(sessionMeta?.team_count || 0),
+      status: sessionMeta?.status || status,
+      currentQuestionIndex: Number(sessionMeta?.current_question_index ?? questionIndex),
+      question: buildRealtimeQuestionPayload(sessionMeta?.status || status, Number(sessionMeta?.current_question_index ?? questionIndex)),
+      expectedParticipants: participantCountRef.current,
+    });
+  }, [pin, sessionId, packId, pack, sessionMeta, questionIndex, status]);
+
   const updateState = async (newStatus: string, index: number) => {
-    await fetch(`/api/sessions/${sessionId}/state`, {
+    const response = await fetch(`/api/sessions/${sessionId}/state`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus, current_question_index: index })
+    });
+    if (!response.ok) {
+      return;
+    }
+
+    void writeHostedSessionMeta(String(pin || ''), {
+      sessionId: Number(sessionId || 0),
+      quizPackId: Number(packId || sessionMeta?.quiz_pack_id || 0),
+      packTitle: pack?.title || sessionMeta?.pack_title || '',
+      gameType: sessionMeta?.game_type || 'classic_quiz',
+      teamCount: Number(sessionMeta?.team_count || 0),
+      status: newStatus,
+      currentQuestionIndex: index,
+      question: buildRealtimeQuestionPayload(newStatus, index),
+      expectedParticipants: participantCountRef.current,
     });
   };
 
@@ -175,6 +371,20 @@ export default function TeacherHost() {
       setTimeout(() => setIsPinCopied(false), 1800);
     } catch {
       setIsPinCopied(false);
+    }
+  };
+
+  const copyJoinLink = async () => {
+    if (!joinUrl) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(joinUrl);
+      setIsJoinLinkCopied(true);
+      setTimeout(() => setIsJoinLinkCopied(false), 1800);
+    } catch {
+      setIsJoinLinkCopied(false);
     }
   };
 
@@ -227,17 +437,27 @@ export default function TeacherHost() {
                   <div className="bg-white rounded-[2.2rem] border-4 border-brand-dark p-6 text-brand-dark mb-6">
                     <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
                       <div>
-                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Join with this PIN</p>
-                        <p className="font-bold text-brand-dark/60">The code strip stays horizontal and centered so the class can read it instantly.</p>
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Join with PIN or scan</p>
+                        <p className="font-bold text-brand-dark/60">Students can still type the code, but the QR path now opens the room automatically on their device.</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={copyPin}
-                        className="px-4 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark font-black text-sm flex items-center gap-2"
-                      >
-                        {isPinCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                        {isPinCopied ? 'Copied' : 'Copy PIN'}
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={copyPin}
+                          className="px-4 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark font-black text-sm flex items-center gap-2"
+                        >
+                          {isPinCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                          {isPinCopied ? 'Copied' : 'Copy PIN'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={copyJoinLink}
+                          className="px-4 py-2 rounded-full bg-white border-2 border-brand-dark font-black text-sm flex items-center gap-2"
+                        >
+                          {isJoinLinkCopied ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
+                          {isJoinLinkCopied ? 'Link copied' : 'Copy join link'}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="rounded-[1.8rem] border-2 border-brand-dark bg-brand-bg p-4 sm:p-5 mb-5 overflow-hidden">
@@ -253,21 +473,22 @@ export default function TeacherHost() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_220px] gap-4 items-stretch">
+                    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_260px] gap-4 items-stretch">
                       <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
                         <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-3">Student join flow</p>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          <JoinStep title="1. Open" body="Students open the homepage." />
-                          <JoinStep title="2. Identify" body="They enter a nickname and PIN." />
-                          <JoinStep title="3. Wait" body="They appear live in the lobby." />
+                          <JoinStep title="1. Scan" body="Students scan the host QR or open the join link." />
+                          <JoinStep title="2. Identify" body="The room PIN is filled automatically, then they add a nickname if needed." />
+                          <JoinStep title="3. Wait" body="They appear in the lobby as soon as the join completes." />
                         </div>
                       </div>
-                      <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-yellow p-4 flex flex-col justify-between">
-                        <div>
-                          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/60 mb-2">Join URL</p>
-                          <p className="text-3xl font-black leading-none">quizzi.app</p>
+                      <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-yellow p-4 flex flex-col items-center text-center">
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/60 mb-3">Scan to join</p>
+                        <div className="rounded-[1.25rem] border-2 border-brand-dark bg-white p-3 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                          <QRCodeSVG value={joinUrl || String(pin || '')} size={152} level="M" includeMargin />
                         </div>
-                        <p className="font-bold text-brand-dark/65 mt-3">Keep this visible while the room fills.</p>
+                        <p className="font-black text-sm mt-4 break-all">{joinUrl || 'Join link loading...'}</p>
+                        <p className="font-bold text-brand-dark/65 mt-2">Students land directly in the right session instead of typing the PIN by hand.</p>
                       </div>
                     </div>
                   </div>

@@ -41,6 +41,7 @@ export default function App() {
         <RouteAnalytics />
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/join/:pin" element={<Home />} />
           <Route path="/explore" element={<Explore />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/auth" element={<Auth />} />

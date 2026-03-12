@@ -1,0 +1,12 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "quizziSessions": {
+      "$pin": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    }
+  }
+}

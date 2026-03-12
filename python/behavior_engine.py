@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
 from math import ceil, log, sqrt
 from typing import Any
@@ -364,6 +364,396 @@ def summarize_decision_path(
         "pace_label": classify_pace(response_ms, time_limit_seconds),
         "commit_style": classify_commit(commit_window_ms),
     }
+
+
+def option_label(index: int) -> str:
+    if index < 0:
+        return "?"
+    if index < 26:
+        return chr(65 + index)
+    return str(index + 1)
+
+
+def option_text(question: dict[str, Any], index: int) -> str:
+    answers = question.get("answers") or []
+    if 0 <= index < len(answers):
+        text = str(answers[index]).strip()
+        if text:
+            return text
+    return f"Option {option_label(index)}"
+
+
+def revision_outcome_label(outcome_id: str) -> str:
+    labels = {
+        "correct_locked_in": "Correct locked in",
+        "correct_verified": "Correct verified",
+        "correct_to_incorrect": "Correct to incorrect",
+        "incorrect_to_correct": "Incorrect to correct",
+        "incorrect_to_incorrect": "Incorrect to incorrect",
+    }
+    return labels.get(outcome_id, outcome_id.replace("_", " ").title())
+
+
+def analyze_choice_journey(
+    answer: dict[str, Any],
+    question: dict[str, Any],
+    log: dict[str, Any] | None,
+) -> dict[str, Any]:
+    decision_path = summarize_decision_path(
+        response_ms=answer["response_ms"],
+        time_limit_seconds=question["time_limit_seconds"],
+        log=log,
+    )
+    path = decision_path["path"]
+    final_index = answer["chosen_index"] if answer["chosen_index"] >= 0 else (path[-1]["index"] if path else -1)
+    first_index = path[0]["index"] if path else final_index
+    correct_index = question["correct_index"]
+    first_correct = first_index == correct_index if first_index >= 0 else False
+    final_correct = final_index == correct_index if final_index >= 0 else answer["is_correct"]
+    changed_answer = bool(path) and any(item["index"] != path[0]["index"] for item in path[1:])
+
+    first_touch_final_ms: int | None = None
+    final_option_touch_count = 0
+    for item in path:
+        if item["index"] == final_index:
+            final_option_touch_count += 1
+            if first_touch_final_ms is None:
+                first_touch_final_ms = item["timestamp"]
+
+    fallback_commit_window_ms = (
+        as_int(log.get("final_decision_buffer_ms")) if log else decision_path["commit_window_ms"]
+    )
+    if first_touch_final_ms is None:
+        first_touch_final_ms = max(0, answer["response_ms"] - fallback_commit_window_ms)
+
+    commitment_latency_ms = max(0, answer["response_ms"] - first_touch_final_ms)
+    verification_behavior = (
+        first_correct
+        and final_correct
+        and (
+            changed_answer
+            or final_option_touch_count > 1
+            or (log and as_int(log.get("same_answer_reclicks")) > 0)
+            or commitment_latency_ms >= 1800
+        )
+    )
+
+    if first_correct and not final_correct:
+        revision_outcome = "correct_to_incorrect"
+    elif not first_correct and final_correct:
+        revision_outcome = "incorrect_to_correct"
+    elif not first_correct and not final_correct:
+        revision_outcome = "incorrect_to_incorrect"
+    elif verification_behavior:
+        revision_outcome = "correct_verified"
+    else:
+        revision_outcome = "correct_locked_in"
+
+    deadline_buffer_ms = decision_path["deadline_buffer_ms"]
+    under_time_pressure = deadline_buffer_ms <= 5000 or (log and as_int(log.get("panic_swaps")) > 0)
+    deadline_dependent = deadline_buffer_ms <= 1000
+
+    return {
+        "first_choice_index": first_index,
+        "first_choice_label": option_label(first_index),
+        "first_choice_text": option_text(question, first_index),
+        "first_choice_correct": first_correct,
+        "final_choice_index": final_index,
+        "final_choice_label": option_label(final_index),
+        "final_choice_text": option_text(question, final_index),
+        "final_choice_correct": final_correct,
+        "first_touch_final_ms": first_touch_final_ms,
+        "commitment_latency_ms": commitment_latency_ms,
+        "changed_answer": changed_answer,
+        "final_option_touch_count": final_option_touch_count,
+        "verification_behavior": verification_behavior,
+        "revision_outcome": revision_outcome,
+        "revision_outcome_label": revision_outcome_label(revision_outcome),
+        "under_time_pressure": bool(under_time_pressure),
+        "deadline_dependent": bool(deadline_dependent),
+    }
+
+
+def build_revision_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total = len(rows)
+    counter = Counter(str(row.get("revision_outcome", "")) for row in rows if row.get("revision_outcome"))
+    categories = []
+    for outcome_id in (
+        "incorrect_to_correct",
+        "correct_to_incorrect",
+        "incorrect_to_incorrect",
+        "correct_verified",
+        "correct_locked_in",
+    ):
+        count = counter.get(outcome_id, 0)
+        categories.append(
+            {
+                "id": outcome_id,
+                "label": revision_outcome_label(outcome_id),
+                "count": count,
+                "rate": round(pct(count, total), 1),
+            }
+        )
+
+    first_choice_correct_count = sum(1 for row in rows if as_bool(row.get("first_choice_correct")))
+    corrected_after_wrong = counter.get("incorrect_to_correct", 0)
+    changed_away_from_correct = counter.get("correct_to_incorrect", 0)
+    stayed_wrong = counter.get("incorrect_to_incorrect", 0)
+    verified_correct = counter.get("correct_verified", 0)
+
+    return {
+        "total": total,
+        "first_choice_correct_count": first_choice_correct_count,
+        "first_choice_correct_rate": round(pct(first_choice_correct_count, total), 1),
+        "corrected_after_wrong_count": corrected_after_wrong,
+        "corrected_after_wrong_rate": round(pct(corrected_after_wrong, total), 1),
+        "changed_away_from_correct_count": changed_away_from_correct,
+        "changed_away_from_correct_rate": round(pct(changed_away_from_correct, total), 1),
+        "stayed_wrong_count": stayed_wrong,
+        "stayed_wrong_rate": round(pct(stayed_wrong, total), 1),
+        "verified_correct_count": verified_correct,
+        "verified_correct_rate": round(pct(verified_correct, total), 1),
+        "categories": categories,
+    }
+
+
+def build_deadline_profile(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total = len(rows)
+    last_second_rows = [row for row in rows if as_int(row.get("deadline_buffer_ms")) <= 1000]
+    pressure_rows = [row for row in rows if as_bool(row.get("under_time_pressure"))]
+    correct_rows = [row for row in rows if as_bool(row.get("is_correct"))]
+    incorrect_rows = [row for row in rows if not as_bool(row.get("is_correct"))]
+
+    last_second_correct = sum(1 for row in last_second_rows if as_bool(row.get("is_correct")))
+    last_second_incorrect = len(last_second_rows) - last_second_correct
+    errors_under_pressure = sum(1 for row in incorrect_rows if as_bool(row.get("under_time_pressure")))
+    correct_under_pressure = sum(1 for row in correct_rows if as_bool(row.get("under_time_pressure")))
+
+    return {
+        "total": total,
+        "pressure_count": len(pressure_rows),
+        "pressure_rate": round(pct(len(pressure_rows), total), 1),
+        "last_second_count": len(last_second_rows),
+        "last_second_rate": round(pct(len(last_second_rows), total), 1),
+        "last_second_correct_count": last_second_correct,
+        "last_second_correct_rate": round(pct(last_second_correct, len(correct_rows)), 1),
+        "last_second_error_count": last_second_incorrect,
+        "last_second_error_rate": round(pct(last_second_incorrect, len(incorrect_rows)), 1),
+        "correct_under_pressure_count": correct_under_pressure,
+        "correct_under_pressure_rate": round(pct(correct_under_pressure, len(correct_rows)), 1),
+        "errors_under_pressure_count": errors_under_pressure,
+        "errors_under_pressure_rate": round(pct(errors_under_pressure, len(incorrect_rows)), 1),
+    }
+
+
+def build_fatigue_drift(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    ordered_rows = sorted(
+        rows,
+        key=lambda row: (as_int(row.get("session_id")), as_int(row.get("question_index"))),
+    )
+    if not ordered_rows:
+        return {
+            "direction": "flat",
+            "headline": "No session drift yet.",
+            "body": "There are not enough answered questions to estimate fatigue drift.",
+            "early_accuracy": 0.0,
+            "late_accuracy": 0.0,
+            "accuracy_delta": 0.0,
+            "early_response_ms": 0.0,
+            "late_response_ms": 0.0,
+            "response_delta_ms": 0.0,
+            "early_volatility": 0.0,
+            "late_volatility": 0.0,
+            "volatility_delta": 0.0,
+        }
+
+    midpoint = max(1, len(ordered_rows) // 2)
+    early = ordered_rows[:midpoint]
+    late = ordered_rows[midpoint:] or ordered_rows[-midpoint:]
+    early_accuracy = round(pct(sum(1 for row in early if as_bool(row.get("is_correct"))), len(early)), 1)
+    late_accuracy = round(pct(sum(1 for row in late if as_bool(row.get("is_correct"))), len(late)), 1)
+    early_response_ms = round(avg([as_int(row.get("response_ms")) for row in early]), 1)
+    late_response_ms = round(avg([as_int(row.get("response_ms")) for row in late]), 1)
+    early_volatility = round(avg([as_float(row.get("decision_volatility")) for row in early]), 1)
+    late_volatility = round(avg([as_float(row.get("decision_volatility")) for row in late]), 1)
+    accuracy_delta = round(late_accuracy - early_accuracy, 1)
+    response_delta_ms = round(late_response_ms - early_response_ms, 1)
+    volatility_delta = round(late_volatility - early_volatility, 1)
+
+    if accuracy_delta <= -12 and (response_delta_ms >= 800 or volatility_delta >= 10):
+        direction = "fatigue"
+        headline = "Performance faded in the back half."
+        body = "Later questions were less accurate and more effortful, which is consistent with fatigue or overload."
+    elif accuracy_delta >= 12 and volatility_delta <= 0:
+        direction = "settling_in"
+        headline = "Performance improved as the session progressed."
+        body = "The later half was more accurate without a matching volatility spike, suggesting the learner settled in."
+    elif volatility_delta <= -12 and accuracy_delta >= -5:
+        direction = "stabilizing"
+        headline = "Decision-making became more stable over time."
+        body = "Later questions showed calmer commitment patterns even without a large accuracy jump."
+    else:
+        direction = "flat"
+        headline = "No strong fatigue drift emerged."
+        body = "Accuracy, pace, and volatility stayed within a relatively narrow band across the session."
+
+    return {
+        "direction": direction,
+        "headline": headline,
+        "body": body,
+        "early_accuracy": early_accuracy,
+        "late_accuracy": late_accuracy,
+        "accuracy_delta": accuracy_delta,
+        "early_response_ms": early_response_ms,
+        "late_response_ms": late_response_ms,
+        "response_delta_ms": response_delta_ms,
+        "early_volatility": early_volatility,
+        "late_volatility": late_volatility,
+        "volatility_delta": volatility_delta,
+    }
+
+
+def build_recovery_profile(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    ordered_rows = sorted(
+        rows,
+        key=lambda row: (as_int(row.get("session_id")), as_int(row.get("question_index"))),
+    )
+    misses = [index for index, row in enumerate(ordered_rows[:-1]) if not as_bool(row.get("is_correct"))]
+    if not misses:
+        return {
+            "total_followups": 0,
+            "recovered_count": 0,
+            "continued_error_count": 0,
+            "impulsive_after_error_count": 0,
+            "hesitant_after_error_count": 0,
+            "recovery_rate": 100.0,
+            "dominant_pattern": "No misses",
+        }
+
+    response_baseline = max(1.0, percentile([as_int(row.get("response_ms")) for row in ordered_rows], 0.5))
+    commit_baseline = max(
+        1.0,
+        percentile([as_int(row.get("commitment_latency_ms")) for row in ordered_rows], 0.5),
+    )
+    counts = Counter()
+    for miss_index in misses:
+        next_row = ordered_rows[miss_index + 1]
+        if as_bool(next_row.get("is_correct")):
+            counts["recovered"] += 1
+        elif as_int(next_row.get("response_ms")) <= response_baseline * 0.75:
+            counts["impulsive_after_error"] += 1
+        elif (
+            as_int(next_row.get("response_ms")) >= response_baseline * 1.35
+            or as_int(next_row.get("commitment_latency_ms")) >= commit_baseline * 1.35
+        ):
+            counts["hesitant_after_error"] += 1
+        else:
+            counts["continued_error"] += 1
+
+    total_followups = sum(counts.values())
+    dominant_pattern_id = counts.most_common(1)[0][0] if counts else "continued_error"
+    dominant_labels = {
+        "recovered": "Recovers well",
+        "continued_error": "Carries the error forward",
+        "impulsive_after_error": "Gets impulsive after misses",
+        "hesitant_after_error": "Gets hesitant after misses",
+    }
+    return {
+        "total_followups": total_followups,
+        "recovered_count": counts.get("recovered", 0),
+        "continued_error_count": counts.get("continued_error", 0),
+        "impulsive_after_error_count": counts.get("impulsive_after_error", 0),
+        "hesitant_after_error_count": counts.get("hesitant_after_error", 0),
+        "recovery_rate": round(pct(counts.get("recovered", 0), total_followups), 1),
+        "dominant_pattern": dominant_labels.get(dominant_pattern_id, dominant_pattern_id.replace("_", " ").title()),
+    }
+
+
+def combine_recovery_profiles(profiles: list[dict[str, Any]]) -> dict[str, Any]:
+    total_followups = sum(as_int(profile.get("total_followups")) for profile in profiles)
+    recovered_count = sum(as_int(profile.get("recovered_count")) for profile in profiles)
+    continued_error_count = sum(as_int(profile.get("continued_error_count")) for profile in profiles)
+    impulsive_after_error_count = sum(as_int(profile.get("impulsive_after_error_count")) for profile in profiles)
+    hesitant_after_error_count = sum(as_int(profile.get("hesitant_after_error_count")) for profile in profiles)
+    counts = {
+        "Recovers well": recovered_count,
+        "Carries the error forward": continued_error_count,
+        "Gets impulsive after misses": impulsive_after_error_count,
+        "Gets hesitant after misses": hesitant_after_error_count,
+    }
+    dominant_pattern = max(counts.items(), key=lambda item: item[1])[0] if total_followups else "No misses"
+    return {
+        "total_followups": total_followups,
+        "recovered_count": recovered_count,
+        "continued_error_count": continued_error_count,
+        "impulsive_after_error_count": impulsive_after_error_count,
+        "hesitant_after_error_count": hesitant_after_error_count,
+        "recovery_rate": round(pct(recovered_count, total_followups), 1) if total_followups else 100.0,
+        "dominant_pattern": dominant_pattern,
+    }
+
+
+def build_misconception_patterns(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    patterns: dict[tuple[str, str], dict[str, Any]] = defaultdict(
+        lambda: {
+            "tag": "",
+            "choice_text": "",
+            "choice_label": "",
+            "count": 0,
+            "question_ids": set(),
+            "question_indexes": set(),
+            "participants": set(),
+        }
+    )
+
+    for row in rows:
+        if as_bool(row.get("is_correct")):
+            continue
+        choice_text = str(row.get("final_choice_text") or "").strip()
+        if not choice_text:
+            continue
+        tags = row.get("tags") or []
+        if isinstance(tags, str):
+            tags = [tag.strip() for tag in tags.split(",") if tag.strip()]
+        for tag in tags or ["general"]:
+            key = (str(tag).strip().lower(), choice_text.lower())
+            entry = patterns[key]
+            entry["tag"] = str(tag).strip() or "general"
+            entry["choice_text"] = choice_text
+            entry["choice_label"] = str(row.get("final_choice_label") or "")
+            entry["count"] += 1
+            entry["question_ids"].add(as_int(row.get("question_id")))
+            entry["question_indexes"].add(as_int(row.get("question_index")))
+            if row.get("participant_id") is not None:
+                entry["participants"].add(as_int(row.get("participant_id")))
+
+    rows_out: list[dict[str, Any]] = []
+    for entry in patterns.values():
+        if entry["count"] < 2:
+            continue
+        rows_out.append(
+            {
+                "tag": entry["tag"],
+                "choice_text": entry["choice_text"],
+                "choice_label": entry["choice_label"],
+                "count": entry["count"],
+                "question_count": len(entry["question_ids"]),
+                "student_count": len(entry["participants"]),
+                "question_indexes": sorted(index for index in entry["question_indexes"] if index > 0),
+            }
+        )
+
+    rows_out.sort(
+        key=lambda row: (-row["count"], -row["question_count"], row["tag"], row["choice_text"].lower())
+    )
+    return rows_out[:6]
+
+
+def extract_signal_score(signals: list[dict[str, Any]], signal_id: str) -> float:
+    for signal in signals:
+        if str(signal.get("id")) == signal_id:
+            return round(as_float(signal.get("score")), 1)
+    return 0.0
 
 
 def speed_factor(response_ms: int, time_limit_seconds: int) -> float:
@@ -749,6 +1139,13 @@ def build_question_diagnostics(
                 "discrimination_index": round(top_accuracy - bottom_accuracy, 1),
                 "top_group_accuracy": top_accuracy,
                 "bottom_group_accuracy": bottom_accuracy,
+                "first_choice_accuracy": row.get("first_choice_accuracy", 0.0),
+                "corrected_after_wrong_rate": row.get("corrected_after_wrong_rate", 0.0),
+                "changed_away_from_correct_rate": row.get("changed_away_from_correct_rate", 0.0),
+                "avg_commitment_latency_ms": row.get("avg_commitment_latency_ms", 0.0),
+                "deadline_dependency_rate": row.get("deadline_dependency_rate", 0.0),
+                "top_distractor": row.get("top_distractor"),
+                "choice_distribution": row.get("choice_distribution", []),
                 "avg_response_ms": row["avg_response_ms"],
                 "avg_swaps": row["avg_swaps"],
                 "avg_blur_time_ms": row["avg_blur_time_ms"],
@@ -803,13 +1200,18 @@ def build_behavior_patterns(research_rows: list[dict[str, Any]]) -> dict[str, An
             "accuracy_by_commit_style": [],
             "decision_volatility": build_stat_summary([]),
             "commit_window_ms": build_stat_summary([]),
+            "commitment_latency_ms": build_stat_summary([]),
             "deadline_buffer_ms": build_stat_summary([]),
+            "revision_outcomes": [],
+            "first_choice_correct_rate": 0.0,
+            "deadline_dependency_rate": 0.0,
         }
 
     pace_counts: dict[str, int] = defaultdict(int)
     commit_counts: dict[str, int] = defaultdict(int)
     pace_accuracy: dict[str, list[int]] = defaultdict(list)
     commit_accuracy: dict[str, list[int]] = defaultdict(list)
+    revision_counts: Counter[str] = Counter()
 
     for row in research_rows:
         pace = str(row.get("pace_label", "unknown"))
@@ -819,6 +1221,7 @@ def build_behavior_patterns(research_rows: list[dict[str, Any]]) -> dict[str, An
         commit_counts[commit_style] += 1
         pace_accuracy[pace].append(is_correct)
         commit_accuracy[commit_style].append(is_correct)
+        revision_counts[str(row.get("revision_outcome", "unknown"))] += 1
 
     return {
         "pace_distribution": [
@@ -847,7 +1250,20 @@ def build_behavior_patterns(research_rows: list[dict[str, Any]]) -> dict[str, An
         ],
         "decision_volatility": build_stat_summary([row["decision_volatility"] for row in research_rows]),
         "commit_window_ms": build_stat_summary([row["commit_window_ms"] for row in research_rows]),
+        "commitment_latency_ms": build_stat_summary([row["commitment_latency_ms"] for row in research_rows]),
         "deadline_buffer_ms": build_stat_summary([row["deadline_buffer_ms"] for row in research_rows]),
+        "revision_outcomes": [
+            {"id": outcome_id, "label": revision_outcome_label(outcome_id), "count": count}
+            for outcome_id, count in revision_counts.most_common()
+        ],
+        "first_choice_correct_rate": round(
+            pct(sum(as_int(row.get("first_choice_correct")) for row in research_rows), len(research_rows)),
+            1,
+        ),
+        "deadline_dependency_rate": round(
+            pct(sum(as_int(row.get("deadline_dependent")) for row in research_rows), len(research_rows)),
+            1,
+        ),
         "attention_drag_index": build_stat_summary([row["attention_drag_index"] for row in research_rows]),
         "interaction_intensity": build_stat_summary([row["interaction_intensity"] for row in research_rows]),
         "hover_entropy": build_stat_summary([row["hover_entropy"] for row in research_rows]),
@@ -1008,6 +1424,7 @@ def build_research_rows(
             time_limit_seconds=question["time_limit_seconds"],
             log=log,
         )
+        choice_journey = analyze_choice_journey(answer, question, log)
         option_dwell = log.get("option_dwell") if log else {}
         interaction_count = (
             as_int(log.get("pointer_activity_count")) if log else 0
@@ -1038,6 +1455,19 @@ def build_research_rows(
                 "is_correct": 1 if answer["is_correct"] else 0,
                 "chosen_index": answer["chosen_index"],
                 "correct_index": question["correct_index"],
+                "first_choice_index": choice_journey["first_choice_index"],
+                "first_choice_label": choice_journey["first_choice_label"],
+                "first_choice_text": choice_journey["first_choice_text"],
+                "first_choice_correct": 1 if choice_journey["first_choice_correct"] else 0,
+                "final_choice_label": choice_journey["final_choice_label"],
+                "final_choice_text": choice_journey["final_choice_text"],
+                "changed_answer": 1 if choice_journey["changed_answer"] else 0,
+                "revision_outcome": choice_journey["revision_outcome"],
+                "revision_outcome_label": choice_journey["revision_outcome_label"],
+                "verification_behavior": 1 if choice_journey["verification_behavior"] else 0,
+                "commitment_latency_ms": choice_journey["commitment_latency_ms"],
+                "deadline_dependent": 1 if choice_journey["deadline_dependent"] else 0,
+                "under_time_pressure": 1 if choice_journey["under_time_pressure"] else 0,
                 "response_ms": answer["response_ms"],
                 "score_awarded": answer["score_awarded"],
                 "tfi_ms": as_int(log.get("tfi_ms")) if log else 0,
@@ -1077,11 +1507,18 @@ def build_tag_rows_for_answers(
             "tag": "",
             "attempts": 0,
             "correct": 0,
+            "participants": set(),
             "response_values": [],
             "tfi_values": [],
+            "commitment_values": [],
+            "volatility_values": [],
             "swap_total": 0,
             "panic_total": 0,
             "focus_values": [],
+            "first_choice_correct": 0,
+            "corrected_after_wrong": 0,
+            "changed_away_from_correct": 0,
+            "deadline_dependent": 0,
         }
     )
 
@@ -1090,12 +1527,25 @@ def build_tag_rows_for_answers(
         if not question:
             continue
         participant_log = logs_by_pair.get((answer["participant_id"], answer["question_id"]))
+        decision_path = summarize_decision_path(
+            response_ms=answer["response_ms"],
+            time_limit_seconds=question["time_limit_seconds"],
+            log=participant_log,
+        )
+        choice_journey = analyze_choice_journey(answer, question, participant_log)
         for tag in question["tags"] or ["general"]:
             entry = tag_aggregate[tag]
             entry["tag"] = tag
             entry["attempts"] += 1
             entry["correct"] += 1 if answer["is_correct"] else 0
+            entry["participants"].add(answer["participant_id"])
             entry["response_values"].append(answer["response_ms"])
+            entry["commitment_values"].append(choice_journey["commitment_latency_ms"])
+            entry["volatility_values"].append(decision_path["decision_volatility"])
+            entry["first_choice_correct"] += 1 if choice_journey["first_choice_correct"] else 0
+            entry["corrected_after_wrong"] += 1 if choice_journey["revision_outcome"] == "incorrect_to_correct" else 0
+            entry["changed_away_from_correct"] += 1 if choice_journey["revision_outcome"] == "correct_to_incorrect" else 0
+            entry["deadline_dependent"] += 1 if choice_journey["deadline_dependent"] else 0
             if participant_log:
                 entry["tfi_values"].append(participant_log["tfi_ms"])
                 entry["swap_total"] += participant_log["total_swaps"]
@@ -1120,7 +1570,14 @@ def build_tag_rows_for_answers(
                 "avg_tfi": avg_tfi_ms,
                 "avg_swaps": avg_swaps,
                 "avg_focus_loss": avg_focus_loss,
+                "avg_commitment_latency_ms": round(avg(entry["commitment_values"]), 1),
+                "avg_decision_volatility": round(avg(entry["volatility_values"]), 1),
+                "first_choice_accuracy": round(pct(entry["first_choice_correct"], attempts), 1),
+                "correction_rate": round(pct(entry["corrected_after_wrong"], attempts), 1),
+                "changed_away_from_correct_rate": round(pct(entry["changed_away_from_correct"], attempts), 1),
+                "deadline_dependency_rate": round(pct(entry["deadline_dependent"], attempts), 1),
                 "total_panic_swaps": entry["panic_total"],
+                "students_count": len(entry["participants"]),
                 "stress_index": compute_stress_index(
                     avg_tfi_ms=avg_tfi_ms,
                     avg_swaps=avg_swaps,
@@ -1142,7 +1599,10 @@ def build_question_review_rows(
     log_by_pair: dict[tuple[int, int], dict[str, Any]],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for answer in sorted(answers, key=lambda row: (row["id"], row["question_id"])):
+    for answer in sorted(
+        answers,
+        key=lambda row: (row["session_id"], question_order.get(row["question_id"], 0), row["id"]),
+    ):
         question = question_map.get(answer["question_id"])
         if not question:
             continue
@@ -1152,6 +1612,7 @@ def build_question_review_rows(
             time_limit_seconds=question["time_limit_seconds"],
             log=participant_log,
         )
+        choice_journey = analyze_choice_journey(answer, question, participant_log)
         stress_index = compute_stress_index(
             avg_tfi_ms=as_float(participant_log.get("tfi_ms")) if participant_log else 0.0,
             avg_swaps=as_float(participant_log.get("total_swaps")) if participant_log else 0.0,
@@ -1179,6 +1640,19 @@ def build_question_review_rows(
                 "is_correct": answer["is_correct"],
                 "chosen_index": answer["chosen_index"],
                 "correct_index": question["correct_index"],
+                "first_choice_index": choice_journey["first_choice_index"],
+                "first_choice_label": choice_journey["first_choice_label"],
+                "first_choice_text": choice_journey["first_choice_text"],
+                "first_choice_correct": choice_journey["first_choice_correct"],
+                "final_choice_label": choice_journey["final_choice_label"],
+                "final_choice_text": choice_journey["final_choice_text"],
+                "changed_answer": choice_journey["changed_answer"],
+                "commitment_latency_ms": choice_journey["commitment_latency_ms"],
+                "revision_outcome": choice_journey["revision_outcome"],
+                "revision_outcome_label": choice_journey["revision_outcome_label"],
+                "verification_behavior": choice_journey["verification_behavior"],
+                "deadline_dependent": choice_journey["deadline_dependent"],
+                "under_time_pressure": choice_journey["under_time_pressure"],
                 "response_ms": answer["response_ms"],
                 "tfi_ms": as_int(participant_log.get("tfi_ms")) if participant_log else 0,
                 "total_swaps": as_int(participant_log.get("total_swaps")) if participant_log else 0,
@@ -1212,14 +1686,6 @@ def build_question_review_rows(
                 "answer_path": decision_path["path"],
             }
         )
-
-    rows.sort(
-        key=lambda row: (
-            0 if row["status"] == "missed" else 1 if row["status"] == "shaky" else 2,
-            -row["stress_index"],
-            row["question_index"],
-        )
-    )
     return rows
 
 
@@ -1547,11 +2013,28 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
             question_map,
             logs_by_pair,
         )
+        participant_question_review = build_question_review_rows(
+            answers=participant_answers,
+            question_map=question_map,
+            question_order=question_order,
+            log_by_pair=logs_by_pair,
+        )
         profile = build_student_profile(
             answers=participant_answers,
             logs=participant_logs,
             mastery_rows=[{"tag": row["tag"], "score": row["score"]} for row in session_tag_rows],
         )
+        participant_behavior_signals = build_behavior_signals(
+            answers=participant_answers,
+            question_review=participant_question_review,
+            focus_score=profile["focus_score"],
+        )
+        revision_summary = build_revision_summary(participant_question_review)
+        deadline_profile = build_deadline_profile(participant_question_review)
+        recovery_profile = build_recovery_profile(participant_question_review)
+        fatigue_drift = build_fatigue_drift(participant_question_review)
+        misconception_patterns = build_misconception_patterns(participant_question_review)
+        stability_score = extract_signal_score(participant_behavior_signals, "consistency")
         risk_score = compute_risk_score(
             accuracy=accuracy,
             stress_index=stress_index,
@@ -1591,6 +2074,16 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
                 "avg_longest_idle_streak_ms": avg_longest_idle_streak_ms,
                 "avg_hover_entropy": avg_hover_entropy,
                 "avg_interaction_intensity": avg_interaction_intensity,
+                "avg_commitment_latency_ms": round(
+                    avg([row["commitment_latency_ms"] for row in participant_question_review]),
+                    1,
+                ),
+                "first_choice_accuracy": revision_summary["first_choice_correct_rate"],
+                "corrected_answers": revision_summary["corrected_after_wrong_count"],
+                "changed_away_from_correct": revision_summary["changed_away_from_correct_count"],
+                "deadline_dependency_rate": deadline_profile["last_second_rate"],
+                "recovery_rate": recovery_profile["recovery_rate"],
+                "stability_score": stability_score,
                 "total_swaps": total_swaps,
                 "total_panic_swaps": total_panic_swaps,
                 "total_focus_loss": total_focus_loss,
@@ -1608,6 +2101,11 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
                 "body": profile["body"],
                 "weak_tags": profile["weak_tags"],
                 "strong_tags": profile["strong_tags"],
+                "revision_summary": revision_summary,
+                "deadline_profile": deadline_profile,
+                "recovery_profile": recovery_profile,
+                "fatigue_drift": fatigue_drift,
+                "misconception_patterns": misconception_patterns,
                 "risk_score": risk_score,
                 "risk_level": risk_level,
                 "flags": flags,
@@ -1634,6 +2132,30 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
             for answer in question_answers
             if (answer["participant_id"], question["id"]) in logs_by_pair
         ]
+        question_review_rows = []
+        choice_counts: Counter[int] = Counter()
+        for answer in question_answers:
+            related_log = logs_by_pair.get((answer["participant_id"], question["id"]))
+            choice_journey = analyze_choice_journey(answer, question, related_log)
+            decision_path = summarize_decision_path(
+                response_ms=answer["response_ms"],
+                time_limit_seconds=question["time_limit_seconds"],
+                log=related_log,
+            )
+            choice_counts[answer["chosen_index"]] += 1
+            question_review_rows.append(
+                {
+                    "question_id": question["id"],
+                    "question_index": question_order.get(question["id"], 0),
+                    "participant_id": answer["participant_id"],
+                    "is_correct": answer["is_correct"],
+                    "deadline_buffer_ms": decision_path["deadline_buffer_ms"],
+                    "first_choice_correct": choice_journey["first_choice_correct"],
+                    "commitment_latency_ms": choice_journey["commitment_latency_ms"],
+                    "revision_outcome": choice_journey["revision_outcome"],
+                    "under_time_pressure": choice_journey["under_time_pressure"],
+                }
+            )
 
         correct_answers = sum(1 for answer in question_answers if answer["is_correct"])
         accuracy = round(pct(correct_answers, len(question_answers)), 1)
@@ -1667,6 +2189,23 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
             avg_focus_loss=avg_focus_loss,
             answers_count=len(question_answers),
         )
+        revision_summary = build_revision_summary(question_review_rows)
+        deadline_profile = build_deadline_profile(question_review_rows)
+        choice_distribution = [
+            {
+                "index": index,
+                "label": option_label(index),
+                "text": option_text(question, index),
+                "count": choice_counts.get(index, 0),
+                "rate": round(pct(choice_counts.get(index, 0), len(question_answers)), 1),
+                "is_correct": index == question["correct_index"],
+            }
+            for index in range(len(question["answers"]))
+        ]
+        distractor_options = [
+            item for item in choice_distribution if not item["is_correct"] and item["count"] > 0
+        ]
+        top_distractor = max(distractor_options, key=lambda item: item["count"], default=None)
         question_row = {
             "id": question["id"],
             "index": question_order.get(question["id"], 0),
@@ -1682,6 +2221,18 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
             "avg_interaction_intensity": avg_interaction_intensity,
             "avg_hover_entropy": avg_hover_entropy,
             "total_panic_swaps": total_panic_swaps,
+            "avg_commitment_latency_ms": round(
+                avg([row["commitment_latency_ms"] for row in question_review_rows]),
+                1,
+            ),
+            "first_choice_accuracy": revision_summary["first_choice_correct_rate"],
+            "corrected_after_wrong_count": revision_summary["corrected_after_wrong_count"],
+            "corrected_after_wrong_rate": revision_summary["corrected_after_wrong_rate"],
+            "changed_away_from_correct_count": revision_summary["changed_away_from_correct_count"],
+            "changed_away_from_correct_rate": revision_summary["changed_away_from_correct_rate"],
+            "deadline_dependency_rate": deadline_profile["last_second_rate"],
+            "choice_distribution": choice_distribution,
+            "top_distractor": top_distractor,
             "stress_index": stress_index,
             "stress_level": classify_stress(stress_index),
             "tags": question["tags"],
@@ -1690,66 +2241,11 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
         question_row["recommendation"] = build_question_recommendation(question_row)
         question_rows.append(question_row)
 
-    tag_aggregate: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {
-            "tag": "",
-            "attempts": 0,
-            "correct": 0,
-            "participants": set(),
-            "response_values": [],
-            "tfi_values": [],
-            "swap_total": 0,
-            "panic_total": 0,
-            "focus_values": [],
-        }
+    tag_summary = build_tag_rows_for_answers(
+        answers=answers,
+        question_map=question_map,
+        logs_by_pair=logs_by_pair,
     )
-    for answer in answers:
-        question = question_map.get(answer["question_id"])
-        if not question:
-            continue
-        question_log = logs_by_pair.get((answer["participant_id"], answer["question_id"]))
-        for tag in question["tags"] or ["general"]:
-            entry = tag_aggregate[tag]
-            entry["tag"] = tag
-            entry["attempts"] += 1
-            entry["correct"] += 1 if answer["is_correct"] else 0
-            entry["participants"].add(answer["participant_id"])
-            entry["response_values"].append(answer["response_ms"])
-            if question_log:
-                entry["tfi_values"].append(question_log["tfi_ms"])
-                entry["swap_total"] += question_log["total_swaps"]
-                entry["panic_total"] += question_log["panic_swaps"]
-                entry["focus_values"].append(question_log["focus_loss_count"])
-
-    tag_summary: list[dict[str, Any]] = []
-    for tag, entry in tag_aggregate.items():
-        attempts = entry["attempts"]
-        avg_tfi_ms = round(avg(entry["tfi_values"]), 1)
-        avg_swaps = round(entry["swap_total"] / attempts, 2) if attempts else 0.0
-        avg_focus_loss = round(avg(entry["focus_values"]), 2)
-        accuracy = round(pct(entry["correct"], attempts), 1)
-        stress_value = compute_stress_index(
-            avg_tfi_ms=avg_tfi_ms,
-            avg_swaps=avg_swaps,
-            total_panic_swaps=entry["panic_total"],
-            avg_focus_loss=avg_focus_loss,
-            answers_count=attempts,
-        )
-        tag_summary.append(
-            {
-                "tag": tag,
-                "attempts": attempts,
-                "accuracy": accuracy,
-                "avg_response_ms": round(avg(entry["response_values"]), 1),
-                "avg_tfi": avg_tfi_ms,
-                "avg_swaps": avg_swaps,
-                "avg_focus_loss": avg_focus_loss,
-                "total_panic_swaps": entry["panic_total"],
-                "students_count": len(entry["participants"]),
-                "stress_index": stress_value,
-                "stress_level": classify_stress(stress_value),
-            }
-        )
     tag_summary.sort(key=lambda row: (row["accuracy"], -row["attempts"], row["tag"]))
 
     total_answers = len(answers)
@@ -1888,6 +2384,13 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
         question_order=question_order,
         logs_by_pair=logs_by_pair,
     )
+    revision_intelligence = build_revision_summary(research_rows)
+    deadline_dependency = build_deadline_profile(research_rows)
+    recovery_profile = combine_recovery_profiles(
+        [row.get("recovery_profile", {}) for row in participant_rows]
+    )
+    fatigue_drift = build_fatigue_drift(research_rows)
+    recurrent_misconceptions = build_misconception_patterns(research_rows)
     correlations = build_class_correlations(participant_rows)
     student_clusters = build_student_clusters(participant_rows)
     question_diagnostics = build_question_diagnostics(
@@ -1934,6 +2437,18 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
                 "summary": build_stat_summary([row["avg_tfi_ms"] for row in participant_rows]),
             },
             {
+                "id": "first_choice_accuracy",
+                "label": "First-choice correctness",
+                "unit": "%",
+                "summary": build_stat_summary([row["first_choice_accuracy"] for row in participant_rows]),
+            },
+            {
+                "id": "avg_commitment_latency_ms",
+                "label": "Commitment latency",
+                "unit": "ms",
+                "summary": build_stat_summary([row["avg_commitment_latency_ms"] for row in participant_rows]),
+            },
+            {
                 "id": "decision_volatility",
                 "label": "Decision volatility",
                 "unit": "pts",
@@ -1969,6 +2484,12 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
         "question_diagnostics": question_diagnostics,
         "quartile_benchmarks": build_quartile_benchmarks(participant_rows),
         "behavior_patterns": build_behavior_patterns(research_rows),
+            "revision_intelligence": revision_intelligence,
+            "deadline_dependency": deadline_dependency,
+            "recovery_profile": recovery_profile,
+            "fatigue_drift": fatigue_drift,
+            "recurrent_misconceptions": recurrent_misconceptions,
+        "topic_behavior_profiles": tag_summary,
     }
 
     return {
@@ -1993,6 +2514,10 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
             "completion_rate": completion_rate,
             "stress_index": stress_index,
             "total_answers": total_answers,
+            "first_choice_accuracy": revision_intelligence["first_choice_correct_rate"],
+            "corrected_after_wrong_count": revision_intelligence["corrected_after_wrong_count"],
+            "changed_away_from_correct_count": revision_intelligence["changed_away_from_correct_count"],
+            "deadline_dependency_rate": deadline_dependency["last_second_rate"],
             "total_focus_loss": total_focus_loss,
             "total_panic_swaps": total_panic_swaps,
             "high_risk_students": high_risk_count,
@@ -2177,36 +2702,11 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
         "avg_hover_entropy": round(avg([log["hover_entropy"] for log in logs]), 3),
     }
 
-    tag_aggregate: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"tag": "", "attempts": 0, "correct": 0, "score_sum": 0, "tfi_values": [], "swap_total": 0}
+    tag_performance = build_tag_rows_for_answers(
+        answers=answers,
+        question_map=question_map,
+        logs_by_pair=log_by_pair,
     )
-    for answer in answers:
-        question = question_map.get(answer["question_id"])
-        if not question:
-            continue
-        participant_log = log_by_pair.get((answer["participant_id"], answer["question_id"]))
-        for tag in question["tags"] or ["general"]:
-            entry = tag_aggregate[tag]
-            entry["tag"] = tag
-            entry["attempts"] += 1
-            entry["correct"] += 1 if answer["is_correct"] else 0
-            entry["score_sum"] += answer["score_awarded"]
-            if participant_log:
-                entry["tfi_values"].append(participant_log["tfi_ms"])
-                entry["swap_total"] += participant_log["total_swaps"]
-
-    tag_performance: list[dict[str, Any]] = []
-    for tag, entry in tag_aggregate.items():
-        tag_performance.append(
-            {
-                "tag": tag,
-                "attempts": entry["attempts"],
-                "accuracy": round(pct(entry["correct"], entry["attempts"]), 1),
-                "avg_score": round(entry["score_sum"] / entry["attempts"], 1) if entry["attempts"] else 0.0,
-                "avg_tfi": round(avg(entry["tfi_values"]), 1),
-                "total_swaps": entry["swap_total"],
-            }
-        )
     tag_performance.sort(key=lambda entry: (entry["accuracy"], entry["tag"]))
 
     mastery_rows.sort(key=lambda row: (-row["score"], row["tag"]))
@@ -2239,6 +2739,24 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
     )
     momentum = build_momentum_summary(question_review)
     session_segments = build_session_segments(question_review)
+    revision_summary = build_revision_summary(question_review)
+    deadline_profile = build_deadline_profile(question_review)
+    recovery_profile = build_recovery_profile(question_review)
+    fatigue_drift = build_fatigue_drift(question_review)
+    misconception_patterns = build_misconception_patterns(question_review)
+    stability_score = extract_signal_score(behavior_signals, "consistency")
+
+    aggregates.update(
+        {
+            "avg_commitment_latency_ms": round(
+                avg([row["commitment_latency_ms"] for row in question_review]),
+                1,
+            ),
+            "first_choice_accuracy": revision_summary["first_choice_correct_rate"],
+            "deadline_dependency_rate": deadline_profile["last_second_rate"],
+            "stability_score": stability_score,
+        }
+    )
 
     highlights: list[dict[str, str]] = []
     if profile["strong_tags"]:
@@ -2260,6 +2778,20 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
             {
                 "title": "Focus note",
                 "body": "Tab switches were detected during play. Keeping one window open will likely raise your score.",
+            }
+        )
+    if revision_summary["changed_away_from_correct_count"] > 0:
+        highlights.append(
+            {
+                "title": "Revision risk",
+                "body": "At least one question began correctly and ended wrong. This is a confidence-and-commitment issue, not pure content weakness.",
+            }
+        )
+    if fatigue_drift["direction"] == "fatigue":
+        highlights.append(
+            {
+                "title": "Fatigue drift",
+                "body": "The back half of the game was weaker than the opening, so shorter follow-ups may outperform longer mixed sets.",
             }
         )
 
@@ -2290,6 +2822,20 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
                 "body": "At least one answer was correct under pressure. Repeat those items before moving to new material.",
             }
         )
+    if deadline_profile["last_second_rate"] >= 30:
+        recommendations.append(
+            {
+                "title": "Reduce deadline dependency",
+                "body": "A large share of decisions landed in the final second. Re-run the same concepts with calmer pacing or explicit commitment prompts.",
+            }
+        )
+    if recovery_profile["total_followups"] > 0 and recovery_profile["recovery_rate"] < 50:
+        recommendations.append(
+            {
+                "title": "Coach recovery after misses",
+                "body": "After an error, the next question often stays unstable. A short reteach loop right after mistakes should help.",
+            }
+        )
 
     adaptive_targets = {
         "focus_tags": profile["weak_tags"] or [entry["tag"] for entry in tag_performance[:3]],
@@ -2314,28 +2860,36 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
 
     session_history: list[dict[str, Any]] = []
     for session_id, session_answers in answers_by_session.items():
-      session_logs = logs_by_session.get(session_id, [])
-      session_log_by_pair = {(log["participant_id"], log["question_id"]): log for log in session_logs}
-      session_review = build_question_review_rows(
-          answers=session_answers,
-          question_map=question_map,
-          question_order=question_order,
-          log_by_pair=session_log_by_pair,
-      )
-      related_session = sessions.get(session_id, {})
-      pack = packs.get(as_int(related_session.get("quiz_pack_id")), {})
-      session_history.append(
-          {
-              "session_id": session_id,
-              "pack_title": str(pack.get("title") or f"Pack {as_int(related_session.get('quiz_pack_id'))}"),
-              "date": format_session_date(related_session) if related_session else "No date",
-              "accuracy": round(pct(sum(1 for answer in session_answers if answer["is_correct"]), len(session_answers)), 1),
-              "score": sum(answer["score_awarded"] for answer in session_answers),
-              "avg_stress": round(avg([row["stress_index"] for row in session_review]), 1),
-              "avg_commit_window_ms": round(avg([row["commit_window_ms"] for row in session_review]), 1),
-              "focus_events": sum(row["focus_loss_count"] for row in session_review),
-          }
-      )
+        session_logs = logs_by_session.get(session_id, [])
+        session_log_by_pair = {(log["participant_id"], log["question_id"]): log for log in session_logs}
+        session_review = build_question_review_rows(
+            answers=session_answers,
+            question_map=question_map,
+            question_order=question_order,
+            log_by_pair=session_log_by_pair,
+        )
+        session_revision_summary = build_revision_summary(session_review)
+        session_deadline_profile = build_deadline_profile(session_review)
+        related_session = sessions.get(session_id, {})
+        pack = packs.get(as_int(related_session.get("quiz_pack_id")), {})
+        session_history.append(
+            {
+                "session_id": session_id,
+                "pack_title": str(pack.get("title") or f"Pack {as_int(related_session.get('quiz_pack_id'))}"),
+                "date": format_session_date(related_session) if related_session else "No date",
+                "accuracy": round(pct(sum(1 for answer in session_answers if answer["is_correct"]), len(session_answers)), 1),
+                "score": sum(answer["score_awarded"] for answer in session_answers),
+                "avg_stress": round(avg([row["stress_index"] for row in session_review]), 1),
+                "avg_commit_window_ms": round(avg([row["commit_window_ms"] for row in session_review]), 1),
+                "avg_commitment_latency_ms": round(
+                    avg([row["commitment_latency_ms"] for row in session_review]),
+                    1,
+                ),
+                "first_choice_accuracy": session_revision_summary["first_choice_correct_rate"],
+                "deadline_dependency_rate": session_deadline_profile["last_second_rate"],
+                "focus_events": sum(row["focus_loss_count"] for row in session_review),
+            }
+        )
     session_history.sort(key=lambda row: row["session_id"], reverse=True)
 
     overall_story = {
@@ -2364,6 +2918,12 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
         "tagPerformance": tag_performance,
         "questionReview": question_review,
         "behaviorSignals": behavior_signals,
+        "stabilityScore": stability_score,
+        "revisionInsights": revision_summary,
+        "deadlineProfile": deadline_profile,
+        "recoveryProfile": recovery_profile,
+        "fatigueDrift": fatigue_drift,
+        "misconceptionPatterns": misconception_patterns,
         "momentum": momentum,
         "sessionSegments": session_segments,
         "sessionHistory": session_history,
