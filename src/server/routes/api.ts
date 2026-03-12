@@ -5,7 +5,7 @@ import { GoogleGenAI } from '@google/genai';
 import multer from 'multer';
 import mammoth from 'mammoth';
 import { createRequire } from 'module';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import { runPythonEngine } from '../services/pythonEngine.js';
 
 if (!admin.apps.length) {
