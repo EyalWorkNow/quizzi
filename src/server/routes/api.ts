@@ -1,10 +1,18 @@
 import { Router } from 'express';
+import { randomBytes } from 'crypto';
 import db from '../db/index.js';
 import { GoogleGenAI } from '@google/genai';
 import multer from 'multer';
 import mammoth from 'mammoth';
 import { createRequire } from 'module';
+import * as admin from 'firebase-admin';
 import { runPythonEngine } from '../services/pythonEngine.js';
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    projectId: process.env.VITE_FIREBASE_PROJECT_ID || 'quizzi-4dece',
+  });
+}
 import {
   clearTeacherSession,
   createTeacherSession,
@@ -550,11 +558,42 @@ router.post('/auth/login', (req, res) => {
   res.json(session);
 });
 
-router.post('/auth/social', (req, res) => {
+router.post('/auth/social', async (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
-  res.status(501).json({
-    error: 'Google and Facebook sign-in are not configured yet. Use email registration or the demo account for now.',
-  });
+  if (!enforceRateLimit(req, res, 'auth-social', 15, 10 * 60 * 1000)) return;
+
+  const { provider, idToken } = req.body || {};
+  if (provider !== 'google' || !idToken) {
+    return res.status(400).json({ error: 'Invalid provider or missing token.' });
+  }
+
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const email = normalizeTeacherEmail(decodedToken.email || '');
+    if (!email) {
+      return res.status(400).json({ error: 'Google account has no valid email address.' });
+    }
+
+    const name = sanitizeLine(decodedToken.name || '', 120);
+    
+    let teacherUser = getTeacherUserByEmail(email);
+    if (!teacherUser) {
+      // Auto-register the teacher if they don't exist
+      teacherUser = createTeacherUser({
+        email,
+        password: randomBytes(32).toString('hex'), // Secure unguessable random password
+        name,
+        school: '',
+      });
+    }
+
+    const { session, token } = createTeacherSession({ email: teacherUser.email, provider: 'google' });
+    issueTeacherSession(req, res, token);
+    res.json(session);
+  } catch (error: any) {
+    console.error('[ERROR] Failed to verify Google ID token:', error);
+    res.status(401).json({ error: 'Failed to verify Google sign-in. Please try again.' });
+  }
 });
 
 router.post('/auth/logout', (req, res) => {

@@ -157,10 +157,10 @@ export default function Explore() {
   }, [packs]);
 
   return (
-    <div className="min-h-screen bg-brand-bg font-sans text-brand-dark selection:bg-brand-orange selection:text-white pb-20 overflow-hidden">
+    <div className="min-h-screen bg-brand-bg font-sans text-brand-dark selection:bg-brand-orange selection:text-white pb-20 overflow-x-clip">
       <div className="absolute inset-x-0 top-0 h-[430px] bg-[radial-gradient(circle_at_top_left,_rgba(255,90,54,0.16),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(180,136,255,0.18),_transparent_36%)] pointer-events-none" />
 
-      <nav className="flex items-center justify-between p-6 lg:px-12 relative z-20">
+      <nav className="page-shell-wide relative z-20 flex flex-wrap items-center justify-between gap-4 py-5">
         <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
           <span className="text-brand-orange">Quiz</span>zi
         </div>
@@ -170,14 +170,14 @@ export default function Explore() {
             {teacherSignedIn ? 'Teacher Studio' : 'For Teachers'}
           </button>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="action-row w-full md:w-auto md:justify-end">
           <button onClick={() => navigate('/')} className="font-bold px-8 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">
             Home
           </button>
         </div>
       </nav>
 
-      <main className="max-w-[1450px] mx-auto px-6 lg:px-12 relative z-10">
+      <main className="page-shell-wide relative z-10">
         <section className="pt-8 pb-10">
           <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-8 items-start">
             <div>
@@ -185,15 +185,15 @@ export default function Explore() {
                 <Sparkles className="w-4 h-4 text-brand-orange" />
                 Discover High-Signal Packs
               </div>
-              <h1 className="text-[3.2rem] sm:text-[4.6rem] font-black leading-[0.95] tracking-tight mb-5">
+              <h1 className="mb-5 text-[2.8rem] font-black leading-[0.96] tracking-tight xs:text-[3.2rem] sm:text-[4.6rem]">
                 Browse packs built from
                 <span className="text-brand-orange"> compressed course intel</span>, not raw noise.
               </h1>
-              <p className="text-xl font-bold text-brand-dark/65 max-w-3xl mb-8">
+              <p className="mb-8 max-w-3xl text-lg font-bold text-brand-dark/65 sm:text-xl">
                 Every pack now carries a deterministic teaching brief, topic fingerprint and token-efficient prompt profile, so you can discover stronger material and generate with less model waste.
               </p>
 
-              <div className="flex flex-col md:flex-row gap-4 mb-8">
+              <div className="mb-8 flex flex-col gap-4 sm:flex-row">
                 <div className="relative flex-1">
                   <input
                     id="search-explore"
@@ -202,7 +202,7 @@ export default function Explore() {
                     aria-label="Search collections"
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
-                    className="w-full px-8 py-5 pl-14 rounded-full border-2 border-brand-dark bg-white text-xl font-bold placeholder:text-brand-dark/35 focus:outline-none focus:ring-4 focus:ring-brand-purple/20 shadow-[4px_4px_0px_0px_#1A1A1A]"
+                    className="w-full rounded-full border-2 border-brand-dark bg-white px-6 py-4 pl-12 text-base font-bold placeholder:text-brand-dark/35 shadow-[4px_4px_0px_0px_#1A1A1A] focus:outline-none focus:ring-4 focus:ring-brand-purple/20 sm:px-8 sm:py-5 sm:pl-14 sm:text-xl"
                   />
                   <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-6 h-6 text-brand-dark/40" />
                 </div>
@@ -212,20 +212,20 @@ export default function Explore() {
                     setSelectedCategory('All');
                     setSortBy('newest');
                   }}
-                  className="w-16 h-16 flex items-center justify-center rounded-full border-2 border-brand-dark bg-white shadow-[4px_4px_0px_0px_#1A1A1A]"
+                  className="h-14 w-full rounded-full border-2 border-brand-dark bg-white shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-16 sm:w-16 flex items-center justify-center"
                 >
                   <Filter className="w-6 h-6" />
                 </button>
                 <button
                   onClick={() => navigate('/teacher/pack/create')}
-                  className="px-8 py-5 rounded-full border-2 border-brand-dark bg-brand-purple text-white font-black text-xl shadow-[4px_4px_0px_0px_#1A1A1A] flex items-center gap-3"
+                  className="w-full rounded-full border-2 border-brand-dark bg-brand-purple px-6 py-4 text-lg font-black text-white shadow-[4px_4px_0px_0px_#1A1A1A] sm:w-auto sm:px-8 sm:py-5 sm:text-xl flex items-center justify-center gap-3"
                 >
                   Build New Pack
                   <ArrowRight className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="safe-grid-4">
                 <StatCard label="Live Packs" value={stats.totalPacks} tone="dark" />
                 <StatCard label="Questions" value={stats.totalQuestions} tone="light" />
                 <StatCard label="Avg Token Save" value={`${stats.avgSavings}%`} tone="orange" />
@@ -242,10 +242,10 @@ export default function Explore() {
                 <div className="absolute top-[-30px] right-[-12px] w-52 h-52 rounded-full bg-white/10" />
                 <div className="relative z-10">
                   <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-yellow mb-3">Featured Pack</p>
-                  <h2 className="text-4xl font-black leading-tight mb-3">{featuredPack.title}</h2>
+                  <h2 className="mb-3 text-3xl font-black leading-tight sm:text-4xl">{featuredPack.title}</h2>
                   <p className="font-medium text-white/75 mb-6">{featuredPack.source_excerpt}</p>
 
-                  <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="safe-grid-2 mb-6">
                     <SignalTile label="Questions" value={featuredPack.question_count || 0} />
                     <SignalTile label="Token Save" value={`${featuredPack.token_savings_pct || 0}%`} />
                     <SignalTile label="Words" value={featuredPack.source_word_count || 0} />
@@ -326,16 +326,16 @@ export default function Explore() {
           </aside>
 
           <section className="space-y-6 pb-16">
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-4xl font-black tracking-tight">Pack Atlas</h2>
+                <h2 className="text-3xl font-black tracking-tight sm:text-4xl">Pack Atlas</h2>
                 <p className="font-bold text-brand-dark/60 mt-2">
                   {filteredPacks.length} results · {selectedCategory === 'All' ? 'All concepts' : selectedCategory}
                 </p>
               </div>
               <button
                 onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')}
-                className="px-5 py-3 rounded-full bg-white border-2 border-brand-dark font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
+                className="w-full rounded-full bg-white px-5 py-3 font-black shadow-[2px_2px_0px_0px_#1A1A1A] border-2 border-brand-dark sm:w-auto"
               >
                 {teacherSignedIn ? 'Open Studio' : 'Teacher Access'}
               </button>
@@ -372,18 +372,18 @@ export default function Explore() {
 
       {selectedPack && (
         <div className="fixed inset-0 z-40 bg-black/30 flex justify-end">
-          <div className="w-full max-w-[620px] h-full bg-white border-l-4 border-brand-dark p-6 overflow-y-auto shadow-[-8px_0_0_0_#1A1A1A]">
+          <div className="w-full max-w-[620px] h-full bg-white border-l-4 border-brand-dark p-4 sm:p-6 overflow-y-auto shadow-[-8px_0_0_0_#1A1A1A]">
             <div className="flex items-start justify-between gap-4 mb-6">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Pack Intel</p>
-                <h2 className="text-4xl font-black leading-tight">{selectedPack.title}</h2>
+                <h2 className="text-3xl font-black leading-tight sm:text-4xl">{selectedPack.title}</h2>
               </div>
               <button onClick={() => setSelectedPack(null)} className="w-11 h-11 rounded-full border-2 border-brand-dark flex items-center justify-center">
                 <XCircle className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="safe-grid-2 mb-6">
               <DrawerStat label="Questions" value={selectedPack.question_count || 0} />
               <DrawerStat label="Token Save" value={`${selectedPack.token_savings_pct || 0}%`} />
               <DrawerStat label="Words" value={selectedPack.source_word_count || 0} />
@@ -417,11 +417,11 @@ export default function Explore() {
               </div>
             </div>
 
-            <div className="flex gap-3">
-              <button onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')} className="flex-1 px-6 py-4 bg-brand-dark text-white rounded-2xl border-2 border-brand-dark font-black">
+            <div className="action-row">
+              <button onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')} className="action-pill flex-1 px-6 py-4 bg-brand-dark text-white rounded-2xl border-2 border-brand-dark font-black">
                 {teacherSignedIn ? 'Open In Studio' : 'Teacher Access'}
               </button>
-              <button onClick={() => navigate('/teacher/pack/create')} className="px-6 py-4 bg-brand-orange text-white rounded-2xl border-2 border-brand-dark font-black">
+              <button onClick={() => navigate('/teacher/pack/create')} className="action-pill px-6 py-4 bg-brand-orange text-white rounded-2xl border-2 border-brand-dark font-black">
                 Create Similar
               </button>
             </div>
@@ -511,7 +511,7 @@ function PackCard({ pack, index, onOpen }: { pack: any; index: number; onOpen: (
         <p className="font-bold text-brand-dark/75 line-clamp-3">{pack.source_excerpt}</p>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-1 gap-3 mb-5 xs:grid-cols-3">
         <PackMetric label="Token save" value={`${pack.token_savings_pct || 0}%`} />
         <PackMetric label="Words" value={pack.source_word_count || 0} />
         <PackMetric label="Prompt" value={pack.estimated_prompt_tokens || 0} />

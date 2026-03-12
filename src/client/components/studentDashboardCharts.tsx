@@ -59,8 +59,8 @@ export function QuestionFlowChart({
         <LegendSwatch label="Volatility" color="bg-brand-purple" />
         <LegendSwatch label="Response" color="bg-brand-yellow" />
       </div>
-      <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-4 overflow-x-auto">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[640px] h-[220px]">
+      <div className="chart-scroll-shell">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-[190px] min-w-[460px] w-full sm:h-[220px] sm:min-w-0">
           {[0, 25, 50, 75, 100].map((tick) => {
             const y = padding + ((100 - tick) / 100) * graphHeight;
             return (
@@ -113,7 +113,7 @@ export function QuestionFlowChart({
           })}
         </svg>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+      <div className="grid grid-cols-1 gap-3 mt-4 sm:grid-cols-2 xl:grid-cols-3">
         <ChartStat
           label="Highest stress"
           value={`Q${rows.reduce((best, row) => (Number(row.stress_index || 0) > Number(best.stress_index || 0) ? row : best), rows[0]).question_index}`}
@@ -160,8 +160,8 @@ export function SessionHistoryTrendChart({ rows }: { rows: any[] }) {
         <LegendSwatch label="Stress" color="bg-brand-orange" />
         <LegendSwatch label="Score" color="bg-brand-yellow" />
       </div>
-      <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-4 overflow-x-auto">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[620px] h-[224px]">
+      <div className="chart-scroll-shell">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-[190px] min-w-[460px] w-full sm:h-[224px] sm:min-w-0">
           {[0, 25, 50, 75, 100].map((tick) => {
             const y = padding + ((100 - tick) / 100) * graphHeight;
             return (
@@ -228,7 +228,7 @@ export function RevisionCategoryChart({ categories }: { categories: any[] }) {
           />
         ))}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {rows.map((row) => (
           <div key={row.id} className="rounded-[1.35rem] border-2 border-brand-dark bg-brand-bg p-4">
             <div className="flex items-start justify-between gap-3 mb-3">
@@ -286,7 +286,7 @@ export function QuestionStatusStripChart({ rows }: { rows: any[] }) {
           />
         ))}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {cards.map((card) => (
           <React.Fragment key={card.id}>
             <ChartStat
@@ -368,9 +368,9 @@ function ChartStat({
   tone?: string;
 }) {
   return (
-    <div className={`${tone} rounded-[1.2rem] border-2 border-brand-dark p-4`}>
+    <div className={`${tone} min-w-0 rounded-[1.2rem] border-2 border-brand-dark p-4`}>
       <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">{label}</p>
-      <p className="text-2xl font-black leading-none">{value}</p>
+      <p className="text-xl font-black leading-none sm:text-2xl break-words">{value}</p>
       <p className="font-medium text-sm text-brand-dark/68 mt-2">{body}</p>
     </div>
   );

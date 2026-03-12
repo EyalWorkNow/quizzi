@@ -200,9 +200,9 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-brand-bg font-sans text-brand-dark overflow-hidden flex flex-col selection:bg-brand-orange selection:text-white">
+    <div className="min-h-screen bg-brand-bg font-sans text-brand-dark overflow-x-clip flex flex-col selection:bg-brand-orange selection:text-white">
       {/* Navbar */}
-      <nav className="flex items-center justify-between p-6 lg:px-12 relative z-20">
+      <nav className="page-shell relative z-20 flex flex-wrap items-center justify-between gap-4 py-5">
         <div className="text-3xl font-black tracking-tight flex items-center gap-1">
           <span className="text-brand-orange">Quiz</span>zi
         </div>
@@ -211,30 +211,30 @@ export default function Home() {
           <button onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')} className="hover:text-brand-orange transition-colors">{teacherSignedIn ? 'Teacher Studio' : 'For Teachers'}</button>
           <button onClick={() => navigate('/contact')} className="hover:text-brand-orange transition-colors">Contact Us</button>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="action-row w-full md:w-auto md:justify-end">
           {teacherSignedIn ? (
             <>
-              <button onClick={() => navigate('/teacher/dashboard')} className="font-bold px-8 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">Dashboard</button>
-              <button onClick={handleLogout} className="font-bold px-8 py-3 rounded-full bg-brand-orange text-white border-2 border-brand-orange hover:bg-orange-600 transition-colors">Log out</button>
+              <button onClick={() => navigate('/teacher/dashboard')} className="action-pill font-bold px-6 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">Dashboard</button>
+              <button onClick={handleLogout} className="action-pill font-bold px-6 py-3 rounded-full bg-brand-orange text-white border-2 border-brand-orange hover:bg-orange-600 transition-colors">Log out</button>
             </>
           ) : (
             <>
-              <button onClick={() => navigate('/auth')} className="font-bold px-8 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">Log in</button>
-              <button onClick={() => navigate('/auth')} className="font-bold px-8 py-3 rounded-full bg-brand-orange text-white border-2 border-brand-orange hover:bg-orange-600 transition-colors">Create account</button>
+              <button onClick={() => navigate('/auth')} className="action-pill font-bold px-6 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">Log in</button>
+              <button onClick={() => navigate('/auth')} className="action-pill font-bold px-6 py-3 rounded-full bg-brand-orange text-white border-2 border-brand-orange hover:bg-orange-600 transition-colors">Create account</button>
             </>
           )}
         </div>
       </nav>
 
       {/* Hero Section */}
-      <main className="flex-1 flex flex-col lg:flex-row items-center justify-center p-6 lg:px-12 gap-12 max-w-[1400px] mx-auto w-full relative z-10">
+      <main className="page-shell relative z-10 flex flex-1 flex-col items-center justify-center gap-10 py-4 pb-12 lg:flex-row lg:gap-12 lg:py-8">
 
         {/* Left Content */}
-        <div className="flex-1 z-10 w-full">
+        <div className="z-10 w-full flex-1 min-w-0">
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-[4rem] sm:text-[5rem] lg:text-[6.5rem] font-black leading-[1.05] tracking-tight mb-6"
+            className="mb-5 text-[2.9rem] font-black leading-[1.02] tracking-tight xs:text-[3.4rem] sm:text-[4.8rem] lg:text-[6.5rem]"
           >
             Find the right <br />
             <span className="text-brand-orange">quiz</span> for you
@@ -244,7 +244,7 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="text-xl sm:text-2xl font-medium mb-10 max-w-lg leading-relaxed text-brand-dark/80"
+            className="mb-8 max-w-xl text-lg font-medium leading-relaxed text-brand-dark/80 sm:text-2xl"
           >
             See your personalised recommendations based on your interests and goals
           </motion.p>
@@ -255,7 +255,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
             onSubmit={handleJoin}
-            className="flex flex-col gap-4 max-w-3xl relative"
+            className="relative flex max-w-3xl flex-col gap-4"
           >
             <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-4">
               <input
@@ -268,7 +268,7 @@ export default function Home() {
                 maxLength={6}
                 required
                 inputMode="numeric"
-                className="w-full min-w-0 px-8 py-5 rounded-full border-2 border-brand-dark bg-white text-xl font-bold placeholder:text-brand-dark/40 focus:outline-none focus:ring-4 focus:ring-brand-orange/20 tracking-[0.18em]"
+                className="w-full min-w-0 rounded-full border-2 border-brand-dark bg-white px-6 py-4 text-lg font-bold tracking-[0.16em] placeholder:text-brand-dark/40 focus:outline-none focus:ring-4 focus:ring-brand-orange/20 sm:px-8 sm:py-5 sm:text-xl"
               />
               <input
                 id="nickname"
@@ -280,25 +280,25 @@ export default function Home() {
                 onChange={(e) => setNickname(e.target.value)}
                 maxLength={12}
                 required
-                className="w-full min-w-0 px-8 py-5 rounded-full border-2 border-brand-dark bg-white text-xl font-bold placeholder:text-brand-dark/40 focus:outline-none focus:ring-4 focus:ring-brand-orange/20"
+                className="w-full min-w-0 rounded-full border-2 border-brand-dark bg-white px-6 py-4 text-lg font-bold placeholder:text-brand-dark/40 focus:outline-none focus:ring-4 focus:ring-brand-orange/20 sm:px-8 sm:py-5 sm:text-xl"
               />
               <button
                 type="submit"
                 disabled={joining}
-                className="w-full md:w-auto px-10 py-5 rounded-full bg-brand-orange text-white font-bold text-xl border-2 border-brand-dark hover:bg-[#e84d2a] transition-all shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[4px] active:translate-x-[4px]"
+                className="w-full rounded-full border-2 border-brand-dark bg-brand-orange px-8 py-4 text-lg font-bold text-white shadow-[4px_4px_0px_0px_#1A1A1A] transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:bg-[#e84d2a] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none md:w-auto md:px-10 md:py-5 md:text-xl"
               >
                 {joining ? 'Joining...' : 'Join'}
               </button>
             </div>
 
-            <div className="flex flex-col lg:flex-row gap-3">
+            <div className="action-row">
               <button
                 type="button"
                 onClick={() => {
                   setError('');
                   setScannerOpen(true);
                 }}
-                className="w-full lg:w-auto px-6 py-4 rounded-[1.4rem] border-2 border-brand-dark bg-white font-black text-lg flex items-center justify-center gap-3 shadow-[4px_4px_0px_0px_#1A1A1A]"
+                className="action-pill rounded-[1.4rem] border-2 border-brand-dark bg-white px-5 py-4 text-base font-black shadow-[4px_4px_0px_0px_#1A1A1A] sm:text-lg flex items-center justify-center gap-3"
               >
                 <ScanLine className="w-5 h-5 text-brand-orange" />
                 Scan QR / barcode
@@ -327,9 +327,9 @@ export default function Home() {
             </div>
 
             {/* Avatar Selection */}
-            <div className="premium-card p-6 mt-4 bg-white/50 backdrop-blur-md">
+            <div className="premium-card mt-4 bg-white/50 p-5 backdrop-blur-md sm:p-6">
               <p className="text-[10px] font-black text-brand-dark/40 mb-4 px-2 uppercase tracking-[0.2em]">Identify as</p>
-              <div className="flex flex-wrap gap-3 justify-between px-2">
+              <div className="flex flex-wrap gap-3 px-2">
                 {AVATARS.map((avatar) => (
                   <button
                     key={avatar}
@@ -337,7 +337,7 @@ export default function Home() {
                     aria-label={`Select avatar ${avatar}`}
                     aria-pressed={selectedAvatar === avatar}
                     onClick={() => setSelectedAvatar(avatar)}
-                    className={`text-4xl p-3 rounded-2xl transition-all hover:scale-125 focus:outline-none focus-visible:ring-8 focus-visible:ring-brand-purple/10 ${selectedAvatar === avatar
+                    className={`rounded-2xl p-3 text-3xl transition-all hover:scale-125 focus:outline-none focus-visible:ring-8 focus-visible:ring-brand-purple/10 sm:text-4xl ${selectedAvatar === avatar
                       ? 'bg-brand-purple/20 border-2 border-brand-dark scale-110 shadow-[4px_4px_0px_0px_#1A1A1A]'
                       : 'border-2 border-transparent hover:bg-white/80'
                       }`}
@@ -360,29 +360,29 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="flex flex-wrap gap-6 mt-16"
+            className="safe-grid-4 mt-12 sm:mt-16"
           >
-            <div className="premium-card p-8 flex-1 min-w-[200px] flex flex-col justify-between group">
+            <div className="premium-card group flex flex-col justify-between p-6 sm:p-8">
               <span className="inline-block px-4 py-1.5 rounded-full bg-brand-purple/10 text-brand-purple font-black text-[10px] mb-8 border border-brand-purple/20 uppercase tracking-widest w-fit">Knowledge</span>
               <div>
                 <p className="text-xs font-black text-brand-dark/30 uppercase tracking-widest mb-1">Subjects</p>
-                <p className="text-6xl font-black group-hover:text-brand-purple transition-colors">+40</p>
+                <p className="text-5xl font-black transition-colors group-hover:text-brand-purple sm:text-6xl">+40</p>
               </div>
             </div>
-            <div className="premium-card p-8 bg-brand-orange text-white flex-1 min-w-[200px] flex flex-col justify-between group">
+            <div className="premium-card group flex flex-col justify-between bg-brand-orange p-6 text-white sm:p-8">
               <span className="inline-block px-4 py-1.5 rounded-full bg-white text-brand-orange font-black text-[10px] mb-8 border border-white/20 uppercase tracking-widest w-fit">Impact</span>
               <div>
                 <p className="text-xs font-black text-white/50 uppercase tracking-widest mb-1">Live Sessions</p>
-                <p className="text-6xl font-black">+120</p>
+                <p className="text-5xl font-black sm:text-6xl">+120</p>
               </div>
             </div>
-            <div className="premium-card p-8 bg-brand-yellow flex-1 min-w-[200px] flex flex-col justify-between group">
+            <div className="premium-card group flex flex-col justify-between bg-brand-yellow p-6 sm:p-8">
               <div className="flex gap-1 text-brand-orange mb-8">
                 {[1, 2, 3, 4, 5].map(i => <Star key={i} className="w-5 h-5 fill-current" />)}
               </div>
               <div>
                 <p className="text-xs font-black text-brand-dark/30 uppercase tracking-widest mb-1">Happy Learners</p>
-                <p className="text-6xl font-black">+180k</p>
+                <p className="text-5xl font-black sm:text-6xl">+180k</p>
               </div>
             </div>
           </motion.div>

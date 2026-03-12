@@ -419,11 +419,11 @@ export default function StudentPlay() {
 
   if (status === 'LOBBY') {
     return (
-      <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-8 text-brand-dark text-center overflow-hidden relative selection:bg-brand-orange selection:text-white">
+      <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-brand-dark text-center overflow-x-clip relative selection:bg-brand-orange selection:text-white">
         {/* Exit Button */}
         <button
           onClick={() => navigate(`/student/dashboard/${nickname}`)}
-          className="absolute top-8 left-8 z-50 flex items-center gap-2 bg-white border-2 border-brand-dark hover:bg-brand-yellow px-4 py-2 rounded-full shadow-[2px_2px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none transition-all font-bold"
+          className="absolute left-4 top-4 sm:left-8 sm:top-8 z-50 flex items-center gap-2 bg-white border-2 border-brand-dark hover:bg-brand-yellow px-4 py-2 rounded-full shadow-[2px_2px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none transition-all font-bold"
         >
           <XCircle className="w-5 h-5" />
           Leave Game
@@ -438,18 +438,18 @@ export default function StudentPlay() {
           initial={{ scale: 0.8, opacity: 0, y: 50 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
           transition={{ type: 'spring', bounce: 0.5 }}
-          className="relative z-10 bg-white border-4 border-brand-dark rounded-[3rem] p-12 shadow-[16px_16px_0px_0px_#1A1A1A] max-w-lg w-full flex flex-col items-center"
+          className="relative z-10 bg-white border-4 border-brand-dark rounded-[2.2rem] sm:rounded-[3rem] p-6 sm:p-12 shadow-[16px_16px_0px_0px_#1A1A1A] max-w-lg w-full flex flex-col items-center"
         >
-          <div className="w-32 h-32 bg-brand-yellow rounded-full border-4 border-brand-dark flex items-center justify-center text-6xl mb-8 shadow-[8px_8px_0px_0px_#1A1A1A] -rotate-6">
+          <div className="w-24 h-24 sm:w-32 sm:h-32 bg-brand-yellow rounded-full border-4 border-brand-dark flex items-center justify-center text-5xl sm:text-6xl mb-6 sm:mb-8 shadow-[8px_8px_0px_0px_#1A1A1A] -rotate-6">
             {avatar}
           </div>
-          <h2 className="text-5xl font-black mb-2 tracking-tight">You're in!</h2>
-          <p className="text-xl font-bold text-brand-dark/60 mb-8">Waiting for the host to start...</p>
+          <h2 className="text-4xl sm:text-5xl font-black mb-2 tracking-tight">You're in!</h2>
+          <p className="text-lg sm:text-xl font-bold text-brand-dark/60 mb-6 sm:mb-8">Waiting for the host to start...</p>
 
           <div className="space-y-4 w-full">
-            <div className="bg-brand-bg px-8 py-4 rounded-full border-2 border-brand-dark/20 flex items-center justify-center gap-4">
+            <div className="bg-brand-bg px-5 sm:px-8 py-4 rounded-full border-2 border-brand-dark/20 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
               <span className="text-sm font-bold text-brand-dark/50 uppercase tracking-widest">Playing as</span>
-              <span className="text-2xl font-black">{nickname}</span>
+              <span className="text-xl sm:text-2xl font-black">{nickname}</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -465,26 +465,26 @@ export default function StudentPlay() {
   if (status === 'QUESTION_ACTIVE') {
     if (hasAnswered) {
       return (
-        <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-hidden">
+        <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
           {/* Animated background patterns */}
           <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
 
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="relative z-10 bg-white p-16 rounded-[3rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-xl w-full"
+            className="relative z-10 bg-white p-6 sm:p-12 lg:p-16 rounded-[2.2rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-xl w-full"
           >
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
               className="inline-block mb-10"
             >
-              <div className="w-32 h-32 bg-brand-yellow rounded-full border-4 border-brand-dark flex items-center justify-center shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <Clock className="w-16 h-16 text-brand-dark" />
+              <div className="w-24 h-24 sm:w-32 sm:h-32 bg-brand-yellow rounded-full border-4 border-brand-dark flex items-center justify-center shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <Clock className="w-12 h-12 sm:w-16 sm:h-16 text-brand-dark" />
               </div>
             </motion.div>
-            <h2 className="text-5xl font-black text-brand-dark tracking-tight mb-6">Answer submitted!</h2>
-            <p className="text-2xl text-brand-dark/60 font-bold">Waiting for others to finish...</p>
+            <h2 className="text-4xl sm:text-5xl font-black text-brand-dark tracking-tight mb-6">Answer submitted!</h2>
+            <p className="text-xl sm:text-2xl text-brand-dark/60 font-bold">Waiting for others to finish...</p>
 
             <div className="mt-12 inline-flex items-center gap-2 bg-brand-bg px-6 py-3 rounded-full border-2 border-brand-dark/20">
               <Zap className="w-5 h-5 text-brand-orange" />
@@ -496,39 +496,39 @@ export default function StudentPlay() {
     }
 
     return (
-      <div className="min-h-screen bg-brand-bg flex flex-col p-4 md:p-8 selection:bg-brand-orange selection:text-white">
+      <div className="min-h-screen bg-brand-bg flex flex-col p-4 sm:p-5 md:p-8 selection:bg-brand-orange selection:text-white">
         {/* Top Bar */}
-        <div className="flex justify-between items-center mb-8 max-w-6xl mx-auto w-full">
-          <div className="flex items-center gap-4">
+        <div className="mb-6 sm:mb-8 max-w-6xl mx-auto w-full flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4 min-w-0">
             <button
               onClick={() => {
                 if (window.confirm('Are you sure you want to leave the game?')) {
                   navigate(`/student/dashboard/${nickname}`);
                 }
               }}
-              className="w-12 h-12 flex items-center justify-center bg-white border-4 border-brand-dark rounded-full hover:bg-brand-orange hover:text-white transition-colors shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none"
+              className="w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center bg-white border-4 border-brand-dark rounded-full hover:bg-brand-orange hover:text-white transition-colors shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none shrink-0"
               title="Leave Game"
             >
               <XCircle className="w-6 h-6" />
             </button>
-            <div className="flex items-center gap-4 bg-white px-6 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
-              <span className="text-2xl">{avatar}</span>
-              <span className="font-black text-xl">{nickname}</span>
+            <div className="min-w-0 flex items-center gap-3 bg-white px-4 sm:px-6 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
+              <span className="text-xl sm:text-2xl shrink-0">{avatar}</span>
+              <span className="font-black text-lg sm:text-xl truncate">{nickname}</span>
             </div>
             {(teamName || isTeamGameLabel(sessionMeta?.game_type || savedGameType)) && (
-              <div className="hidden lg:flex items-center gap-3 bg-brand-yellow px-5 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
+              <div className="flex items-center gap-3 bg-brand-yellow px-4 sm:px-5 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] min-w-0">
                 <Sparkles className="w-5 h-5 text-brand-dark" />
-                <span className="font-black">{teamName || 'Team mode'}</span>
+                <span className="font-black truncate">{teamName || 'Team mode'}</span>
               </div>
             )}
           </div>
 
-          <div className="flex items-center gap-3 bg-brand-dark text-white px-6 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#FF5A36]">
+          <div className="w-full justify-center lg:w-auto flex items-center gap-3 bg-brand-dark text-white px-5 sm:px-6 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#FF5A36]">
             <Clock className="w-6 h-6 text-brand-yellow" />
             <span className="font-black text-2xl w-8 text-center">{timeLeft}</span>
           </div>
 
-          <div className="flex items-center gap-3 bg-white px-6 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
+          <div className="w-full justify-center lg:w-auto flex items-center gap-3 bg-white px-5 sm:px-6 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
             <Star className="w-6 h-6 text-brand-orange fill-current" />
             <span className="font-black text-xl">{score}</span>
           </div>
@@ -538,7 +538,7 @@ export default function StudentPlay() {
         <motion.div
           initial={{ y: -20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          className="bg-white rounded-[3rem] p-12 border-4 border-brand-dark mb-10 text-center shadow-[12px_12px_0px_0px_#1A1A1A] max-w-6xl mx-auto w-full relative overflow-hidden"
+          className="bg-white rounded-[2.2rem] sm:rounded-[3rem] p-6 sm:p-9 lg:p-12 border-4 border-brand-dark mb-8 sm:mb-10 text-center shadow-[12px_12px_0px_0px_#1A1A1A] max-w-6xl mx-auto w-full relative overflow-hidden"
         >
           <div className="absolute top-0 left-0 w-full h-2 bg-brand-dark/10">
             <motion.div
@@ -548,11 +548,11 @@ export default function StudentPlay() {
               transition={{ duration: 1, ease: 'linear' }}
             />
           </div>
-          <h2 className="text-4xl md:text-6xl font-black text-brand-dark leading-tight">{question?.prompt}</h2>
+          <h2 className="text-[2rem] xs:text-[2.3rem] md:text-6xl font-black text-brand-dark leading-tight">{question?.prompt}</h2>
         </motion.div>
 
         {/* Answers Grid */}
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-6xl mx-auto w-full">
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 max-w-6xl mx-auto w-full">
           <AnimatePresence>
             {question?.answers?.map((ans: string, i: number) => (
               <motion.button
@@ -566,12 +566,12 @@ export default function StudentPlay() {
                 onMouseLeave={() => flushHoverDwell()}
                 onFocus={() => beginHoverDwell(i)}
                 onBlur={() => flushHoverDwell()}
-                className={`${COLORS[i % 4].bg} ${COLORS[i % 4].text} border-4 ${COLORS[i % 4].border} rounded-[3rem] flex items-center justify-center p-10 text-3xl md:text-4xl font-black ${COLORS[i % 4].shadow} hover:translate-y-[4px] hover:translate-x-[4px] hover:shadow-[4px_4px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[8px] active:translate-x-[8px] transition-all relative overflow-hidden group`}
+                className={`${COLORS[i % 4].bg} ${COLORS[i % 4].text} border-4 ${COLORS[i % 4].border} rounded-[2rem] sm:rounded-[3rem] flex min-h-[120px] sm:min-h-[160px] items-center justify-center p-6 sm:p-8 lg:p-10 text-xl xs:text-2xl md:text-4xl font-black ${COLORS[i % 4].shadow} hover:translate-y-[4px] hover:translate-x-[4px] hover:shadow-[4px_4px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[8px] active:translate-x-[8px] transition-all relative overflow-hidden group`}
               >
                 {/* Decorative shape on hover */}
                 <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-black/10 rounded-full scale-0 group-hover:scale-100 transition-transform duration-500"></div>
 
-                <span className="relative z-10">{ans}</span>
+                <span className="relative z-10 break-words">{ans}</span>
               </motion.button>
             ))}
           </AnimatePresence>
@@ -584,13 +584,13 @@ export default function StudentPlay() {
               initial={{ y: 100, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 100, opacity: 0 }}
-              className="fixed bottom-8 left-0 right-0 flex justify-center z-50 px-4"
+              className="fixed bottom-4 sm:bottom-8 left-0 right-0 flex justify-center z-50 px-4"
             >
               <button
                 onClick={handleLockIn}
-                className="bg-brand-dark text-white text-3xl font-black px-12 py-6 rounded-full border-4 border-brand-dark shadow-[8px_8px_0px_0px_#FF5A36] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none active:translate-y-[4px] active:translate-x-[4px] transition-all flex items-center gap-4 group"
+                className="w-full max-w-sm justify-center bg-brand-dark text-white text-xl sm:text-3xl font-black px-8 sm:px-12 py-4 sm:py-6 rounded-full border-4 border-brand-dark shadow-[8px_8px_0px_0px_#FF5A36] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none active:translate-y-[4px] active:translate-x-[4px] transition-all flex items-center gap-3 sm:gap-4 group"
               >
-                <CheckCircle className="w-8 h-8 text-brand-yellow group-hover:scale-125 transition-transform" />
+                <CheckCircle className="w-6 h-6 sm:w-8 sm:h-8 text-brand-yellow group-hover:scale-125 transition-transform" />
                 LOCK IT IN!
               </button>
             </motion.div>
@@ -602,21 +602,21 @@ export default function StudentPlay() {
 
   if (status === 'QUESTION_REVEAL') {
     return (
-      <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-hidden">
+      <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
         {/* Animated background patterns */}
         <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
 
         <motion.div
           initial={{ scale: 0.8, opacity: 0, rotate: 10 }}
           animate={{ scale: 1, opacity: 1, rotate: -2 }}
-          className="relative z-10 bg-brand-purple p-16 rounded-[3rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-2xl w-full"
+          className="relative z-10 bg-brand-purple p-6 sm:p-10 lg:p-16 rounded-[2.2rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-2xl w-full"
         >
-          <div className="inline-flex items-center justify-center w-32 h-32 bg-white border-4 border-brand-dark rounded-full mb-10 shadow-[8px_8px_0px_0px_#1A1A1A] rotate-12">
-            <Flame className="w-16 h-16 text-brand-orange" />
+          <div className="inline-flex items-center justify-center w-24 h-24 sm:w-32 sm:h-32 bg-white border-4 border-brand-dark rounded-full mb-8 sm:mb-10 shadow-[8px_8px_0px_0px_#1A1A1A] rotate-12">
+            <Flame className="w-12 h-12 sm:w-16 sm:h-16 text-brand-orange" />
           </div>
-          <h2 className="text-6xl md:text-7xl font-black text-white mb-8 tracking-tight">Time's Up!</h2>
+          <h2 className="text-4xl xs:text-5xl md:text-7xl font-black text-white mb-8 tracking-tight">Time's Up!</h2>
           <div className="bg-white/20 p-6 rounded-2xl border-2 border-white/30 backdrop-blur-sm">
-            <p className="text-2xl text-white font-bold">Look at the main screen to see the correct answer and your points.</p>
+            <p className="text-xl sm:text-2xl text-white font-bold">Look at the main screen to see the correct answer and your points.</p>
           </div>
         </motion.div>
       </div>
@@ -625,7 +625,7 @@ export default function StudentPlay() {
 
   if (status === 'LEADERBOARD') {
     return (
-      <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-hidden">
+      <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
         {/* Animated background patterns */}
         <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
 
@@ -633,15 +633,15 @@ export default function StudentPlay() {
           initial={{ y: 50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ type: 'spring', bounce: 0.6 }}
-          className="relative z-10 bg-white p-16 rounded-[3rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-2xl w-full"
+          className="relative z-10 bg-white p-6 sm:p-10 lg:p-16 rounded-[2.2rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-2xl w-full"
         >
-          <div className="inline-flex items-center justify-center w-32 h-32 bg-brand-yellow border-4 border-brand-dark rounded-full mb-10 shadow-[8px_8px_0px_0px_#1A1A1A]">
-            <Trophy className="w-16 h-16 text-brand-dark" />
+          <div className="inline-flex items-center justify-center w-24 h-24 sm:w-32 sm:h-32 bg-brand-yellow border-4 border-brand-dark rounded-full mb-8 sm:mb-10 shadow-[8px_8px_0px_0px_#1A1A1A]">
+            <Trophy className="w-12 h-12 sm:w-16 sm:h-16 text-brand-dark" />
           </div>
-          <h2 className="text-6xl md:text-7xl font-black mb-8 tracking-tight text-brand-dark">Leaderboard</h2>
-          <div className="bg-brand-bg p-8 rounded-[2rem] border-4 border-brand-dark/10">
-            <p className="text-3xl text-brand-dark/80 font-bold mb-4">Check the main screen!</p>
-            <p className="text-xl text-brand-dark/50 font-medium">Did you make it to the top 5?</p>
+          <h2 className="text-4xl xs:text-5xl md:text-7xl font-black mb-8 tracking-tight text-brand-dark">Leaderboard</h2>
+          <div className="bg-brand-bg p-5 sm:p-8 rounded-[2rem] border-4 border-brand-dark/10">
+            <p className="text-2xl sm:text-3xl text-brand-dark/80 font-bold mb-4">Check the main screen!</p>
+            <p className="text-lg sm:text-xl text-brand-dark/50 font-medium">Did you make it to the top 5?</p>
           </div>
         </motion.div>
       </div>
