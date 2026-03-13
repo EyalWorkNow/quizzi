@@ -361,29 +361,29 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="safe-grid-4 mt-12 sm:mt-16"
+            className="grid grid-cols-3 gap-3 sm:gap-4 mt-12 sm:mt-16"
           >
-            <div className="premium-card group flex flex-col justify-between p-6 sm:p-8">
-              <span className="inline-block px-4 py-1.5 rounded-full bg-brand-purple/10 text-brand-purple font-black text-[10px] mb-8 border border-brand-purple/20 uppercase tracking-widest w-fit">Knowledge</span>
+            <div className="premium-card group flex flex-col justify-between p-5 sm:p-6 aspect-square">
+              <span className="inline-block px-3 py-1 rounded-full bg-brand-purple/10 text-brand-purple font-black text-[9px] sm:text-[10px] border border-brand-purple/20 uppercase tracking-widest w-fit">Knowledge</span>
               <div>
-                <p className="text-xs font-black text-brand-dark/30 uppercase tracking-widest mb-1">Subjects</p>
-                <p className="text-5xl font-black transition-colors group-hover:text-brand-purple sm:text-6xl">+40</p>
+                <p className="text-[9px] sm:text-xs font-black text-brand-dark/30 uppercase tracking-widest mb-1">Subjects</p>
+                <p className="text-3xl sm:text-5xl font-black transition-colors group-hover:text-brand-purple">+40</p>
               </div>
             </div>
-            <div className="premium-card group flex flex-col justify-between bg-brand-orange p-6 text-white sm:p-8">
-              <span className="inline-block px-4 py-1.5 rounded-full bg-white text-brand-orange font-black text-[10px] mb-8 border border-white/20 uppercase tracking-widest w-fit">Impact</span>
+            <div className="premium-card group flex flex-col justify-between bg-brand-orange p-5 sm:p-6 text-white aspect-square">
+              <span className="inline-block px-3 py-1 rounded-full bg-white text-brand-orange font-black text-[9px] sm:text-[10px] border border-white/20 uppercase tracking-widest w-fit">Impact</span>
               <div>
-                <p className="text-xs font-black text-white/50 uppercase tracking-widest mb-1">Live Sessions</p>
-                <p className="text-5xl font-black sm:text-6xl">+120</p>
+                <p className="text-[9px] sm:text-xs font-black text-white/50 uppercase tracking-widest mb-1">Live Sessions</p>
+                <p className="text-3xl sm:text-5xl font-black">+120</p>
               </div>
             </div>
-            <div className="premium-card group flex flex-col justify-between bg-brand-yellow p-6 sm:p-8">
-              <div className="flex gap-1 text-brand-orange mb-8">
-                {[1, 2, 3, 4, 5].map(i => <Star key={i} className="w-5 h-5 fill-current" />)}
+            <div className="premium-card group flex flex-col justify-between bg-brand-yellow p-5 sm:p-6 aspect-square">
+              <div className="flex gap-0.5 sm:gap-1 text-brand-orange">
+                {[1, 2, 3, 4, 5].map(i => <Star key={i} className="w-3 h-3 sm:w-5 sm:h-5 fill-current" />)}
               </div>
               <div>
-                <p className="text-xs font-black text-brand-dark/30 uppercase tracking-widest mb-1">Happy Learners</p>
-                <p className="text-5xl font-black sm:text-6xl">+180k</p>
+                <p className="text-[9px] sm:text-xs font-black text-brand-dark/30 uppercase tracking-widest mb-1">Happy Learners</p>
+                <p className="text-3xl sm:text-5xl font-black">+180k</p>
               </div>
             </div>
           </motion.div>

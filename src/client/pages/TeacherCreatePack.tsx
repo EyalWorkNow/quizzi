@@ -16,6 +16,7 @@ export default function TeacherCreatePack() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [materialProfile, setMaterialProfile] = useState<any>(null);
   const [generationMeta, setGenerationMeta] = useState<any>(null);
+  const [genError, setGenError] = useState('');
 
   // Advanced Generation Settings
   const [questionCount, setQuestionCount] = useState(5);
@@ -39,6 +40,11 @@ export default function TeacherCreatePack() {
       if (data.text) {
         setSourceText(data.text);
         setMaterialProfile(data.material_profile || null);
+        // Auto-title from filename
+        if (!title) {
+          const baseName = file.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ');
+          setTitle(baseName.charAt(0).toUpperCase() + baseName.slice(1));
+        }
       } else if (data.error) {
         alert(data.error);
       }
@@ -54,6 +60,7 @@ export default function TeacherCreatePack() {
   const handleGenerate = async () => {
     if (!sourceText.trim()) return;
     setIsGenerating(true);
+    setGenError('');
     setGenerationStep('Analyzing your material...');
 
     try {
@@ -76,8 +83,9 @@ export default function TeacherCreatePack() {
         setMaterialProfile(data.material_profile || materialProfile);
         setGenerationMeta(data.generation_meta || null);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setGenError(err?.message || 'Failed to generate questions. Check your source material and try again.');
     } finally {
       setIsGenerating(false);
       setGenerationStep('');
@@ -327,6 +335,12 @@ export default function TeacherCreatePack() {
                   <Wand2 className={`w-6 h-6 transition-transform group-hover:rotate-12 ${isGenerating ? 'animate-spin' : ''}`} />
                   {isGenerating ? 'Magic in Progress...' : 'Spark Questions'}
                 </button>
+
+                {genError && (
+                  <div className="mt-3 p-4 bg-red-50 border-2 border-red-300 rounded-2xl text-red-700 text-sm font-semibold">
+                    ⚠️ {genError}
+                  </div>
+                )}
               </div>
             </motion.div>
           </div>
