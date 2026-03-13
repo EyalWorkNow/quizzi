@@ -68,7 +68,13 @@ const upload = multer({
 
 const router = Router();
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+if (!process.env.GEMINI_API_KEY) {
+  console.error('⚠️  [CRITICAL] GEMINI_API_KEY is NOT set! AI question generation will fail.');
+  console.error('    → Set it in Render Dashboard: Environment → Add Environment Variable');
+  console.error('    → Key: GEMINI_API_KEY   Value: your Google AI Studio API key');
+}
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || 'MISSING_KEY' });
 const TEAM_GAME_TYPES = new Set(['team_relay', 'peer_pods', 'mastery_matrix']);
 const TEAM_NAME_BANK = [
   'Alpha',

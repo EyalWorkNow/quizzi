@@ -2,7 +2,9 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
 
 const AUTH_COOKIE = 'quizzi_teacher_session';
-const AUTH_SECRET = process.env.QUIZZI_AUTH_SECRET || randomBytes(32).toString('hex');
+// CRITICAL: In production, set QUIZZI_AUTH_SECRET as an env var on Render.
+// The fallback is deterministic so sessions survive server restarts / cold starts.
+const AUTH_SECRET = process.env.QUIZZI_AUTH_SECRET || 'quizzi-dev-secret-change-me-in-production-2024';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const DEMO_TEACHER_EMAIL = 'mail@mail.com';
 const DEMO_TEACHER_PASSWORD_HASH = createHmac('sha256', AUTH_SECRET).update('123123').digest('hex');
