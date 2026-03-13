@@ -1,5 +1,5 @@
 import { loadTeacherSettings, saveTeacherSettings } from './localData.ts';
-import { getFirebaseAuth, googleProvider, signInWithRedirect, getRedirectResult } from './firebase.ts';
+import { getFirebaseAuth, googleProvider, signInWithPopup } from './firebase.ts';
 
 export const DEMO_TEACHER_EMAIL = 'mail@mail.com';
 export const DEMO_TEACHER_PASSWORD = '123123';
@@ -188,26 +188,9 @@ export async function signInTeacherWithProvider({
   }
 
   try {
-    await signInWithRedirect(auth, googleProvider);
-    // The page will redirect. The result will be handled on return.
-    return {} as TeacherAuthSession; // Temporary return to satisfy type
-  } catch (error: any) {
-    throw error;
-  }
-}
-
-/**
- * Handles the redirect result after coming back from Google Sign-In.
- * This should be called in the /auth page component.
- */
-export async function handleTeacherAuthRedirect() {
-  const auth = getFirebaseAuth();
-  if (!auth) return null;
-
-  try {
-    const result = await getRedirectResult(auth);
-    if (!result) return null;
-
+    // Use signInWithPopup — signInWithRedirect requires Firebase Hosting (/__/auth/handler)
+    // which doesn't exist when hosted on Vercel. Popup works with COOP: unsafe-none header.
+    const result = await signInWithPopup(auth, googleProvider);
     const idToken = await result.user.getIdToken();
 
     const response = await fetchWithTimeout('/api/auth/social', {
@@ -225,10 +208,24 @@ export async function handleTeacherAuthRedirect() {
     writeAuth(payload);
     return payload;
   } catch (error: any) {
-    console.error('Redirect auth handling failed:', error);
+    if (error?.code === 'auth/popup-closed-by-user') {
+      throw new Error('Google sign-in was cancelled.');
+    }
+    if (error?.code === 'auth/popup-blocked') {
+      throw new Error('Popup was blocked by your browser. Please allow popups for this site.');
+    }
     throw error;
   }
 }
+
+/**
+ * No-op: redirect flow is not used when hosted on Vercel.
+ * Kept for backward compatibility with Auth.tsx.
+ */
+export async function handleTeacherAuthRedirect() {
+  return null;
+}
+
 
 export async function signOutTeacher() {
   writeAuth(null);
