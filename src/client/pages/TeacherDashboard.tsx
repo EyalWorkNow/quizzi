@@ -217,7 +217,7 @@ export default function TeacherDashboard() {
   const handleHost = async (packId: number, gameType = selectedGameMode, teamCount = selectedTeamCount) => {
     try {
       setBusyAction({ packId, action: 'host' });
-      const res = await fetch('/api/sessions', {
+      const res = await apiFetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -260,7 +260,7 @@ export default function TeacherDashboard() {
   const handlePreview = async (pack: any) => {
     try {
       setBusyAction({ packId: Number(pack.id), action: 'preview' });
-      const res = await fetch(`/api/packs/${pack.id}`);
+      const res = await apiFetch(`/api/packs/${pack.id}`);
       if (!res.ok) {
         throw new Error(await readApiError(res));
       }
@@ -276,7 +276,7 @@ export default function TeacherDashboard() {
   const handleDuplicate = async (pack: any) => {
     try {
       setBusyAction({ packId: Number(pack.id), action: 'duplicate' });
-      const response = await fetch(`/api/teacher/packs/${pack.id}/duplicate`, {
+      const response = await apiFetch(`/api/teacher/packs/${pack.id}/duplicate`, {
         method: 'POST',
       });
       if (!response.ok) {
@@ -299,7 +299,7 @@ export default function TeacherDashboard() {
     if (!deletingPack) return;
     try {
       setBusyAction({ packId: Number(deletingPack.id), action: 'delete' });
-      const response = await fetch(`/api/teacher/packs/${deletingPack.id}`, {
+      const response = await apiFetch(`/api/teacher/packs/${deletingPack.id}`, {
         method: 'DELETE',
       });
       if (!response.ok) {

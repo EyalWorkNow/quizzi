@@ -7,6 +7,7 @@ import JoinScannerModal from '../components/JoinScannerModal.tsx';
 import { trackStudentJoinEvent, trackTeacherAuthEvent, toAnalyticsErrorCode } from '../lib/appAnalytics.ts';
 import { announceParticipantJoin } from '../lib/firebaseRealtime.ts';
 import { isValidSessionPin, sanitizeSessionPin } from '../lib/joinCodes.ts';
+import { apiFetch } from '../lib/api.ts';
 import {
   loadTeacherAuth,
   isTeacherAuthenticated,
@@ -93,7 +94,7 @@ export default function Home() {
 
     try {
       const fullNickname = `${selectedAvatar} ${trimmedNickname}`;
-      const res = await fetch(`/api/sessions/${sessionPin}/join`, {
+      const res = await apiFetch(`/api/sessions/${sessionPin}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nickname: fullNickname })
