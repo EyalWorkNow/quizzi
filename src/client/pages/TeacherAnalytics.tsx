@@ -3374,24 +3374,36 @@ function CommitmentDistributionChart({ rows }: { rows: any[] }) {
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+    <div className="flex flex-col gap-3">
       {rows.map((row) => {
         const tone = Number(row.accuracy || 0) >= 75 ? 'good' : Number(row.accuracy || 0) >= 55 ? 'mid' : 'bad';
+        const barColor = tone === 'good' ? 'bg-emerald-400' : tone === 'mid' ? 'bg-brand-yellow' : 'bg-brand-orange';
+        const widthPct = Math.max(0, Math.min(100, (Number(row.count || 0) / maxCount) * 100));
+
         return (
-          <div key={row.id} className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{row.label}</p>
-                <p className="font-black">{row.count} responses</p>
+          <div key={row.id} className="rounded-[1.25rem] border-2 border-brand-dark bg-brand-bg p-4 flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
+            <div className="w-full md:w-48 shrink-0 flex items-center justify-between md:flex-col md:items-start">
+              <p className="text-sm font-black uppercase tracking-[0.1em] text-brand-purple">{row.label}</p>
+              <p className="font-bold text-brand-dark/70 text-sm">{row.count} responses</p>
+            </div>
+            
+            <div className="flex-1 w-full">
+              <div className="w-full h-8 sm:h-10 rounded-xl border-2 border-brand-dark bg-white overflow-hidden">
+                <div 
+                  className={`${barColor} h-full transition-all duration-500`} 
+                  style={{ width: `${widthPct}%` }}
+                />
               </div>
-              <span className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark font-black">
-                {Number(row.accuracy || 0).toFixed(0)}%
+            </div>
+
+            <div className="w-full md:w-32 shrink-0 flex flex-row items-center justify-between md:flex-col md:items-end gap-2">
+              <span className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark font-black text-sm whitespace-nowrap">
+                {Number(row.accuracy || 0).toFixed(0)}% Accuracy
               </span>
+              <div className="w-24 hidden md:block">
+                <Bar value={Number(row.accuracy || 0)} tone={tone} />
+              </div>
             </div>
-            <div className="h-28 flex items-end justify-center mb-4">
-              <div className={`${tone === 'good' ? 'bg-emerald-400' : tone === 'mid' ? 'bg-brand-yellow' : 'bg-brand-orange'} w-16 rounded-t-[1rem] border-2 border-brand-dark`} style={{ height: `${Math.max(12, (Number(row.count || 0) / maxCount) * 100)}%` }} />
-            </div>
-            <Bar value={Number(row.accuracy || 0)} tone={tone} />
           </div>
         );
       })}
