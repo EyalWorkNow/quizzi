@@ -3,15 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowUpRight,
   BarChart,
+  Building2,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
   Compass,
   Copy,
   Filter,
+  Globe,
   HelpCircle,
+  History,
+  Leaf,
   Library,
   LogOut,
+  Map,
+  Mountain,
   Play,
   Plus,
   RefreshCw,
@@ -20,7 +26,9 @@ import {
   Sparkles,
   Trash2,
   Users,
+  Wind,
   XCircle,
+  Zap,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { loadTeacherSettings } from '../lib/localData.ts';
@@ -38,6 +46,22 @@ const SORT_OPTIONS = [
 ] as const;
 
 type SortOption = (typeof SORT_OPTIONS)[number]['id'];
+
+function getCategoryIcon(category: string) {
+  const normalized = category.toLowerCase().trim();
+  switch (normalized) {
+    case 'cities': return <Building2 className="w-4 h-4" />;
+    case 'physical-geography': return <Mountain className="w-4 h-4" />;
+    case 'regions': return <Map className="w-4 h-4" />;
+    case 'language-culture': return <Globe className="w-4 h-4" />;
+    case 'history': return <History className="w-4 h-4" />;
+    case 'photosynthesis': return <Leaf className="w-4 h-4" />;
+    case 'energy': return <Zap className="w-4 h-4" />;
+    case 'gases': return <Wind className="w-4 h-4" />;
+    case 'all': return <Sparkles className="w-4 h-4" />;
+    default: return <Compass className="w-4 h-4" />;
+  }
+}
 
 function formatRelativeTime(value?: string | null) {
   if (!value) return 'Not run yet';
@@ -501,9 +525,10 @@ export default function TeacherDashboard() {
                     key={category}
                     aria-pressed={activeCategory === category}
                     onClick={() => setActiveCategory(category)}
-                    className={`px-4 py-2 rounded-full whitespace-nowrap text-sm font-black border-2 border-brand-dark transition-all ${activeCategory === category ? 'bg-brand-purple text-white shadow-[2px_2px_0px_0px_#1A1A1A]' : 'bg-white text-brand-dark hover:bg-brand-yellow'}`}
+                    className={`flex items-center gap-2 shrink-0 px-4 py-2 rounded-full whitespace-nowrap text-sm font-black border-2 border-brand-dark transition-all ${activeCategory === category ? 'bg-brand-purple text-white shadow-[2px_2px_0px_0px_#1A1A1A]' : 'bg-white text-brand-dark hover:bg-brand-yellow'}`}
                   >
-                    {category}
+                    {getCategoryIcon(category)}
+                    <span>{category}</span>
                   </button>
                 ))}
               </div>
