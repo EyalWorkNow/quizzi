@@ -25,6 +25,7 @@ import {
   SessionHistoryTrendChart,
 } from '../components/studentDashboardCharts.tsx';
 import { apiFetchJson } from '../lib/api.ts';
+import Avatar from '../components/Avatar.tsx';
 
 // Replaced by central apiFetchJson
 
@@ -235,14 +236,17 @@ export default function StudentDashboard() {
             className="bg-brand-dark text-white rounded-[2.8rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#FF5A36] p-8"
           >
             <div className="flex items-center gap-5 mb-8">
-              <div className="w-24 h-24 rounded-full bg-brand-yellow text-5xl border-4 border-white flex items-center justify-center shadow-[4px_4px_0px_0px_#1A1A1A] -rotate-6">
-                {avatar}
-              </div>
+              <Avatar 
+                nickname={nickname || ''} 
+                imgClassName="w-24 h-24 text-5xl border-4 border-white -rotate-6" 
+                textClassName="hidden"
+              />
               <div>
                 <h2 className="text-3xl font-black">{nickname}</h2>
                 <p className="font-bold text-white/65">Personal learning profile</p>
               </div>
             </div>
+
 
             <div className="rounded-[2rem] border border-white/15 bg-white/10 p-5 mb-5">
               <div className="flex items-center justify-between mb-3">

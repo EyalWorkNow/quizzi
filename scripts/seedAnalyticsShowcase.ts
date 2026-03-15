@@ -1,4 +1,5 @@
-import { initDb, seedAnalyticsShowcase, seedDemoData } from '../src/server/db/index.ts';
+import { seedAnalyticsShowcase, seedDemoData } from '../src/server/db/seeding.ts';
+import { initDb } from '../src/server/db/index.ts';
 
 initDb();
 seedDemoData();

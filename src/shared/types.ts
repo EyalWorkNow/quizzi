@@ -29,6 +29,10 @@ export interface QuizPack {
   learning_objectives?: string[];
   bloom_levels?: string[];
   pack_notes?: string;
+  generation_provider?: string;
+  generation_model?: string;
+  lms_provider?: string;
+  lms_assignment_label?: string;
   created_at: string;
 }
 

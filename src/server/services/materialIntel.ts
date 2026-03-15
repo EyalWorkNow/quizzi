@@ -3,6 +3,12 @@ import db from '../db/index.js';
 
 const PROMPT_VERSION = 'compressed-v2';
 
+function buildPromptVersionKey(providerKey?: string | null, modelKey?: string | null) {
+  const provider = String(providerKey || 'gemini').trim() || 'gemini';
+  const model = String(modelKey || 'default').trim() || 'default';
+  return `${PROMPT_VERSION}:${provider}:${model}`;
+}
+
 const EN_STOPWORDS = new Set([
   'about', 'after', 'again', 'against', 'also', 'among', 'because', 'been', 'before', 'being', 'between',
   'both', 'can', 'could', 'during', 'each', 'from', 'have', 'into', 'more', 'most', 'other', 'over',
@@ -287,6 +293,8 @@ export function getCachedQuestionGeneration(
   questionCount: number,
   difficulty: string,
   outputLanguage: string,
+  providerKey?: string | null,
+  modelKey?: string | null,
 ) {
   const row = db.prepare(`
     SELECT *
@@ -296,7 +304,7 @@ export function getCachedQuestionGeneration(
       AND difficulty = ?
       AND output_language = ?
       AND prompt_version = ?
-  `).get(materialProfileId, questionCount, difficulty, outputLanguage, PROMPT_VERSION);
+  `).get(materialProfileId, questionCount, difficulty, outputLanguage, buildPromptVersionKey(providerKey, modelKey));
 
   if (!row) return null;
 
@@ -312,6 +320,8 @@ export function saveCachedQuestionGeneration(
   difficulty: string,
   outputLanguage: string,
   response: unknown,
+  providerKey?: string | null,
+  modelKey?: string | null,
 ) {
   db.prepare(`
     INSERT INTO question_generation_cache (
@@ -331,7 +341,7 @@ export function saveCachedQuestionGeneration(
     difficulty,
     outputLanguage,
     questionCount,
-    PROMPT_VERSION,
+    buildPromptVersionKey(providerKey, modelKey),
     JSON.stringify(response),
   );
 }

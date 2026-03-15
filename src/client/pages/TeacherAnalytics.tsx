@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   ChevronDown,
   CircleAlert,
+  CircleHelp,
   Download,
   Eye,
   Flame,
@@ -93,6 +94,65 @@ function severityRank(level?: string) {
   if (level === 'high') return 3;
   if (level === 'medium') return 2;
   return 1;
+}
+
+const METRIC_EXPLANATIONS: Record<string, { title: string; body: string }> = {
+  accuracy: {
+    title: 'מדד דיוק',
+    body: 'אחוז התשובות הנכונות מכלל הניסיונות בכיתה. עוזר להבין את רמת השליטה הכללית בחומר.',
+  },
+  'first-pass': {
+    title: 'דיוק בבחירה ראשונה',
+    body: 'אחוז הפעמים שבהן הסטודנטים בחרו בתשובה הנכונה כבר בניסיון הראשון, ללא היסוס או שינוי.',
+  },
+  'harmful-revisions': {
+    title: 'שינויים מזיקים',
+    body: 'מספר הפעמים שסטודנט שינה תשובה נכונה לתשובה שגויה. מעיד על חוסר ביטחון או הטעיה של מסיחים.',
+  },
+  pressure: {
+    title: 'עומס ולחץ',
+    body: 'אחוז התשובות שניתנו בשניות האחרונות לפני תום הזמן. לחץ גבוה עלול לפגוע באיכות קבלת ההחלטות.',
+  },
+  focus: {
+    title: 'איבוד ריכוז',
+    body: 'מספר הפעמים שתלמידים יצאו מהטאב או איבדו פוקוס במהלך המשחק. מדד למעורבות וקשב.',
+  },
+  coverage: {
+    title: 'מדד השתתפות',
+    body: 'היחס בין מספר התשובות שניתנו לבין המקסימום האפשרי. מראה כמה מהכיתה באמת לקחה חלק פעיל.',
+  },
+  'decision-quality': {
+    title: 'איכות החלטה',
+    body: 'בוחן האם התלמידים מגיעים לתשובה מתוך ידע מבוסס או ניחוש, על פי זמן התגובה ודיוק הבחירה הראשונה.',
+  },
+  'confidence-stability': {
+    title: 'יציבות הביטחון',
+    body: 'בודק כמה התלמידים דבקים בבחירה שלהם. שינויים רבים מעידים על היסוס, גם אם התוצאה הסופית נכונה.',
+  },
+  'revision-efficiency': {
+    title: 'יעילות תיקון',
+    body: 'האם שינוי התשובה עזר לתלמיד (מעבר משגוי לנכון) או הזיק לו. מדד ליכולת למידה תוך כדי תנועה.',
+  },
+  'attention-drag': {
+    title: 'גרירת קשב',
+    body: 'מדד לעומס קוגניטיבי המבוסס על תנועות עכבר והיסוס. ערך גבוה מעיד על קושי בעיבוד המידע.',
+  },
+};
+
+function InfoTooltip({ metricId }: { metricId: string }) {
+  const explanation = METRIC_EXPLANATIONS[metricId];
+  if (!explanation) return null;
+
+  return (
+    <div className="group relative inline-block ml-1.5 focus:outline-none" tabIndex={0}>
+      <CircleHelp className="w-3.5 h-3.5 opacity-40 group-hover:opacity-100 group-focus:opacity-100 transition-opacity cursor-help" />
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-64 p-4 bg-brand-dark text-white rounded-2xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)] opacity-0 invisible group-hover:opacity-100 group-hover:visible group-focus:opacity-100 group-focus:visible transition-all z-50 pointer-events-none">
+        <p className="font-black text-brand-yellow text-xs uppercase tracking-widest mb-1">{explanation.title}</p>
+        <p className="text-sm font-bold leading-relaxed">{explanation.body}</p>
+        <div className="absolute top-full left-1/2 -translate-x-1/2 border-[8px] border-transparent border-t-brand-dark" />
+      </div>
+    </div>
+  );
 }
 
 export default function TeacherAnalytics() {
@@ -1415,10 +1475,10 @@ export default function TeacherAnalytics() {
                 ))}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
-                <SignalPill label="Attention Drag" value={research?.behavior_patterns?.attention_drag_index?.mean ?? 0} tone={riskTone(Number(research?.behavior_patterns?.attention_drag_index?.mean || 0) >= 60 ? 'high' : Number(research?.behavior_patterns?.attention_drag_index?.mean || 0) >= 35 ? 'medium' : 'low')} />
+                <SignalPill label="Attention Drag" value={research?.behavior_patterns?.attention_drag_index?.mean ?? 0} tone={riskTone(Number(research?.behavior_patterns?.attention_drag_index?.mean || 0) >= 60 ? 'high' : Number(research?.behavior_patterns?.attention_drag_index?.mean || 0) >= 35 ? 'medium' : 'low')} metricId="attention-drag" />
                 <SignalPill label="Interaction / s" value={research?.behavior_patterns?.interaction_intensity?.mean ?? 0} />
                 <SignalPill label="Hover Entropy" value={research?.behavior_patterns?.hover_entropy?.mean ?? 0} />
-                <SignalPill label="P75 Drag" value={research?.behavior_patterns?.attention_drag_index?.p75 ?? 0} />
+                <SignalPill label="P75 Drag" value={research?.behavior_patterns?.attention_drag_index?.p75 ?? 0} metricId="attention-drag" />
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <DistributionGroup title="Input mix" items={research?.behavior_patterns?.input_mix || []} />
@@ -2687,7 +2747,12 @@ function VerdictCard({
     <div className={`${toneClass} rounded-[1.35rem] border-2 border-brand-dark p-4`}>
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
-          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/50 mb-2">{label}</p>
+          <div className="flex items-center">
+            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/50 mr-1">{label}</p>
+            {label.toLowerCase().includes('quality') && <InfoTooltip metricId="decision-quality" />}
+            {label.toLowerCase().includes('stability') && <InfoTooltip metricId="confidence-stability" />}
+            {label.toLowerCase().includes('efficiency') && <InfoTooltip metricId="revision-efficiency" />}
+          </div>
           <p className="font-black leading-tight">{title}</p>
         </div>
         <div className={`w-10 h-10 shrink-0 rounded-full border-2 border-brand-dark flex items-center justify-center ${badgeClass}`}>
@@ -2759,7 +2824,11 @@ function FlowSummaryCard({
   return (
     <div className={`${toneClass} rounded-[1.35rem] border-2 border-brand-dark p-4 shadow-[4px_4px_0px_0px_#1A1A1A]`}>
       <div className="flex items-start justify-between gap-3 mb-3">
-        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45 max-w-[11rem] leading-tight">{label}</p>
+        <div className="flex items-start">
+          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45 max-w-[11rem] leading-tight">{label}</p>
+          {label.toLowerCase().includes('positive') && <InfoTooltip metricId="revision-efficiency" />}
+          {label.toLowerCase().includes('harmful') && <InfoTooltip metricId="harmful-revisions" />}
+        </div>
         <span className={`shrink-0 rounded-full border-2 border-brand-dark px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em] ${badgeClass}`}>
           {rate.toFixed(0)}%
         </span>
@@ -2790,7 +2859,10 @@ function MetricCard({
   return (
     <div className={`${color} ${textColor} rounded-[1.75rem] border-4 border-brand-dark p-5 shadow-[6px_6px_0px_0px_#1A1A1A]`}>
       <div className="flex items-center justify-between gap-3 mb-3">
-        <p className="text-sm font-black uppercase tracking-[0.15em] opacity-70">{title}</p>
+        <div className="flex items-center">
+          <p className="text-sm font-black uppercase tracking-[0.15em] opacity-70">{title}</p>
+          <InfoTooltip metricId={title.toLowerCase().replace(/\s+/g, '-')} />
+        </div>
         <div>{icon}</div>
       </div>
       <p className="text-4xl font-black leading-none">{value}</p>
@@ -3455,10 +3527,12 @@ function SignalPill({
   label,
   value,
   tone = 'neutral',
+  metricId,
 }: {
   label: string;
   value: string | number;
   tone?: 'good' | 'mid' | 'bad' | 'low' | 'medium' | 'high' | 'neutral';
+  metricId?: string;
 }) {
   const toneClass =
     tone === 'good'
@@ -3473,7 +3547,10 @@ function SignalPill({
 
   return (
     <div className={`${toneClass} rounded-xl border-2 border-brand-dark p-3`}>
-      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/50 mb-1">{label}</p>
+      <div className="flex items-center">
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/50 mb-1">{label}</p>
+        {metricId && <InfoTooltip metricId={metricId} />}
+      </div>
       <p className="text-lg font-black">{value}</p>
     </div>
   );

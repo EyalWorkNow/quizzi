@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { randomBytes, randomInt } from 'crypto';
-import db, { seedDemoDataForTeacher } from '../db/index.js';
+import db from '../db/index.js';
+import { seedDemoDataForTeacher } from '../db/seeding.js';
 import { GoogleGenAI } from '@google/genai';
 import multer from 'multer';
 import mammoth from 'mammoth';

@@ -15,7 +15,18 @@ import {
   signOutTeacher,
 } from '../lib/teacherAuth.ts';
 
-const AVATARS = ['🦊', '🐼', '🐯', '🐸', '🦄', '🐙', '🦖', '🦉'];
+const AVATARS = [
+  'avatar_1.png',
+  'avatar_2.png',
+  'avatar_3.png',
+  'avatar_4.png',
+  'avatar_5.png',
+  'avatar_6.png',
+  'avatar_7.png',
+  'avatar_8.png',
+  'avatar_9.png',
+  'avatar_10.png',
+];
 const HOME_PIN_KEY = 'quizzi.home.pin';
 const HOME_NICKNAME_KEY = 'quizzi.home.nickname';
 const HOME_AVATAR_KEY = 'quizzi.home.avatar';
@@ -93,7 +104,9 @@ export default function Home() {
     });
 
     try {
-      const fullNickname = `${selectedAvatar} ${trimmedNickname}`;
+      const fullNickname = selectedAvatar.endsWith('.png') 
+        ? `[${selectedAvatar}] ${trimmedNickname}`
+        : `${selectedAvatar} ${trimmedNickname}`;
       const res = await apiFetch(`/api/sessions/${sessionPin}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -338,12 +351,18 @@ export default function Home() {
                     aria-label={`Select avatar ${avatar}`}
                     aria-pressed={selectedAvatar === avatar}
                     onClick={() => setSelectedAvatar(avatar)}
-                    className={`rounded-2xl p-3 text-3xl transition-all hover:scale-125 focus:outline-none focus-visible:ring-8 focus-visible:ring-brand-purple/10 sm:text-4xl ${selectedAvatar === avatar
+                    className={`rounded-2xl overflow-hidden transition-all hover:scale-110 focus:outline-none focus-visible:ring-8 focus-visible:ring-brand-purple/10 ${selectedAvatar === avatar
                       ? 'bg-brand-purple/20 border-2 border-brand-dark scale-110 shadow-[4px_4px_0px_0px_#1A1A1A]'
                       : 'border-2 border-transparent hover:bg-white/80'
                       }`}
                   >
-                    {avatar}
+                    <div className="w-12 h-12 sm:w-16 sm:h-16 flex items-center justify-center bg-white">
+                      <img 
+                        src={`/avatars/${avatar}`} 
+                        alt="Avatar selection" 
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
                   </button>
                 ))}
               </div>

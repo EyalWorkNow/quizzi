@@ -4,6 +4,7 @@ import { Users, Play, CheckCircle, XCircle, BarChart3, ChevronRight, Sparkles, C
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { QRCodeSVG } from 'qrcode.react';
+import Avatar from '../components/Avatar.tsx';
 import {
   subscribeToHostedSessionRealtime,
   syncHostedParticipants,
@@ -773,13 +774,13 @@ export default function TeacherHost() {
                                   key={`${participant.nickname}-${index}`}
                                   className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4 flex items-center gap-4"
                                 >
-                                  <div className="w-12 h-12 rounded-full bg-brand-purple text-white border-2 border-brand-dark flex items-center justify-center font-black">
-                                    {String(participant.nickname || '').trim().charAt(0).toUpperCase() || '?'}
-                                  </div>
-                                  <div>
-                                    <p className="font-black text-lg">{participant.nickname}</p>
-                                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">Seat {participant.seat_index || index + 1}</p>
-                                  </div>
+                                  <Avatar 
+                                    nickname={participant.nickname} 
+                                    imgClassName="w-12 h-12" 
+                                    textClassName="font-black text-lg"
+                                  />
+                                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 ml-14 -mt-4">Seat {participant.seat_index || index + 1}</p>
+
                                 </motion.div>
                               ))}
                             </AnimatePresence>
@@ -798,13 +799,13 @@ export default function TeacherHost() {
                             key={`${participant.nickname}-${index}`}
                             className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-4 flex items-center gap-4"
                           >
-                            <div className="w-12 h-12 rounded-full bg-brand-purple text-white border-2 border-brand-dark flex items-center justify-center font-black">
-                              {String(participant.nickname || '').trim().charAt(0).toUpperCase() || '?'}
-                            </div>
-                            <div>
-                              <p className="font-black text-lg">{participant.nickname}</p>
-                              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">Ready in lobby</p>
-                            </div>
+                            <Avatar 
+                              nickname={participant.nickname} 
+                              imgClassName="w-12 h-12" 
+                              textClassName="font-black text-lg"
+                            />
+                            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 ml-14 -mt-4">Ready in lobby</p>
+
                           </motion.div>
                         ))}
                       </AnimatePresence>

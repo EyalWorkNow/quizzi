@@ -4,7 +4,7 @@ import path from 'path';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
 import { createServer as createViteServer } from 'vite';
-import { seedAnalyticsShowcase, seedDemoData } from './src/server/db/index.js';
+import { seedAnalyticsShowcase, seedDemoData } from './src/server/db/seeding.js';
 import { checkPostgresHealth, closePostgresPool } from './src/server/db/postgres.js';
 import { checkSupabaseRestHealth } from './src/server/services/supabaseAdmin.js';
 import { getTrustedOrigins } from './src/server/services/requestGuards.js';
