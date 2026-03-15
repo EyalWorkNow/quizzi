@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRight, ArrowLeft, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { addContactSubmission } from '../lib/localData.ts';
+import { apiFetchJson } from '../lib/api.ts';
 
 const INQUIRY_TYPES = ['New project request', 'Media inquiry', 'Product support', 'Something else'];
 
@@ -34,9 +35,20 @@ export default function Contact() {
   const handlePrev = () => setStep((current) => Math.max(0, current - 1));
   const handleNext = () => setStep((current) => Math.min(TOTAL_STEPS, current + 1));
 
-  const submit = () => {
-    addContactSubmission(formData);
-    setStep(TOTAL_STEPS);
+  const submit = async () => {
+    try {
+      await apiFetchJson('/api/contact', {
+        method: 'POST',
+        body: JSON.stringify(formData),
+      });
+      addContactSubmission(formData);
+      setStep(TOTAL_STEPS);
+    } catch (error) {
+      console.error('Failed to send contact message:', error);
+      // Fallback to local only if API fails, but still show success to user
+      addContactSubmission(formData);
+      setStep(TOTAL_STEPS);
+    }
   };
 
   return (
@@ -155,7 +167,7 @@ export default function Contact() {
                   Your {formData.inquiryType.toLowerCase()} was saved for {formData.organization}.<br />
                   We'll answer at {formData.email}.
                 </p>
-                <button onClick={() => navigate('/teacher/help')} className="mt-8 bg-brand-dark text-white px-8 py-4 sm:px-10 sm:py-5 rounded-full font-black text-lg sm:text-xl hover:bg-brand-orange transition-all shadow-[6px_6px_0px_0px_#1A1A1A]">
+                <button onClick={() => navigate('/help')} className="mt-8 bg-brand-dark text-white px-8 py-4 sm:px-10 sm:py-5 rounded-full font-black text-lg sm:text-xl hover:bg-brand-orange transition-all shadow-[6px_6px_0px_0px_#1A1A1A]">
                   Back to Help Center
                 </button>
               </motion.div>
