@@ -6,7 +6,7 @@ export type AppLanguage = 'en' | 'he';
 
 const APP_LANGUAGE_KEY = 'quizzi.app.language';
 const TEACHER_SETTINGS_KEY = 'quizzi.teacher.settings';
-const TRANSLATION_CACHE_PREFIX = 'quizzi.translation.cache';
+const TRANSLATION_CACHE_PREFIX = 'quizzi.translation.v2.cache';
 
 const HEBREW_CHARACTERS = /[\u0590-\u05FF]/;
 const BRAND_EXACT_VALUES = new Set(['Quiz', 'zi', 'Quizzi']);
@@ -80,6 +80,20 @@ const RUNTIME_TRANSLATIONS: Record<AppLanguage, Record<string, string>> = {
     'Failed to extract text from file': 'נכשל חילוץ הטקסט מהקובץ',
     'Failed to create adaptive game': 'נכשל יצירת המשחק האדפטיבי',
     'Failed to join': 'ההצטרפות נכשלה',
+    'Pick an evidence-backed format fast. Every option still runs on the same 4-answer question model you already generate.': 'בחר פורמט מוכח במהירות. כל אפשרות עדיין פועלת על אותו מודל של שאלות אמריקאיות שאתה כבר מייצר.',
+    'Quick picks for this pack': 'המלצות מהירות לחבילה זו',
+    'Recommended now': 'מומלץ עכשיו',
+    'High evidence': 'בסיס מחקרי חזק',
+    'Field-tested': 'נבדק בשטח',
+    'Selected format': 'הפורמט הנבחר',
+    'Best for': 'הכי מתאים עבור',
+    'Why it works': 'למה זה עובד',
+    'Team Count': 'כמות קבוצות',
+    'Teams': 'קבוצות',
+    'Launch Setup': 'הגדרות הפעלה',
+    'Evidence-backed': 'מבוסס ראיות',
+    'Flexible format': 'פורמט גמיש',
+    'Launch Format': 'פורמט הפעלה'
   },
 };
 
@@ -328,9 +342,10 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
           translationCacheRef.current[text] = translatedBatch[index] || text;
         });
       } catch {
-        batch.forEach((text) => {
-          translationCacheRef.current[text] = text;
-        });
+        // Do not cache the original text on API failure. This prevents "cache poisoning"
+        // where temporary network or rate limit issues cause English text to be permanently
+        // saved as "Hebrew" translations in local storage.
+        console.warn('Translation batch failed. Skipping cache injection to retry later.');
       }
     }
 
