@@ -26,26 +26,26 @@ try {
 
 // Hard-initialize tables before exporting the db instance to routes
 try {
-  initDb();
+  (await initDb());
 } catch (err) {
   console.error('[db] CRITICAL initialization error:', err);
 }
 
-function columnExists(table: string, column: string) {
-  return db
-    .prepare(`PRAGMA table_info(${table})`)
-    .all()
+async function columnExists(table: string, column: string) {
+  return (await db
+      .prepare(`PRAGMA table_info(${table})`)
+      .all())
     .some((row: any) => row.name === column);
 }
 
-function ensureColumn(table: string, column: string, definition: string) {
-  if (!columnExists(table, column)) {
+async function ensureColumn(table: string, column: string, definition: string) {
+  if (!(await columnExists(table, column))) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 }
 
 // Initialize schema
-export function initDb() {
+export async function initDb() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -225,46 +225,46 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_generation_cache_lookup ON question_generation_cache(material_profile_id, difficulty, output_language, question_count);
   `);
 
-  ensureColumn('quiz_packs', 'source_hash', 'TEXT');
-  ensureColumn('users', 'first_name', 'TEXT');
-  ensureColumn('users', 'last_name', 'TEXT');
-  ensureColumn('users', 'school', 'TEXT');
-  ensureColumn('users', 'auth_provider', "TEXT DEFAULT 'password'");
-  ensureColumn('users', 'updated_at', 'DATETIME');
-  ensureColumn('quiz_packs', 'source_excerpt', 'TEXT');
-  ensureColumn('quiz_packs', 'source_language', "TEXT DEFAULT 'English'");
-  ensureColumn('quiz_packs', 'source_word_count', 'INTEGER DEFAULT 0');
-  ensureColumn('quiz_packs', 'material_profile_id', 'INTEGER');
-  ensureColumn('quiz_packs', 'top_tags_json', "TEXT DEFAULT '[]'");
-  ensureColumn('quiz_packs', 'question_count_cache', 'INTEGER DEFAULT 0');
-  ensureColumn('quiz_packs', 'course_code', "TEXT DEFAULT ''");
-  ensureColumn('quiz_packs', 'course_name', "TEXT DEFAULT ''");
-  ensureColumn('quiz_packs', 'section_name', "TEXT DEFAULT ''");
-  ensureColumn('quiz_packs', 'academic_term', "TEXT DEFAULT ''");
-  ensureColumn('quiz_packs', 'week_label', "TEXT DEFAULT ''");
-  ensureColumn('quiz_packs', 'learning_objectives_json', "TEXT DEFAULT '[]'");
-  ensureColumn('quiz_packs', 'bloom_levels_json', "TEXT DEFAULT '[]'");
-  ensureColumn('quiz_packs', 'pack_notes', "TEXT DEFAULT ''");
-  ensureColumn('quiz_packs', 'generation_provider', "TEXT DEFAULT ''");
-  ensureColumn('quiz_packs', 'generation_model', "TEXT DEFAULT ''");
-  ensureColumn('quiz_packs', 'lms_provider', "TEXT DEFAULT 'generic_csv'");
-  ensureColumn('quiz_packs', 'lms_assignment_label', "TEXT DEFAULT ''");
-  ensureColumn('questions', 'question_order', 'INTEGER DEFAULT 0');
-  ensureColumn('questions', 'learning_objective', "TEXT DEFAULT ''");
-  ensureColumn('questions', 'bloom_level', "TEXT DEFAULT ''");
-  ensureColumn('sessions', 'game_type', "TEXT DEFAULT 'classic_quiz'");
-  ensureColumn('sessions', 'team_count', 'INTEGER DEFAULT 0');
-  ensureColumn('sessions', 'mode_config_json', "TEXT DEFAULT '{}'");
-  ensureColumn('participants', 'team_id', 'INTEGER DEFAULT 0');
-  ensureColumn('participants', 'team_name', 'TEXT');
-  ensureColumn('participants', 'seat_index', 'INTEGER DEFAULT 0');
-  ensureColumn('student_behavior_logs', 'blur_time_ms', 'INTEGER DEFAULT 0');
-  ensureColumn('student_behavior_logs', 'longest_idle_streak_ms', 'INTEGER DEFAULT 0');
-  ensureColumn('student_behavior_logs', 'pointer_activity_count', 'INTEGER DEFAULT 0');
-  ensureColumn('student_behavior_logs', 'keyboard_activity_count', 'INTEGER DEFAULT 0');
-  ensureColumn('student_behavior_logs', 'touch_activity_count', 'INTEGER DEFAULT 0');
-  ensureColumn('student_behavior_logs', 'same_answer_reclicks', 'INTEGER DEFAULT 0');
-  ensureColumn('student_behavior_logs', 'option_dwell_json', "TEXT DEFAULT '{}'");
+  (await ensureColumn('quiz_packs', 'source_hash', 'TEXT'));
+  (await ensureColumn('users', 'first_name', 'TEXT'));
+  (await ensureColumn('users', 'last_name', 'TEXT'));
+  (await ensureColumn('users', 'school', 'TEXT'));
+  (await ensureColumn('users', 'auth_provider', "TEXT DEFAULT 'password'"));
+  (await ensureColumn('users', 'updated_at', 'DATETIME'));
+  (await ensureColumn('quiz_packs', 'source_excerpt', 'TEXT'));
+  (await ensureColumn('quiz_packs', 'source_language', "TEXT DEFAULT 'English'"));
+  (await ensureColumn('quiz_packs', 'source_word_count', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('quiz_packs', 'material_profile_id', 'INTEGER'));
+  (await ensureColumn('quiz_packs', 'top_tags_json', "TEXT DEFAULT '[]'"));
+  (await ensureColumn('quiz_packs', 'question_count_cache', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('quiz_packs', 'course_code', "TEXT DEFAULT ''"));
+  (await ensureColumn('quiz_packs', 'course_name', "TEXT DEFAULT ''"));
+  (await ensureColumn('quiz_packs', 'section_name', "TEXT DEFAULT ''"));
+  (await ensureColumn('quiz_packs', 'academic_term', "TEXT DEFAULT ''"));
+  (await ensureColumn('quiz_packs', 'week_label', "TEXT DEFAULT ''"));
+  (await ensureColumn('quiz_packs', 'learning_objectives_json', "TEXT DEFAULT '[]'"));
+  (await ensureColumn('quiz_packs', 'bloom_levels_json', "TEXT DEFAULT '[]'"));
+  (await ensureColumn('quiz_packs', 'pack_notes', "TEXT DEFAULT ''"));
+  (await ensureColumn('quiz_packs', 'generation_provider', "TEXT DEFAULT ''"));
+  (await ensureColumn('quiz_packs', 'generation_model', "TEXT DEFAULT ''"));
+  (await ensureColumn('quiz_packs', 'lms_provider', "TEXT DEFAULT 'generic_csv'"));
+  (await ensureColumn('quiz_packs', 'lms_assignment_label', "TEXT DEFAULT ''"));
+  (await ensureColumn('questions', 'question_order', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('questions', 'learning_objective', "TEXT DEFAULT ''"));
+  (await ensureColumn('questions', 'bloom_level', "TEXT DEFAULT ''"));
+  (await ensureColumn('sessions', 'game_type', "TEXT DEFAULT 'classic_quiz'"));
+  (await ensureColumn('sessions', 'team_count', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('sessions', 'mode_config_json', "TEXT DEFAULT '{}'"));
+  (await ensureColumn('participants', 'team_id', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('participants', 'team_name', 'TEXT'));
+  (await ensureColumn('participants', 'seat_index', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('student_behavior_logs', 'blur_time_ms', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('student_behavior_logs', 'longest_idle_streak_ms', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('student_behavior_logs', 'pointer_activity_count', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('student_behavior_logs', 'keyboard_activity_count', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('student_behavior_logs', 'touch_activity_count', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('student_behavior_logs', 'same_answer_reclicks', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('student_behavior_logs', 'option_dwell_json', "TEXT DEFAULT '{}'"));
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_quiz_packs_profile ON quiz_packs(material_profile_id);

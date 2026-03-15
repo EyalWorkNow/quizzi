@@ -70,18 +70,18 @@ function parseGeneratedPayload(rawText: string) {
 }
 
 export async function generateQuestionsFromSource(request: QuestionGenerationRequest) {
-  const materialProfile = getOrCreateMaterialProfile(request.sourceText);
-  const generationSource = buildGenerationSource(materialProfile);
+  const materialProfile = (await getOrCreateMaterialProfile(request.sourceText));
+  const generationSource = (await buildGenerationSource(materialProfile));
   const resolved = resolveModelSelection(request.providerId, request.modelId);
 
-  const cached = getCachedQuestionGeneration(
-    Number(materialProfile.id),
-    Number(request.count),
-    String(request.difficulty),
-    String(request.language),
-    resolved.provider.id,
-    resolved.model.id,
-  );
+  const cached = (await getCachedQuestionGeneration(
+      Number(materialProfile.id),
+      Number(request.count),
+      String(request.difficulty),
+      String(request.language),
+      resolved.provider.catalog.id,
+      resolved.model.id,
+    ));
 
   if (cached?.response?.questions?.length) {
     return {
@@ -93,8 +93,8 @@ export async function generateQuestionsFromSource(request: QuestionGenerationReq
         estimated_original_tokens: generationSource.estimated_original_tokens,
         estimated_prompt_tokens: generationSource.estimated_prompt_tokens,
         token_savings_pct: generationSource.token_savings_pct,
-        provider: resolved.provider.id,
-        provider_label: resolved.provider.label,
+        provider: resolved.provider.catalog.id,
+        provider_label: resolved.provider.catalog.label,
         model: resolved.model.id,
         model_label: resolved.model.label,
       },
@@ -133,8 +133,8 @@ export async function generateQuestionsFromSource(request: QuestionGenerationReq
       estimated_original_tokens: generationSource.estimated_original_tokens,
       estimated_prompt_tokens: generationSource.estimated_prompt_tokens,
       token_savings_pct: generationSource.token_savings_pct,
-      provider: resolved.provider.id,
-      provider_label: resolved.provider.label,
+      provider: resolved.provider.catalog.id,
+      provider_label: resolved.provider.catalog.label,
       model: resolved.model.id,
       model_label: resolved.model.label,
     },
@@ -148,15 +148,15 @@ export async function generateQuestionsFromSource(request: QuestionGenerationReq
     },
   };
 
-  saveCachedQuestionGeneration(
-    Number(materialProfile.id),
-    Number(request.count),
-    String(request.difficulty),
-    String(request.language),
-    payload,
-    resolved.provider.id,
-    resolved.model.id,
-  );
+  (await saveCachedQuestionGeneration(
+        Number(materialProfile.id),
+        Number(request.count),
+        String(request.difficulty),
+        String(request.language),
+        payload,
+        resolved.provider.catalog.id,
+        resolved.model.id,
+      ));
 
   return payload;
 }

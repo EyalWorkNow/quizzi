@@ -58,11 +58,11 @@ export function verifyTeacherPassword(password: string, passwordHash: string | n
   return candidate.length === expected.length && timingSafeEqual(candidate, expected);
 }
 
-export function getTeacherUserByEmail(email: string) {
-  return db.prepare('SELECT * FROM users WHERE email = ?').get(normalizeTeacherEmail(email)) as any;
+export async function getTeacherUserByEmail(email: string) {
+  return (await db.prepare('SELECT * FROM users WHERE email = ?').get(normalizeTeacherEmail(email))) as any;
 }
 
-export function createTeacherUser({
+export async function createTeacherUser({
   email,
   password,
   name,
@@ -78,17 +78,17 @@ export function createTeacherUser({
   const normalizedSchool = String(school || '').trim().slice(0, 160);
   const passwordHash = hashTeacherPassword(password);
 
-  const result = db
-    .prepare(`
+  const result = (await db
+      .prepare(`
       INSERT INTO users (email, password_hash, first_name, last_name, school, auth_provider, updated_at)
       VALUES (?, ?, ?, ?, ?, 'password', CURRENT_TIMESTAMP)
     `)
-    .run(normalizedEmail, passwordHash, firstName || null, lastName || null, normalizedSchool || null);
+      .run(normalizedEmail, passwordHash, firstName || null, lastName || null, normalizedSchool || null));
 
   const newUserId = result.lastInsertRowid as number;
   
   // Seed demo data for the newly created user so they don't start with an empty dashboard
-  seedDemoDataForTeacher(newUserId, normalizedEmail);
+  (await seedDemoDataForTeacher(newUserId, normalizedEmail));
 
-  return db.prepare('SELECT * FROM users WHERE id = ?').get(newUserId) as any;
+  return (await db.prepare('SELECT * FROM users WHERE id = ?').get(newUserId)) as any;
 }

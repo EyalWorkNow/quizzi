@@ -224,15 +224,15 @@ function parseMaterialProfile(row: any) {
   };
 }
 
-export function getOrCreateMaterialProfile(sourceText: string) {
+export async function getOrCreateMaterialProfile(sourceText: string) {
   const draft = buildMaterialProfileDraft(sourceText);
-  const existing = db.prepare('SELECT * FROM material_profiles WHERE source_hash = ?').get(draft.source_hash);
+  const existing = (await db.prepare('SELECT * FROM material_profiles WHERE source_hash = ?').get(draft.source_hash));
 
   if (existing) {
     return parseMaterialProfile(existing);
   }
 
-  db.prepare(`
+  (await db.prepare(`
     INSERT INTO material_profiles (
       source_hash,
       normalized_text,
@@ -249,22 +249,22 @@ export function getOrCreateMaterialProfile(sourceText: string) {
       estimated_prompt_tokens
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    draft.source_hash,
-    draft.normalized_text,
-    draft.source_excerpt,
-    draft.teaching_brief,
-    draft.source_language,
-    draft.word_count,
-    draft.char_count,
-    draft.paragraph_count,
-    JSON.stringify(draft.key_points),
-    JSON.stringify(draft.topic_fingerprint),
-    JSON.stringify(draft.supporting_excerpts),
-    draft.estimated_original_tokens,
-    draft.estimated_prompt_tokens,
-  );
+        draft.source_hash,
+        draft.normalized_text,
+        draft.source_excerpt,
+        draft.teaching_brief,
+        draft.source_language,
+        draft.word_count,
+        draft.char_count,
+        draft.paragraph_count,
+        JSON.stringify(draft.key_points),
+        JSON.stringify(draft.topic_fingerprint),
+        JSON.stringify(draft.supporting_excerpts),
+        draft.estimated_original_tokens,
+        draft.estimated_prompt_tokens,
+      ));
 
-  return parseMaterialProfile(db.prepare('SELECT * FROM material_profiles WHERE source_hash = ?').get(draft.source_hash));
+  return parseMaterialProfile((await db.prepare('SELECT * FROM material_profiles WHERE source_hash = ?').get(draft.source_hash)));
 }
 
 export function buildGenerationSource(profile: any) {
@@ -288,7 +288,7 @@ export function buildGenerationSource(profile: any) {
   };
 }
 
-export function getCachedQuestionGeneration(
+export async function getCachedQuestionGeneration(
   materialProfileId: number,
   questionCount: number,
   difficulty: string,
@@ -296,7 +296,7 @@ export function getCachedQuestionGeneration(
   providerKey?: string | null,
   modelKey?: string | null,
 ) {
-  const row = db.prepare(`
+  const row = (await db.prepare(`
     SELECT *
     FROM question_generation_cache
     WHERE material_profile_id = ?
@@ -304,7 +304,7 @@ export function getCachedQuestionGeneration(
       AND difficulty = ?
       AND output_language = ?
       AND prompt_version = ?
-  `).get(materialProfileId, questionCount, difficulty, outputLanguage, buildPromptVersionKey(providerKey, modelKey));
+  `).get(materialProfileId, questionCount, difficulty, outputLanguage, buildPromptVersionKey(providerKey, modelKey)));
 
   if (!row) return null;
 
@@ -314,7 +314,7 @@ export function getCachedQuestionGeneration(
   };
 }
 
-export function saveCachedQuestionGeneration(
+export async function saveCachedQuestionGeneration(
   materialProfileId: number,
   questionCount: number,
   difficulty: string,
@@ -323,7 +323,7 @@ export function saveCachedQuestionGeneration(
   providerKey?: string | null,
   modelKey?: string | null,
 ) {
-  db.prepare(`
+  (await db.prepare(`
     INSERT INTO question_generation_cache (
       material_profile_id,
       difficulty,
@@ -337,13 +337,13 @@ export function saveCachedQuestionGeneration(
       response_json = excluded.response_json,
       created_at = CURRENT_TIMESTAMP
   `).run(
-    materialProfileId,
-    difficulty,
-    outputLanguage,
-    questionCount,
-    buildPromptVersionKey(providerKey, modelKey),
-    JSON.stringify(response),
-  );
+        materialProfileId,
+        difficulty,
+        outputLanguage,
+        questionCount,
+        buildPromptVersionKey(providerKey, modelKey),
+        JSON.stringify(response),
+      ));
 }
 
 export function normalizeGeneratedQuestions(questions: any[], fallbackTags: string[] = []) {
@@ -387,8 +387,8 @@ function deriveTopTagsFromQuestions(questions: any[]) {
   ).slice(0, 6);
 }
 
-function topTagsFromDatabase(packId: number) {
-  const rows = db.prepare('SELECT tags_json FROM questions WHERE quiz_pack_id = ?').all(packId);
+async function topTagsFromDatabase(packId: number) {
+  const rows = (await db.prepare('SELECT tags_json FROM questions WHERE quiz_pack_id = ?').all(packId));
   return Array.from(
     new Set(
       rows.flatMap((row: any) =>
@@ -400,17 +400,17 @@ function topTagsFromDatabase(packId: number) {
   ).slice(0, 6);
 }
 
-export function syncPackDerivedData(packId: number, sourceText: string, questions?: any[]) {
-  const profile = getOrCreateMaterialProfile(sourceText || '');
-  const topTags = questions ? deriveTopTagsFromQuestions(questions) : topTagsFromDatabase(packId);
+export async function syncPackDerivedData(packId: number, sourceText: string, questions?: any[]) {
+  const profile = (await getOrCreateMaterialProfile(sourceText || ''));
+  const topTags = questions ? deriveTopTagsFromQuestions(questions) : (await topTagsFromDatabase(packId));
   const questionCount =
     Array.isArray(questions) && questions.length > 0
       ? questions.length
       : Number(
-          db.prepare('SELECT COUNT(*) as count FROM questions WHERE quiz_pack_id = ?').get(packId)?.count || 0,
+          (await db.prepare('SELECT COUNT(*) as count FROM questions WHERE quiz_pack_id = ?').get(packId))?.count || 0,
         );
 
-  db.prepare(`
+  (await db.prepare(`
     UPDATE quiz_packs
     SET
       material_profile_id = ?,
@@ -422,15 +422,15 @@ export function syncPackDerivedData(packId: number, sourceText: string, question
       question_count_cache = ?
     WHERE id = ?
   `).run(
-    profile.id,
-    profile.source_hash,
-    profile.source_excerpt,
-    profile.source_language,
-    profile.word_count,
-    JSON.stringify(topTags),
-    questionCount,
-    packId,
-  );
+        profile.id,
+        profile.source_hash,
+        profile.source_excerpt,
+        profile.source_language,
+        profile.word_count,
+        JSON.stringify(topTags),
+        questionCount,
+        packId,
+      ));
 
   return {
     profile,
@@ -439,16 +439,16 @@ export function syncPackDerivedData(packId: number, sourceText: string, question
   };
 }
 
-export function hydratePack(pack: any) {
+export async function hydratePack(pack: any) {
   if (!pack) return null;
 
   if (!pack.material_profile_id || !pack.source_excerpt || !pack.source_language || !pack.top_tags_json) {
-    syncPackDerivedData(pack.id, pack.source_text || '');
-    pack = db.prepare('SELECT * FROM quiz_packs WHERE id = ?').get(pack.id);
+    (await syncPackDerivedData(pack.id, pack.source_text || ''));
+    pack = (await db.prepare('SELECT * FROM quiz_packs WHERE id = ?').get(pack.id));
   }
 
   const profile = pack.material_profile_id
-    ? parseMaterialProfile(db.prepare('SELECT * FROM material_profiles WHERE id = ?').get(pack.material_profile_id))
+    ? parseMaterialProfile((await db.prepare('SELECT * FROM material_profiles WHERE id = ?').get(pack.material_profile_id)))
     : null;
 
   const topTags = parseJsonArray(pack.top_tags_json);
@@ -486,21 +486,21 @@ export function hydratePack(pack: any) {
   };
 }
 
-export function listHydratedPacks() {
-  return db
-    .prepare('SELECT * FROM quiz_packs ORDER BY created_at DESC')
-    .all()
-    .map((pack: any) => hydratePack(pack));
+export async function listHydratedPacks() {
+  return (await db
+      .prepare('SELECT * FROM quiz_packs ORDER BY created_at DESC')
+      .all())
+    .map(async (pack: any) => (await hydratePack(pack)));
 }
 
-export function getHydratedPackWithQuestions(packId: number) {
-  const pack = db.prepare('SELECT * FROM quiz_packs WHERE id = ?').get(packId);
+export async function getHydratedPackWithQuestions(packId: number) {
+  const pack = (await db.prepare('SELECT * FROM quiz_packs WHERE id = ?').get(packId));
   if (!pack) return null;
 
-  const hydratedPack = hydratePack(pack);
-  const questions = db
-    .prepare('SELECT * FROM questions WHERE quiz_pack_id = ? ORDER BY question_order ASC, id ASC')
-    .all(packId)
+  const hydratedPack = (await hydratePack(pack));
+  const questions = (await db
+      .prepare('SELECT * FROM questions WHERE quiz_pack_id = ? ORDER BY question_order ASC, id ASC')
+      .all(packId))
     .map((question: any) => ({
       ...question,
       tags: parseJsonArray(question.tags_json),
