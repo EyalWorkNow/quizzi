@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash } from 'lucide-react';
+import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 
@@ -22,11 +22,9 @@ export default function TeacherCreatePack() {
   const [questionCount, setQuestionCount] = useState(5);
   const [difficulty, setDifficulty] = useState('Medium');
   const [language, setLanguage] = useState('English');
+  const [isDragging, setIsDragging] = useState(false);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const processFile = async (file: File) => {
     setIsExtracting(true);
     const formData = new FormData();
     formData.append('file', file);
@@ -55,6 +53,39 @@ export default function TeacherCreatePack() {
       setIsExtracting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) await processFile(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      await processFile(file);
+    }
+  };
+
+  const clearSource = () => {
+    setSourceText('');
+    setMaterialProfile(null);
+    setGenerationMeta(null);
+    setIsGenerating(false);
+    setGenError('');
   };
 
   const handleGenerate = async () => {
@@ -202,11 +233,16 @@ export default function TeacherCreatePack() {
                   />
                 </div>
 
-                <div className="pt-8 border-t-4 border-dashed border-brand-dark/5">
+                <div 
+                  className="pt-8 border-t-4 border-dashed border-brand-dark/5"
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
                   <div className="flex items-center justify-between mb-4">
                     <label htmlFor="source-text" className="text-[10px] font-black text-brand-dark/40 uppercase tracking-[0.2em] flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-brand-orange" />
-                      Knowledge Source
+                      Content Portal
                     </label>
                     <button
                       onClick={() => fileInputRef.current?.click()}
@@ -214,7 +250,7 @@ export default function TeacherCreatePack() {
                       className="text-[10px] font-black text-brand-purple uppercase tracking-widest flex items-center gap-1 hover:text-purple-600 transition-colors"
                     >
                       <Upload className="w-3.5 h-3.5" />
-                      {isExtracting ? 'Reading...' : 'Upload File'}
+                      {sourceText ? 'Change File' : 'Upload File'}
                     </button>
                     <input
                       type="file"
@@ -224,18 +260,66 @@ export default function TeacherCreatePack() {
                       accept=".pdf,.docx,.txt"
                     />
                   </div>
-                  <textarea
-                    id="source-text"
-                    value={sourceText}
-                    onChange={(e) => {
-                      setSourceText(e.target.value);
-                      setMaterialProfile(null);
-                      setGenerationMeta(null);
-                    }}
-                    placeholder="Drop your lecture notes, articles, or raw data here..."
-                    aria-label="Source text for AI generation"
-                    className="w-full p-5 bg-brand-bg border-4 border-brand-dark rounded-2xl h-64 resize-none focus:outline-none focus:ring-8 focus:ring-brand-purple/10 transition-all font-bold placeholder:text-brand-dark/20 text-base leading-relaxed"
-                  />
+                  
+                  <div className={`relative w-full min-h-[320px] rounded-3xl border-4 transition-all duration-300 overflow-hidden ${isDragging ? 'border-brand-purple bg-brand-purple/10 scale-[1.02]' : sourceText ? 'border-brand-dark bg-white' : 'border-dashed border-brand-dark/20 bg-brand-bg hover:border-brand-purple/50'}`}>
+                    
+                    {!sourceText && !isExtracting && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center pointer-events-none">
+                        <div className="w-20 h-20 bg-brand-purple/10 rounded-full flex items-center justify-center mb-6">
+                          <UploadCloud className="w-10 h-10 text-brand-purple" />
+                        </div>
+                        <h3 className="text-2xl font-black text-brand-dark mb-2">Drop your material here</h3>
+                        <p className="font-medium text-brand-dark/60 mb-8 max-w-[250px]">
+                          PDFs, Word docs, or plain text files. We'll read it and extract the knowledge.
+                        </p>
+                        
+                        <div className="pointer-events-auto">
+                          <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="bg-brand-dark text-white px-8 py-4 rounded-full font-black flex items-center gap-3 transition-transform hover:scale-105 shadow-[4px_4px_0px_0px_rgba(26,26,26,0.2)]"
+                          >
+                            <FileText className="w-5 h-5" />
+                            Upload a Document
+                          </button>
+                        </div>
+                        <p className="text-xs font-bold text-brand-dark/40 uppercase tracking-widest mt-6">
+                          Or just click anywhere to paste text
+                        </p>
+                      </div>
+                    )}
+
+                    {isExtracting && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 z-10 backdrop-blur-sm">
+                        <div className="w-16 h-16 border-8 border-brand-purple/20 border-t-brand-purple rounded-full animate-spin mb-4"></div>
+                        <p className="font-black text-xl text-brand-dark animate-pulse">Reading document...</p>
+                      </div>
+                    )}
+
+                    <textarea
+                      id="source-text"
+                      value={sourceText}
+                      onChange={(e) => {
+                        setSourceText(e.target.value);
+                        setMaterialProfile(null);
+                        setGenerationMeta(null);
+                      }}
+                      placeholder="Or start typing/pasting your text here..."
+                      aria-label="Source text for AI generation"
+                      className={`w-full h-full min-h-[320px] p-6 resize-y focus:outline-none transition-all font-bold text-lg leading-relaxed ${sourceText ? 'opacity-100 bg-transparent text-brand-dark relative z-10' : 'opacity-0 focus:opacity-100 bg-transparent absolute inset-0 z-0'}`}
+                    />
+
+                    {sourceText && (
+                      <div className="absolute top-4 right-4 z-20">
+                        <button
+                          onClick={clearSource}
+                          className="w-8 h-8 bg-brand-dark text-white rounded-full flex items-center justify-center hover:bg-brand-orange transition-colors"
+                          aria-label="Clear text"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {(materialProfile || generationMeta) && (
