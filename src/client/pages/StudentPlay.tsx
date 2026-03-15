@@ -42,6 +42,7 @@ export default function StudentPlay() {
   const [selectedConfidence, setSelectedConfidence] = useState(2);
   const [hasLockedInitialVote, setHasLockedInitialVote] = useState(false);
   const [firstRoundChoice, setFirstRoundChoice] = useState<number | null>(null);
+  const [streak, setStreak] = useState(0);
 
   const firstInteractionMsRef = useRef<number | null>(null);
   const answerHistoryRef = useRef<{ index: number; timestamp: number }[]>([]);
@@ -205,6 +206,15 @@ export default function StudentPlay() {
       } else if (nextStatus === 'QUESTION_REVEAL') {
         if (nextQuestion) {
           setQuestion(nextQuestion);
+          // NEW: Trigger confetti if correct and it was the reveal phase
+          if (nextQuestion.correct_index === currentSelectedAnswer) {
+            confetti({
+              particleCount: 150,
+              spread: 70,
+              origin: { y: 0.6 },
+              colors: ['#FFC800', '#FF5A36', '#9B51E0']
+            });
+          }
         }
         flushHoverDwell();
       } else if (nextStatus === 'ENDED') {
@@ -413,7 +423,16 @@ export default function StudentPlay() {
         throw new Error(payload?.error || 'Failed to submit answer');
       }
       if (response.ok) {
-        setScore((current) => current + Number(payload?.score_awarded || 0));
+        const scoreAwarded = Number(payload?.score_awarded || 0);
+        setScore((current) => current + scoreAwarded);
+        
+        // NEW: Update streak
+        if (scoreAwarded > 0) {
+          setStreak(s => s + 1);
+        } else {
+          setStreak(0);
+        }
+
         void publishAnswerProgress(String(pin || ''), {
           participantId: Number(participantId),
           totalAnswers: Number(payload?.total_answers || 0),
@@ -683,15 +702,37 @@ export default function StudentPlay() {
             )}
           </div>
 
-          <div className={`flex items-center gap-4 bg-brand-dark text-white px-8 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[6px_6px_0px_0px_#FF5A36] transition-transform ${timeLeft < 5 ? 'animate-bounce' : ''}`}>
+          <motion.div 
+            animate={timeLeft < 5 ? {
+              rotate: [0, -2, 2, -2, 2, 0],
+              scale: [1, 1.1, 1]
+            } : {}}
+            transition={timeLeft < 5 ? { duration: 0.4, repeat: Infinity } : {}}
+            className={`flex items-center gap-4 bg-brand-dark text-white px-8 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[6px_6px_0px_0px_#FF5A36] transition-transform`}
+          >
             <Clock className={`w-8 h-8 ${timeLeft < 5 ? 'text-brand-orange' : 'text-brand-yellow'}`} />
             <span className={`font-black text-3xl w-10 text-center ${timeLeft < 5 ? 'text-brand-orange' : ''}`}>{timeLeft}</span>
-          </div>
+          </motion.div>
 
           <div className="flex items-center gap-4 bg-white px-8 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A]">
             <Trophy className="w-8 h-8 text-brand-yellow fill-current" />
             <span className="font-black text-2xl">{score}</span>
           </div>
+
+          {/* NEW: Streak Indicator */}
+          {streak >= 2 && (
+            <motion.div 
+              initial={{ x: 50, opacity: 0, scale: 0.5 }}
+              animate={{ x: 0, opacity: 1, scale: 1 }}
+              className="flex items-center gap-3 bg-brand-orange text-white px-6 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A]"
+            >
+              <Flame className="w-8 h-8 animate-pulse text-brand-yellow fill-current" />
+              <div className="flex flex-col leading-none">
+                <span className="text-[10px] font-black uppercase tracking-tighter opacity-70">On Fire</span>
+                <span className="font-black text-2xl">{streak} Streak!</span>
+              </div>
+            </motion.div>
+          )}
         </div>
 
         {/* Question Area */}

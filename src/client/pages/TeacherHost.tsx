@@ -956,8 +956,18 @@ export default function TeacherHost() {
           <motion.div
             initial={{ scale: 0.96, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="w-full mb-8 rounded-[2.4rem] border-2 border-slate-200 bg-white p-6 sm:p-8"
+            className="w-full mb-8 rounded-[2.4rem] border-2 border-slate-200 bg-white p-6 sm:p-8 relative overflow-hidden"
           >
+            {/* NEW: Engagement Progress Bar */}
+            <div className="absolute top-0 left-0 w-full h-2 bg-slate-100">
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${participants.length > 0 ? (totalAnswers / participants.length) * 100 : 0}%` }}
+                className="h-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]"
+                transition={{ type: 'spring', stiffness: 50, damping: 15 }}
+              />
+            </div>
+
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
                 <div className="flex flex-wrap gap-2 mb-4">
