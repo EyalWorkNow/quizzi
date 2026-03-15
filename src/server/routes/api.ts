@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomBytes, randomInt } from 'crypto';
-import db from '../db/index.js';
+import db, { seedDemoDataForTeacher } from '../db/index.js';
 import { GoogleGenAI } from '@google/genai';
 import multer from 'multer';
 import mammoth from 'mammoth';
@@ -18,6 +18,7 @@ if (!admin.apps.length) {
     projectId: process.env.VITE_FIREBASE_PROJECT_ID || 'quizzi-4dece',
   });
 }
+
 import {
   clearTeacherSession,
   createTeacherSession,
@@ -847,10 +848,20 @@ router.get('/packs', (req, res) => {
 router.get('/teacher/packs', requireTeacherSession, (req, res) => {
   try {
     const teacherUserId = getTeacherUserIdFromRequest(req);
+    const session = (req as any).teacherSession || readTeacherSession(req);
     if (!teacherUserId) {
       return res.status(401).json({ error: 'Teacher authentication required' });
     }
-    res.json(getTeacherPackBoard(teacherUserId));
+    let packs = getTeacherPackBoard(teacherUserId);
+    
+    // Fallback: If the user has literally zero packs (e.g., an existing Google account created before auto-seeding),
+    // we inject the demo packs so their dashboard is never empty and they have an example out of the box.
+    if (packs.length === 0 && session?.email) {
+      seedDemoDataForTeacher(teacherUserId, session.email);
+      packs = getTeacherPackBoard(teacherUserId);
+    }
+    
+    res.json(packs);
   } catch (error: any) {
     console.error('[ERROR] Teacher pack board failed:', error);
     res.status(500).json({ error: error.message || 'Failed to load teacher packs' });

@@ -269,16 +269,26 @@ export function initDb() {
     SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
     WHERE updated_at IS NULL;
   `);
+
+  // We still need to call this on server boot for the legacy pre-existing demo@quizzi.app if it hasn't been seeded.
+  try {
+    const defaultDemo = db.prepare('SELECT id, email FROM users WHERE email = ?').get('demo@quizzi.app') as any;
+    if (defaultDemo?.id) {
+      seedDemoDataForTeacher(defaultDemo.id, 'demo@quizzi.app');
+    } else {
+      const insertTeacher = db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)');
+      const resTeacher = insertTeacher.run('demo@quizzi.app', 'hashed_demo_pw');
+      seedDemoDataForTeacher(resTeacher.lastInsertRowid as number, 'demo@quizzi.app');
+    }
+  } catch (err) {
+    console.error('[DB] Failed to assure legacy demo account:', err);
+  }
 }
 
-export function seedDemoData() {
-  // Check if demo data exists
-  const packExists = db.prepare('SELECT id FROM quiz_packs WHERE title = ?').get('Demo: Biology 101');
+export function seedDemoDataForTeacher(teacherId: number, email: string) {
+  // Check if this specific teacher already has the demo pack
+  const packExists = db.prepare('SELECT id FROM quiz_packs WHERE title = ? AND teacher_id = ?').get('Demo: Biology 101', teacherId);
   if (packExists) return;
-
-  const insertTeacher = db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)');
-  const resTeacher = insertTeacher.run('demo@quizzi.app', 'hashed_demo_pw');
-  const teacherId = resTeacher.lastInsertRowid;
 
   const insertPack = db.prepare('INSERT INTO quiz_packs (teacher_id, title, source_text, source_excerpt, source_language, source_word_count) VALUES (?, ?, ?, ?, ?, ?)');
   const demoSourceText = 'Photosynthesis is the process by which plants use sunlight, water, and carbon dioxide to create oxygen and energy in the form of sugar.';

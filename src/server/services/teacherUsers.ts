@@ -1,5 +1,5 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
-import db from '../db/index.js';
+import db, { seedDemoDataForTeacher } from '../db/index.js';
 import { normalizeTeacherEmail } from './demoAuth.js';
 
 const PASSWORD_HASH_PREFIX = 'scrypt';
@@ -84,5 +84,10 @@ export function createTeacherUser({
     `)
     .run(normalizedEmail, passwordHash, firstName || null, lastName || null, normalizedSchool || null);
 
-  return db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid) as any;
+  const newUserId = result.lastInsertRowid as number;
+  
+  // Seed demo data for the newly created user so they don't start with an empty dashboard
+  seedDemoDataForTeacher(newUserId, normalizedEmail);
+
+  return db.prepare('SELECT * FROM users WHERE id = ?').get(newUserId) as any;
 }
