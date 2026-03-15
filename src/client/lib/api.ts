@@ -5,7 +5,7 @@
  * uses relative paths in development (proxied by Vite).
  */
 
-const API_BASE = import.meta.env.VITE_API_PROXY_TARGET || '';
+const API_BASE = import.meta.env.VITE_API_PROXY_TARGET || (import.meta.env.PROD ? 'https://quizzi-mqru.onrender.com' : '');
 
 /**
  * Normalizes an API path to include the base URL if needed.
