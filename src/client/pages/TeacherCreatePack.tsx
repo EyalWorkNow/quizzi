@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X } from 'lucide-react';
+import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Library, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
@@ -13,6 +13,15 @@ function recommendModesForDraft(questionCount: number, topicCount: number) {
     return ['mastery_matrix', 'peer_pods', 'classic_quiz'] as GameModeId[];
   }
   return ['peer_pods', 'confidence_climb', 'classic_quiz'] as GameModeId[];
+}
+
+const BLOOM_LEVELS = ['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create'] as const;
+
+function parseCsvList(value: string) {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 export default function TeacherCreatePack() {
@@ -29,6 +38,19 @@ export default function TeacherCreatePack() {
   const [materialProfile, setMaterialProfile] = useState<any>(null);
   const [generationMeta, setGenerationMeta] = useState<any>(null);
   const [genError, setGenError] = useState('');
+  const [academicMeta, setAcademicMeta] = useState({
+    course_code: '',
+    course_name: '',
+    section_name: '',
+    academic_term: '',
+    week_label: '',
+    learning_objectives: [] as string[],
+    bloom_levels: [] as string[],
+    pack_notes: '',
+  });
+  const [questionBankQuery, setQuestionBankQuery] = useState('');
+  const [questionBankItems, setQuestionBankItems] = useState<any[]>([]);
+  const [isQuestionBankLoading, setIsQuestionBankLoading] = useState(false);
 
   // Advanced Generation Settings
   const [questionCount, setQuestionCount] = useState(5);
@@ -50,6 +72,24 @@ export default function TeacherCreatePack() {
       setSelectedTeamCount(getGameMode(recommended).defaultTeamCount || 4);
     }
   }, [recommendedLaunchModes, selectedLaunchMode]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setIsQuestionBankLoading(true);
+      apiFetchJson(`/api/teacher/question-bank?q=${encodeURIComponent(questionBankQuery)}&limit=8`)
+        .then((rows) => {
+          setQuestionBankItems(Array.isArray(rows) ? rows : []);
+        })
+        .catch(() => {
+          setQuestionBankItems([]);
+        })
+        .finally(() => {
+          setIsQuestionBankLoading(false);
+        });
+    }, 180);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [questionBankQuery]);
 
   const processFile = async (file: File) => {
     setIsExtracting(true);
@@ -157,7 +197,7 @@ export default function TeacherCreatePack() {
     const res = await apiFetch('/api/packs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, source_text: sourceText, questions })
+      body: JSON.stringify({ title, source_text: sourceText, questions, academic_meta: academicMeta })
     });
     if (!res.ok) {
       const payload = await res.json().catch(() => null);
@@ -215,7 +255,9 @@ export default function TeacherCreatePack() {
       correct_index: 0,
       explanation: '',
       tags: ['general'],
-      time_limit_seconds: 20
+      time_limit_seconds: 20,
+      learning_objective: '',
+      bloom_level: '',
     }]);
   };
 
@@ -235,6 +277,22 @@ export default function TeacherCreatePack() {
     const newQuestions = [...questions];
     newQuestions.splice(index, 1);
     setQuestions(newQuestions);
+  };
+
+  const importQuestionFromBank = (item: any) => {
+    setQuestions((current) => [
+      ...current,
+      {
+        prompt: item.prompt || '',
+        answers: Array.isArray(item.answers) ? item.answers.slice(0, 4) : ['', '', '', ''],
+        correct_index: Number(item.correct_index || 0),
+        explanation: item.explanation || '',
+        tags: Array.isArray(item.tags) && item.tags.length > 0 ? item.tags : ['general'],
+        time_limit_seconds: Number(item.time_limit_seconds || 20),
+        learning_objective: item.learning_objective || '',
+        bloom_level: item.bloom_level || '',
+      },
+    ]);
   };
 
   return (
@@ -307,6 +365,113 @@ export default function TeacherCreatePack() {
                     aria-label="Pack Title"
                     className="w-full p-4 bg-brand-bg border-4 border-brand-dark rounded-2xl focus:outline-none focus:ring-8 focus:ring-brand-purple/10 transition-all font-bold placeholder:text-brand-dark/20 text-lg"
                   />
+                </div>
+
+                <div className="pt-8 border-t-4 border-dashed border-brand-dark/5 space-y-5">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-brand-purple" />
+                    <span className="text-[10px] font-black text-brand-dark/40 uppercase tracking-[0.2em]">Academic Mapping</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-brand-dark/60 uppercase tracking-[0.2em]">Course code</label>
+                      <input
+                        type="text"
+                        value={academicMeta.course_code}
+                        onChange={(e) => setAcademicMeta((current) => ({ ...current, course_code: e.target.value }))}
+                        placeholder="BIO101"
+                        className="w-full p-3 bg-white border-2 border-brand-dark rounded-xl font-bold text-sm focus:outline-none"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-brand-dark/60 uppercase tracking-[0.2em]">Section</label>
+                      <input
+                        type="text"
+                        value={academicMeta.section_name}
+                        onChange={(e) => setAcademicMeta((current) => ({ ...current, section_name: e.target.value }))}
+                        placeholder="Section A"
+                        className="w-full p-3 bg-white border-2 border-brand-dark rounded-xl font-bold text-sm focus:outline-none"
+                      />
+                    </div>
+                    <div className="space-y-2 col-span-2">
+                      <label className="text-[9px] font-black text-brand-dark/60 uppercase tracking-[0.2em]">Course name</label>
+                      <input
+                        type="text"
+                        value={academicMeta.course_name}
+                        onChange={(e) => setAcademicMeta((current) => ({ ...current, course_name: e.target.value }))}
+                        placeholder="Introduction to Molecular Biology"
+                        className="w-full p-3 bg-white border-2 border-brand-dark rounded-xl font-bold text-sm focus:outline-none"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-brand-dark/60 uppercase tracking-[0.2em]">Term</label>
+                      <input
+                        type="text"
+                        value={academicMeta.academic_term}
+                        onChange={(e) => setAcademicMeta((current) => ({ ...current, academic_term: e.target.value }))}
+                        placeholder="Spring 2026"
+                        className="w-full p-3 bg-white border-2 border-brand-dark rounded-xl font-bold text-sm focus:outline-none"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-brand-dark/60 uppercase tracking-[0.2em]">Week / unit</label>
+                      <input
+                        type="text"
+                        value={academicMeta.week_label}
+                        onChange={(e) => setAcademicMeta((current) => ({ ...current, week_label: e.target.value }))}
+                        placeholder="Week 4"
+                        className="w-full p-3 bg-white border-2 border-brand-dark rounded-xl font-bold text-sm focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[9px] font-black text-brand-dark/60 uppercase tracking-[0.2em]">Learning outcomes</label>
+                    <input
+                      type="text"
+                      value={academicMeta.learning_objectives.join(', ')}
+                      onChange={(e) => setAcademicMeta((current) => ({ ...current, learning_objectives: parseCsvList(e.target.value) }))}
+                      placeholder="Cell structure, membrane transport, microscopy"
+                      className="w-full p-3 bg-white border-2 border-brand-dark rounded-xl font-bold text-sm focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[9px] font-black text-brand-dark/60 uppercase tracking-[0.2em]">Bloom coverage</label>
+                    <div className="flex flex-wrap gap-2">
+                      {BLOOM_LEVELS.map((level) => {
+                        const active = academicMeta.bloom_levels.includes(level);
+                        return (
+                          <button
+                            key={level}
+                            type="button"
+                            onClick={() =>
+                              setAcademicMeta((current) => ({
+                                ...current,
+                                bloom_levels: active
+                                  ? current.bloom_levels.filter((item) => item !== level)
+                                  : [...current.bloom_levels, level],
+                              }))
+                            }
+                            className={`px-3 py-2 rounded-full border-2 border-brand-dark font-black text-xs transition-all ${active ? 'bg-brand-orange text-white shadow-[2px_2px_0px_0px_#1A1A1A]' : 'bg-white text-brand-dark'}`}
+                          >
+                            {level}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[9px] font-black text-brand-dark/60 uppercase tracking-[0.2em]">Lecturer notes</label>
+                    <textarea
+                      value={academicMeta.pack_notes}
+                      onChange={(e) => setAcademicMeta((current) => ({ ...current, pack_notes: e.target.value }))}
+                      placeholder="Private notes about framing, misconceptions, or how this pack fits the lecture."
+                      className="w-full min-h-[110px] p-3 bg-white border-2 border-brand-dark rounded-xl font-bold text-sm resize-y focus:outline-none"
+                    />
+                  </div>
                 </div>
 
                 <div 
@@ -553,6 +718,76 @@ export default function TeacherCreatePack() {
                   )}
                 </div>
 
+                <div className="pt-8 border-t-4 border-dashed border-brand-dark/5 space-y-5">
+                  <div className="flex items-center gap-2">
+                    <Library className="w-4 h-4 text-brand-purple" />
+                    <span className="text-[10px] font-black text-brand-dark/40 uppercase tracking-[0.2em]">Reusable Question Bank</span>
+                  </div>
+
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/40" />
+                    <input
+                      type="text"
+                      value={questionBankQuery}
+                      onChange={(e) => setQuestionBankQuery(e.target.value)}
+                      placeholder="Search old questions, packs, outcomes..."
+                      className="w-full py-3 pl-11 pr-4 bg-white border-2 border-brand-dark rounded-full font-bold text-sm focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    {isQuestionBankLoading ? (
+                      <div className="rounded-2xl border-2 border-brand-dark bg-brand-bg p-4 text-center font-black text-brand-dark/50">
+                        Loading question bank...
+                      </div>
+                    ) : questionBankItems.length > 0 ? (
+                      questionBankItems.map((item) => (
+                        <div key={`bank-${item.id}`} className="rounded-2xl border-2 border-brand-dark bg-white p-4">
+                          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-2">
+                            {item.course_code || item.pack_title}
+                            {item.section_name ? ` • ${item.section_name}` : ''}
+                          </p>
+                          <p className="font-black leading-tight mb-3">{item.prompt}</p>
+                          <div className="flex flex-wrap gap-2 mb-3">
+                            {(item.tags || []).slice(0, 3).map((tag: string) => (
+                              <span key={`${item.id}-${tag}`} className="px-2 py-1 rounded-full bg-brand-bg border border-brand-dark text-[10px] font-black uppercase">
+                                {tag}
+                              </span>
+                            ))}
+                            {item.learning_objective && (
+                              <span className="px-2 py-1 rounded-full bg-emerald-100 border border-brand-dark text-[10px] font-black">
+                                {item.learning_objective}
+                              </span>
+                            )}
+                            {item.bloom_level && (
+                              <span className="px-2 py-1 rounded-full bg-brand-yellow border border-brand-dark text-[10px] font-black">
+                                {item.bloom_level}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-xs font-bold text-brand-dark/55">
+                              {Math.round(Number(item.accuracy || 0))}% accuracy over {Number(item.usage_count || 0)} uses
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => importQuestionFromBank(item)}
+                              className="px-4 py-2 rounded-full bg-brand-orange text-white border-2 border-brand-dark font-black text-xs shadow-[2px_2px_0px_0px_#1A1A1A]"
+                            >
+                              Add to Pack
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border-2 border-brand-dark bg-brand-bg p-4 text-center">
+                        <p className="font-black">No reusable questions matched yet.</p>
+                        <p className="font-bold text-brand-dark/55 text-sm mt-1">Search your existing library and import strong items without regenerating anything.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 <button
                   onClick={handleGenerate}
                   disabled={isGenerating || !sourceText.trim()}
@@ -696,7 +931,7 @@ export default function TeacherCreatePack() {
                         ))}
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-8 border-t-4 border-brand-dark/10 pl-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 pt-8 border-t-4 border-brand-dark/10 pl-4">
                         <div>
                           <label htmlFor={`explanation-${qIndex}`} className="block text-sm font-black text-brand-dark/60 mb-2 uppercase tracking-wide">Explanation (Optional)</label>
                           <input
@@ -705,6 +940,17 @@ export default function TeacherCreatePack() {
                             value={q.explanation}
                             onChange={(e) => updateQuestion(qIndex, 'explanation', e.target.value)}
                             placeholder="Why is this correct?"
+                            className="w-full p-4 bg-brand-bg border-2 border-brand-dark rounded-xl focus:outline-none focus:ring-4 focus:ring-brand-purple/20 transition-all text-base font-bold shadow-[inset_0_2px_4px_rgba(0,0,0,0.05)]"
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor={`objective-${qIndex}`} className="block text-sm font-black text-brand-dark/60 mb-2 uppercase tracking-wide">Learning outcome</label>
+                          <input
+                            id={`objective-${qIndex}`}
+                            type="text"
+                            value={q.learning_objective || ''}
+                            onChange={(e) => updateQuestion(qIndex, 'learning_objective', e.target.value)}
+                            placeholder="Outcome mapped to this item"
                             className="w-full p-4 bg-brand-bg border-2 border-brand-dark rounded-xl focus:outline-none focus:ring-4 focus:ring-brand-purple/20 transition-all text-base font-bold shadow-[inset_0_2px_4px_rgba(0,0,0,0.05)]"
                           />
                         </div>
@@ -718,6 +964,22 @@ export default function TeacherCreatePack() {
                             placeholder="e.g. biology, cells, science"
                             className="w-full p-4 bg-brand-bg border-2 border-brand-dark rounded-xl focus:outline-none focus:ring-4 focus:ring-brand-purple/20 transition-all text-base font-bold shadow-[inset_0_2px_4px_rgba(0,0,0,0.05)]"
                           />
+                        </div>
+                        <div>
+                          <label htmlFor={`bloom-${qIndex}`} className="block text-sm font-black text-brand-dark/60 mb-2 uppercase tracking-wide">Bloom level</label>
+                          <select
+                            id={`bloom-${qIndex}`}
+                            value={q.bloom_level || ''}
+                            onChange={(e) => updateQuestion(qIndex, 'bloom_level', e.target.value)}
+                            className="w-full p-4 bg-brand-bg border-2 border-brand-dark rounded-xl focus:outline-none focus:ring-4 focus:ring-brand-purple/20 transition-all text-base font-bold"
+                          >
+                            <option value="">Select level</option>
+                            {BLOOM_LEVELS.map((level) => (
+                              <option key={level} value={level}>
+                                {level}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                       </div>
                     </motion.div>

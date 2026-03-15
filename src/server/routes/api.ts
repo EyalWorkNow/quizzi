@@ -237,6 +237,51 @@ function parseJsonObject(value: string | null | undefined) {
   }
 }
 
+function sanitizeStringList(value: unknown, maxItems = 8, maxLength = 80) {
+  const entries = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+  return Array.from(
+    new Set(
+      entries
+        .map((entry) => sanitizeLine(entry, maxLength))
+        .filter(Boolean),
+    ),
+  ).slice(0, maxItems);
+}
+
+function sanitizeAcademicMeta(value: any) {
+  const raw = value && typeof value === 'object' ? value : {};
+  return {
+    course_code: sanitizeLine(raw.course_code, 32),
+    course_name: sanitizeLine(raw.course_name, 120),
+    section_name: sanitizeLine(raw.section_name, 60),
+    academic_term: sanitizeLine(raw.academic_term, 40),
+    week_label: sanitizeLine(raw.week_label, 40),
+    learning_objectives: sanitizeStringList(raw.learning_objectives, 8, 120),
+    bloom_levels: sanitizeStringList(raw.bloom_levels, 6, 40),
+    pack_notes: sanitizeMultiline(raw.pack_notes, 1200),
+  };
+}
+
+function sanitizeQuestionDraft(question: any, index: number, fallbackTags: string[] = []) {
+  const safeTags = Array.isArray(question?.tags) ? question.tags : fallbackTags;
+  const answers = Array.isArray(question?.answers) ? question.answers.map((answer: unknown) => sanitizeLine(answer, 180)) : [];
+  return {
+    prompt: sanitizeMultiline(question?.prompt, 320),
+    answers: answers.slice(0, 4),
+    correct_index: clampNumber(question?.correct_index, 0, 3, 0),
+    explanation: sanitizeMultiline(question?.explanation, 500),
+    tags: sanitizeStringList(safeTags, 6, 40),
+    time_limit_seconds: clampNumber(question?.time_limit_seconds, 10, 90, 20),
+    question_order: clampNumber(question?.question_order, 1, 999, index + 1),
+    learning_objective: sanitizeLine(question?.learning_objective, 120),
+    bloom_level: sanitizeLine(question?.bloom_level, 40),
+  };
+}
+
 function sanitizeModeConfig(gameType: string, value: unknown): GameModeConfig {
   const base = { ...getGameMode(gameType).defaultModeConfig };
   const raw = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -469,6 +514,7 @@ function getTeacherPackBoard(teacherUserId: number) {
     : [];
   const sessionIds = uniqueNumbers(sessions.map((session: any) => session.id));
   const participantCounts = new Map<number, number>();
+  const versionCounts = new Map<number, number>();
 
   if (sessionIds.length) {
     const rows = db
@@ -482,6 +528,20 @@ function getTeacherPackBoard(teacherUserId: number) {
     rows.forEach((row: any) => {
       participantCounts.set(Number(row.session_id), Number(row.count || 0));
     });
+  }
+
+  if (packIds.length) {
+    db
+      .prepare(
+        `SELECT pack_id, COUNT(*) as count
+         FROM quiz_pack_versions
+         WHERE pack_id IN (${packIds.map(() => '?').join(', ')})
+         GROUP BY pack_id`,
+      )
+      .all(...packIds)
+      .forEach((row: any) => {
+        versionCounts.set(Number(row.pack_id), Number(row.count || 0));
+      });
   }
 
   const sessionsByPack = new Map<number, any[]>();
@@ -511,6 +571,7 @@ function getTeacherPackBoard(teacherUserId: number) {
       last_session_status: latestSession?.status || null,
       last_session_at: latestSession?.ended_at || latestSession?.started_at || null,
       last_session_players: latestSession ? Number(participantCounts.get(Number(latestSession.id)) || 0) : 0,
+      version_count: Number(versionCounts.get(Number(pack.id)) || 0),
     };
   });
 }
@@ -533,6 +594,290 @@ function buildPackCopyTitle(teacherUserId: number, originalTitle: string) {
     counter += 1;
   }
   return `${baseTitle} ${counter}`;
+}
+
+function getPackVersions(packId: number) {
+  return db
+    .prepare(`
+      SELECT id, pack_id, teacher_id, version_number, version_label, source_label, created_at
+      FROM quiz_pack_versions
+      WHERE pack_id = ?
+      ORDER BY version_number DESC, id DESC
+    `)
+    .all(packId)
+    .map((row: any) => ({
+      ...row,
+      id: Number(row.id),
+      pack_id: Number(row.pack_id),
+      teacher_id: Number(row.teacher_id),
+      version_number: Number(row.version_number || 0),
+    }));
+}
+
+function buildPackSnapshot(packId: number) {
+  const pack = getHydratedPackWithQuestions(packId);
+  if (!pack) return null;
+  return {
+    pack: {
+      title: pack.title,
+      source_text: pack.source_text || '',
+      course_code: pack.course_code || '',
+      course_name: pack.course_name || '',
+      section_name: pack.section_name || '',
+      academic_term: pack.academic_term || '',
+      week_label: pack.week_label || '',
+      learning_objectives: Array.isArray(pack.learning_objectives) ? pack.learning_objectives : [],
+      bloom_levels: Array.isArray(pack.bloom_levels) ? pack.bloom_levels : [],
+      pack_notes: pack.pack_notes || '',
+    },
+    questions: (pack.questions || []).map((question: any, index: number) => ({
+      prompt: question.prompt,
+      answers: Array.isArray(question.answers) ? question.answers : parseJsonArray(question.answers_json),
+      correct_index: Number(question.correct_index || 0),
+      explanation: question.explanation || '',
+      tags: Array.isArray(question.tags) ? question.tags : parseJsonArray(question.tags_json),
+      time_limit_seconds: Number(question.time_limit_seconds || 20),
+      question_order: Number(question.question_order || index + 1),
+      learning_objective: question.learning_objective || '',
+      bloom_level: question.bloom_level || '',
+    })),
+  };
+}
+
+function createPackVersionSnapshot(packId: number, teacherUserId: number, versionLabel = '', sourceLabel = 'manual') {
+  const snapshot = buildPackSnapshot(packId);
+  if (!snapshot) {
+    throw new Error('Pack not found');
+  }
+
+  const nextVersionNumber = Number(
+    db.prepare('SELECT COALESCE(MAX(version_number), 0) + 1 as next_version FROM quiz_pack_versions WHERE pack_id = ?').get(packId)?.next_version || 1,
+  );
+  const label = sanitizeLine(versionLabel || `Version ${nextVersionNumber}`, 80);
+
+  const info = db.prepare(`
+    INSERT INTO quiz_pack_versions (pack_id, teacher_id, version_number, version_label, source_label, snapshot_json)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    packId,
+    teacherUserId,
+    nextVersionNumber,
+    label,
+    sanitizeLine(sourceLabel, 40),
+    JSON.stringify(snapshot),
+  );
+
+  return {
+    id: Number(info.lastInsertRowid),
+    pack_id: packId,
+    teacher_id: teacherUserId,
+    version_number: nextVersionNumber,
+    version_label: label,
+    source_label: sanitizeLine(sourceLabel, 40),
+    created_at: new Date().toISOString(),
+  };
+}
+
+function createPackFromSnapshot(
+  snapshot: any,
+  teacherUserId: number,
+  titleOverride?: string,
+  sourceLabel = 'restore',
+) {
+  const packMeta = sanitizeAcademicMeta(snapshot?.pack || {});
+  const title = sanitizeLine(titleOverride || snapshot?.pack?.title || 'Untitled pack', 120);
+  const sourceText = sanitizeMultiline(snapshot?.pack?.source_text || '', 120000);
+  const fallbackTags = Array.isArray(snapshot?.pack?.learning_objectives) ? snapshot.pack.learning_objectives : [];
+  const questionRows = Array.isArray(snapshot?.questions)
+    ? snapshot.questions.map((question: any, index: number) => sanitizeQuestionDraft(question, index, fallbackTags))
+    : [];
+
+  if (!title || questionRows.length === 0) {
+    throw new Error('Snapshot is incomplete');
+  }
+
+  const materialProfile = getOrCreateMaterialProfile(sourceText || '');
+  const packInfo = db.prepare(`
+    INSERT INTO quiz_packs (
+      teacher_id,
+      title,
+      source_text,
+      course_code,
+      course_name,
+      section_name,
+      academic_term,
+      week_label,
+      learning_objectives_json,
+      bloom_levels_json,
+      pack_notes,
+      source_hash,
+      source_excerpt,
+      source_language,
+      source_word_count,
+      material_profile_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    teacherUserId,
+    title,
+    sourceText,
+    packMeta.course_code,
+    packMeta.course_name,
+    packMeta.section_name,
+    packMeta.academic_term,
+    packMeta.week_label,
+    JSON.stringify(packMeta.learning_objectives),
+    JSON.stringify(packMeta.bloom_levels),
+    packMeta.pack_notes,
+    materialProfile.source_hash,
+    materialProfile.source_excerpt,
+    materialProfile.source_language,
+    materialProfile.word_count,
+    materialProfile.id,
+  );
+
+  const newPackId = Number(packInfo.lastInsertRowid);
+  const insertQuestion = db.prepare(`
+    INSERT INTO questions (
+      quiz_pack_id,
+      prompt,
+      answers_json,
+      correct_index,
+      explanation,
+      tags_json,
+      time_limit_seconds,
+      question_order,
+      learning_objective,
+      bloom_level
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  questionRows.forEach((question) => {
+    insertQuestion.run(
+      newPackId,
+      question.prompt,
+      JSON.stringify(question.answers),
+      question.correct_index,
+      question.explanation,
+      JSON.stringify(question.tags),
+      question.time_limit_seconds,
+      question.question_order,
+      question.learning_objective,
+      question.bloom_level,
+    );
+  });
+
+  syncPackDerivedData(newPackId, sourceText || '', questionRows);
+  createPackVersionSnapshot(newPackId, teacherUserId, 'Initial version', sourceLabel);
+
+  return newPackId;
+}
+
+function buildCrossSectionComparison(sessionId: number, teacherUserId: number) {
+  const currentSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as any;
+  if (!currentSession) return null;
+  const currentPack = getTeacherOwnedPack(Number(currentSession.quiz_pack_id || 0), teacherUserId);
+  if (!currentPack) return null;
+
+  const courseCode = sanitizeLine(currentPack.course_code, 32);
+  const relatedPackIds = uniqueNumbers(
+    (
+      courseCode
+        ? db.prepare('SELECT id FROM quiz_packs WHERE teacher_id = ? AND course_code = ?').all(teacherUserId, courseCode)
+        : db.prepare('SELECT id FROM quiz_packs WHERE id = ? AND teacher_id = ?').all(currentPack.id, teacherUserId)
+    ).map((row: any) => row.id),
+  );
+
+  if (relatedPackIds.length === 0) return null;
+
+  const rows = db
+    .prepare(`
+      SELECT
+        s.id,
+        s.quiz_pack_id,
+        s.started_at,
+        s.ended_at,
+        qp.title AS pack_title,
+        qp.course_code,
+        qp.course_name,
+        qp.section_name,
+        qp.academic_term,
+        qp.week_label,
+        (
+          SELECT COUNT(*)
+          FROM participants p
+          WHERE p.session_id = s.id
+        ) AS participant_count,
+        (
+          SELECT AVG(CASE WHEN a.is_correct = 1 THEN 100.0 ELSE 0 END)
+          FROM answers a
+          WHERE a.session_id = s.id
+        ) AS accuracy,
+        (
+          SELECT AVG(a.response_ms)
+          FROM answers a
+          WHERE a.session_id = s.id
+        ) AS avg_response_ms,
+        (
+          SELECT SUM(a.score_awarded)
+          FROM answers a
+          WHERE a.session_id = s.id
+        ) AS total_score
+      FROM sessions s
+      JOIN quiz_packs qp ON qp.id = s.quiz_pack_id
+      WHERE qp.teacher_id = ?
+        AND s.id IN (
+          SELECT id
+          FROM sessions
+          WHERE quiz_pack_id IN (${relatedPackIds.map(() => '?').join(', ')})
+        )
+      ORDER BY COALESCE(s.ended_at, s.started_at) DESC, s.id DESC
+      LIMIT 12
+    `)
+    .all(teacherUserId, ...relatedPackIds)
+    .map((row: any) => ({
+      session_id: Number(row.id),
+      quiz_pack_id: Number(row.quiz_pack_id),
+      pack_title: row.pack_title,
+      course_code: row.course_code || '',
+      course_name: row.course_name || '',
+      section_name: row.section_name || 'Main',
+      academic_term: row.academic_term || '',
+      week_label: row.week_label || '',
+      started_at: row.started_at || null,
+      ended_at: row.ended_at || null,
+      participant_count: Number(row.participant_count || 0),
+      accuracy: Number(row.accuracy || 0),
+      avg_response_ms: Number(row.avg_response_ms || 0),
+      total_score: Number(row.total_score || 0),
+      is_current: Number(row.id) === sessionId,
+    }));
+
+  const currentRow = rows.find((row: any) => row.is_current) || null;
+  const peerRows = rows.filter((row: any) => !row.is_current);
+  const averageAccuracy = peerRows.length
+    ? peerRows.reduce((sum: number, row: any) => sum + Number(row.accuracy || 0), 0) / peerRows.length
+    : 0;
+  const averageParticipation = peerRows.length
+    ? peerRows.reduce((sum: number, row: any) => sum + Number(row.participant_count || 0), 0) / peerRows.length
+    : 0;
+
+  return {
+    basis: courseCode ? 'course_code' : 'pack',
+    course_code: courseCode,
+    course_name: currentPack.course_name || '',
+    section_name: currentPack.section_name || '',
+    academic_term: currentPack.academic_term || '',
+    current: currentRow,
+    benchmark: {
+      compared_sessions: peerRows.length,
+      average_accuracy: Number(averageAccuracy.toFixed(1)),
+      average_participant_count: Number(averageParticipation.toFixed(1)),
+      delta_accuracy: currentRow ? Number((Number(currentRow.accuracy || 0) - averageAccuracy).toFixed(1)) : 0,
+      delta_participant_count: currentRow ? Number((Number(currentRow.participant_count || 0) - averageParticipation).toFixed(1)) : 0,
+    },
+    sessions: rows,
+  };
 }
 
 function getParticipantsForNickname(nickname: string) {
@@ -875,6 +1220,186 @@ router.get('/packs/:id', (req, res) => {
   res.json(pack);
 });
 
+router.get('/teacher/question-bank', requireTeacherSession, (req, res) => {
+  try {
+    const teacherUserId = getTeacherUserIdFromRequest(req);
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-question-bank', 120, 5 * 60 * 1000, teacherUserId)) return;
+
+    const query = sanitizeLine(req.query?.q, 80).toLowerCase();
+    const limit = clampNumber(req.query?.limit, 4, 30, 10);
+    const filters: string[] = ['qp.teacher_id = ?'];
+    const params: Array<string | number> = [teacherUserId];
+
+    if (query) {
+      filters.push(`(
+        LOWER(COALESCE(q.prompt, '')) LIKE ?
+        OR LOWER(COALESCE(q.learning_objective, '')) LIKE ?
+        OR LOWER(COALESCE(q.bloom_level, '')) LIKE ?
+        OR LOWER(COALESCE(qp.title, '')) LIKE ?
+        OR LOWER(COALESCE(qp.course_code, '')) LIKE ?
+        OR LOWER(COALESCE(q.tags_json, '')) LIKE ?
+      )`);
+      const token = `%${query}%`;
+      params.push(token, token, token, token, token, token);
+    }
+
+    params.push(limit);
+
+    const rows = db
+      .prepare(`
+        SELECT
+          q.id,
+          q.quiz_pack_id,
+          q.prompt,
+          q.answers_json,
+          q.correct_index,
+          q.explanation,
+          q.tags_json,
+          q.time_limit_seconds,
+          q.learning_objective,
+          q.bloom_level,
+          qp.title AS pack_title,
+          qp.course_code,
+          qp.course_name,
+          qp.section_name,
+          qp.academic_term,
+          (
+            SELECT COUNT(*)
+            FROM answers a
+            WHERE a.question_id = q.id
+          ) AS usage_count,
+          (
+            SELECT AVG(CASE WHEN a.is_correct = 1 THEN 100.0 ELSE 0 END)
+            FROM answers a
+            WHERE a.question_id = q.id
+          ) AS accuracy
+        FROM questions q
+        JOIN quiz_packs qp ON qp.id = q.quiz_pack_id
+        WHERE ${filters.join(' AND ')}
+        ORDER BY
+          COALESCE((
+            SELECT COUNT(*)
+            FROM answers a
+            WHERE a.question_id = q.id
+          ), 0) DESC,
+          q.id DESC
+        LIMIT ?
+      `)
+      .all(...params);
+
+    res.json(
+      rows.map((row: any) => ({
+        id: Number(row.id),
+        quiz_pack_id: Number(row.quiz_pack_id),
+        prompt: row.prompt,
+        answers: parseJsonArray(row.answers_json),
+        correct_index: Number(row.correct_index || 0),
+        explanation: row.explanation || '',
+        tags: parseJsonArray(row.tags_json),
+        time_limit_seconds: Number(row.time_limit_seconds || 20),
+        learning_objective: row.learning_objective || '',
+        bloom_level: row.bloom_level || '',
+        pack_title: row.pack_title,
+        course_code: row.course_code || '',
+        course_name: row.course_name || '',
+        section_name: row.section_name || '',
+        academic_term: row.academic_term || '',
+        usage_count: Number(row.usage_count || 0),
+        accuracy: Number(row.accuracy || 0),
+      })),
+    );
+  } catch (error: any) {
+    console.error('[ERROR] Question bank failed:', error);
+    res.status(500).json({ error: error.message || 'Failed to load question bank' });
+  }
+});
+
+router.get('/teacher/packs/:id/versions', requireTeacherSession, (req, res) => {
+  try {
+    const teacherUserId = getTeacherUserIdFromRequest(req);
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    const packId = parsePositiveInt(req.params.id);
+    const pack = getTeacherOwnedPack(packId, teacherUserId);
+    if (!pack) {
+      return res.status(404).json({ error: 'Pack not found' });
+    }
+    res.json({ versions: getPackVersions(packId) });
+  } catch (error: any) {
+    console.error('[ERROR] Pack versions failed:', error);
+    res.status(500).json({ error: error.message || 'Failed to load versions' });
+  }
+});
+
+router.post('/teacher/packs/:id/versions', requireTeacherSession, (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = getTeacherUserIdFromRequest(req);
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-pack-version-create', 40, 10 * 60 * 1000, teacherUserId, req.params.id)) return;
+    const packId = parsePositiveInt(req.params.id);
+    const pack = getTeacherOwnedPack(packId, teacherUserId);
+    if (!pack) {
+      return res.status(404).json({ error: 'Pack not found' });
+    }
+    const version = createPackVersionSnapshot(
+      packId,
+      teacherUserId,
+      sanitizeLine(req.body?.version_label, 80) || '',
+      'manual_snapshot',
+    );
+    res.status(201).json({ version });
+  } catch (error: any) {
+    console.error('[ERROR] Pack snapshot failed:', error);
+    res.status(500).json({ error: error.message || 'Failed to create snapshot' });
+  }
+});
+
+router.post('/teacher/packs/:id/versions/:versionId/restore', requireTeacherSession, (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = getTeacherUserIdFromRequest(req);
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-pack-version-restore', 20, 10 * 60 * 1000, teacherUserId, req.params.id, req.params.versionId)) return;
+    const packId = parsePositiveInt(req.params.id);
+    const versionId = parsePositiveInt(req.params.versionId);
+    const pack = getTeacherOwnedPack(packId, teacherUserId);
+    if (!pack) {
+      return res.status(404).json({ error: 'Pack not found' });
+    }
+    const version = db
+      .prepare('SELECT * FROM quiz_pack_versions WHERE id = ? AND pack_id = ? AND teacher_id = ?')
+      .get(versionId, packId, teacherUserId) as any;
+    if (!version) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+
+    const snapshot = parseJsonObject(version.snapshot_json) as any;
+    if (!snapshot?.pack || !Array.isArray(snapshot?.questions)) {
+      return res.status(400).json({ error: 'Snapshot is not valid' });
+    }
+
+    const restoredTitle = buildPackCopyTitle(
+      teacherUserId,
+      `${snapshot.pack.title || pack.title} (${version.version_label || `V${version.version_number}`})`,
+    );
+    const restoredPackId = createPackFromSnapshot(snapshot, teacherUserId, restoredTitle, 'restore');
+    const restoredPack = getTeacherPackBoard(teacherUserId).find((entry: any) => Number(entry.id) === restoredPackId);
+    res.status(201).json(restoredPack || { id: restoredPackId, title: restoredTitle });
+  } catch (error: any) {
+    console.error('[ERROR] Restore pack version failed:', error);
+    res.status(500).json({ error: error.message || 'Failed to restore version' });
+  }
+});
+
 router.post('/teacher/packs/:id/duplicate', requireTeacherSession, (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
   const teacherUserId = getTeacherUserIdFromRequest(req);
@@ -900,16 +1425,32 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, (req, res) =>
         teacher_id,
         title,
         source_text,
+        course_code,
+        course_name,
+        section_name,
+        academic_term,
+        week_label,
+        learning_objectives_json,
+        bloom_levels_json,
+        pack_notes,
         source_hash,
         source_excerpt,
         source_language,
         source_word_count,
         material_profile_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       teacherUserId,
       copyTitle,
       pack.source_text,
+      pack.course_code || '',
+      pack.course_name || '',
+      pack.section_name || '',
+      pack.academic_term || '',
+      pack.week_label || '',
+      pack.learning_objectives_json || '[]',
+      pack.bloom_levels_json || '[]',
+      pack.pack_notes || '',
       pack.source_hash,
       pack.source_excerpt,
       pack.source_language,
@@ -929,8 +1470,10 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, (req, res) =>
         tags_json,
         difficulty,
         time_limit_seconds,
-        question_order
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        question_order,
+        learning_objective,
+        bloom_level
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     questions.forEach((question: any, index: number) => {
@@ -945,6 +1488,8 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, (req, res) =>
         question.difficulty || 3,
         question.time_limit_seconds || 20,
         Number(question.question_order || index),
+        question.learning_objective || '',
+        question.bloom_level || '',
       );
     });
 
@@ -956,7 +1501,10 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, (req, res) =>
       tags: parseJsonArray(question.tags_json),
       time_limit_seconds: Number(question.time_limit_seconds || 20),
       question_order: Number(question.question_order || index),
+      learning_objective: question.learning_objective || '',
+      bloom_level: question.bloom_level || '',
     })));
+    createPackVersionSnapshot(newPackId, teacherUserId, 'Initial version', 'duplicate');
 
     return getTeacherPackBoard(teacherUserId).find((entry: any) => Number(entry.id) === newPackId);
   });
@@ -1026,6 +1574,8 @@ router.delete('/teacher/packs/:id', requireTeacherSession, (req, res) => {
   };
 
   const deletePackCascade = db.transaction(() => {
+    db.prepare('DELETE FROM quiz_pack_versions WHERE pack_id = ?').run(packId);
+
     if (sessionIds.length) {
       const sessionPlaceholders = sessionIds.map(() => '?').join(', ');
       db.prepare(`DELETE FROM student_behavior_logs WHERE session_id IN (${sessionPlaceholders})`).run(...sessionIds);
@@ -1262,6 +1812,7 @@ router.post('/packs', requireTeacherSession, (req, res) => {
   const title = sanitizeLine(req.body?.title, 120);
   const source_text = sanitizeMultiline(req.body?.source_text, 120000);
   const questions = Array.isArray(req.body?.questions) ? req.body.questions : [];
+  const academicMeta = sanitizeAcademicMeta(req.body?.academic_meta || req.body);
   if (!title) {
     return res.status(400).json({ error: 'Pack title is required' });
   }
@@ -1273,24 +1824,40 @@ router.post('/packs', requireTeacherSession, (req, res) => {
   const normalizedQuestions = normalizeGeneratedQuestions(
     Array.isArray(questions) ? questions : [],
     materialProfile.topic_fingerprint || [],
-  );
+  ).map((question: any, index: number) => sanitizeQuestionDraft(question, index, materialProfile.topic_fingerprint || []));
 
   const insertPack = db.prepare(`
     INSERT INTO quiz_packs (
       teacher_id,
       title,
       source_text,
+      course_code,
+      course_name,
+      section_name,
+      academic_term,
+      week_label,
+      learning_objectives_json,
+      bloom_levels_json,
+      pack_notes,
       source_hash,
       source_excerpt,
       source_language,
       source_word_count,
       material_profile_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const info = insertPack.run(
     teacherUserId,
     title,
     source_text,
+    academicMeta.course_code,
+    academicMeta.course_name,
+    academicMeta.section_name,
+    academicMeta.academic_term,
+    academicMeta.week_label,
+    JSON.stringify(academicMeta.learning_objectives),
+    JSON.stringify(academicMeta.bloom_levels),
+    academicMeta.pack_notes,
     materialProfile.source_hash,
     materialProfile.source_excerpt,
     materialProfile.source_language,
@@ -1308,9 +1875,11 @@ router.post('/packs', requireTeacherSession, (req, res) => {
       explanation,
       tags_json,
       time_limit_seconds,
-      question_order
+      question_order,
+      learning_objective,
+      bloom_level
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = db.transaction((qs: any[]) => {
@@ -1324,12 +1893,15 @@ router.post('/packs', requireTeacherSession, (req, res) => {
         JSON.stringify(q.tags),
         q.time_limit_seconds || 20,
         q.question_order || 0,
+        q.learning_objective || '',
+        q.bloom_level || '',
       );
     }
   });
 
   insertMany(normalizedQuestions);
   syncPackDerivedData(Number(packId), source_text || '', normalizedQuestions);
+  createPackVersionSnapshot(Number(packId), teacherUserId, 'Initial version', 'create');
 
   res.json({ id: packId, title, question_count: normalizedQuestions.length });
 });
@@ -1851,8 +2423,36 @@ router.get('/analytics/class/:sessionId', async (req, res) => {
     const payload = getSessionPayload(sessionId);
     if (!payload) return res.status(404).json({ error: 'Session not found' });
 
-    const dashboard = await runPythonEngine<unknown>('class-dashboard', payload);
-    res.json(dashboard);
+    const dashboard = (await runPythonEngine<any>('class-dashboard', payload)) as Record<string, any>;
+    const packDetail = getHydratedPackWithQuestions(Number(payload.pack?.id || ownedSession.quiz_pack_id));
+    const questionMeta = new Map(
+      (packDetail?.questions || []).map((question: any) => [
+        Number(question.id),
+        {
+          learning_objective: question.learning_objective || '',
+          bloom_level: question.bloom_level || '',
+        },
+      ]),
+    );
+    const mapQuestionMeta = (question: any) =>
+      Object.assign(
+        {},
+        question && typeof question === 'object' ? question : {},
+        questionMeta.get(Number(question?.question_id || question?.id)) || {},
+      );
+
+    res.json({
+      ...dashboard,
+      pack: packDetail,
+      cross_section_comparison: buildCrossSectionComparison(sessionId, teacherUserId),
+      questions: Array.isArray(dashboard?.questions) ? dashboard.questions.map(mapQuestionMeta) : dashboard?.questions,
+      research: {
+        ...(dashboard?.research || {}),
+        question_diagnostics: Array.isArray(dashboard?.research?.question_diagnostics)
+          ? dashboard.research.question_diagnostics.map(mapQuestionMeta)
+          : dashboard?.research?.question_diagnostics,
+      },
+    });
   } catch (error: any) {
     console.error('[ERROR] Class analytics failed:', error);
     res.status(500).json({ error: error.message });

@@ -163,6 +163,8 @@ export default function TeacherAnalytics() {
   const stressDistribution = data?.distributions?.stress || [];
   const riskDistribution = data?.distributions?.risk || [];
   const gameMode = getGameMode(data?.session?.game_type);
+  const packMeta = data?.pack || null;
+  const crossSectionComparison = data?.cross_section_comparison || null;
   const sortedAlerts = useMemo(
     () => [...alertList].sort((left: any, right: any) => severityRank(right.severity) - severityRank(left.severity)),
     [alertList],
@@ -201,6 +203,29 @@ export default function TeacherAnalytics() {
     return slugify(packTitle);
   }, [data, sessionId]);
   const showExpandedHeader = !isHeaderCondensed || isHeaderPinnedOpen;
+  const lmsCsvRows = useMemo(
+    () =>
+      participants.map((student: any) => ({
+        course_code: packMeta?.course_code || '',
+        course_name: packMeta?.course_name || '',
+        section_name: packMeta?.section_name || '',
+        academic_term: packMeta?.academic_term || '',
+        week_label: packMeta?.week_label || '',
+        session_id: data?.session?.id || sessionId,
+        session_pin: data?.session?.pin || '',
+        pack_title: data?.session?.pack_title || packMeta?.title || '',
+        participant_id: student.id,
+        nickname: student.nickname,
+        participation_present: Number(student.answers_count || 0) > 0 ? 1 : 0,
+        answers_count: Number(student.answers_count || 0),
+        total_score: Number(student.total_score || 0),
+        accuracy: Number(student.accuracy || 0),
+        stress_index: Number(student.stress_index || 0),
+        confidence_score: Number(student.confidence_score || 0),
+        risk_level: student.risk_level || '',
+      })),
+    [data?.session?.id, data?.session?.pack_title, data?.session?.pin, packMeta, participants, sessionId],
+  );
 
   const studentCsvRows = useMemo(
     () =>
@@ -244,6 +269,8 @@ export default function TeacherAnalytics() {
         question_index: row.question_index,
         question_prompt: row.question_prompt,
         tags: Array.isArray(row.tags) ? row.tags.join(', ') : row.tags,
+        learning_objective: row.learning_objective || '',
+        bloom_level: row.bloom_level || '',
         accuracy: row.accuracy,
         difficulty_index: row.difficulty_index,
         discrimination_index: row.discrimination_index,
@@ -923,6 +950,13 @@ export default function TeacherAnalytics() {
                     <Download className="w-4 h-4" />
                     Questions CSV
                   </button>
+                  <button
+                    onClick={() => downloadCsv(`${exportBaseName}-lms-gradebook.csv`, lmsCsvRows)}
+                    className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
+                  >
+                    <Download className="w-4 h-4" />
+                    LMS Gradebook CSV
+                  </button>
                   {teams.length > 0 && (
                     <button
                       onClick={() => downloadCsv(`${exportBaseName}-teams.csv`, teamCsvRows)}
@@ -1074,6 +1108,112 @@ export default function TeacherAnalytics() {
             </React.Fragment>
           ))}
         </section>
+
+        {(packMeta || crossSectionComparison) && (
+          <section className="grid grid-cols-1 xl:grid-cols-[0.92fr_1.08fr] gap-8 mb-10">
+            {packMeta && (
+              <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+                <div className="flex items-center gap-3 mb-4">
+                  <Target className="w-6 h-6 text-brand-purple" />
+                  <div>
+                    <h2 className="text-3xl font-black">Academic Mapping</h2>
+                    <p className="font-bold text-brand-dark/60 mt-1">Keep this session anchored to the course structure, not just the game.</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <PackMetric label="Course" value={packMeta.course_code || 'Not set'} />
+                  <PackMetric label="Section" value={packMeta.section_name || 'Not set'} />
+                  <PackMetric label="Term" value={packMeta.academic_term || 'Not set'} />
+                  <PackMetric label="Week" value={packMeta.week_label || 'Not set'} />
+                </div>
+                {(packMeta.learning_objectives || []).length > 0 && (
+                  <div className="mb-4">
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Learning outcomes</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(packMeta.learning_objectives || []).map((objective: string) => (
+                        <span key={objective} className="px-3 py-2 rounded-full bg-emerald-100 border-2 border-brand-dark text-xs font-black">
+                          {objective}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(packMeta.bloom_levels || []).length > 0 && (
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Bloom coverage</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(packMeta.bloom_levels || []).map((level: string) => (
+                        <span key={level} className="px-3 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark text-xs font-black">
+                          {level}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {crossSectionComparison && (
+              <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+                <div className="flex items-center justify-between gap-4 mb-4">
+                  <div>
+                    <h2 className="text-3xl font-black">Cross-Section Comparison</h2>
+                    <p className="font-bold text-brand-dark/60 mt-1">
+                      Compare this run against {crossSectionComparison.benchmark?.compared_sessions || 0} prior session{Number(crossSectionComparison.benchmark?.compared_sessions || 0) === 1 ? '' : 's'} on the same {crossSectionComparison.basis === 'course_code' ? 'course code' : 'pack'}.
+                    </p>
+                  </div>
+                  <div className="px-4 py-3 rounded-full bg-brand-bg border-2 border-brand-dark font-black text-sm">
+                    {crossSectionComparison.course_code || 'Pack scope'}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+                  <PackMetric
+                    label="Accuracy delta"
+                    value={`${Number(crossSectionComparison.benchmark?.delta_accuracy || 0).toFixed(1)}pts`}
+                  />
+                  <PackMetric
+                    label="Peer avg accuracy"
+                    value={`${Number(crossSectionComparison.benchmark?.average_accuracy || 0).toFixed(1)}%`}
+                  />
+                  <PackMetric
+                    label="Peer avg attendance"
+                    value={Number(crossSectionComparison.benchmark?.average_participant_count || 0).toFixed(1)}
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  {(crossSectionComparison.sessions || []).slice(0, 6).map((row: any) => (
+                    <div key={row.session_id} className={`rounded-[1.3rem] border-2 border-brand-dark p-4 ${row.is_current ? 'bg-brand-yellow' : 'bg-brand-bg'}`}>
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-2">
+                        <div>
+                          <p className="font-black text-lg">
+                            {row.section_name || 'Main'}
+                            {row.is_current ? ' • Current session' : ''}
+                          </p>
+                          <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-dark/50">
+                            {[row.academic_term, row.week_label].filter(Boolean).join(' • ') || 'Unmapped session'}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
+                            {Number(row.accuracy || 0).toFixed(1)}% accuracy
+                          </span>
+                          <span className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
+                            {row.participant_count} students
+                          </span>
+                        </div>
+                      </div>
+                      <p className="font-medium text-brand-dark/70">
+                        Avg response {formatMs(Number(row.avg_response_ms || 0))} • Session #{row.session_id}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
 
         <SectionIntro
           eyebrow="Instructional Diagnosis"
@@ -1860,6 +2000,16 @@ export default function TeacherAnalytics() {
                           {tag}
                         </span>
                       ))}
+                      {question.learning_objective && (
+                        <span className="px-3 py-1 rounded-full bg-emerald-100 border-2 border-brand-dark text-xs font-black">
+                          {question.learning_objective}
+                        </span>
+                      )}
+                      {question.bloom_level && (
+                        <span className="px-3 py-1 rounded-full bg-brand-yellow border-2 border-brand-dark text-xs font-black">
+                          {question.bloom_level}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 min-w-[220px]">
@@ -3278,6 +3428,15 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
     <div className="bg-white/10 rounded-2xl border border-white/15 p-4">
       <p className="text-xs font-black uppercase tracking-[0.2em] text-white/40 mb-2">{label}</p>
       <p className="text-3xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function PackMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4">
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{label}</p>
+      <p className="text-lg font-black break-words">{value}</p>
     </div>
   );
 }

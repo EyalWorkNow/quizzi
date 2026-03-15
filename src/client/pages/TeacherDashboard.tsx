@@ -172,6 +172,22 @@ export default function TeacherDashboard() {
     navigate('/');
   };
 
+  const loadPackPreview = async (packId: number) => {
+    const [packResponse, versionsResponse] = await Promise.all([
+      apiFetch(`/api/packs/${packId}`),
+      apiFetch(`/api/teacher/packs/${packId}/versions`),
+    ]);
+    if (!packResponse.ok) {
+      throw new Error(await readApiError(packResponse));
+    }
+    const packPayload = await packResponse.json();
+    const versionsPayload = versionsResponse.ok ? await versionsResponse.json().catch(() => ({ versions: [] })) : { versions: [] };
+    return {
+      ...packPayload,
+      versions: Array.isArray(versionsPayload?.versions) ? versionsPayload.versions : [],
+    };
+  };
+
   const categories = useMemo(() => {
     const tags = Array.from(new Set(packs.flatMap((pack) => pack.top_tags || []))).filter(Boolean);
     return ['All', ...tags];
@@ -301,14 +317,54 @@ export default function TeacherDashboard() {
   const handlePreview = async (pack: any) => {
     try {
       setBusyAction({ packId: Number(pack.id), action: 'preview' });
-      const res = await apiFetch(`/api/packs/${pack.id}`);
-      if (!res.ok) {
-        throw new Error(await readApiError(res));
-      }
-      const data = await res.json();
+      const data = await loadPackPreview(Number(pack.id));
       setSelectedPack({ ...pack, ...data });
     } catch (previewError: any) {
       setNotice({ tone: 'error', message: previewError?.message || 'Failed to open the pack preview.' });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleSnapshotPack = async (pack: any) => {
+    try {
+      setBusyAction({ packId: Number(pack.id), action: 'snapshot' });
+      const response = await apiFetch(`/api/teacher/packs/${pack.id}/versions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version_label: `Snapshot ${new Date().toLocaleDateString('en-GB')}` }),
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      const refreshedPack = await loadPackPreview(Number(pack.id));
+      setSelectedPack((current: any) => (Number(current?.id) === Number(pack.id) ? { ...current, ...refreshedPack } : current));
+      await loadPacks();
+      setNotice({ tone: 'success', message: `Snapshot saved for ${pack.title}.` });
+    } catch (snapshotError: any) {
+      setNotice({ tone: 'error', message: snapshotError?.message || 'Failed to save a snapshot.' });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleRestoreVersion = async (pack: any, version: any) => {
+    try {
+      setBusyAction({ packId: Number(pack.id), action: `restore-${version.id}` });
+      const response = await apiFetch(`/api/teacher/packs/${pack.id}/versions/${version.id}/restore`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      const restoredPack = await response.json();
+      await loadPacks();
+      setNotice({
+        tone: 'success',
+        message: `${restoredPack?.title || 'A restored copy'} was created from version ${version.version_number}.`,
+      });
+    } catch (restoreError: any) {
+      setNotice({ tone: 'error', message: restoreError?.message || 'Failed to restore this version.' });
     } finally {
       setBusyAction(null);
     }
@@ -626,6 +682,11 @@ export default function TeacherDashboard() {
                           Created {formatRelativeTime(pack.created_at)}
                         </p>
                         <h3 className="text-2xl font-black leading-tight line-clamp-2">{pack.title}</h3>
+                        {(pack.course_code || pack.academic_term) && (
+                          <p className="font-bold text-brand-dark/55 mt-2">
+                            {[pack.course_code, pack.section_name, pack.academic_term].filter(Boolean).join(' • ')}
+                          </p>
+                        )}
                       </div>
                       <span className={`${state.tone} shrink-0 rounded-full border-2 border-brand-dark px-3 py-2 text-[11px] font-black uppercase tracking-[0.16em]`}>
                         {state.label}
@@ -636,7 +697,7 @@ export default function TeacherDashboard() {
                       <PackMetric label="Questions" value={pack.question_count || 0} />
                       <PackMetric label="Sessions" value={pack.session_count || 0} />
                       <PackMetric label="Last live" value={formatRelativeTime(pack.last_session_at)} />
-                      <PackMetric label="Players" value={pack.last_session_players || 0} />
+                      <PackMetric label="Versions" value={pack.version_count || 0} />
                     </div>
 
                     <p className="font-medium text-brand-dark/72 mb-4 line-clamp-3">
@@ -735,6 +796,11 @@ export default function TeacherDashboard() {
                 <p className="font-bold text-brand-dark/60 mt-2">
                   {selectedPack.question_count || selectedPack.questions?.length || 0} questions • {selectedPack.session_count || 0} session{Number(selectedPack.session_count || 0) === 1 ? '' : 's'}
                 </p>
+                {(selectedPack.course_code || selectedPack.section_name || selectedPack.academic_term) && (
+                  <p className="font-bold text-brand-dark/50 mt-2">
+                    {[selectedPack.course_code, selectedPack.section_name, selectedPack.academic_term].filter(Boolean).join(' • ')}
+                  </p>
+                )}
               </div>
               <button onClick={() => setSelectedPack(null)} className="w-10 h-10 rounded-full border-2 border-brand-dark flex items-center justify-center shrink-0">
                 <XCircle className="w-5 h-5" />
@@ -745,7 +811,47 @@ export default function TeacherDashboard() {
               <PackMetric label="Last live" value={formatRelativeTime(selectedPack.last_session_at)} />
               <PackMetric label="Players" value={selectedPack.last_session_players || 0} />
               <PackMetric label="Language" value={selectedPack.source_language || 'N/A'} />
-              <PackMetric label="Token save" value={`${selectedPack.token_savings_pct || 0}%`} />
+              <PackMetric label="Versions" value={selectedPack.version_count || selectedPack.versions?.length || 0} />
+            </div>
+
+            <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-5 mb-6">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Academic mapping</p>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <PackMetric label="Course" value={selectedPack.course_code || 'Not set'} />
+                <PackMetric label="Week" value={selectedPack.week_label || 'Not set'} />
+                <PackMetric label="Section" value={selectedPack.section_name || 'Not set'} />
+                <PackMetric label="Term" value={selectedPack.academic_term || 'Not set'} />
+              </div>
+              {(selectedPack.learning_objectives || []).length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Learning outcomes</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(selectedPack.learning_objectives || []).map((objective: string) => (
+                      <span key={objective} className="px-3 py-2 rounded-full bg-emerald-100 border-2 border-brand-dark text-xs font-black">
+                        {objective}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(selectedPack.bloom_levels || []).length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Bloom coverage</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(selectedPack.bloom_levels || []).map((level: string) => (
+                      <span key={level} className="px-3 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark text-xs font-black">
+                        {level}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedPack.pack_notes && (
+                <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Lecturer notes</p>
+                  <p className="font-medium text-brand-dark/72 whitespace-pre-line">{selectedPack.pack_notes}</p>
+                </div>
+              )}
             </div>
 
             <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5 mb-6">
@@ -753,6 +859,48 @@ export default function TeacherDashboard() {
               <p className="font-medium text-brand-dark/72 leading-relaxed">
                 {selectedPack.teaching_brief || selectedPack.source_excerpt || selectedPack.source_text || 'No source summary is available.'}
               </p>
+            </div>
+
+            <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5 mb-6">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Version history</p>
+                  <p className="font-bold text-brand-dark/65">Snapshot now or restore an older version as a fresh copy.</p>
+                </div>
+                <button
+                  onClick={() => void handleSnapshotPack(selectedPack)}
+                  disabled={Number(busyAction?.packId) === Number(selectedPack.id) && busyAction?.action === 'snapshot'}
+                  className="px-4 py-3 rounded-full bg-brand-yellow border-2 border-brand-dark font-black text-sm shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-60"
+                >
+                  Save snapshot
+                </button>
+              </div>
+              <div className="space-y-3">
+                {(selectedPack.versions || []).length > 0 ? (
+                  (selectedPack.versions || []).map((version: any) => (
+                    <div key={version.id} className="rounded-[1.2rem] border-2 border-brand-dark bg-white p-4">
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <div>
+                          <p className="font-black">V{version.version_number} • {version.version_label}</p>
+                          <p className="text-xs font-bold text-brand-dark/55">{version.source_label || 'snapshot'} • {formatRelativeTime(version.created_at)}</p>
+                        </div>
+                        <button
+                          onClick={() => void handleRestoreVersion(selectedPack, version)}
+                          disabled={Number(busyAction?.packId) === Number(selectedPack.id) && busyAction?.action === `restore-${version.id}`}
+                          className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark font-black text-xs shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-60"
+                        >
+                          Restore copy
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-[1.2rem] border-2 border-brand-dark bg-white p-4">
+                    <p className="font-black">No snapshots yet.</p>
+                    <p className="font-medium text-brand-dark/60 text-sm mt-1">Create the first version so you can roll back safely later.</p>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="space-y-4 mb-8">
@@ -775,6 +923,16 @@ export default function TeacherDashboard() {
                           {tag}
                         </span>
                       ))}
+                      {question.learning_objective && (
+                        <span className="px-3 py-1 rounded-full bg-emerald-100 border-2 border-brand-dark text-[11px] font-black">
+                          {question.learning_objective}
+                        </span>
+                      )}
+                      {question.bloom_level && (
+                        <span className="px-3 py-1 rounded-full bg-brand-yellow border-2 border-brand-dark text-[11px] font-black">
+                          {question.bloom_level}
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-dark/40">
                       {question.time_limit_seconds || 20}s per question

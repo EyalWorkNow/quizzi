@@ -6,6 +6,7 @@ export const POSTGRES_TABLE_ORDER = [
   'users',
   'quiz_packs',
   'questions',
+  'quiz_pack_versions',
   'material_profiles',
   'question_generation_cache',
   'sessions',
@@ -36,6 +37,14 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       teacher_id INTEGER,
       title TEXT,
       source_text TEXT,
+      course_code TEXT DEFAULT '',
+      course_name TEXT DEFAULT '',
+      section_name TEXT DEFAULT '',
+      academic_term TEXT DEFAULT '',
+      week_label TEXT DEFAULT '',
+      learning_objectives_json TEXT DEFAULT '[]',
+      bloom_levels_json TEXT DEFAULT '[]',
+      pack_notes TEXT DEFAULT '',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       source_hash TEXT,
       source_excerpt TEXT,
@@ -62,7 +71,21 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       tags_json TEXT,
       difficulty INTEGER DEFAULT 3,
       time_limit_seconds INTEGER DEFAULT 20,
-      question_order INTEGER DEFAULT 0
+      question_order INTEGER DEFAULT 0,
+      learning_objective TEXT DEFAULT '',
+      bloom_level TEXT DEFAULT ''
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS quiz_pack_versions (
+      id SERIAL PRIMARY KEY,
+      pack_id INTEGER,
+      teacher_id INTEGER,
+      version_number INTEGER DEFAULT 1,
+      version_label TEXT DEFAULT '',
+      source_label TEXT DEFAULT '',
+      snapshot_json TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `,
   `
@@ -166,6 +189,16 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS enabled_game_modes_json TEXT DEFAULT '[]'`,
   `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS question_blueprints_json TEXT DEFAULT '[]'`,
   `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS generation_contract TEXT DEFAULT 'manual_v1'`,
+  `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS course_code TEXT DEFAULT ''`,
+  `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS course_name TEXT DEFAULT ''`,
+  `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS section_name TEXT DEFAULT ''`,
+  `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS academic_term TEXT DEFAULT ''`,
+  `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS week_label TEXT DEFAULT ''`,
+  `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS learning_objectives_json TEXT DEFAULT '[]'`,
+  `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS bloom_levels_json TEXT DEFAULT '[]'`,
+  `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS pack_notes TEXT DEFAULT ''`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS learning_objective TEXT DEFAULT ''`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS bloom_level TEXT DEFAULT ''`,
   `ALTER TABLE mastery ALTER COLUMN score TYPE DOUBLE PRECISION USING score::double precision`,
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS option_hover_counts_json TEXT DEFAULT '{}'`,
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS outside_answer_pointer_moves INTEGER DEFAULT 0`,
@@ -203,9 +236,12 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'CREATE INDEX IF NOT EXISTS idx_generation_cache_lookup ON question_generation_cache(material_profile_id, difficulty, output_language, question_count)',
   'CREATE INDEX IF NOT EXISTS idx_quiz_packs_profile ON quiz_packs(material_profile_id)',
   'CREATE INDEX IF NOT EXISTS idx_quiz_packs_source_hash ON quiz_packs(source_hash)',
+  'CREATE INDEX IF NOT EXISTS idx_quiz_packs_course_code ON quiz_packs(course_code)',
   'CREATE INDEX IF NOT EXISTS idx_questions_pack_question_order ON questions(quiz_pack_id, question_order, id)',
+  'CREATE INDEX IF NOT EXISTS idx_questions_learning_objective ON questions(learning_objective)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_game_type ON sessions(game_type)',
   'CREATE INDEX IF NOT EXISTS idx_participants_session_team ON participants(session_id, team_id)',
+  'CREATE INDEX IF NOT EXISTS idx_pack_versions_pack ON quiz_pack_versions(pack_id, version_number DESC)',
 ] as const;
 
 const POSTGRES_DATA_REPAIR_STATEMENTS = [
