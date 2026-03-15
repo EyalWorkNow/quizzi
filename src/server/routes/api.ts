@@ -11,6 +11,7 @@ import { translateUiTexts } from '../services/uiTranslation.js';
 import { broadcastToSession, registerSseClient } from '../services/sseHub.js';
 import { buildRateLimitKey, checkRateLimit, isTrustedOrigin } from '../services/requestGuards.js';
 import { createBoundedTaskGate, defaultTaskConcurrency, envTaskConcurrency } from '../services/taskGate.js';
+import { GAME_MODES, getGameMode, getTeamGameModeIds, type GameModeConfig } from '../../shared/gameModes.js';
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -79,7 +80,7 @@ if (!process.env.GEMINI_API_KEY) {
 }
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || 'MISSING_KEY' });
-const TEAM_GAME_TYPES = new Set(['team_relay', 'peer_pods', 'mastery_matrix']);
+const TEAM_GAME_TYPES = new Set(getTeamGameModeIds());
 const TEAM_NAME_BANK = [
   'Alpha',
   'Nova',
@@ -93,6 +94,15 @@ const TEAM_NAME_BANK = [
 
 const SUPPORTED_UI_LANGUAGES = new Set(['en', 'he']);
 const MAX_SESSION_PARTICIPANTS = envTaskConcurrency('QUIZZI_MAX_SESSION_PARTICIPANTS', 500);
+const SESSION_STATE_SET = new Set([
+  'LOBBY',
+  'QUESTION_ACTIVE',
+  'QUESTION_DISCUSSION',
+  'QUESTION_REVOTE',
+  'QUESTION_REVEAL',
+  'LEADERBOARD',
+  'ENDED',
+]);
 const aiGenerationGate = createBoundedTaskGate({
   name: 'ai-generation',
   concurrency: envTaskConcurrency('QUIZZI_AI_GENERATION_CONCURRENCY', Math.max(2, defaultTaskConcurrency(2))),
@@ -226,6 +236,91 @@ function parseJsonObject(value: string | null | undefined) {
   }
 }
 
+function sanitizeModeConfig(gameType: string, value: unknown): GameModeConfig {
+  const base = { ...getGameMode(gameType).defaultModeConfig };
+  const raw = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+  const modeConfig: GameModeConfig = {
+    ...base,
+  };
+
+  if (typeof raw.timer_multiplier === 'number' || typeof raw.timer_multiplier === 'string') {
+    const timerMultiplier = Number(raw.timer_multiplier);
+    if (Number.isFinite(timerMultiplier)) {
+      modeConfig.timer_multiplier = Math.max(0.45, Math.min(1.5, Number(timerMultiplier.toFixed(2))));
+    }
+  }
+
+  if (typeof raw.min_time_limit_seconds === 'number' || typeof raw.min_time_limit_seconds === 'string') {
+    modeConfig.min_time_limit_seconds = clampNumber(raw.min_time_limit_seconds, 5, 60, 5);
+  }
+
+  if (typeof raw.max_time_limit_seconds === 'number' || typeof raw.max_time_limit_seconds === 'string') {
+    modeConfig.max_time_limit_seconds = clampNumber(raw.max_time_limit_seconds, 5, 90, 30);
+  }
+
+  if (typeof raw.requires_confidence === 'boolean') {
+    modeConfig.requires_confidence = raw.requires_confidence;
+  }
+
+  if (typeof raw.peer_instruction_enabled === 'boolean') {
+    modeConfig.peer_instruction_enabled = raw.peer_instruction_enabled;
+  }
+
+  if (typeof raw.discussion_seconds === 'number' || typeof raw.discussion_seconds === 'string') {
+    modeConfig.discussion_seconds = clampNumber(raw.discussion_seconds, 10, 90, 30);
+  }
+
+  if (typeof raw.revote_seconds === 'number' || typeof raw.revote_seconds === 'string') {
+    modeConfig.revote_seconds = clampNumber(raw.revote_seconds, 8, 60, 22);
+  }
+
+  if (
+    raw.scoring_profile === 'standard' ||
+    raw.scoring_profile === 'speed' ||
+    raw.scoring_profile === 'confidence' ||
+    raw.scoring_profile === 'coverage'
+  ) {
+    modeConfig.scoring_profile = raw.scoring_profile;
+  }
+
+  return modeConfig;
+}
+
+function getSessionModeConfig(session: any): GameModeConfig {
+  return sanitizeModeConfig(String(session?.game_type || 'classic_quiz'), parseJsonObject(session?.mode_config_json));
+}
+
+function resolveQuestionTimeLimit(question: any, session: any) {
+  const baseSeconds = clampNumber(question?.time_limit_seconds, 8, 90, 20);
+  const modeConfig = getSessionModeConfig(session);
+  const timerMultiplier = Number(modeConfig.timer_multiplier || 1);
+  const minSeconds = clampNumber(modeConfig.min_time_limit_seconds, 5, 90, 8);
+  const maxSeconds = clampNumber(modeConfig.max_time_limit_seconds, minSeconds, 120, Math.max(minSeconds, 30));
+  return Math.max(minSeconds, Math.min(maxSeconds, Math.round(baseSeconds * timerMultiplier)));
+}
+
+function resolvePhaseTimeLimit(question: any, session: any, status: string) {
+  const modeConfig = getSessionModeConfig(session);
+  if (status === 'QUESTION_DISCUSSION') {
+    return clampNumber(modeConfig.discussion_seconds, 10, 90, 30);
+  }
+  if (status === 'QUESTION_REVOTE') {
+    return clampNumber(modeConfig.revote_seconds, 8, 60, 22);
+  }
+  return resolveQuestionTimeLimit(question, session);
+}
+
+function resolveConfidenceBonus(gameType: string, isCorrect: boolean, confidenceLevel: number) {
+  if (gameType !== 'confidence_climb' || !isCorrect) {
+    return 0;
+  }
+
+  if (confidenceLevel >= 3) return 60;
+  if (confidenceLevel === 2) return 30;
+  return 10;
+}
+
 function hydrateSessionRow(session: any) {
   if (!session) return null;
   return {
@@ -234,7 +329,7 @@ function hydrateSessionRow(session: any) {
     quiz_pack_id: Number(session.quiz_pack_id),
     current_question_index: Number(session.current_question_index || 0),
     team_count: Number(session.team_count || 0),
-    mode_config: parseJsonObject(session.mode_config_json),
+    mode_config: getSessionModeConfig(session),
   };
 }
 
@@ -244,7 +339,7 @@ function buildTeamIdentity(teamId: number) {
 }
 
 function isTeamGame(gameType: string | null | undefined) {
-  return TEAM_GAME_TYPES.has(String(gameType || '').trim());
+  return TEAM_GAME_TYPES.has(String(gameType || '').trim() as any);
 }
 
 function getMasteryRows(nickname: string) {
@@ -1242,13 +1337,13 @@ router.post('/sessions', requireTeacherSession, (req, res) => {
   if (!pack) {
     return res.status(404).json({ error: 'Quiz pack not found' });
   }
+  const selectedMode = getGameMode(String(game_type || 'classic_quiz').trim());
   const pin = createSessionPin();
-  const normalizedGameType = String(game_type || 'classic_quiz').trim() || 'classic_quiz';
-  const normalizedTeamCount = isTeamGame(normalizedGameType) ? Math.max(2, Number(team_count) || 4) : 0;
-  const normalizedModeConfig =
-    mode_config && typeof mode_config === 'object' && !Array.isArray(mode_config)
-      ? parseJsonObject(sanitizeJsonBlob(mode_config, 4_000, '{}'))
-      : {};
+  const normalizedGameType = selectedMode.id;
+  const normalizedTeamCount = isTeamGame(normalizedGameType)
+    ? clampNumber(team_count, 2, 8, selectedMode.defaultTeamCount || 4)
+    : 0;
+  const normalizedModeConfig = sanitizeModeConfig(normalizedGameType, mode_config);
 
   const insertSession = db.prepare(`
     INSERT INTO sessions (quiz_pack_id, pin, game_type, team_count, mode_config_json, status)
@@ -1312,8 +1407,7 @@ router.put('/sessions/:id/state', requireTeacherSession, (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const allowedStatuses = new Set(['LOBBY', 'QUESTION_ACTIVE', 'QUESTION_REVEAL', 'ENDED']);
-  if (!allowedStatuses.has(status)) {
+  if (!SESSION_STATE_SET.has(status)) {
     return res.status(400).json({ error: 'Invalid session status' });
   }
 
@@ -1344,15 +1438,25 @@ router.put('/sessions/:id/state', requireTeacherSession, (req, res) => {
 
   const updatedSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
   if (updatedSession) {
+    const hydratedSession = hydrateSessionRow(updatedSession);
     let questionPayload = null;
-    if (status === 'QUESTION_ACTIVE' || status === 'QUESTION_REVEAL') {
+    if (
+      status === 'QUESTION_ACTIVE' ||
+      status === 'QUESTION_DISCUSSION' ||
+      status === 'QUESTION_REVOTE' ||
+      status === 'QUESTION_REVEAL'
+    ) {
       const question = db
         .prepare('SELECT * FROM questions WHERE quiz_pack_id = ? ORDER BY question_order ASC, id ASC LIMIT 1 OFFSET ?')
         .get(updatedSession.quiz_pack_id, current_question_index);
       if (question) {
-        questionPayload = { ...question, answers: JSON.parse(question.answers_json) };
+        questionPayload = {
+          ...question,
+          answers: JSON.parse(question.answers_json),
+          time_limit_seconds: resolvePhaseTimeLimit(question, updatedSession, status),
+        };
         delete questionPayload.answers_json;
-        if (status === 'QUESTION_ACTIVE') {
+        if (status === 'QUESTION_ACTIVE' || status === 'QUESTION_DISCUSSION' || status === 'QUESTION_REVOTE') {
           delete questionPayload.correct_index;
           delete questionPayload.explanation;
         }
@@ -1363,8 +1467,9 @@ router.put('/sessions/:id/state', requireTeacherSession, (req, res) => {
       status,
       current_question_index,
       question: questionPayload,
-      game_type: updatedSession.game_type,
+      game_type: hydratedSession?.game_type || updatedSession.game_type,
       team_count: Number(updatedSession.team_count || 0),
+      mode_config: hydratedSession?.mode_config || getSessionModeConfig(updatedSession),
     });
   }
 
@@ -1487,12 +1592,19 @@ router.post('/sessions/:pin/answer', async (req, res) => {
   if (!enforceRateLimit(req, res, 'student-answer', 30, 5 * 60 * 1000, pin, participant_id, question_id)) return;
   const response_ms = clampNumber(req.body?.response_ms, 0, 300_000, 0);
   const telemetry = sanitizeTelemetry(req.body?.telemetry);
+  const confidence_level = clampNumber(req.body?.confidence_level, 1, 3, 2);
 
   try {
-    const session = db.prepare('SELECT id, status, quiz_pack_id FROM sessions WHERE pin = ?').get(pin) as any;
+    const session = db
+      .prepare('SELECT id, status, quiz_pack_id, game_type, mode_config_json FROM sessions WHERE pin = ?')
+      .get(pin) as any;
 
-    if (!session || session.status !== 'QUESTION_ACTIVE') {
+    if (!session || !['QUESTION_ACTIVE', 'QUESTION_REVOTE'].includes(String(session.status || ''))) {
       return res.status(400).json({ error: 'Invalid session state' });
+    }
+
+    if (session.game_type === 'peer_pods' && session.status !== 'QUESTION_REVOTE') {
+      return res.status(409).json({ error: 'Final answers open after the discussion round.' });
     }
 
     const existingAnswer = db
@@ -1533,6 +1645,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
     if (!participant) return res.status(404).json({ error: 'Participant not found' });
 
     const isCorrect = Number(chosen_index) === Number(question.correct_index);
+    const effectiveTimeLimitSeconds = resolveQuestionTimeLimit(question, session);
     const outcome = await runPythonEngine<{
       score_awarded: number;
       mastery_updates: Array<{ tag: string; score: number }>;
@@ -1540,10 +1653,11 @@ router.post('/sessions/:pin/answer', async (req, res) => {
       mode: 'session',
       is_correct: isCorrect,
       response_ms,
-      time_limit_seconds: question.time_limit_seconds,
+      time_limit_seconds: effectiveTimeLimitSeconds,
       tags: parseJsonArray(question.tags_json),
       current_mastery: getMasteryRows(participant.nickname),
     });
+    const adjustedScoreAwarded = Number(outcome.score_awarded || 0) + resolveConfidenceBonus(session.game_type, isCorrect, confidence_level);
 
     const insertTelemetry = db.prepare(`
       INSERT INTO student_behavior_logs (
@@ -1576,7 +1690,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
         chosen_index,
         isCorrect ? 1 : 0,
         response_ms,
-        outcome.score_awarded,
+        adjustedScoreAwarded,
       );
 
       if (telemetry) {
@@ -1603,7 +1717,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
 
       return {
         duplicate: false,
-        score_awarded: outcome.score_awarded,
+        score_awarded: adjustedScoreAwarded,
       };
     })();
 
@@ -1629,6 +1743,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
       score_awarded: writeResult.score_awarded,
       total_answers: totalAnswers,
       expected: totalParticipants,
+      confidence_level,
     });
   } catch (error: any) {
     console.error('[ERROR] Session answer failed:', error);
@@ -1646,7 +1761,7 @@ router.post('/sessions/:pin/selection', (req, res) => {
   const chosen_index = clampNumber(req.body?.chosen_index, 0, 12, 0);
   const session = db.prepare('SELECT id, status FROM sessions WHERE pin = ?').get(pin) as any;
 
-  if (!session || session.status !== 'QUESTION_ACTIVE') {
+  if (!session || !['QUESTION_ACTIVE', 'QUESTION_REVOTE'].includes(String(session.status || ''))) {
     return res.status(400).json({ error: 'Invalid session state' });
   }
 

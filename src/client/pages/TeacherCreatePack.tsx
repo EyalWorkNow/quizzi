@@ -1,8 +1,19 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
+import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
+
+function recommendModesForDraft(questionCount: number, topicCount: number) {
+  if (questionCount <= 5) {
+    return ['speed_sprint', 'confidence_climb', 'classic_quiz'] as GameModeId[];
+  }
+  if (topicCount >= 4 || questionCount >= 12) {
+    return ['mastery_matrix', 'peer_pods', 'classic_quiz'] as GameModeId[];
+  }
+  return ['peer_pods', 'confidence_climb', 'classic_quiz'] as GameModeId[];
+}
 
 export default function TeacherCreatePack() {
   const navigate = useNavigate();
@@ -13,6 +24,7 @@ export default function TeacherCreatePack() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStep, setGenerationStep] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isHosting, setIsHosting] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [materialProfile, setMaterialProfile] = useState<any>(null);
   const [generationMeta, setGenerationMeta] = useState<any>(null);
@@ -23,6 +35,21 @@ export default function TeacherCreatePack() {
   const [difficulty, setDifficulty] = useState('Medium');
   const [language, setLanguage] = useState('English');
   const [isDragging, setIsDragging] = useState(false);
+  const [selectedLaunchMode, setSelectedLaunchMode] = useState<GameModeId>('classic_quiz');
+  const [selectedTeamCount, setSelectedTeamCount] = useState<number>(4);
+  const recommendedLaunchModes = useMemo(
+    () => recommendModesForDraft(questions.length || questionCount, materialProfile?.topic_fingerprint?.length || 0),
+    [materialProfile?.topic_fingerprint?.length, questionCount, questions.length],
+  );
+
+  useEffect(() => {
+    const recommended = recommendedLaunchModes[0];
+    if (!recommended) return;
+    if (selectedLaunchMode === 'classic_quiz' && recommended !== 'classic_quiz') {
+      setSelectedLaunchMode(recommended);
+      setSelectedTeamCount(getGameMode(recommended).defaultTeamCount || 4);
+    }
+  }, [recommendedLaunchModes, selectedLaunchMode]);
 
   const processFile = async (file: File) => {
     setIsExtracting(true);
@@ -123,22 +150,61 @@ export default function TeacherCreatePack() {
     }
   };
 
+  const persistPack = async () => {
+    if (!title.trim() || questions.length === 0) {
+      throw new Error('Pack title and at least one question are required.');
+    }
+    const res = await apiFetch('/api/packs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, source_text: sourceText, questions })
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null);
+      throw new Error(payload?.error || 'Failed to save pack');
+    }
+    return res.json();
+  };
+
   const handleSave = async () => {
-    if (!title.trim() || questions.length === 0) return;
     setIsSaving(true);
     try {
-      const res = await apiFetch('/api/packs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, source_text: sourceText, questions })
-      });
-      if (res.ok) {
-        navigate('/teacher/dashboard');
-      }
+      await persistPack();
+      navigate('/teacher/dashboard');
     } catch (err) {
       console.error(err);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveAndHost = async () => {
+    const mode = getGameMode(selectedLaunchMode);
+    setIsHosting(true);
+    try {
+      const savedPack = await persistPack();
+      const response = await apiFetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quiz_pack_id: savedPack.id,
+          game_type: mode.id,
+          team_count: mode.teamBased ? selectedTeamCount : 0,
+          mode_config: mode.defaultModeConfig,
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Failed to start live session');
+      }
+      const session = await response.json();
+      navigate(`/teacher/session/${session.pin}/host`, {
+        state: { sessionId: session.id, packId: savedPack.id },
+      });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsHosting(false);
     }
   };
 
@@ -188,14 +254,24 @@ export default function TeacherCreatePack() {
               <p className="text-sm font-bold text-brand-dark/60">Design your questions or let AI help</p>
             </div>
           </div>
-          <button
-            onClick={handleSave}
-            disabled={isSaving || !title.trim() || questions.length === 0}
-            className="bg-brand-purple text-white px-6 py-3 rounded-full font-bold border-2 border-brand-dark hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[4px] active:translate-x-[4px] flex items-center gap-2"
-          >
-            <Save className="w-5 h-5" />
-            {isSaving ? 'Saving...' : 'Save Pack'}
-          </button>
+          <div className="flex flex-wrap gap-3 justify-end">
+            <button
+              onClick={handleSave}
+              disabled={isSaving || isHosting || !title.trim() || questions.length === 0}
+              className="bg-brand-purple text-white px-6 py-3 rounded-full font-bold border-2 border-brand-dark hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[4px] active:translate-x-[4px] flex items-center gap-2"
+            >
+              <Save className="w-5 h-5" />
+              {isSaving ? 'Saving...' : 'Save Pack'}
+            </button>
+            <button
+              onClick={handleSaveAndHost}
+              disabled={isSaving || isHosting || !title.trim() || questions.length === 0}
+              className="bg-brand-orange text-white px-6 py-3 rounded-full font-bold border-2 border-brand-dark hover:bg-[#e84d2a] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[4px] active:translate-x-[4px] flex items-center gap-2"
+            >
+              <Sparkles className="w-5 h-5" />
+              {isHosting ? 'Launching...' : `Save & Host ${getGameMode(selectedLaunchMode).shortLabel}`}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -409,6 +485,72 @@ export default function TeacherCreatePack() {
                       ))}
                     </div>
                   </div>
+                </div>
+
+                <div className="pt-8 border-t-4 border-dashed border-brand-dark/5 space-y-5">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-brand-orange" />
+                    <span className="text-[10px] font-black text-brand-dark/40 uppercase tracking-[0.2em]">Launch Format</span>
+                  </div>
+
+                  <div className="rounded-2xl border-2 border-brand-dark bg-brand-bg p-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Recommended now</p>
+                    <div className="flex flex-wrap gap-2">
+                      {recommendedLaunchModes.map((modeId) => {
+                        const mode = getGameMode(modeId);
+                        const active = selectedLaunchMode === mode.id;
+                        return (
+                          <button
+                            key={`launch-${mode.id}`}
+                            onClick={() => {
+                              setSelectedLaunchMode(mode.id);
+                              setSelectedTeamCount(mode.defaultTeamCount || 4);
+                            }}
+                            className={`px-3 py-2 rounded-full border-2 border-brand-dark font-black text-xs transition-all ${active ? 'bg-brand-orange text-white shadow-[2px_2px_0px_0px_#1A1A1A]' : 'bg-white text-brand-dark'}`}
+                          >
+                            {mode.shortLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {GAME_MODES.map((mode) => {
+                      const active = selectedLaunchMode === mode.id;
+                      return (
+                        <button
+                          key={`mode-card-${mode.id}`}
+                          onClick={() => {
+                            setSelectedLaunchMode(mode.id);
+                            setSelectedTeamCount(mode.defaultTeamCount || 4);
+                          }}
+                          className={`text-left rounded-2xl border-2 border-brand-dark p-4 transition-all ${active ? 'bg-brand-yellow shadow-[3px_3px_0px_0px_#1A1A1A]' : 'bg-white'}`}
+                        >
+                          <p className="text-[10px] font-black uppercase tracking-[0.15em] text-brand-purple mb-2">{mode.evidenceStrength === 'high' ? 'Evidence-backed' : 'Flexible format'}</p>
+                          <p className="font-black text-base leading-tight">{mode.label}</p>
+                          <p className="text-xs font-bold text-brand-dark/60 mt-2">{mode.quickSummary}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {getGameMode(selectedLaunchMode).teamBased && (
+                    <div className="rounded-2xl border-2 border-brand-dark bg-white p-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-orange mb-3">Team Count</p>
+                      <div className="flex flex-wrap gap-2">
+                        {[3, 4, 5, 6].map((count) => (
+                          <button
+                            key={`launch-team-${count}`}
+                            onClick={() => setSelectedTeamCount(count)}
+                            className={`px-3 py-2 rounded-full border-2 border-brand-dark font-black text-xs ${selectedTeamCount === count ? 'bg-brand-dark text-brand-yellow' : 'bg-brand-bg text-brand-dark'}`}
+                          >
+                            {count} Teams
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <button

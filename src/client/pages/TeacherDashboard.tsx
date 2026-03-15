@@ -35,7 +35,7 @@ import { loadTeacherSettings } from '../lib/localData.ts';
 import { trackTeacherSessionLaunch } from '../lib/appAnalytics.ts';
 import { signOutTeacher } from '../lib/teacherAuth.ts';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
-import { GAME_MODES, getGameMode } from '../lib/gameModes.ts';
+import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
 
 const SORT_OPTIONS = [
   { id: 'recent', label: 'Recent activity' },
@@ -109,6 +109,21 @@ async function readApiError(response: Response) {
   } catch {
     return 'Request failed';
   }
+}
+
+function recommendModesForPack(pack: any) {
+  const questionCount = Number(pack?.question_count || 0);
+  const tagCount = Array.isArray(pack?.top_tags) ? pack.top_tags.length : 0;
+
+  if (questionCount <= 5) {
+    return ['speed_sprint', 'confidence_climb', 'classic_quiz'] as GameModeId[];
+  }
+
+  if (tagCount >= 4 || questionCount >= 12) {
+    return ['mastery_matrix', 'peer_pods', 'classic_quiz'] as GameModeId[];
+  }
+
+  return ['peer_pods', 'confidence_climb', 'classic_quiz'] as GameModeId[];
 }
 
 export default function TeacherDashboard() {
@@ -241,13 +256,15 @@ export default function TeacherDashboard() {
   const handleHost = async (packId: number, gameType = selectedGameMode, teamCount = selectedTeamCount) => {
     try {
       setBusyAction({ packId, action: 'host' });
+      const mode = getGameMode(gameType);
       const res = await apiFetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           quiz_pack_id: packId,
           game_type: gameType,
-          team_count: getGameMode(gameType).teamBased ? teamCount : 0,
+          team_count: mode.teamBased ? teamCount : 0,
+          mode_config: mode.defaultModeConfig,
         }),
       });
       if (!res.ok) {
@@ -257,7 +274,7 @@ export default function TeacherDashboard() {
       setHostingPack(null);
       void trackTeacherSessionLaunch({
         gameType,
-        teamCount: getGameMode(gameType).teamBased ? teamCount : 0,
+        teamCount: mode.teamBased ? teamCount : 0,
       });
       navigate(`/teacher/session/${data.pin}/host`, { state: { sessionId: data.id, packId } });
     } catch (hostError: any) {
@@ -268,7 +285,7 @@ export default function TeacherDashboard() {
   };
 
   const openHostModal = (pack: any) => {
-    const defaultMode = GAME_MODES[0];
+    const defaultMode = getGameMode(recommendModesForPack(pack)[0]);
     setHostingPack(pack);
     setSelectedGameMode(defaultMode.id);
     setSelectedTeamCount(defaultMode.defaultTeamCount || 4);
@@ -862,7 +879,7 @@ export default function TeacherDashboard() {
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Launch Setup</p>
                 <h2 className="text-3xl font-black">{hostingPack.title}</h2>
-                <p className="font-bold text-brand-dark/60 mt-2">Choose a live format. Group modes are tuned for collaborative retrieval and discussion-heavy play.</p>
+                <p className="font-bold text-brand-dark/60 mt-2">Pick an evidence-backed format fast. Every option still runs on the same 4-answer question model you already generate.</p>
               </div>
               <button
                 onClick={() => setHostingPack(null)}
@@ -872,7 +889,30 @@ export default function TeacherDashboard() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+            <div className="rounded-[1.8rem] border-2 border-brand-dark bg-brand-bg p-5 mb-6">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-3">Quick picks for this pack</p>
+              <div className="flex flex-wrap gap-3">
+                {recommendModesForPack(hostingPack).map((modeId) => {
+                  const mode = getGameMode(modeId);
+                  const active = selectedGameMode === mode.id;
+                  return (
+                    <button
+                      key={`recommended-${mode.id}`}
+                      onClick={() => {
+                        setSelectedGameMode(mode.id);
+                        setSelectedTeamCount(mode.defaultTeamCount || 4);
+                      }}
+                      className={`px-4 py-3 rounded-full border-2 border-brand-dark font-black transition-all ${active ? 'bg-brand-orange text-white shadow-[3px_3px_0px_0px_#1A1A1A]' : 'bg-white text-brand-dark'}`}
+                    >
+                      {mode.shortLabel}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-5 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {GAME_MODES.map((mode) => {
                 const isActive = selectedGameMode === mode.id;
                 return (
@@ -890,10 +930,10 @@ export default function TeacherDashboard() {
                         <p className="text-2xl font-black">{mode.label}</p>
                       </div>
                       <span className={`px-3 py-2 rounded-full border-2 border-brand-dark font-black text-xs uppercase ${mode.teamBased ? 'bg-brand-dark text-brand-yellow' : 'bg-white text-brand-dark'}`}>
-                        {mode.teamBased ? 'Group' : 'Solo'}
+                        {mode.evidenceStrength === 'high' ? 'High evidence' : 'Field-tested'}
                       </span>
                     </div>
-                    <p className="font-medium text-brand-dark/70 mb-4">{mode.description}</p>
+                    <p className="font-black text-brand-dark/70 mb-4">{mode.quickSummary}</p>
                     <div className="flex flex-wrap gap-2">
                       {mode.objectives.map((objective) => (
                         <span key={objective} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
@@ -904,6 +944,29 @@ export default function TeacherDashboard() {
                   </button>
                 );
               })}
+              </div>
+
+              <div className="rounded-[1.8rem] border-4 border-brand-dark bg-brand-dark text-white p-5 shadow-[8px_8px_0px_0px_#FF5A36]">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">Selected format</p>
+                <p className="text-3xl font-black mb-3">{getGameMode(selectedGameMode).label}</p>
+                <p className="font-medium text-white/75 mb-5">{getGameMode(selectedGameMode).description}</p>
+
+                <div className="rounded-[1.4rem] border border-white/10 bg-white/10 p-4 mb-4">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-white/45 mb-2">Best for</p>
+                  <div className="flex flex-wrap gap-2">
+                    {getGameMode(selectedGameMode).bestFor.map((item) => (
+                      <span key={item} className="px-3 py-1 rounded-full bg-white text-brand-dark border-2 border-brand-dark text-xs font-black">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-[1.4rem] border border-white/10 bg-white/10 p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-white/45 mb-2">Why it works</p>
+                  <p className="font-bold text-white/80">{getGameMode(selectedGameMode).researchCue}</p>
+                </div>
+              </div>
             </div>
 
             {getGameMode(selectedGameMode).teamBased && (

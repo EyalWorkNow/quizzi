@@ -10,7 +10,9 @@ import {
   writeHostedSessionMeta,
 } from '../lib/firebaseRealtime.ts';
 import { getGameMode } from '../lib/gameModes.ts';
+import { getGameModeTone } from '../lib/gameModePresentation.ts';
 import { buildSessionJoinUrl } from '../lib/joinCodes.ts';
+import { isPeerInstructionMode, resolveSessionQuestionTimeLimit } from '../lib/sessionModeRules.ts';
 import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
 
 export default function TeacherHost() {
@@ -32,12 +34,22 @@ export default function TeacherHost() {
   const [focusAlerts, setFocusAlerts] = useState<Set<string>>(new Set());
   const [isPinCopied, setIsPinCopied] = useState(false);
   const [isJoinLinkCopied, setIsJoinLinkCopied] = useState(false);
+  const [phaseTimeLeft, setPhaseTimeLeft] = useState(0);
   const participantCountRef = useRef(0);
   const questionIndexRef = useRef(0);
   const statusRef = useRef(status);
   const focusAlertTimeoutsRef = useRef<Record<string, number>>({});
+  const gameTypeRef = useRef('classic_quiz');
+  const modeConfigRef = useRef<Record<string, unknown>>({});
+  const autoAdvanceKeyRef = useRef('');
+  const peerVoteAdvanceKeyRef = useRef('');
   const gameMode = getGameMode(sessionMeta?.game_type);
+  const gameTone = getGameModeTone(gameMode.id);
   const isTeamMode = gameMode.teamBased;
+  const modeConfig = sessionMeta?.mode_config || sessionMeta?.modeConfig || {};
+  const isPeerMode = isPeerInstructionMode(sessionMeta?.game_type, modeConfig);
+  const discussionSeconds = Math.max(10, Number(modeConfig?.discussion_seconds || 30));
+  const revoteSeconds = Math.max(8, Number(modeConfig?.revote_seconds || 22));
   const joinUrl = pin && typeof window !== 'undefined' ? buildSessionJoinUrl(pin, window.location.origin) : '';
   const groupedParticipants = participants.reduce((groups: Record<string, any[]>, participant: any) => {
     const key = participant.team_name || 'Solo';
@@ -45,6 +57,17 @@ export default function TeacherHost() {
     groups[key].push(participant);
     return groups;
   }, {});
+  const currentQuestion = pack?.questions?.[questionIndex];
+  const currentAnswers = Array.isArray(currentQuestion?.answers)
+    ? currentQuestion.answers
+    : JSON.parse(currentQuestion?.answers_json || '[]');
+  const activeQuestionSeconds = currentQuestion
+    ? resolveSessionQuestionTimeLimit(currentQuestion, modeConfig)
+    : 20;
+  const responseCountLabel =
+    status === 'QUESTION_ACTIVE' && isPeerMode
+      ? `${Object.keys(studentSelections).length} / ${participants.length} Votes`
+      : `${totalAnswers} / ${participants.length} Answers`;
 
   useEffect(() => {
     participantCountRef.current = participants.length;
@@ -57,6 +80,46 @@ export default function TeacherHost() {
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    gameTypeRef.current = String(sessionMeta?.game_type || 'classic_quiz');
+    modeConfigRef.current = modeConfig;
+  }, [modeConfig, sessionMeta?.game_type]);
+
+  useEffect(() => {
+    if (status === 'QUESTION_ACTIVE') {
+      setPhaseTimeLeft(activeQuestionSeconds);
+      autoAdvanceKeyRef.current = '';
+      peerVoteAdvanceKeyRef.current = '';
+      return;
+    }
+
+    if (status === 'QUESTION_DISCUSSION') {
+      setPhaseTimeLeft(discussionSeconds);
+      autoAdvanceKeyRef.current = '';
+      return;
+    }
+
+    if (status === 'QUESTION_REVOTE') {
+      setPhaseTimeLeft(revoteSeconds);
+      autoAdvanceKeyRef.current = '';
+      return;
+    }
+
+    setPhaseTimeLeft(0);
+  }, [activeQuestionSeconds, discussionSeconds, questionIndex, revoteSeconds, status]);
+
+  useEffect(() => {
+    if (!['QUESTION_ACTIVE', 'QUESTION_DISCUSSION', 'QUESTION_REVOTE'].includes(status) || phaseTimeLeft <= 0) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setPhaseTimeLeft((current) => Math.max(0, current - 1));
+    }, 1000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [phaseTimeLeft, status]);
 
   useEffect(() => {
     if (!pin) return;
@@ -148,6 +211,7 @@ export default function TeacherHost() {
     const nextQuestionIndex = Number(data?.current_question_index ?? data?.currentQuestionIndex ?? 0);
     const nextGameType = data?.game_type || data?.gameType;
     const nextTeamCount = data?.team_count ?? data?.teamCount;
+    const nextModeConfig = data?.mode_config || data?.modeConfig;
 
     setStatus(nextStatus);
     setQuestionIndex(nextQuestionIndex);
@@ -159,12 +223,14 @@ export default function TeacherHost() {
         current_question_index: nextQuestionIndex,
         game_type: nextGameType || current.game_type,
         team_count: nextTeamCount ?? current.team_count,
+        mode_config: nextModeConfig || current.mode_config || current.modeConfig || {},
       };
       if (
         current.status === resolved.status &&
         Number(current.current_question_index || 0) === Number(resolved.current_question_index || 0) &&
         current.game_type === resolved.game_type &&
-        Number(current.team_count || 0) === Number(resolved.team_count || 0)
+        Number(current.team_count || 0) === Number(resolved.team_count || 0) &&
+        JSON.stringify(current.mode_config || current.modeConfig || {}) === JSON.stringify(resolved.mode_config || {})
       ) {
         return current;
       }
@@ -173,7 +239,7 @@ export default function TeacherHost() {
       };
     });
 
-    if (nextStatus === 'QUESTION_ACTIVE' || nextStatus === 'LOBBY') {
+    if (nextStatus === 'QUESTION_ACTIVE' || nextStatus === 'QUESTION_REVOTE' || nextStatus === 'LOBBY') {
       setTotalAnswers(0);
       setStudentSelections({});
       setFocusAlerts(new Set());
@@ -184,20 +250,34 @@ export default function TeacherHost() {
 
   const buildRealtimeQuestionPayload = (nextStatus: string, index: number) => {
     const question = pack?.questions?.[index];
-    if (!question || (nextStatus !== 'QUESTION_ACTIVE' && nextStatus !== 'QUESTION_REVEAL')) {
+    if (
+      !question ||
+      (
+        nextStatus !== 'QUESTION_ACTIVE' &&
+        nextStatus !== 'QUESTION_DISCUSSION' &&
+        nextStatus !== 'QUESTION_REVOTE' &&
+        nextStatus !== 'QUESTION_REVEAL'
+      )
+    ) {
       return null;
     }
 
     const answers =
       Array.isArray(question.answers) ? question.answers : JSON.parse(question.answers_json || '[]');
+    const timeLimitSeconds =
+      nextStatus === 'QUESTION_DISCUSSION'
+        ? discussionSeconds
+        : nextStatus === 'QUESTION_REVOTE'
+          ? revoteSeconds
+          : resolveSessionQuestionTimeLimit(question, modeConfig);
     const payload = {
       id: question.id,
       prompt: question.prompt,
       answers,
-      time_limit_seconds: Number(question.time_limit_seconds || 30),
+      time_limit_seconds: timeLimitSeconds,
     } as Record<string, unknown>;
 
-    if (nextStatus !== 'QUESTION_ACTIVE') {
+    if (nextStatus === 'QUESTION_REVEAL') {
       payload.correct_index = question.correct_index;
       payload.explanation = question.explanation;
     }
@@ -249,7 +329,15 @@ export default function TeacherHost() {
       eventSource.addEventListener('ANSWER_RECEIVED', (event) => {
         const data = JSON.parse(event.data);
         setTotalAnswers(data.total_answers);
-        if (data.total_answers >= participantCountRef.current && participantCountRef.current > 0) {
+        const peerMode = isPeerInstructionMode(gameTypeRef.current, modeConfigRef.current);
+        const shouldReveal =
+          data.total_answers >= participantCountRef.current &&
+          participantCountRef.current > 0 &&
+          (
+            statusRef.current === 'QUESTION_REVOTE' ||
+            (statusRef.current === 'QUESTION_ACTIVE' && !peerMode)
+          );
+        if (shouldReveal) {
           void updateState('QUESTION_REVEAL', questionIndexRef.current);
         }
       });
@@ -282,7 +370,15 @@ export default function TeacherHost() {
       },
       onAnswerProgress: ({ totalAnswers: nextTotalAnswers }) => {
         setTotalAnswers(nextTotalAnswers);
-        if (nextTotalAnswers >= participantCountRef.current && participantCountRef.current > 0) {
+        const peerMode = isPeerInstructionMode(gameTypeRef.current, modeConfigRef.current);
+        const shouldReveal =
+          nextTotalAnswers >= participantCountRef.current &&
+          participantCountRef.current > 0 &&
+          (
+            statusRef.current === 'QUESTION_REVOTE' ||
+            (statusRef.current === 'QUESTION_ACTIVE' && !peerMode)
+          );
+        if (shouldReveal) {
           void updateState('QUESTION_REVEAL', questionIndexRef.current);
         }
       },
@@ -330,12 +426,13 @@ export default function TeacherHost() {
       packTitle: pack?.title || sessionMeta?.pack_title || '',
       gameType: sessionMeta?.game_type || 'classic_quiz',
       teamCount: Number(sessionMeta?.team_count || 0),
+      modeConfig,
       status: sessionMeta?.status || status,
       currentQuestionIndex: Number(sessionMeta?.current_question_index ?? questionIndex),
       question: buildRealtimeQuestionPayload(sessionMeta?.status || status, Number(sessionMeta?.current_question_index ?? questionIndex)),
       expectedParticipants: participantCountRef.current,
     });
-  }, [pin, sessionId, packId, pack, sessionMeta, questionIndex, status]);
+  }, [modeConfig, pin, sessionId, packId, pack, sessionMeta, questionIndex, status]);
 
   const updateState = async (newStatus: string, index: number) => {
     const response = await apiFetch(`/api/sessions/${sessionId}/state`, {
@@ -353,6 +450,7 @@ export default function TeacherHost() {
       packTitle: pack?.title || sessionMeta?.pack_title || '',
       gameType: sessionMeta?.game_type || 'classic_quiz',
       teamCount: Number(sessionMeta?.team_count || 0),
+      modeConfig,
       status: newStatus,
       currentQuestionIndex: index,
       question: buildRealtimeQuestionPayload(newStatus, index),
@@ -360,7 +458,48 @@ export default function TeacherHost() {
     });
   };
 
-  const currentQuestion = pack?.questions?.[questionIndex];
+  useEffect(() => {
+    if (!isPeerMode || status !== 'QUESTION_ACTIVE' || participants.length === 0) {
+      return;
+    }
+
+    if (Object.keys(studentSelections).length < participants.length) {
+      return;
+    }
+
+    const advanceKey = `peer-votes:${questionIndex}`;
+    if (peerVoteAdvanceKeyRef.current === advanceKey) {
+      return;
+    }
+
+    peerVoteAdvanceKeyRef.current = advanceKey;
+    void updateState('QUESTION_DISCUSSION', questionIndex);
+  }, [isPeerMode, participants.length, questionIndex, status, studentSelections]);
+
+  useEffect(() => {
+    if (phaseTimeLeft > 0 || !['QUESTION_ACTIVE', 'QUESTION_DISCUSSION', 'QUESTION_REVOTE'].includes(status)) {
+      return;
+    }
+
+    const advanceKey = `${status}:${questionIndex}`;
+    if (autoAdvanceKeyRef.current === advanceKey) {
+      return;
+    }
+
+    autoAdvanceKeyRef.current = advanceKey;
+    if (status === 'QUESTION_ACTIVE') {
+      void updateState(isPeerMode ? 'QUESTION_DISCUSSION' : 'QUESTION_REVEAL', questionIndex);
+      return;
+    }
+
+    if (status === 'QUESTION_DISCUSSION') {
+      void updateState('QUESTION_REVOTE', questionIndex);
+      return;
+    }
+
+    void updateState('QUESTION_REVEAL', questionIndex);
+  }, [isPeerMode, phaseTimeLeft, questionIndex, status]);
+
   const copyPin = async () => {
     try {
       await navigator.clipboard.writeText(String(pin || ''));
@@ -724,11 +863,26 @@ export default function TeacherHost() {
     );
   }
 
-  if (status === 'QUESTION_ACTIVE') {
+  if (status === 'QUESTION_ACTIVE' || status === 'QUESTION_DISCUSSION' || status === 'QUESTION_REVOTE') {
+    const isDiscussion = status === 'QUESTION_DISCUSSION';
+    const isRevote = status === 'QUESTION_REVOTE';
+    const nextStatus = isDiscussion ? 'QUESTION_REVOTE' : isPeerMode && !isRevote ? 'QUESTION_DISCUSSION' : 'QUESTION_REVEAL';
+    const nextButtonLabel = isDiscussion ? 'Open Final Revote' : isPeerMode && !isRevote ? 'Start Discussion' : 'Reveal Answer';
+    const stageLabel = isDiscussion ? 'Pod Discussion' : isRevote ? 'Final Revote' : isPeerMode ? 'Silent Vote' : 'Question Live';
+    const stageBody = isDiscussion
+      ? 'Students compare reasoning inside their pod before the final revote window opens.'
+      : isRevote
+        ? 'Students can now keep or change their first answer and submit the final version.'
+        : isPeerMode
+          ? 'This is the first commit round. Students vote privately before they talk.'
+          : gameMode.quickSummary;
+    const stageCountLabel = isDiscussion
+      ? `${Object.keys(studentSelections).length} / ${participants.length} first votes recorded`
+      : responseCountLabel;
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
-        <div className="bg-white px-8 py-6 shadow-sm flex justify-between items-center border-b border-slate-200 z-10">
-          <div className="flex items-center gap-4">
+        <div className="bg-white px-6 py-5 shadow-sm flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-slate-200 z-10">
+          <div className="flex flex-wrap items-center gap-4">
             <button
               onClick={() => {
                 if (window.confirm('Are you sure you want to end the game early?')) {
@@ -741,27 +895,42 @@ export default function TeacherHost() {
               <XCircle className="w-6 h-6" />
               End Game
             </button>
-            <div className="text-slate-500 font-bold text-xl bg-slate-100 px-6 py-2 rounded-xl">Question {questionIndex + 1} of {pack?.questions?.length}</div>
+            <div className="text-slate-500 font-bold text-xl bg-slate-100 px-6 py-2 rounded-xl">
+              Question {questionIndex + 1} of {pack?.questions?.length}
+            </div>
+            <div className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
+              {gameMode.label}
+            </div>
+            <div className="px-4 py-2 rounded-full bg-slate-900 text-white font-black text-sm">
+              {stageLabel}
+            </div>
           </div>
-          <div className="text-3xl font-black text-indigo-600 flex items-center gap-3">
-            <Users className="w-8 h-8" />
-            {totalAnswers} / {participants.length} Answers
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="text-lg font-black text-slate-900 flex items-center gap-3 bg-slate-100 px-5 py-3 rounded-2xl">
+              <Clock className="w-6 h-6 text-brand-orange" />
+              {phaseTimeLeft}s left
+            </div>
+            <div className="text-lg font-black text-indigo-600 flex items-center gap-3 bg-indigo-50 px-5 py-3 rounded-2xl">
+              <Users className="w-6 h-6" />
+              {stageCountLabel}
+            </div>
           </div>
+
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => updateState('QUESTION_REVEAL', questionIndex)}
+            onClick={() => updateState(nextStatus, questionIndex)}
             className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold text-lg hover:bg-slate-800 transition-colors shadow-[0_4px_0_0_rgba(15,23,42,1)] active:shadow-none active:translate-y-1"
           >
-            Skip Timer
+            {nextButtonLabel}
           </motion.button>
         </div>
 
         <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-6xl mx-auto w-full relative">
-          {/* Real-time Focus Alerts */}
           <div className="absolute top-0 right-0 p-4 space-y-2 pointer-events-none z-50">
             <AnimatePresence>
-              {Array.from(focusAlerts).map(nickname => (
+              {Array.from(focusAlerts).map((nickname) => (
                 <motion.div
                   key={nickname}
                   initial={{ x: 100, opacity: 0 }}
@@ -777,46 +946,82 @@ export default function TeacherHost() {
           </div>
 
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
+            initial={{ scale: 0.96, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-white w-full rounded-[3rem] p-12 shadow-xl border border-slate-100 mb-12"
+            className="w-full mb-8 rounded-[2.4rem] border-2 border-slate-200 bg-white p-6 sm:p-8"
           >
-            <h2 className="text-5xl md:text-6xl font-black text-center text-slate-900 leading-tight">
-              {currentQuestion?.prompt}
-            </h2>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <span className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-[0.2em] ${gameTone.pill}`}>
+                    {gameMode.shortLabel}
+                  </span>
+                  <span className="px-3 py-2 rounded-full bg-slate-100 text-slate-700 text-xs font-black uppercase tracking-[0.2em]">
+                    {gameMode.researchCue}
+                  </span>
+                </div>
+                <h2 className="text-4xl md:text-5xl font-black text-slate-900 leading-tight mb-3">
+                  {currentQuestion?.prompt}
+                </h2>
+                <p className="text-lg text-slate-600 font-medium max-w-3xl">
+                  {stageBody}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 min-w-[260px]">
+                <HostStageMetric label="Timer" value={`${phaseTimeLeft}s`} tone="dark" />
+                <HostStageMetric label={isDiscussion ? 'First votes' : isPeerMode && !isRevote ? 'Votes' : 'Answers'} value={isDiscussion ? Object.keys(studentSelections).length : isPeerMode && !isRevote ? Object.keys(studentSelections).length : totalAnswers} tone="light" />
+                <HostStageMetric label="Players" value={participants.length} tone="light" />
+                <HostStageMetric label="Phase" value={stageLabel} tone="warm" />
+              </div>
+            </div>
           </motion.div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
-            {JSON.parse(currentQuestion?.answers_json || '[]').map((ans: string, i: number) => {
-              const selectionCount = Object.values(studentSelections).filter(idx => idx === i).length;
+            {currentAnswers.map((ans: string, i: number) => {
+              const selectionCount = Object.values(studentSelections).filter((idx) => idx === i).length;
+              const selectionPct = participants.length > 0 ? Math.round((selectionCount / participants.length) * 100) : 0;
               return (
                 <motion.div
                   initial={{ y: 20, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: i * 0.1 }}
+                  transition={{ delay: i * 0.08 }}
                   key={i}
-                  className="bg-white border-4 border-slate-200 rounded-[2rem] p-10 text-3xl font-bold text-center shadow-sm text-slate-700 flex flex-col items-center justify-center min-h-[160px] relative overflow-hidden"
+                  className={`rounded-[2rem] p-8 sm:p-10 text-2xl sm:text-3xl font-bold text-center shadow-sm flex flex-col items-center justify-center min-h-[180px] relative overflow-hidden border-4 ${
+                    isDiscussion ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-200'
+                  }`}
                 >
-                  {ans}
-                  <AnimatePresence>
-                    {selectionCount > 0 && (
-                      <motion.div
-                        initial={{ scale: 0, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0, opacity: 0 }}
-                        className="mt-4 flex flex-wrap gap-2 justify-center"
-                      >
-                        {Array.from({ length: selectionCount }).map((_, idx) => (
-                          <motion.div
-                            key={idx}
-                            animate={{ scale: [1, 1.2, 1] }}
-                            transition={{ repeat: Infinity, duration: 1, delay: idx * 0.2 }}
-                            className="w-4 h-4 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(79,70,229,0.5)]"
-                          />
-                        ))}
-                      </motion.div>
+                  <div className="absolute top-0 left-0 h-full bg-brand-orange/15" style={{ width: `${selectionPct}%` }} />
+                  <div className="relative z-10">
+                    <p>{ans}</p>
+                    <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                      <span className={`px-4 py-2 rounded-full text-sm font-black border-2 ${isDiscussion ? 'bg-white text-slate-900 border-white' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                        {selectionCount} {selectionCount === 1 ? 'student' : 'students'}
+                      </span>
+                      <span className={`px-4 py-2 rounded-full text-sm font-black border-2 ${isDiscussion ? 'bg-brand-yellow text-brand-dark border-brand-dark' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
+                        {selectionPct}%
+                      </span>
+                    </div>
+                    {!isDiscussion && selectionCount > 0 && (
+                      <AnimatePresence>
+                        <motion.div
+                          initial={{ scale: 0, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          exit={{ scale: 0, opacity: 0 }}
+                          className="mt-4 flex flex-wrap gap-2 justify-center"
+                        >
+                          {Array.from({ length: selectionCount }).map((_, idx) => (
+                            <motion.div
+                              key={idx}
+                              animate={{ scale: [1, 1.2, 1] }}
+                              transition={{ repeat: Infinity, duration: 1, delay: idx * 0.18 }}
+                              className="w-4 h-4 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(79,70,229,0.5)]"
+                            />
+                          ))}
+                        </motion.div>
+                      </AnimatePresence>
                     )}
-                  </AnimatePresence>
+                  </div>
                 </motion.div>
               );
             })}
@@ -827,7 +1032,6 @@ export default function TeacherHost() {
   }
 
   if (status === 'QUESTION_REVEAL') {
-    const answers = JSON.parse(currentQuestion?.answers_json || '[]');
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
         <div className="bg-white px-8 py-6 shadow-sm flex justify-between items-center border-b border-slate-200 z-10">
@@ -845,6 +1049,9 @@ export default function TeacherHost() {
               End Game
             </button>
             <div className="text-slate-500 font-bold text-xl bg-slate-100 px-6 py-2 rounded-xl">Results</div>
+            <div className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
+              {gameMode.label}
+            </div>
           </div>
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -866,7 +1073,7 @@ export default function TeacherHost() {
           </motion.h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full mb-12">
-            {answers.map((ans: string, i: number) => {
+            {currentAnswers.map((ans: string, i: number) => {
               const isCorrect = i === currentQuestion.correct_index;
               return (
                 <motion.div
@@ -909,7 +1116,12 @@ export default function TeacherHost() {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
         <div className="bg-white px-8 py-6 shadow-sm flex justify-between items-center border-b border-slate-200 z-10">
-          <div className="text-slate-500 font-bold text-xl bg-slate-100 px-6 py-2 rounded-xl">Leaderboard</div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="text-slate-500 font-bold text-xl bg-slate-100 px-6 py-2 rounded-xl">Leaderboard</div>
+            <div className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
+              {gameMode.label}
+            </div>
+          </div>
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -962,6 +1174,25 @@ export default function TeacherHost() {
                       </div>
                       <div className="text-4xl font-black text-indigo-600">{team.total_score || 0}</div>
                     </div>
+                    {(gameMode.id === 'mastery_matrix' || gameMode.id === 'peer_pods') && (
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {typeof team.coverage_score !== 'undefined' && (
+                          <span className="px-3 py-2 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-sm font-black">
+                            Coverage {team.coverage_score}%
+                          </span>
+                        )}
+                        {typeof team.consensus_index !== 'undefined' && (
+                          <span className="px-3 py-2 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-sm font-black">
+                            Consensus {team.consensus_index}%
+                          </span>
+                        )}
+                        {typeof team.mode_bonus !== 'undefined' && (
+                          <span className="px-3 py-2 rounded-full bg-brand-yellow text-brand-dark border border-brand-dark text-sm font-black">
+                            Bonus {team.mode_bonus}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <p className="text-sm font-medium text-slate-500">
                       {(team.members || []).slice(0, 5).map((member: any) => member.nickname || member).join(', ')}
                     </p>
@@ -1025,6 +1256,30 @@ function LobbyMetric({
         <div>{icon}</div>
       </div>
       <p className="text-2xl font-black break-words leading-none">{value}</p>
+    </div>
+  );
+}
+
+function HostStageMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  tone: 'light' | 'warm' | 'dark';
+}) {
+  const toneClass =
+    tone === 'dark'
+      ? 'bg-slate-900 text-white border-slate-900'
+      : tone === 'warm'
+        ? 'bg-brand-yellow text-brand-dark border-brand-dark'
+        : 'bg-white text-brand-dark border-slate-200';
+
+  return (
+    <div className={`rounded-[1.4rem] border-2 p-4 min-h-[94px] ${toneClass}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-2">{label}</p>
+      <p className="text-2xl font-black break-words leading-tight">{value}</p>
     </div>
   );
 }

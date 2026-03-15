@@ -10,6 +10,7 @@ import {
   type Unsubscribe,
 } from 'firebase/database';
 import { ensureFirebaseRealtimeReady } from './firebase.ts';
+import type { GameModeConfig } from '../../shared/gameModes.ts';
 
 const SESSION_ROOT = 'quizziSessions';
 const FOCUS_ALERT_WINDOW_MS = 5000;
@@ -21,6 +22,7 @@ export interface RealtimeSessionMeta {
   packTitle?: string;
   gameType?: string;
   teamCount?: number;
+  modeConfig?: GameModeConfig;
   status?: string;
   currentQuestionIndex?: number;
   question?: Record<string, unknown> | null;
@@ -74,6 +76,7 @@ export async function writeHostedSessionMeta(
     'meta/packTitle': payload.packTitle || '',
     'meta/gameType': payload.gameType || 'classic_quiz',
     'meta/teamCount': Number(payload.teamCount || 0),
+    'meta/modeConfig': payload.modeConfig || {},
     'meta/status': payload.status || 'LOBBY',
     'meta/currentQuestionIndex': Number(payload.currentQuestionIndex || 0),
     'meta/question': payload.question ?? null,
@@ -85,7 +88,7 @@ export async function writeHostedSessionMeta(
     updates['answerProgress/updatedAt'] = Date.now();
   }
 
-  if (payload.status === 'LOBBY' || payload.status === 'QUESTION_ACTIVE') {
+  if (payload.status === 'LOBBY' || payload.status === 'QUESTION_ACTIVE' || payload.status === 'QUESTION_REVOTE') {
     updates['answerProgress/totalAnswers'] = 0;
     updates.liveSelections = null;
     updates.submittedAnswers = null;

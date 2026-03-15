@@ -10,6 +10,9 @@ import {
   publishLiveSelection,
   subscribeToStudentSessionRealtime,
 } from '../lib/firebaseRealtime.ts';
+import { getGameMode } from '../lib/gameModes.ts';
+import { getGameModeTone } from '../lib/gameModePresentation.ts';
+import { isPeerInstructionMode, requiresConfidenceLock } from '../lib/sessionModeRules.ts';
 import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
 
 const COLORS = [
@@ -31,12 +34,14 @@ export default function StudentPlay() {
   const [question, setQuestion] = useState<any>(null);
   const [sessionMeta, setSessionMeta] = useState<any>(null);
   const [hasAnswered, setHasAnswered] = useState(false);
-  const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [score, setScore] = useState(0);
   const [startTime, setStartTime] = useState(0);
   const [timeLeft, setTimeLeft] = useState(30);
 
   const [currentSelectedAnswer, setCurrentSelectedAnswer] = useState<number | null>(null);
+  const [selectedConfidence, setSelectedConfidence] = useState(2);
+  const [hasLockedInitialVote, setHasLockedInitialVote] = useState(false);
+  const [firstRoundChoice, setFirstRoundChoice] = useState<number | null>(null);
 
   const firstInteractionMsRef = useRef<number | null>(null);
   const answerHistoryRef = useRef<{ index: number; timestamp: number }[]>([]);
@@ -54,6 +59,7 @@ export default function StudentPlay() {
   const currentHoverOptionRef = useRef<number | null>(null);
   const hoverStartTimeRef = useRef<number | null>(null);
   const lastPointerTrackedAtRef = useRef(0);
+  const firstRoundChoiceRef = useRef<number | null>(null);
 
   const focusLossDebounceRef = useRef(0);
   const idleThresholdMs = 4000;
@@ -63,6 +69,17 @@ export default function StudentPlay() {
   const avatar = localStorage.getItem('avatar') || '😎';
   const teamName = localStorage.getItem('team_name') || '';
   const savedGameType = localStorage.getItem('game_type') || '';
+  const modeConfig = sessionMeta?.mode_config || sessionMeta?.modeConfig || {};
+  const gameMode = getGameMode(sessionMeta?.game_type || savedGameType || 'classic_quiz');
+  const gameTone = getGameModeTone(gameMode.id);
+  const isPeerMode = isPeerInstructionMode(gameMode.id, modeConfig);
+  const needsConfidence = requiresConfidenceLock(gameMode.id, modeConfig);
+  const isInteractivePhase = status === 'QUESTION_ACTIVE' || status === 'QUESTION_REVOTE';
+  const isSelectionLocked = hasAnswered || (isPeerMode && status === 'QUESTION_ACTIVE' && hasLockedInitialVote);
+
+  useEffect(() => {
+    firstRoundChoiceRef.current = firstRoundChoice;
+  }, [firstRoundChoice]);
 
   const resetTelemetry = () => {
     firstInteractionMsRef.current = null;
@@ -96,7 +113,7 @@ export default function StudentPlay() {
   };
 
   const beginHoverDwell = (optionIndex: number) => {
-    if (hasAnswered || status !== 'QUESTION_ACTIVE') return;
+    if (isSelectionLocked || !isInteractivePhase) return;
     if (currentHoverOptionRef.current === optionIndex) return;
     flushHoverDwell();
     currentHoverOptionRef.current = optionIndex;
@@ -104,7 +121,7 @@ export default function StudentPlay() {
   };
 
   const recordActivity = (kind: 'pointer' | 'keyboard' | 'touch', eventTime = Date.now()) => {
-    if (status !== 'QUESTION_ACTIVE' || hasAnswered) return;
+    if (!isInteractivePhase || isSelectionLocked) return;
 
     const idleGap = eventTime - lastActivityTimeRef.current;
     if (idleGap > idleThresholdMs) {
@@ -140,25 +157,54 @@ export default function StudentPlay() {
 
     const applyLiveStateChange = (data: any) => {
       const nextStatus = data?.status || 'LOBBY';
+      const nextModeConfig = data?.mode_config || data?.modeConfig || {};
+      const nextQuestion = data?.question || null;
       setStatus(nextStatus);
       setSessionMeta((current: any) => ({
         ...(current || {}),
         status: nextStatus,
         game_type: data?.game_type || current?.game_type || savedGameType || 'classic_quiz',
+        mode_config: nextModeConfig && Object.keys(nextModeConfig).length ? nextModeConfig : current?.mode_config || current?.modeConfig || {},
         current_question_index: Number(data?.current_question_index ?? data?.currentQuestionIndex ?? current?.current_question_index ?? 0),
       }));
 
       if (nextStatus === 'QUESTION_ACTIVE') {
-        setQuestion(data.question);
+        setQuestion(nextQuestion);
         setHasAnswered(false);
-        setIsCorrect(null);
+        setHasLockedInitialVote(false);
+        setFirstRoundChoice(null);
         setStartTime(Date.now());
-        setTimeLeft(data.question?.time_limit_seconds || 30);
+        setTimeLeft(nextQuestion?.time_limit_seconds || 30);
         setCurrentSelectedAnswer(null);
+        setSelectedConfidence(2);
         resetTelemetry();
+      } else if (nextStatus === 'QUESTION_DISCUSSION') {
+        if (nextQuestion) {
+          setQuestion(nextQuestion);
+          setTimeLeft(nextQuestion.time_limit_seconds || Number(nextModeConfig?.discussion_seconds || 30));
+        } else {
+          setTimeLeft(Number(nextModeConfig?.discussion_seconds || 30));
+        }
+        flushHoverDwell();
+      } else if (nextStatus === 'QUESTION_REVOTE') {
+        if (nextQuestion) {
+          setQuestion(nextQuestion);
+          setTimeLeft(nextQuestion.time_limit_seconds || Number(nextModeConfig?.revote_seconds || 22));
+        } else {
+          setTimeLeft(Number(nextModeConfig?.revote_seconds || 22));
+        }
+        setHasAnswered(false);
+        setHasLockedInitialVote(false);
+        setCurrentSelectedAnswer((current) => current ?? firstRoundChoiceRef.current);
+        setSelectedConfidence(2);
+        setStartTime(Date.now());
+        resetTelemetry();
+        if (firstRoundChoiceRef.current !== null) {
+          answerHistoryRef.current = [{ index: firstRoundChoiceRef.current, timestamp: 0 }];
+        }
       } else if (nextStatus === 'QUESTION_REVEAL') {
-        if (data?.question) {
-          setQuestion(data.question);
+        if (nextQuestion) {
+          setQuestion(nextQuestion);
         }
         flushHoverDwell();
       } else if (nextStatus === 'ENDED') {
@@ -202,6 +248,8 @@ export default function StudentPlay() {
           status: meta.status,
           question: meta.question,
           game_type: meta.gameType,
+          mode_config: meta.modeConfig,
+          current_question_index: meta.currentQuestionIndex,
         });
       },
       onError: () => {
@@ -225,11 +273,11 @@ export default function StudentPlay() {
       presenceCleanup?.();
       eventSource?.close();
     };
-  }, [pin, navigate, participantId, nickname]);
+  }, [navigate, nickname, participantId, pin, savedGameType, teamName]);
 
   // Timer effect & telemetry watchers
   useEffect(() => {
-    if (status === 'QUESTION_ACTIVE' && !hasAnswered && timeLeft > 0) {
+    if (['QUESTION_ACTIVE', 'QUESTION_DISCUSSION', 'QUESTION_REVOTE'].includes(status) && (!hasAnswered || status === 'QUESTION_DISCUSSION') && timeLeft > 0) {
       const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
       return () => clearTimeout(timer);
     }
@@ -238,7 +286,7 @@ export default function StudentPlay() {
   // Focus loss tracker
   useEffect(() => {
     const registerFocusLoss = () => {
-      if (status === 'QUESTION_ACTIVE' && !hasAnswered) {
+      if (isInteractivePhase && !isSelectionLocked) {
         const now = Date.now();
         if (now - focusLossDebounceRef.current < 800) return;
         focusLossDebounceRef.current = now;
@@ -281,7 +329,7 @@ export default function StudentPlay() {
       window.removeEventListener('focus', handleFocusRestore);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [status, hasAnswered, participantId, pin]);
+  }, [hasAnswered, isInteractivePhase, isSelectionLocked, participantId, pin]);
 
   // Idle time tracker
   useEffect(() => {
@@ -300,7 +348,7 @@ export default function StudentPlay() {
       window.removeEventListener('touchstart', handleTouch);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [hasAnswered, status]);
+  }, [isInteractivePhase, isSelectionLocked]);
 
   // Submit final answer to server with telemetry
   const submitAnswer = async (finalIndex: number, submitHistory: any[]) => {
@@ -356,6 +404,7 @@ export default function StudentPlay() {
           question_id: question.id,
           chosen_index: finalIndex,
           response_ms: responseMs,
+          confidence_level: needsConfidence ? selectedConfidence : undefined,
           telemetry
         })
       });
@@ -372,12 +421,13 @@ export default function StudentPlay() {
         });
       }
     } catch (err) {
+      setHasAnswered(false);
       console.error(err);
     }
   };
 
   const handleAnswerSelect = async (index: number) => {
-    if (hasAnswered) return;
+    if (isSelectionLocked) return;
 
     const now = Date.now();
     if (!firstInteractionMsRef.current) firstInteractionMsRef.current = now - startTime;
@@ -413,7 +463,14 @@ export default function StudentPlay() {
   };
 
   const handleLockIn = () => {
-    if (currentSelectedAnswer === null || hasAnswered) return;
+    if (currentSelectedAnswer === null || isSelectionLocked) return;
+    if (isPeerMode && status === 'QUESTION_ACTIVE') {
+      setFirstRoundChoice(currentSelectedAnswer);
+      setHasLockedInitialVote(true);
+      flushHoverDwell();
+      return;
+    }
+    if (needsConfidence && !selectedConfidence) return;
     submitAnswer(currentSelectedAnswer, answerHistoryRef.current);
   };
 
@@ -453,8 +510,8 @@ export default function StudentPlay() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <LobbyMetaCard label="Game Type" value={sessionMeta?.game_type || savedGameType || 'classic_quiz'} />
-              <LobbyMetaCard label="Team" value={teamName || 'Solo'} />
+              <LobbyMetaCard label="Game Type" value={gameMode.label} />
+              <LobbyMetaCard label="Team" value={teamName || (gameMode.teamBased ? 'Auto team' : 'Solo')} />
             </div>
           </div>
         </motion.div>
@@ -462,11 +519,92 @@ export default function StudentPlay() {
     );
   }
 
-  if (status === 'QUESTION_ACTIVE') {
-    if (hasAnswered) {
+  if (status === 'QUESTION_DISCUSSION') {
+    return (
+      <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
+        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
+
+        <motion.div
+          initial={{ scale: 0.88, opacity: 0, y: 18 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          className="relative z-10 bg-white border-4 border-brand-dark rounded-[2.4rem] p-6 sm:p-10 lg:p-14 shadow-[16px_16px_0px_0px_#1A1A1A] max-w-4xl w-full"
+        >
+          <div className="flex flex-wrap justify-center gap-3 mb-6">
+            <span className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
+              {gameMode.label}
+            </span>
+            <span className="px-4 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark font-black text-sm">
+              Discussion round
+            </span>
+            <span className="px-4 py-2 rounded-full bg-brand-dark text-white border-2 border-brand-dark font-black text-sm flex items-center gap-2">
+              <Clock className="w-4 h-4 text-brand-yellow" />
+              {timeLeft}s
+            </span>
+          </div>
+
+          <h2 className="text-4xl sm:text-5xl lg:text-6xl font-black text-brand-dark tracking-tight mb-4">
+            Compare answers with your pod
+          </h2>
+          <p className="text-lg sm:text-xl font-bold text-brand-dark/65 mb-8 max-w-3xl mx-auto">
+            Explain why you chose your answer, listen for stronger reasoning, and get ready for the final revote.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left mb-8">
+            <div className="rounded-[1.8rem] border-4 border-brand-dark bg-brand-bg p-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-3">Your first vote</p>
+              <p className="text-2xl font-black text-brand-dark">
+                {firstRoundChoice !== null ? question?.answers?.[firstRoundChoice] : 'No vote locked yet'}
+              </p>
+            </div>
+            <div className="rounded-[1.8rem] border-4 border-brand-dark bg-brand-yellow p-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/60 mb-3">Pod prompt</p>
+              <p className="text-2xl font-black text-brand-dark">{teamName || 'Discuss with nearby teammates'}</p>
+            </div>
+          </div>
+
+          <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-dark text-white p-6 text-left">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-3">Question</p>
+            <p className="text-2xl sm:text-3xl font-black mb-5">{question?.prompt}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {question?.answers?.map((answer: string, index: number) => (
+                <div
+                  key={index}
+                  className={`rounded-[1.4rem] border-2 p-4 font-black text-lg ${firstRoundChoice === index ? 'bg-brand-yellow text-brand-dark border-brand-dark' : 'bg-white/10 border-white/10 text-white'}`}
+                >
+                  {answer}
+                </div>
+              ))}
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (status === 'QUESTION_ACTIVE' || status === 'QUESTION_REVOTE') {
+    const isRevote = status === 'QUESTION_REVOTE';
+    const showWaitCard = hasAnswered || (isPeerMode && status === 'QUESTION_ACTIVE' && hasLockedInitialVote);
+    const waitTitle = hasAnswered ? 'Answer submitted!' : 'First vote locked!';
+    const waitBody = hasAnswered
+      ? 'Waiting for the rest of the class to finish...'
+      : 'Hold your choice for now. Discussion opens as soon as the round ends.';
+    const stageTitle = isRevote ? 'Final revote' : isPeerMode ? 'Silent first vote' : 'Live question';
+    const stageBody = isRevote
+      ? 'You can keep or change your first answer before the final submit.'
+      : isPeerMode
+        ? 'Choose privately first. No discussion yet.'
+        : gameMode.quickSummary;
+    const lockLabel = isRevote
+      ? 'Submit Final Answer'
+      : isPeerMode
+        ? 'Lock First Vote'
+        : needsConfidence
+          ? 'Lock Answer + Confidence'
+          : 'Lock It In';
+
+    if (showWaitCard) {
       return (
         <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
-          {/* Animated background patterns */}
           <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
 
           <motion.div
@@ -476,19 +614,23 @@ export default function StudentPlay() {
           >
             <motion.div
               animate={{ rotate: 360 }}
-              transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+              transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
               className="inline-block mb-10"
             >
               <div className="w-24 h-24 sm:w-32 sm:h-32 bg-brand-yellow rounded-full border-4 border-brand-dark flex items-center justify-center shadow-[4px_4px_0px_0px_#1A1A1A]">
                 <Clock className="w-12 h-12 sm:w-16 sm:h-16 text-brand-dark" />
               </div>
             </motion.div>
-            <h2 className="text-4xl sm:text-5xl font-black text-brand-dark tracking-tight mb-6">Answer submitted!</h2>
-            <p className="text-xl sm:text-2xl text-brand-dark/60 font-bold">Waiting for others to finish...</p>
+            <h2 className="text-4xl sm:text-5xl font-black text-brand-dark tracking-tight mb-6">{waitTitle}</h2>
+            <p className="text-xl sm:text-2xl text-brand-dark/60 font-bold">{waitBody}</p>
 
-            <div className="mt-12 inline-flex items-center gap-2 bg-brand-bg px-6 py-3 rounded-full border-2 border-brand-dark/20">
-              <Zap className="w-5 h-5 text-brand-orange" />
-              <span className="font-bold text-brand-dark/70">You answered in {(30 - timeLeft)}s</span>
+            <div className="mt-12 flex flex-wrap justify-center gap-3">
+              <span className={`px-5 py-3 rounded-full border-2 border-brand-dark font-black ${gameTone.pill}`}>
+                {stageTitle}
+              </span>
+              <span className="px-5 py-3 rounded-full border-2 border-brand-dark bg-brand-bg font-black text-brand-dark">
+                {timeLeft}s left
+              </span>
             </div>
           </motion.div>
         </div>
@@ -497,7 +639,6 @@ export default function StudentPlay() {
 
     return (
       <div className="min-h-screen bg-brand-bg flex flex-col p-4 sm:p-5 md:p-8 selection:bg-brand-orange selection:text-white">
-        {/* Top Bar */}
         <div className="mb-6 sm:mb-8 max-w-6xl mx-auto w-full flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
           <div className="flex flex-wrap items-center gap-3 sm:gap-4 min-w-0">
             <button
@@ -521,6 +662,9 @@ export default function StudentPlay() {
                 <span className="font-black truncate">{teamName || 'Team mode'}</span>
               </div>
             )}
+            <div className={`px-4 sm:px-5 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] font-black ${gameTone.pill}`}>
+              {stageTitle}
+            </div>
           </div>
 
           <div className="w-full justify-center lg:w-auto flex items-center gap-3 bg-brand-dark text-white px-5 sm:px-6 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#FF5A36]">
@@ -534,11 +678,10 @@ export default function StudentPlay() {
           </div>
         </div>
 
-        {/* Question Card */}
         <motion.div
           initial={{ y: -20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          className="bg-white rounded-[2.2rem] sm:rounded-[3rem] p-6 sm:p-9 lg:p-12 border-4 border-brand-dark mb-8 sm:mb-10 text-center shadow-[12px_12px_0px_0px_#1A1A1A] max-w-6xl mx-auto w-full relative overflow-hidden"
+          className="bg-white rounded-[2.2rem] sm:rounded-[3rem] p-6 sm:p-9 lg:p-12 border-4 border-brand-dark mb-6 text-center shadow-[12px_12px_0px_0px_#1A1A1A] max-w-6xl mx-auto w-full relative overflow-hidden"
         >
           <div className="absolute top-0 left-0 w-full h-2 bg-brand-dark/10">
             <motion.div
@@ -548,36 +691,75 @@ export default function StudentPlay() {
               transition={{ duration: 1, ease: 'linear' }}
             />
           </div>
-          <h2 className="text-[2rem] xs:text-[2.3rem] md:text-6xl font-black text-brand-dark leading-tight">{question?.prompt}</h2>
+          <div className="flex flex-wrap justify-center gap-2 mb-4">
+            <span className={`px-3 py-2 rounded-full border-2 border-brand-dark text-xs font-black uppercase tracking-[0.2em] ${gameTone.pill}`}>
+              {gameMode.shortLabel}
+            </span>
+            <span className="px-3 py-2 rounded-full bg-brand-bg border-2 border-brand-dark text-xs font-black uppercase tracking-[0.2em] text-brand-dark/70">
+              {gameMode.researchCue}
+            </span>
+          </div>
+          <h2 className="text-[2rem] xs:text-[2.3rem] md:text-6xl font-black text-brand-dark leading-tight mb-3">{question?.prompt}</h2>
+          <p className="text-lg sm:text-xl font-bold text-brand-dark/60 max-w-3xl mx-auto">{stageBody}</p>
         </motion.div>
 
-        {/* Answers Grid */}
+        {needsConfidence && (
+          <div className="max-w-6xl mx-auto w-full mb-6">
+            <div className="bg-white rounded-[2rem] border-4 border-brand-dark p-5 shadow-[8px_8px_0px_0px_#1A1A1A]">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Confidence check</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[
+                  { id: 1, label: 'Need a guess', body: 'Low confidence, still learning the pattern.' },
+                  { id: 2, label: 'Pretty sure', body: 'You recognize it, but want feedback.' },
+                  { id: 3, label: 'Certain', body: 'You could explain why it is correct.' },
+                ].map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setSelectedConfidence(option.id)}
+                    className={`rounded-[1.5rem] border-4 p-4 text-left transition-all ${
+                      selectedConfidence === option.id
+                        ? 'bg-brand-purple text-white border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]'
+                        : 'bg-brand-bg text-brand-dark border-brand-dark/20'
+                    }`}
+                  >
+                    <p className="text-lg font-black mb-1">{option.label}</p>
+                    <p className={`font-bold ${selectedConfidence === option.id ? 'text-white/80' : 'text-brand-dark/60'}`}>{option.body}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 max-w-6xl mx-auto w-full">
           <AnimatePresence>
-            {question?.answers?.map((ans: string, i: number) => (
-              <motion.button
-                initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.9, opacity: 0 }}
-                transition={{ delay: i * 0.1, type: 'spring', bounce: 0.4 }}
-                key={i}
-                onClick={() => handleAnswerSelect(i)}
-                onMouseEnter={() => beginHoverDwell(i)}
-                onMouseLeave={() => flushHoverDwell()}
-                onFocus={() => beginHoverDwell(i)}
-                onBlur={() => flushHoverDwell()}
-                className={`${COLORS[i % 4].bg} ${COLORS[i % 4].text} border-4 ${COLORS[i % 4].border} rounded-[2rem] sm:rounded-[3rem] flex min-h-[120px] sm:min-h-[160px] items-center justify-center p-6 sm:p-8 lg:p-10 text-xl xs:text-2xl md:text-4xl font-black ${COLORS[i % 4].shadow} hover:translate-y-[4px] hover:translate-x-[4px] hover:shadow-[4px_4px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[8px] active:translate-x-[8px] transition-all relative overflow-hidden group`}
-              >
-                {/* Decorative shape on hover */}
-                <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-black/10 rounded-full scale-0 group-hover:scale-100 transition-transform duration-500"></div>
-
-                <span className="relative z-10 break-words">{ans}</span>
-              </motion.button>
-            ))}
+            {question?.answers?.map((ans: string, i: number) => {
+              const isSelected = currentSelectedAnswer === i;
+              return (
+                <motion.button
+                  initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.9, opacity: 0 }}
+                  transition={{ delay: i * 0.1, type: 'spring', bounce: 0.4 }}
+                  key={i}
+                  onClick={() => handleAnswerSelect(i)}
+                  onMouseEnter={() => beginHoverDwell(i)}
+                  onMouseLeave={() => flushHoverDwell()}
+                  onFocus={() => beginHoverDwell(i)}
+                  onBlur={() => flushHoverDwell()}
+                  className={`${COLORS[i % 4].bg} ${COLORS[i % 4].text} border-4 ${COLORS[i % 4].border} rounded-[2rem] sm:rounded-[3rem] flex min-h-[120px] sm:min-h-[160px] items-center justify-center p-6 sm:p-8 lg:p-10 text-xl xs:text-2xl md:text-4xl font-black ${COLORS[i % 4].shadow} ${
+                    isSelected ? 'ring-4 ring-brand-dark scale-[1.01]' : ''
+                  } hover:translate-y-[4px] hover:translate-x-[4px] hover:shadow-[4px_4px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[8px] active:translate-x-[8px] transition-all relative overflow-hidden group`}
+                >
+                  <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-black/10 rounded-full scale-0 group-hover:scale-100 transition-transform duration-500"></div>
+                  <span className="relative z-10 break-words">{ans}</span>
+                </motion.button>
+              );
+            })}
           </AnimatePresence>
         </div>
 
-        {/* Lock In Button */}
         <AnimatePresence>
           {currentSelectedAnswer !== null && !hasAnswered && (
             <motion.div
@@ -588,10 +770,10 @@ export default function StudentPlay() {
             >
               <button
                 onClick={handleLockIn}
-                className="w-full max-w-sm justify-center bg-brand-dark text-white text-xl sm:text-3xl font-black px-8 sm:px-12 py-4 sm:py-6 rounded-full border-4 border-brand-dark shadow-[8px_8px_0px_0px_#FF5A36] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none active:translate-y-[4px] active:translate-x-[4px] transition-all flex items-center gap-3 sm:gap-4 group"
+                className="w-full max-w-md justify-center bg-brand-dark text-white text-xl sm:text-3xl font-black px-8 sm:px-12 py-4 sm:py-6 rounded-full border-4 border-brand-dark shadow-[8px_8px_0px_0px_#FF5A36] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none active:translate-y-[4px] active:translate-x-[4px] transition-all flex items-center gap-3 sm:gap-4 group"
               >
                 <CheckCircle className="w-6 h-6 sm:w-8 sm:h-8 text-brand-yellow group-hover:scale-125 transition-transform" />
-                LOCK IT IN!
+                {lockLabel}
               </button>
             </motion.div>
           )}
@@ -611,6 +793,11 @@ export default function StudentPlay() {
           animate={{ scale: 1, opacity: 1, rotate: -2 }}
           className="relative z-10 bg-brand-purple p-6 sm:p-10 lg:p-16 rounded-[2.2rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-2xl w-full"
         >
+          <div className="flex justify-center mb-6">
+            <span className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
+              {gameMode.label}
+            </span>
+          </div>
           <div className="inline-flex items-center justify-center w-24 h-24 sm:w-32 sm:h-32 bg-white border-4 border-brand-dark rounded-full mb-8 sm:mb-10 shadow-[8px_8px_0px_0px_#1A1A1A] rotate-12">
             <Flame className="w-12 h-12 sm:w-16 sm:h-16 text-brand-orange" />
           </div>
@@ -635,6 +822,11 @@ export default function StudentPlay() {
           transition={{ type: 'spring', bounce: 0.6 }}
           className="relative z-10 bg-white p-6 sm:p-10 lg:p-16 rounded-[2.2rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-2xl w-full"
         >
+          <div className="flex justify-center mb-6">
+            <span className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
+              {gameMode.label}
+            </span>
+          </div>
           <div className="inline-flex items-center justify-center w-24 h-24 sm:w-32 sm:h-32 bg-brand-yellow border-4 border-brand-dark rounded-full mb-8 sm:mb-10 shadow-[8px_8px_0px_0px_#1A1A1A]">
             <Trophy className="w-12 h-12 sm:w-16 sm:h-16 text-brand-dark" />
           </div>

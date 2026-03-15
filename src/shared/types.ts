@@ -1,4 +1,13 @@
-export type SessionStatus = 'LOBBY' | 'QUESTION_ACTIVE' | 'QUESTION_REVEAL' | 'LEADERBOARD' | 'ENDED';
+import type { GameModeConfig, GameModeId } from './gameModes.ts';
+
+export type SessionStatus =
+  | 'LOBBY'
+  | 'QUESTION_ACTIVE'
+  | 'QUESTION_DISCUSSION'
+  | 'QUESTION_REVOTE'
+  | 'QUESTION_REVEAL'
+  | 'LEADERBOARD'
+  | 'ENDED';
 
 export interface User {
   id: number;
@@ -32,6 +41,9 @@ export interface Session {
   id: number;
   quiz_pack_id: number;
   pin: string;
+  game_type?: GameModeId;
+  team_count?: number;
+  mode_config?: GameModeConfig;
   status: SessionStatus;
   current_question_index: number;
   started_at: string | null;
@@ -82,6 +94,9 @@ export interface CreatePackPayload {
 
 export interface HostSessionPayload {
   quiz_pack_id: number;
+  game_type?: GameModeId;
+  team_count?: number;
+  mode_config?: GameModeConfig;
 }
 
 export interface JoinSessionPayload {
@@ -93,6 +108,7 @@ export interface SubmitAnswerPayload {
   question_id: number;
   chosen_index: number;
   response_ms: number;
+  confidence_level?: number;
 }
 
 export interface UpdateSessionStatePayload {
