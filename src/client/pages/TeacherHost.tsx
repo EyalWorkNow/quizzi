@@ -45,6 +45,13 @@ export default function TeacherHost() {
   const autoAdvanceKeyRef = useRef('');
   const peerVoteAdvanceKeyRef = useRef('');
   const lastStateChangeAtRef = useRef(Date.now());
+  const lastPhaseKeyRef = useRef(`${status}:${questionIndex}`);
+
+  if (lastPhaseKeyRef.current !== `${status}:${questionIndex}`) {
+    lastPhaseKeyRef.current = `${status}:${questionIndex}`;
+    lastStateChangeAtRef.current = Date.now();
+  }
+
   const gameMode = getGameMode(sessionMeta?.game_type);
   const gameTone = getGameModeTone(gameMode.id);
   const isTeamMode = gameMode.teamBased;
@@ -102,9 +109,6 @@ export default function TeacherHost() {
     } else {
       setPhaseTimeLeft(0);
     }
-    
-    // Use a timestamp to detect if we just entered this state to prevent immediate advancement
-    lastStateChangeAtRef.current = Date.now();
   }, [activeQuestionSeconds, discussionSeconds, questionIndex, revoteSeconds, status]);
 
   useEffect(() => {
@@ -480,7 +484,8 @@ export default function TeacherHost() {
     }
 
     // Prevents immediate "Time's Up" if phaseTimeLeft hasn't updated yet or if we just started
-    if (phaseTimeLeft > 0 || Date.now() - lastStateChangeAtRef.current < 2000) {
+    // We allow a 2.5 second window for the state transition to settle.
+    if (phaseTimeLeft > 0 || Date.now() - lastStateChangeAtRef.current < 2500) {
       return;
     }
 

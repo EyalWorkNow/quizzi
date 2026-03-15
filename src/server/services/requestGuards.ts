@@ -13,6 +13,7 @@ type RateLimitResult = {
 
 const DEFAULT_TRUSTED_ORIGINS = [
   'https://quizzi-ivory.vercel.app',
+  'https://quizzi-mqru.onrender.com',
   'http://localhost:3000',
   'http://localhost:5173',
 ];
