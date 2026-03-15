@@ -18,18 +18,29 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { loadTeacherSettings, saveTeacherSettings, type TeacherSettingsState } from '../lib/localData.ts';
+import {
+  loadTeacherSettings,
+  saveTeacherSettings,
+  type TeacherSettingsState,
+} from '../lib/localData.ts';
+import { useTeacherLanguage } from '../lib/teacherLanguage.ts';
 import { signOutTeacher } from '../lib/teacherAuth.ts';
 
 const AVATARS = ['👩🏻‍🏫', '🧑🏽‍🏫', '👨🏼‍🏫', '🦉', '🚀'];
+type FeedbackKey = 'profileIncomplete' | 'fillSecurity' | 'passwordsMismatch' | 'saved';
 
 export default function TeacherSettings() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'security' | 'appearance'>('profile');
   const [settingsState, setSettingsState] = useState<TeacherSettingsState>(() => loadTeacherSettings());
   const [securityForm, setSecurityForm] = useState({ current: '', next: '', confirm: '' });
-  const [feedback, setFeedback] = useState<string>('');
+  const [feedbackKey, setFeedbackKey] = useState<FeedbackKey | ''>('');
   const navigate = useNavigate();
+  const currentLanguage = settingsState.appearance.language;
+  const { copy, direction } = useTeacherLanguage(currentLanguage);
+  const settingsCopy = copy.settings;
+  const navCopy = copy.nav;
+
   const handleLogout = async () => {
     await signOutTeacher();
     navigate('/');
@@ -55,25 +66,35 @@ export default function TeacherSettings() {
     }));
   };
 
+  const updateAppearance = <K extends keyof TeacherSettingsState['appearance']>(
+    field: K,
+    value: TeacherSettingsState['appearance'][K],
+  ) => {
+    setSettingsState((current) => ({
+      ...current,
+      appearance: { ...current.appearance, [field]: value },
+    }));
+  };
+
   const handleSave = () => {
     if (!settingsState.profile.firstName.trim() || !settingsState.profile.lastName.trim() || !settingsState.profile.email.trim()) {
-      setFeedback('Profile details are incomplete.');
+      setFeedbackKey('profileIncomplete');
       return;
     }
     if (securityForm.next || securityForm.confirm || securityForm.current) {
       if (!securityForm.current || !securityForm.next || !securityForm.confirm) {
-        setFeedback('Fill all security fields to update the password preference.');
+        setFeedbackKey('fillSecurity');
         return;
       }
       if (securityForm.next !== securityForm.confirm) {
-        setFeedback('New password and confirmation do not match.');
+        setFeedbackKey('passwordsMismatch');
         return;
       }
     }
 
     saveTeacherSettings(settingsState);
     setSecurityForm({ current: '', next: '', confirm: '' });
-    setFeedback('Settings saved locally.');
+    setFeedbackKey('saved');
   };
 
   const cycleAvatar = () => {
@@ -83,9 +104,10 @@ export default function TeacherSettings() {
   };
 
   return (
-    <div className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white">
+    <div lang={currentLanguage === 'he' ? 'he' : 'en'} className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white">
       <motion.aside
         animate={{ width: isSidebarOpen ? 256 : 80 }}
+        dir={direction}
         className="h-screen bg-white border-r-2 border-brand-dark flex flex-col flex-shrink-0 transition-all duration-300 relative z-20 shadow-[4px_0px_0px_0px_#1A1A1A]"
       >
         <div className="h-20 flex items-center px-6 border-b-2 border-brand-dark">
@@ -106,15 +128,15 @@ export default function TeacherSettings() {
             className="w-full bg-brand-orange text-white border-2 border-brand-dark rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#e84d2a] transition-all shadow-[2px_2px_0px_0px_#1A1A1A] hover:translate-y-[1px] hover:translate-x-[1px] hover:shadow-[1px_1px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[2px] active:translate-x-[2px] py-3"
           >
             <Plus className="w-5 h-5" />
-            {isSidebarOpen && <span className="text-base">Create Quiz</span>}
+            {isSidebarOpen && <span className="text-base">{navCopy.createQuiz}</span>}
           </button>
         </div>
 
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto hide-scrollbar">
-          <NavItem icon={<Library />} label="My Quizzes" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/dashboard')} />
-          <NavItem icon={<Compass />} label="Discover" isOpen={isSidebarOpen} onClick={() => navigate('/explore')} />
-          <NavItem icon={<BarChart />} label="Reports" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/reports')} />
-          <NavItem icon={<Users />} label="Classes" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/classes')} />
+          <NavItem icon={<Library />} label={navCopy.myQuizzes} isOpen={isSidebarOpen} onClick={() => navigate('/teacher/dashboard')} />
+          <NavItem icon={<Compass />} label={navCopy.discover} isOpen={isSidebarOpen} onClick={() => navigate('/explore')} />
+          <NavItem icon={<BarChart />} label={navCopy.reports} isOpen={isSidebarOpen} onClick={() => navigate('/teacher/reports')} />
+          <NavItem icon={<Users />} label={navCopy.classes} isOpen={isSidebarOpen} onClick={() => navigate('/teacher/classes')} />
 
           <div className="my-4 border-t-2 border-brand-dark relative">
             <button
@@ -125,8 +147,8 @@ export default function TeacherSettings() {
             </button>
           </div>
 
-          <NavItem icon={<Settings />} label="Settings" isOpen={isSidebarOpen} active onClick={() => navigate('/teacher/settings')} />
-          <NavItem icon={<HelpCircle />} label="Help Center" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/help')} />
+          <NavItem icon={<Settings />} label={navCopy.settings} isOpen={isSidebarOpen} active onClick={() => navigate('/teacher/settings')} />
+          <NavItem icon={<HelpCircle />} label={navCopy.helpCenter} isOpen={isSidebarOpen} onClick={() => navigate('/teacher/help')} />
         </nav>
 
         <div className="p-4 border-t-2 border-brand-dark bg-brand-purple/10">
@@ -146,7 +168,7 @@ export default function TeacherSettings() {
               <button
                 onClick={handleLogout}
                 className="w-8 h-8 bg-brand-bg border-2 border-brand-dark text-brand-dark rounded-lg flex items-center justify-center hover:bg-brand-orange hover:text-white transition-colors"
-                title="Log out"
+                title={navCopy.logOut}
               >
                 <LogOut className="w-4 h-4" />
               </button>
@@ -155,41 +177,41 @@ export default function TeacherSettings() {
         </div>
       </motion.aside>
 
-      <main className="flex-1 h-screen overflow-y-auto p-6 lg:p-8 relative bg-brand-bg">
+      <main dir={direction} className="flex-1 h-screen overflow-y-auto p-6 lg:p-8 relative bg-brand-bg">
         <div className="max-w-[1000px] mx-auto relative z-10">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
             <div>
-              <h1 className="text-3xl lg:text-4xl font-black tracking-tight">Settings</h1>
-              <p className="text-brand-dark/60 font-bold mt-2">Profile, notification and classroom preferences for your teacher workspace.</p>
+              <h1 className="text-3xl lg:text-4xl font-black tracking-tight">{settingsCopy.title}</h1>
+              <p className="text-brand-dark/60 font-bold mt-2">{settingsCopy.subtitle}</p>
             </div>
             <button
               onClick={handleSave}
               className="px-6 py-3 bg-brand-purple text-white border-2 border-brand-dark rounded-full flex items-center gap-2 hover:bg-purple-500 transition-colors font-black text-base shadow-[2px_2px_0px_0px_#1A1A1A] hover:translate-y-[1px] hover:translate-x-[1px] hover:shadow-[1px_1px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[2px] active:translate-x-[2px] w-fit"
             >
               <Save className="w-5 h-5" />
-              Save Changes
+              {settingsCopy.saveChanges}
             </button>
           </div>
 
-          {feedback && (
+          {feedbackKey && (
             <div className="mb-6 bg-white border-2 border-brand-dark rounded-2xl p-4 shadow-[2px_2px_0px_0px_#1A1A1A] flex items-center gap-3">
-              <CheckCircle2 className={`w-5 h-5 ${feedback.includes('saved') ? 'text-emerald-500' : 'text-brand-orange'}`} />
-              <span className="font-bold">{feedback}</span>
+              <CheckCircle2 className={`w-5 h-5 ${feedbackKey === 'saved' ? 'text-emerald-500' : 'text-brand-orange'}`} />
+              <span className="font-bold">{settingsCopy.feedback[feedbackKey]}</span>
             </div>
           )}
 
           <div className="flex flex-col md:flex-row gap-8">
             <div className="w-full md:w-64 flex flex-col gap-2">
-              <TabButton icon={<User />} label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
-              <TabButton icon={<Bell />} label="Notifications" active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
-              <TabButton icon={<Shield />} label="Security" active={activeTab === 'security'} onClick={() => setActiveTab('security')} />
-              <TabButton icon={<Paintbrush />} label="Appearance" active={activeTab === 'appearance'} onClick={() => setActiveTab('appearance')} />
+              <TabButton icon={<User />} label={settingsCopy.tabs.profile} active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
+              <TabButton icon={<Bell />} label={settingsCopy.tabs.notifications} active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
+              <TabButton icon={<Shield />} label={settingsCopy.tabs.security} active={activeTab === 'security'} onClick={() => setActiveTab('security')} />
+              <TabButton icon={<Paintbrush />} label={settingsCopy.tabs.appearance} active={activeTab === 'appearance'} onClick={() => setActiveTab('appearance')} />
             </div>
 
             <div className="flex-1 bg-white border-2 border-brand-dark rounded-[2rem] p-8 shadow-[4px_4px_0px_0px_#1A1A1A]">
               {activeTab === 'profile' && (
                 <div className="space-y-6">
-                  <h2 className="text-2xl font-black">Profile Information</h2>
+                  <h2 className="text-2xl font-black">{settingsCopy.profile.title}</h2>
                   <div className="flex items-center gap-6 mb-8">
                     <div className="w-24 h-24 bg-brand-yellow rounded-full border-4 border-brand-dark flex items-center justify-center text-5xl shadow-[4px_4px_0px_0px_#1A1A1A]">
                       {profile.avatar}
@@ -198,53 +220,82 @@ export default function TeacherSettings() {
                       onClick={cycleAvatar}
                       className="px-4 py-2 bg-brand-bg border-2 border-brand-dark rounded-xl font-bold hover:bg-brand-yellow transition-colors shadow-[2px_2px_0px_0px_#1A1A1A]"
                     >
-                      Change Avatar
+                      {settingsCopy.profile.changeAvatar}
                     </button>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Field label="First Name" value={profile.firstName} onChange={(value) => updateProfile('firstName', value)} />
-                    <Field label="Last Name" value={profile.lastName} onChange={(value) => updateProfile('lastName', value)} />
-                    <Field label="Email Address" type="email" value={profile.email} onChange={(value) => updateProfile('email', value)} className="md:col-span-2" />
-                    <Field label="School / Organization" value={profile.school} onChange={(value) => updateProfile('school', value)} className="md:col-span-2" />
+                    <Field label={settingsCopy.profile.firstName} value={profile.firstName} onChange={(value) => updateProfile('firstName', value)} />
+                    <Field label={settingsCopy.profile.lastName} value={profile.lastName} onChange={(value) => updateProfile('lastName', value)} />
+                    <Field label={settingsCopy.profile.email} type="email" value={profile.email} onChange={(value) => updateProfile('email', value)} className="md:col-span-2" />
+                    <Field label={settingsCopy.profile.school} value={profile.school} onChange={(value) => updateProfile('school', value)} className="md:col-span-2" />
                   </div>
                 </div>
               )}
 
               {activeTab === 'notifications' && (
                 <div className="space-y-6">
-                  <h2 className="text-2xl font-black">Notification Preferences</h2>
-                  <ToggleRow label="Email updates on new features" checked={settingsState.notifications.featureUpdates} onChange={(checked) => updateNotifications('featureUpdates', checked)} />
-                  <ToggleRow label="Weekly class performance reports" checked={settingsState.notifications.weeklyReports} onChange={(checked) => updateNotifications('weeklyReports', checked)} />
-                  <ToggleRow label="Student join alerts" checked={settingsState.notifications.studentJoinAlerts} onChange={(checked) => updateNotifications('studentJoinAlerts', checked)} />
-                  <ToggleRow label="Marketing and promotional emails" checked={settingsState.notifications.marketingEmails} onChange={(checked) => updateNotifications('marketingEmails', checked)} />
+                  <h2 className="text-2xl font-black">{settingsCopy.notifications.title}</h2>
+                  <ToggleRow label={settingsCopy.notifications.featureUpdates} checked={settingsState.notifications.featureUpdates} onChange={(checked) => updateNotifications('featureUpdates', checked)} />
+                  <ToggleRow label={settingsCopy.notifications.weeklyReports} checked={settingsState.notifications.weeklyReports} onChange={(checked) => updateNotifications('weeklyReports', checked)} />
+                  <ToggleRow label={settingsCopy.notifications.studentJoinAlerts} checked={settingsState.notifications.studentJoinAlerts} onChange={(checked) => updateNotifications('studentJoinAlerts', checked)} />
+                  <ToggleRow label={settingsCopy.notifications.marketingEmails} checked={settingsState.notifications.marketingEmails} onChange={(checked) => updateNotifications('marketingEmails', checked)} />
                 </div>
               )}
 
               {activeTab === 'security' && (
                 <div className="space-y-6">
-                  <h2 className="text-2xl font-black">Security Settings</h2>
-                  <p className="text-brand-dark/60 font-bold">This demo saves the preference locally. Connect a real auth backend to enforce password changes.</p>
-                  <Field label="Current Password" type="password" value={securityForm.current} onChange={(value) => setSecurityForm((current) => ({ ...current, current: value }))} />
-                  <Field label="New Password" type="password" value={securityForm.next} onChange={(value) => setSecurityForm((current) => ({ ...current, next: value }))} />
-                  <Field label="Confirm New Password" type="password" value={securityForm.confirm} onChange={(value) => setSecurityForm((current) => ({ ...current, confirm: value }))} />
+                  <h2 className="text-2xl font-black">{settingsCopy.security.title}</h2>
+                  <p className="text-brand-dark/60 font-bold">{settingsCopy.security.description}</p>
+                  <Field label={settingsCopy.security.currentPassword} type="password" value={securityForm.current} onChange={(value) => setSecurityForm((current) => ({ ...current, current: value }))} />
+                  <Field label={settingsCopy.security.newPassword} type="password" value={securityForm.next} onChange={(value) => setSecurityForm((current) => ({ ...current, next: value }))} />
+                  <Field label={settingsCopy.security.confirmPassword} type="password" value={securityForm.confirm} onChange={(value) => setSecurityForm((current) => ({ ...current, confirm: value }))} />
                 </div>
               )}
 
               {activeTab === 'appearance' && (
-                <div className="space-y-6">
-                  <h2 className="text-2xl font-black">Appearance</h2>
-                  <p className="text-brand-dark/60 font-bold">Theme preference is stored and can be wired into a global theme switch later.</p>
-                  <div className="flex gap-4">
-                    {(['light', 'dark'] as const).map((theme) => (
-                      <button
-                        key={theme}
-                        onClick={() => setSettingsState((current) => ({ ...current, appearance: { theme } }))}
-                        className={`w-28 h-28 rounded-2xl border-4 border-brand-dark flex items-center justify-center shadow-[4px_4px_0px_0px_#1A1A1A] ${settingsState.appearance.theme === theme ? 'bg-brand-orange text-white' : theme === 'light' ? 'bg-brand-bg text-brand-dark' : 'bg-brand-dark text-white'}`}
-                      >
-                        <span className="font-black text-lg capitalize">{theme}</span>
-                      </button>
-                    ))}
+                <div className="space-y-8">
+                  <div>
+                    <h2 className="text-2xl font-black">{settingsCopy.appearance.title}</h2>
+                    <p className="text-brand-dark/60 font-bold mt-2">{settingsCopy.appearance.description}</p>
+                  </div>
+
+                  <div>
+                    <h3 className="text-xl font-black">{settingsCopy.appearance.themeTitle}</h3>
+                    <p className="text-brand-dark/60 font-bold mt-2 mb-4">{settingsCopy.appearance.themeDescription}</p>
+                    <div className="flex gap-4 flex-wrap">
+                      {(['light', 'dark'] as const).map((theme) => (
+                        <button
+                          key={theme}
+                          onClick={() => updateAppearance('theme', theme)}
+                          className={`w-28 h-28 rounded-2xl border-4 border-brand-dark flex items-center justify-center shadow-[4px_4px_0px_0px_#1A1A1A] ${settingsState.appearance.theme === theme ? 'bg-brand-orange text-white' : theme === 'light' ? 'bg-brand-bg text-brand-dark' : 'bg-brand-dark text-white'}`}
+                        >
+                          <span className="font-black text-lg">{theme === 'light' ? settingsCopy.appearance.light : settingsCopy.appearance.dark}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-xl font-black">{settingsCopy.appearance.languageTitle}</h3>
+                    <p className="text-brand-dark/60 font-bold mt-2 mb-4">{settingsCopy.appearance.languageDescription}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {([
+                        { id: 'en', label: settingsCopy.appearance.english },
+                        { id: 'he', label: settingsCopy.appearance.hebrew },
+                      ] as const).map((option) => (
+                        <button
+                          key={option.id}
+                          onClick={() => updateAppearance('language', option.id)}
+                          className={`rounded-2xl border-4 border-brand-dark p-5 text-start shadow-[4px_4px_0px_0px_#1A1A1A] transition-colors ${settingsState.appearance.language === option.id ? 'bg-brand-purple text-white' : 'bg-brand-bg text-brand-dark'}`}
+                        >
+                          <p className="text-xs font-black uppercase tracking-[0.18em] opacity-70 mb-2">
+                            {option.id.toUpperCase()}
+                          </p>
+                          <p className="text-2xl font-black">{option.label}</p>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
@@ -274,9 +325,10 @@ function Field({
       <label className="block text-sm font-bold uppercase tracking-wider mb-2">{label}</label>
       <input
         type={type}
+        dir={type === 'email' || type === 'password' ? 'ltr' : 'auto'}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full bg-brand-bg border-2 border-brand-dark rounded-xl p-3 font-bold focus:outline-none focus:ring-2 focus:ring-brand-orange/20"
+        className={`w-full bg-brand-bg border-2 border-brand-dark rounded-xl p-3 font-bold focus:outline-none focus:ring-2 focus:ring-brand-orange/20 ${type === 'email' || type === 'password' ? 'text-left' : ''}`}
       />
     </div>
   );

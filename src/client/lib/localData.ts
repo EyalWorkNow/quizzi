@@ -13,8 +13,11 @@ export interface TeacherNotifications {
   marketingEmails: boolean;
 }
 
+export type TeacherLanguage = 'en' | 'he';
+
 export interface TeacherAppearance {
   theme: 'light' | 'dark';
+  language: TeacherLanguage;
 }
 
 export interface TeacherSettingsState {
@@ -71,6 +74,7 @@ const DEFAULT_SETTINGS: TeacherSettingsState = {
   },
   appearance: {
     theme: 'light',
+    language: 'en',
   },
 };
 
@@ -143,7 +147,11 @@ export function loadTeacherSettings(): TeacherSettingsState {
   return {
     profile: { ...DEFAULT_SETTINGS.profile, ...(value.profile || {}) },
     notifications: { ...DEFAULT_SETTINGS.notifications, ...(value.notifications || {}) },
-    appearance: { ...DEFAULT_SETTINGS.appearance, ...(value.appearance || {}) },
+    appearance: {
+      ...DEFAULT_SETTINGS.appearance,
+      ...(value.appearance || {}),
+      language: value.appearance?.language === 'he' ? 'he' : 'en',
+    },
   };
 }
 
