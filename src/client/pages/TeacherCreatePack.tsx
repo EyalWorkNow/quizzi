@@ -631,68 +631,91 @@ export default function TeacherCreatePack() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-brand-dark/95 backdrop-blur-xl"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-brand-bg/98 backdrop-blur-md"
           >
-            <div className="max-w-xl w-full px-8 text-center relative">
-              <div className="absolute inset-0 pointer-events-none">
-                {[...Array(12)].map((_, i) => (
-                  <motion.div
-                    key={i}
-                    animate={{
-                      y: [-20, 20, -20],
-                      x: [-20, 20, -20],
-                      scale: [1, 1.5, 1],
-                      opacity: [0.3, 0.6, 0.3],
-                    }}
-                    transition={{
-                      duration: 3 + Math.random() * 2,
-                      repeat: Infinity,
-                      delay: i * 0.2,
-                    }}
-                    className="absolute w-2 h-2 rounded-full bg-brand-orange"
-                    style={{
-                      top: `${Math.random() * 100}%`,
-                      left: `${Math.random() * 100}%`,
-                    }}
-                  />
-                ))}
-              </div>
+            {/* Playful Floating Elements */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              {[...Array(8)].map((_, i) => (
+                <motion.div
+                  key={i}
+                  animate={{
+                    y: [0, -30, 0],
+                    rotate: [0, 360],
+                    scale: [1, 1.2, 1],
+                  }}
+                  transition={{
+                    duration: 4 + Math.random() * 4,
+                    repeat: Infinity,
+                    ease: "easeInOut",
+                    delay: i * 0.5,
+                  }}
+                  className={`absolute opacity-20 text-6xl`}
+                  style={{
+                    top: `${Math.random() * 80 + 10}%`,
+                    left: `${Math.random() * 80 + 10}%`,
+                  }}
+                >
+                  {['✨', '🧬', '🧪', '👾', '🚀', '🧠', '🎈', '⭐'][i % 8]}
+                </motion.div>
+              ))}
+              
+              {/* Bold Geometric background shapes */}
+              <div className="absolute top-[-10%] left-[-5%] w-96 h-96 bg-brand-yellow/10 rounded-full border-8 border-brand-dark/5" />
+              <div className="absolute bottom-[-10%] right-[-5%] w-[400px] h-[400px] bg-brand-purple/10 rounded-full border-8 border-brand-dark/5" />
+            </div>
 
+            <div className="max-w-2xl w-full px-8 text-center relative z-10">
               <motion.div
                 animate={{
-                  scale: [1, 1.05, 1],
-                  rotate: [0, 2, -2, 0],
+                  scale: [1, 1.08, 1],
+                  rotate: [-2, 2, -2],
                 }}
-                transition={{ repeat: Infinity, duration: 3 }}
-                className="w-40 h-40 bg-white rounded-[3rem] border-8 border-brand-orange flex items-center justify-center mx-auto mb-12 shadow-[12px_12px_0px_0px_#FF5A36] relative overflow-hidden"
+                transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                className="w-48 h-48 bg-white rounded-[3.5rem] border-8 border-brand-dark flex items-center justify-center mx-auto mb-10 shadow-[20px_20px_0px_0px_#FF5A36] relative"
               >
-                <div className="absolute inset-0 bg-brand-yellow/10 animate-pulse" />
-                <Sparkles className="w-20 h-20 text-brand-dark relative z-10" />
+                <div className="absolute inset-0 bg-brand-yellow/20 animate-pulse rounded-[3rem]" />
+                <Sparkles className="w-24 h-24 text-brand-dark relative z-10 animate-bounce" />
+                
+                {/* Floating particles around central icon */}
+                <motion.div 
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                  className="absolute inset-[-20px] border-4 border-dashed border-brand-purple/40 rounded-full"
+                />
               </motion.div>
 
-              <h3 className="text-5xl font-black text-white mb-6 tracking-tight italic">
-                {generationStep.includes('Reading') ? 'Knowledge Extraction...' : 
-                 generationStep.includes('Generating') ? 'Synthesizing Items...' : 
-                 generationStep.includes('Compressing') ? 'Optimizing Material...' : 'Brewing Magic...'}
-              </h3>
-              
-              <div className="w-full h-4 bg-white/10 rounded-full border-2 border-white/20 overflow-hidden mb-6">
-                <motion.div
-                  className="h-full bg-gradient-to-r from-brand-orange to-brand-yellow"
-                  initial={{ width: '0%' }}
-                  animate={{ width: '100%' }}
-                  transition={{ duration: 15, ease: "linear" }}
-                />
+              <div className="space-y-4 mb-10">
+                <h3 className="text-6xl md:text-7xl font-black text-brand-dark tracking-tighter italic uppercase leading-none">
+                  Brewing<br/>
+                  <span className="text-brand-orange drop-shadow-[4px_4px_0px_#1A1A1A]">Magic...</span>
+                </h3>
               </div>
-
-              <p className="text-brand-yellow font-black text-2xl uppercase tracking-widest">
-                {generationStep}
-              </p>
               
-              <div className="mt-12 flex items-center justify-center gap-4">
-                <div className="h-1 w-12 bg-white/20 rounded-full" />
-                <span className="text-white/40 font-bold uppercase tracking-widest text-xs">AI-Agent is active</span>
-                <div className="h-1 w-12 bg-white/20 rounded-full" />
+              <div className="max-w-md mx-auto">
+                <div className="w-full h-8 bg-white rounded-full border-4 border-brand-dark overflow-hidden mb-6 shadow-[6px_6px_0px_0px_#1A1A1A]">
+                  <motion.div
+                    className="h-full bg-brand-yellow border-r-4 border-brand-dark"
+                    initial={{ width: '0%' }}
+                    animate={{ width: '100%' }}
+                    transition={{ duration: 12, ease: "linear" }}
+                  />
+                </div>
+
+                <div className="flex flex-col items-center gap-3">
+                  <motion.p 
+                    key={generationStep}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-brand-purple font-black text-2xl uppercase tracking-[0.2em] italic"
+                  >
+                    {generationStep}
+                  </motion.p>
+                  
+                  <div className="flex items-center gap-4 bg-white px-6 py-3 rounded-2xl border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
+                    <div className="w-3 h-3 bg-brand-orange rounded-full animate-ping" />
+                    <span className="text-brand-dark font-black uppercase tracking-widest text-xs">Quizzi AI engine is active</span>
+                  </div>
+                </div>
               </div>
             </div>
           </motion.div>
