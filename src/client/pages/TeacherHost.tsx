@@ -46,11 +46,9 @@ export default function TeacherHost() {
   const peerVoteAdvanceKeyRef = useRef('');
   const lastStateChangeAtRef = useRef(Date.now());
   const lastPhaseKeyRef = useRef(`${status}:${questionIndex}`);
+  const hasInitializedPhaseRef = useRef(false);
 
-  if (lastPhaseKeyRef.current !== `${status}:${questionIndex}`) {
-    lastPhaseKeyRef.current = `${status}:${questionIndex}`;
-    lastStateChangeAtRef.current = Date.now();
-  }
+  // Transition tracking moved fully to Effects
 
   const gameMode = getGameMode(sessionMeta?.game_type);
   const gameTone = getGameModeTone(gameMode.id);
@@ -96,18 +94,26 @@ export default function TeacherHost() {
   }, [modeConfig, sessionMeta?.game_type]);
 
   useEffect(() => {
+    // Force targetTime calculation to be stable
+    let targetSeconds = 0;
     if (status === 'QUESTION_ACTIVE') {
-      setPhaseTimeLeft(activeQuestionSeconds);
+      targetSeconds = activeQuestionSeconds;
+    } else if (status === 'QUESTION_DISCUSSION') {
+      targetSeconds = discussionSeconds;
+    } else if (status === 'QUESTION_REVOTE') {
+      targetSeconds = revoteSeconds;
+    }
+
+    if (targetSeconds > 0) {
+      setPhaseTimeLeft(targetSeconds);
+      lastStateChangeAtRef.current = Date.now();
+      lastPhaseKeyRef.current = `${status}:${questionIndex}`;
+      hasInitializedPhaseRef.current = true;
       autoAdvanceKeyRef.current = '';
       peerVoteAdvanceKeyRef.current = '';
-    } else if (status === 'QUESTION_DISCUSSION') {
-      setPhaseTimeLeft(discussionSeconds);
-      autoAdvanceKeyRef.current = '';
-    } else if (status === 'QUESTION_REVOTE') {
-      setPhaseTimeLeft(revoteSeconds);
-      autoAdvanceKeyRef.current = '';
     } else {
       setPhaseTimeLeft(0);
+      hasInitializedPhaseRef.current = false;
     }
   }, [activeQuestionSeconds, discussionSeconds, questionIndex, revoteSeconds, status]);
 
@@ -483,9 +489,14 @@ export default function TeacherHost() {
       return;
     }
 
-    // Prevents immediate "Time's Up" if phaseTimeLeft hasn't updated yet or if we just started
-    // We allow a 2.5 second window for the state transition to settle.
-    if (phaseTimeLeft > 0 || Date.now() - lastStateChangeAtRef.current < 2500) {
+    // Safety guards against race conditions:
+    // 1. Don't advance if we haven't even initialized the phase timer yet
+    // 2. Don't advance if the timer is still showing time left
+    // 3. Don't advance if we just transitioned in the last 3000ms (grace period)
+    const now = Date.now();
+    const elapsedSinceTransition = now - lastStateChangeAtRef.current;
+    
+    if (!hasInitializedPhaseRef.current || phaseTimeLeft > 0 || elapsedSinceTransition < 3000) {
       return;
     }
 
