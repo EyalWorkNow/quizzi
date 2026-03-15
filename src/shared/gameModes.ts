@@ -33,6 +33,9 @@ export type GameModeDefinition = {
   objectives: string[];
   bestFor: string[];
   defaultModeConfig: GameModeConfig;
+  hexColor: string;
+  accentColor: string;
+  visualVibe: string; // Used for CSS background patterns or imagery
 };
 
 export const GAME_MODES: readonly GameModeDefinition[] = [
@@ -53,6 +56,9 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     defaultModeConfig: {
       scoring_profile: 'standard',
     },
+    hexColor: '#6366f1', // Indigo
+    accentColor: '#818cf8',
+    visualVibe: 'dots-grid',
   },
   {
     id: 'speed_sprint',
@@ -74,6 +80,9 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
       max_time_limit_seconds: 18,
       scoring_profile: 'speed',
     },
+    hexColor: '#f97316', // Orange
+    accentColor: '#fb923c',
+    visualVibe: 'speed-lines',
   },
   {
     id: 'confidence_climb',
@@ -93,6 +102,9 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
       requires_confidence: true,
       scoring_profile: 'confidence',
     },
+    hexColor: '#8b5cf6', // Violet
+    accentColor: '#a78bfa',
+    visualVibe: 'stepped-gradient',
   },
   {
     id: 'peer_pods',
@@ -114,6 +126,9 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
       revote_seconds: 22,
       scoring_profile: 'standard',
     },
+    hexColor: '#ec4899', // Pink
+    accentColor: '#f472b6',
+    visualVibe: 'concentric-circles',
   },
   {
     id: 'team_relay',
@@ -132,6 +147,9 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     defaultModeConfig: {
       scoring_profile: 'standard',
     },
+    hexColor: '#10b981', // Emerald
+    accentColor: '#34d399',
+    visualVibe: 'diagonal-stripes',
   },
   {
     id: 'mastery_matrix',
@@ -150,6 +168,9 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     defaultModeConfig: {
       scoring_profile: 'coverage',
     },
+    hexColor: '#06b6d4', // Cyan
+    accentColor: '#22d3ee',
+    visualVibe: 'ortho-grid',
   },
 ] as const;
 

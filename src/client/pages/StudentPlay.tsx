@@ -638,93 +638,120 @@ export default function StudentPlay() {
     }
 
     return (
-      <div className="min-h-screen bg-brand-bg flex flex-col p-4 sm:p-5 md:p-8 selection:bg-brand-orange selection:text-white">
-        <div className="mb-6 sm:mb-8 max-w-6xl mx-auto w-full flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
-          <div className="flex flex-wrap items-center gap-3 sm:gap-4 min-w-0">
-            <button
+      <div className="min-h-screen bg-brand-bg flex flex-col p-4 sm:p-6 md:p-10 selection:bg-brand-orange selection:text-white relative overflow-hidden">
+        {/* Dynamic Background Pattern */}
+        <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03]">
+          <motion.div 
+            animate={{ 
+              rotate: [0, 360],
+              scale: [1, 1.1, 1]
+            }}
+            transition={{ duration: 60, repeat: Infinity, ease: "linear" }}
+            className="absolute -top-1/2 -left-1/2 w-[200%] h-[200%]"
+            style={{ 
+              backgroundImage: `radial-gradient(circle at center, #1A1A1A 2px, transparent 2px)`,
+              backgroundSize: timeLeft < 5 ? '20px 20px' : '40px 40px',
+              transition: 'background-size 0.5s ease'
+            }}
+          />
+        </div>
+
+        {/* Top HUD */}
+        <div className="relative z-10 mb-8 max-w-6xl mx-auto w-full flex flex-col gap-5 lg:grid lg:grid-cols-[1fr_auto_auto] lg:items-center">
+          <div className="flex flex-wrap items-center gap-4">
+            <motion.button
+              whileHover={{ scale: 1.1, rotate: -5 }}
+              whileTap={{ scale: 0.9 }}
               onClick={() => {
                 if (window.confirm('Are you sure you want to leave the game?')) {
                   navigate(`/student/dashboard/${nickname}`);
                 }
               }}
-              className="w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center bg-white border-4 border-brand-dark rounded-full hover:bg-brand-orange hover:text-white transition-colors shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none shrink-0"
-              title="Leave Game"
+              className="w-14 h-14 flex items-center justify-center bg-white border-4 border-brand-dark rounded-2xl shadow-[4px_4px_0px_0px_#1A1A1A] transition-all hover:bg-brand-orange hover:text-white"
             >
-              <XCircle className="w-6 h-6" />
-            </button>
-            <div className="min-w-0 flex items-center gap-3 bg-white px-4 sm:px-6 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
-              <span className="text-xl sm:text-2xl shrink-0">{avatar}</span>
-              <span className="font-black text-lg sm:text-xl truncate">{nickname}</span>
+              <XCircle className="w-7 h-7" />
+            </motion.button>
+            <div className="flex items-center gap-4 bg-white px-6 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
+              <span className="text-3xl">{avatar}</span>
+              <span className="font-black text-xl lg:text-2xl">{nickname}</span>
             </div>
             {(teamName || isTeamGameLabel(sessionMeta?.game_type || savedGameType)) && (
-              <div className="flex items-center gap-3 bg-brand-yellow px-4 sm:px-5 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] min-w-0">
-                <Sparkles className="w-5 h-5 text-brand-dark" />
-                <span className="font-black truncate">{teamName || 'Team mode'}</span>
+              <div className="flex items-center gap-3 bg-brand-yellow px-6 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <Sparkles className="w-6 h-6 text-brand-dark" />
+                <span className="font-black text-lg">{teamName || 'Team mode'}</span>
               </div>
             )}
-            <div className={`px-4 sm:px-5 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] font-black ${gameTone.pill}`}>
-              {stageTitle}
-            </div>
           </div>
 
-          <div className="w-full justify-center lg:w-auto flex items-center gap-3 bg-brand-dark text-white px-5 sm:px-6 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#FF5A36]">
-            <Clock className="w-6 h-6 text-brand-yellow" />
-            <span className="font-black text-2xl w-8 text-center">{timeLeft}</span>
+          <div className={`flex items-center gap-4 bg-brand-dark text-white px-8 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[6px_6px_0px_0px_#FF5A36] transition-transform ${timeLeft < 5 ? 'animate-bounce' : ''}`}>
+            <Clock className={`w-8 h-8 ${timeLeft < 5 ? 'text-brand-orange' : 'text-brand-yellow'}`} />
+            <span className={`font-black text-3xl w-10 text-center ${timeLeft < 5 ? 'text-brand-orange' : ''}`}>{timeLeft}</span>
           </div>
 
-          <div className="w-full justify-center lg:w-auto flex items-center gap-3 bg-white px-5 sm:px-6 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
-            <Star className="w-6 h-6 text-brand-orange fill-current" />
-            <span className="font-black text-xl">{score}</span>
+          <div className="flex items-center gap-4 bg-white px-8 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A]">
+            <Trophy className="w-8 h-8 text-brand-yellow fill-current" />
+            <span className="font-black text-2xl">{score}</span>
           </div>
         </div>
 
+        {/* Question Area */}
         <motion.div
-          initial={{ y: -20, opacity: 0 }}
+          initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          className="bg-white rounded-[2.2rem] sm:rounded-[3rem] p-6 sm:p-9 lg:p-12 border-4 border-brand-dark mb-6 text-center shadow-[12px_12px_0px_0px_#1A1A1A] max-w-6xl mx-auto w-full relative overflow-hidden"
+          className="relative z-10 bg-white rounded-[2.5rem] p-8 sm:p-12 lg:p-14 border-4 border-brand-dark mb-8 text-center shadow-[16px_16px_0px_0px_#1A1A1A] max-w-6xl mx-auto w-full overflow-hidden"
         >
-          <div className="absolute top-0 left-0 w-full h-2 bg-brand-dark/10">
+          {/* Progress Bar */}
+          <div className="absolute top-0 left-0 w-full h-3 bg-brand-dark/5">
             <motion.div
-              className="h-full bg-brand-orange"
+              className={`h-full ${timeLeft < 5 ? 'bg-brand-orange' : 'bg-brand-purple'}`}
               initial={{ width: '100%' }}
               animate={{ width: `${(timeLeft / Math.max(1, Number(question?.time_limit_seconds || 30))) * 100}%` }}
               transition={{ duration: 1, ease: 'linear' }}
             />
           </div>
-          <div className="flex flex-wrap justify-center gap-2 mb-4">
-            <span className={`px-3 py-2 rounded-full border-2 border-brand-dark text-xs font-black uppercase tracking-[0.2em] ${gameTone.pill}`}>
+
+          <div className="flex flex-wrap justify-center gap-3 mb-6">
+            <div className={`px-4 py-1.5 rounded-full border-2 border-brand-dark text-xs font-black uppercase tracking-widest ${gameTone.pill}`}>
               {gameMode.shortLabel}
-            </span>
-            <span className="px-3 py-2 rounded-full bg-brand-bg border-2 border-brand-dark text-xs font-black uppercase tracking-[0.2em] text-brand-dark/70">
-              {gameMode.researchCue}
-            </span>
+            </div>
+            <div className="px-4 py-1.5 rounded-full bg-brand-bg border-2 border-brand-dark text-xs font-black uppercase tracking-widest text-brand-dark/60">
+              {stageTitle}
+            </div>
           </div>
-          <h2 className="text-[2rem] xs:text-[2.3rem] md:text-6xl font-black text-brand-dark leading-tight mb-3">{question?.prompt}</h2>
-          <p className="text-lg sm:text-xl font-bold text-brand-dark/60 max-w-3xl mx-auto">{stageBody}</p>
+          
+          <h2 className="text-3xl sm:text-4xl md:text-6xl font-black text-brand-dark leading-tight mb-4 tracking-tight">
+            {question?.prompt}
+          </h2>
+          <p className="text-lg sm:text-xl font-bold text-brand-dark/40 max-w-3xl mx-auto">{stageBody}</p>
         </motion.div>
 
+        {/* Confidence Check */}
         {needsConfidence && (
-          <div className="max-w-6xl mx-auto w-full mb-6">
-            <div className="bg-white rounded-[2rem] border-4 border-brand-dark p-5 shadow-[8px_8px_0px_0px_#1A1A1A]">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Confidence check</p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="relative z-10 max-w-6xl mx-auto w-full mb-8">
+            <div className="bg-brand-bg/50 backdrop-blur-md rounded-[2.5rem] border-4 border-brand-dark/10 p-6 flex flex-col md:flex-row items-center gap-6">
+              <div className="shrink-0 flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-brand-purple border-4 border-brand-dark flex items-center justify-center">
+                  <Flame className="w-6 h-6 text-white" />
+                </div>
+                <span className="font-black text-sm uppercase tracking-widest">Confidence</span>
+              </div>
+              <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
                 {[
-                  { id: 1, label: 'Need a guess', body: 'Low confidence, still learning the pattern.' },
-                  { id: 2, label: 'Pretty sure', body: 'You recognize it, but want feedback.' },
-                  { id: 3, label: 'Certain', body: 'You could explain why it is correct.' },
+                  { id: 1, label: 'GUESS', icon: '🤔' },
+                  { id: 2, label: 'SURE', icon: '👍' },
+                  { id: 3, label: 'EXPERT', icon: '🧠' },
                 ].map((option) => (
                   <button
                     key={option.id}
-                    type="button"
                     onClick={() => setSelectedConfidence(option.id)}
-                    className={`rounded-[1.5rem] border-4 p-4 text-left transition-all ${
+                    className={`px-6 py-4 rounded-2xl border-4 font-black flex items-center justify-center gap-3 transition-all ${
                       selectedConfidence === option.id
-                        ? 'bg-brand-purple text-white border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]'
-                        : 'bg-brand-bg text-brand-dark border-brand-dark/20'
+                        ? 'bg-brand-purple text-white border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] scale-105'
+                        : 'bg-white text-brand-dark border-brand-dark/10 hover:border-brand-dark'
                     }`}
                   >
-                    <p className="text-lg font-black mb-1">{option.label}</p>
-                    <p className={`font-bold ${selectedConfidence === option.id ? 'text-white/80' : 'text-brand-dark/60'}`}>{option.body}</p>
+                    <span>{option.icon}</span>
+                    {option.label}
                   </button>
                 ))}
               </div>
@@ -732,49 +759,67 @@ export default function StudentPlay() {
           </div>
         )}
 
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 max-w-6xl mx-auto w-full">
-          <AnimatePresence>
+        {/* Answers Grid */}
+        <div className="relative z-10 flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-6xl mx-auto w-full mb-12">
+          <AnimatePresence mode="popLayout">
             {question?.answers?.map((ans: string, i: number) => {
               const isSelected = currentSelectedAnswer === i;
               return (
                 <motion.button
-                  initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                  animate={{ scale: 1, opacity: 1, y: 0 }}
-                  exit={{ scale: 0.9, opacity: 0 }}
-                  transition={{ delay: i * 0.1, type: 'spring', bounce: 0.4 }}
-                  key={i}
+                  key={`ans-${i}`}
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ 
+                    scale: isSelected ? 1.02 : 1, 
+                    opacity: 1,
+                    y: isSelected ? -4 : 0
+                  }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 20 }}
                   onClick={() => handleAnswerSelect(i)}
                   onMouseEnter={() => beginHoverDwell(i)}
                   onMouseLeave={() => flushHoverDwell()}
-                  onFocus={() => beginHoverDwell(i)}
-                  onBlur={() => flushHoverDwell()}
-                  className={`${COLORS[i % 4].bg} ${COLORS[i % 4].text} border-4 ${COLORS[i % 4].border} rounded-[2rem] sm:rounded-[3rem] flex min-h-[120px] sm:min-h-[160px] items-center justify-center p-6 sm:p-8 lg:p-10 text-xl xs:text-2xl md:text-4xl font-black ${COLORS[i % 4].shadow} ${
-                    isSelected ? 'ring-4 ring-brand-dark scale-[1.01]' : ''
-                  } hover:translate-y-[4px] hover:translate-x-[4px] hover:shadow-[4px_4px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[8px] active:translate-x-[8px] transition-all relative overflow-hidden group`}
+                  className={`
+                    group relative flex min-h-[140px] md:min-h-[180px] items-center justify-center p-8 text-2xl md:text-4xl font-black rounded-[2.5rem] border-4 transition-all
+                    ${isSelected 
+                      ? 'bg-brand-dark text-white border-brand-dark shadow-[12px_12px_0px_0px_#FF5A36]' 
+                      : `${COLORS[i % 4].bg} ${COLORS[i % 4].text} border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] hover:translate-x-1 hover:translate-y-1 hover:shadow-none`
+                    }
+                  `}
                 >
-                  <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-black/10 rounded-full scale-0 group-hover:scale-100 transition-transform duration-500"></div>
-                  <span className="relative z-10 break-words">{ans}</span>
+                  <div className="absolute top-6 left-8 text-sm opacity-20 font-black tracking-widest">0{i + 1}</div>
+                  <span className="relative z-10">{ans}</span>
+                  
+                  {/* Selection Indicator */}
+                  {isSelected && (
+                    <motion.div 
+                      layoutId="choice-spark"
+                      className="absolute inset-0 border-8 border-brand-orange/30 rounded-[2.5rem] pointer-events-none"
+                    />
+                  )}
                 </motion.button>
               );
             })}
           </AnimatePresence>
         </div>
 
+        {/* Final Lock-in Action */}
         <AnimatePresence>
           {currentSelectedAnswer !== null && !hasAnswered && (
             <motion.div
               initial={{ y: 100, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 100, opacity: 0 }}
-              className="fixed bottom-4 sm:bottom-8 left-0 right-0 flex justify-center z-50 px-4"
+              className="fixed bottom-8 left-0 right-0 flex justify-center z-50 px-6"
             >
-              <button
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.95 }}
                 onClick={handleLockIn}
-                className="w-full max-w-md justify-center bg-brand-dark text-white text-xl sm:text-3xl font-black px-8 sm:px-12 py-4 sm:py-6 rounded-full border-4 border-brand-dark shadow-[8px_8px_0px_0px_#FF5A36] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none active:translate-y-[4px] active:translate-x-[4px] transition-all flex items-center gap-3 sm:gap-4 group"
+                className="w-full max-w-lg bg-brand-dark text-white py-6 rounded-full border-4 border-brand-dark shadow-[12px_12px_0px_0px_#FF5A36] flex items-center justify-center gap-5 group overflow-hidden relative"
               >
-                <CheckCircle className="w-6 h-6 sm:w-8 sm:h-8 text-brand-yellow group-hover:scale-125 transition-transform" />
-                {lockLabel}
-              </button>
+                <div className="absolute inset-0 bg-brand-orange/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                <CheckCircle className="w-10 h-10 text-brand-yellow group-hover:scale-125 transition-transform relative z-10" />
+                <span className="text-2xl md:text-3xl font-black relative z-10">{lockLabel}</span>
+              </motion.button>
             </motion.div>
           )}
         </AnimatePresence>

@@ -3,34 +3,41 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowUpRight,
   BarChart,
+  BarChart3,
+  BookOpen,
   Building2,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
+  ChevronRight,
   Compass,
   Copy,
   Filter,
   Globe,
   HelpCircle,
   History,
+  Layout,
   Leaf,
   Library,
   LogOut,
   Map,
+  Menu,
   Mountain,
   Play,
   Plus,
   RefreshCw,
+  Rocket,
   Search,
   Settings,
   Sparkles,
   Trash2,
   Users,
   Wind,
+  X,
   XCircle,
   Zap,
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { loadTeacherSettings } from '../lib/localData.ts';
 import { trackTeacherSessionLaunch } from '../lib/appAnalytics.ts';
 import { signOutTeacher } from '../lib/teacherAuth.ts';
@@ -1031,138 +1038,203 @@ export default function TeacherDashboard() {
       )}
 
       {hostingPack && (
-        <div className="fixed inset-0 bg-black/35 z-50 flex items-center justify-center p-6">
-          <div className="w-full max-w-4xl bg-white rounded-[2.4rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#1A1A1A] p-6 lg:p-8">
-            <div className="flex items-start justify-between gap-4 mb-6">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            className="w-full max-w-6xl bg-white rounded-[2.5rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] overflow-hidden flex flex-col max-h-[90vh]"
+          >
+            {/* Modal Header */}
+            <div className="p-6 lg:p-8 border-b-4 border-brand-dark bg-brand-bg flex items-center justify-between gap-6">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Launch Setup</p>
-                <h2 className="text-3xl font-black">{hostingPack.title}</h2>
-                <p className="font-bold text-brand-dark/60 mt-2">Pick an evidence-backed format fast. Every option still runs on the same 4-answer question model you already generate.</p>
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="px-3 py-1 rounded-full bg-brand-purple text-white text-[10px] font-black uppercase tracking-widest border-2 border-brand-dark">
+                    Launch Center
+                  </div>
+                  <div className="h-1 w-8 bg-brand-dark/20 rounded-full" />
+                  <span className="text-xs font-bold text-brand-dark/40 uppercase tracking-widest">Setup Phase</span>
+                </div>
+                <h2 className="text-4xl font-black text-brand-dark leading-tight">{hostingPack.title}</h2>
               </div>
               <button
                 onClick={() => setHostingPack(null)}
-                className="w-11 h-11 rounded-full border-2 border-brand-dark flex items-center justify-center bg-brand-bg"
+                className="w-14 h-14 rounded-full border-4 border-brand-dark flex items-center justify-center bg-white hover:bg-brand-orange hover:text-white transition-all shadow-[4px_4px_0px_0px_#1A1A1A] active:shadow-none active:translate-x-1 active:translate-y-1"
               >
-                <XCircle className="w-5 h-5" />
+                <X className="w-6 h-6" />
               </button>
             </div>
 
-            <div className="rounded-[1.8rem] border-2 border-brand-dark bg-brand-bg p-5 mb-6">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-3">Quick picks for this pack</p>
-              <div className="flex flex-wrap gap-3">
-                {recommendModesForPack(hostingPack).map((modeId) => {
-                  const mode = getGameMode(modeId);
-                  const active = selectedGameMode === mode.id;
-                  return (
-                    <button
-                      key={`recommended-${mode.id}`}
-                      onClick={() => {
-                        setSelectedGameMode(mode.id);
-                        setSelectedTeamCount(mode.defaultTeamCount || 4);
-                      }}
-                      className={`px-4 py-3 rounded-full border-2 border-brand-dark font-black transition-all ${active ? 'bg-brand-orange text-white shadow-[3px_3px_0px_0px_#1A1A1A]' : 'bg-white text-brand-dark'}`}
-                    >
-                      {mode.shortLabel}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <div className="flex-1 overflow-y-auto p-6 lg:p-8 bg-white">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8">
+                {/* Format Selection Grid */}
+                <div className="space-y-8">
+                  <div>
+                    <h3 className="text-xl font-black mb-4 flex items-center gap-3">
+                      <Sparkles className="w-6 h-6 text-brand-orange" />
+                      Choose your game format
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {GAME_MODES.map((mode) => {
+                        const isActive = selectedGameMode === mode.id;
+                        return (
+                          <motion.button
+                            key={mode.id}
+                            whileHover={{ y: -4, scale: 1.01 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => {
+                              setSelectedGameMode(mode.id);
+                              setSelectedTeamCount(mode.defaultTeamCount || 4);
+                            }}
+                            className={`relative text-left rounded-[2rem] border-4 p-6 transition-all overflow-hidden ${
+                              isActive
+                                ? 'border-brand-dark bg-white ring-4 ring-offset-4 ring-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A]'
+                                : 'border-brand-dark/10 bg-brand-bg/30 hover:bg-white hover:border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]/10'
+                            }`}
+                          >
+                            {/* Visual Vibe Background */}
+                            <div className="absolute top-0 right-0 w-32 h-32 opacity-10 pointer-events-none">
+                              {mode.visualVibe === 'dots-grid' && (
+                                <div className="w-full h-full" style={{ backgroundImage: `radial-gradient(${mode.hexColor} 2px, transparent 2px)`, backgroundSize: '12px 12px' }} />
+                              )}
+                              {mode.visualVibe === 'speed-lines' && (
+                                <div className="w-full h-full rotate-45" style={{ background: `repeating-linear-gradient(90deg, ${mode.hexColor}, ${mode.hexColor} 2px, transparent 2px, transparent 10px)` }} />
+                              )}
+                              {mode.visualVibe === 'stepped-gradient' && (
+                                <div className="w-full h-full" style={{ background: `linear-gradient(135deg, ${mode.hexColor}44 25%, transparent 25%, transparent 50%, ${mode.hexColor}44 50%, ${mode.hexColor}44 75%, transparent 75%, transparent)` }} />
+                              )}
+                              {mode.visualVibe === 'concentric-circles' && (
+                                <div className="w-full h-full border-8 border-dashed rounded-full" style={{ borderColor: mode.hexColor }} />
+                              )}
+                              {mode.visualVibe === 'diagonal-stripes' && (
+                                <div className="w-full h-full" style={{ background: `repeating-linear-gradient(45deg, transparent, transparent 10px, ${mode.hexColor}22 10px, ${mode.hexColor}22 20px)` }} />
+                              )}
+                              {mode.visualVibe === 'ortho-grid' && (
+                                <div className="w-full h-full" style={{ backgroundImage: `linear-gradient(${mode.hexColor}11 1px, transparent 1px), linear-gradient(90deg, ${mode.hexColor}11 1px, transparent 1px)`, backgroundSize: '15px 15px' }} />
+                              )}
+                            </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-5 mb-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {GAME_MODES.map((mode) => {
-                const isActive = selectedGameMode === mode.id;
-                return (
-                  <button
-                    key={mode.id}
-                    onClick={() => {
-                      setSelectedGameMode(mode.id);
-                      setSelectedTeamCount(mode.defaultTeamCount || 4);
-                    }}
-                    className={`text-left rounded-[1.8rem] border-4 border-brand-dark p-5 transition-transform ${isActive ? 'bg-brand-yellow shadow-[8px_8px_0px_0px_#1A1A1A]' : 'bg-white shadow-[4px_4px_0px_0px_#1A1A1A] hover:-translate-y-1'}`}
+                            <div className="relative z-10">
+                              <div className="flex items-center gap-3 mb-3">
+                                <div className="w-10 h-10 rounded-xl border-2 border-brand-dark flex items-center justify-center shadow-[3px_3px_0px_0px_#1A1A1A]" style={{ backgroundColor: mode.hexColor }}>
+                                  <Rocket className="w-5 h-5 text-white" />
+                                </div>
+                                <span className={`px-3 py-1 rounded-full border-2 border-brand-dark text-[10px] font-black uppercase tracking-widest ${mode.teamBased ? 'bg-brand-dark text-white' : 'bg-white text-brand-dark'}`}>
+                                  {mode.teamBased ? 'Team Play' : 'Solo Play'}
+                                </span>
+                              </div>
+                              <h4 className="text-2xl font-black mb-1">{mode.label}</h4>
+                              <p className="text-sm font-bold text-brand-dark/60 leading-tight mb-4">{mode.quickSummary}</p>
+                              
+                              <div className="flex flex-wrap gap-2">
+                                {mode.objectives.slice(0, 2).map((obj) => (
+                                  <span key={obj} className="text-[10px] font-bold text-brand-dark/40 border border-brand-dark/10 px-2 py-0.5 rounded-md">
+                                    {obj}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </motion.button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Settings section */}
+                  <AnimatePresence mode="wait">
+                    {getGameMode(selectedGameMode).teamBased && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="rounded-[2rem] border-4 border-brand-dark bg-brand-bg p-8"
+                      >
+                        <h4 className="text-lg font-black mb-4 flex items-center gap-3">
+                          <Users className="w-6 h-6 text-brand-purple" />
+                          Assign Team Count
+                        </h4>
+                        <div className="flex flex-wrap gap-4">
+                          {[2, 3, 4, 5, 6, 8, 10].map((count) => (
+                            <button
+                              key={count}
+                              onClick={() => setSelectedTeamCount(count)}
+                              className={`w-14 h-14 rounded-2xl border-4 font-black text-xl transition-all shadow-[4px_4px_0px_0px_#1A1A1A] ${
+                                selectedTeamCount === count
+                                  ? 'bg-brand-purple text-white border-brand-dark translate-x-1 translate-y-1 shadow-none'
+                                  : 'bg-white text-brand-dark border-brand-dark'
+                              }`}
+                            >
+                              {count}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="mt-4 text-sm font-bold text-brand-dark/50">Students will be randomly distributed across these teams upon joining.</p>
+                      </motion.div>
+                    ) || (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="rounded-[2rem] border-4 border-dashed border-brand-dark/20 bg-brand-bg/20 p-8 flex items-center justify-center text-center"
+                      >
+                        <p className="font-bold text-brand-dark/40">No extra settings needed for solo play.</p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* Sidebar Preview */}
+                <div className="flex flex-col">
+                  <div 
+                    className="flex-1 rounded-[2.5rem] border-4 border-brand-dark p-8 text-white relative overflow-hidden shadow-[8px_8px_0px_0px_#1A1A1A]"
+                    style={{ backgroundColor: getGameMode(selectedGameMode).hexColor }}
                   >
-                    <div className="flex items-center justify-between gap-3 mb-4">
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{mode.researchCue}</p>
-                        <p className="text-2xl font-black">{mode.label}</p>
+                    {/* Glowing effect */}
+                    <div className="absolute -top-20 -right-20 w-64 h-64 bg-white/20 blur-[80px] rounded-full" />
+                    <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-black/20 blur-[80px] rounded-full" />
+                    
+                    <div className="relative z-10 flex flex-col h-full">
+                      <div className="flex items-center gap-3 mb-6">
+                        <span className="w-12 h-1 w-1 bg-white/30 rounded-full" />
+                        <span className="text-xs font-black uppercase tracking-widest text-white/60">Selected Dossier</span>
                       </div>
-                      <span className={`px-3 py-2 rounded-full border-2 border-brand-dark font-black text-xs uppercase ${mode.teamBased ? 'bg-brand-dark text-brand-yellow' : 'bg-white text-brand-dark'}`}>
-                        {mode.evidenceStrength === 'high' ? 'High evidence' : 'Field-tested'}
-                      </span>
-                    </div>
-                    <p className="font-black text-brand-dark/70 mb-4">{mode.quickSummary}</p>
-                    <div className="flex flex-wrap gap-2">
-                      {mode.objectives.map((objective) => (
-                        <span key={objective} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
-                          {objective}
-                        </span>
-                      ))}
-                    </div>
-                  </button>
-                );
-              })}
-              </div>
 
-              <div className="rounded-[1.8rem] border-4 border-brand-dark bg-brand-dark text-white p-5 shadow-[8px_8px_0px_0px_#FF5A36]">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">Selected format</p>
-                <p className="text-3xl font-black mb-3">{getGameMode(selectedGameMode).label}</p>
-                <p className="font-medium text-white/75 mb-5">{getGameMode(selectedGameMode).description}</p>
+                      <h3 className="text-4xl font-black mb-4">{getGameMode(selectedGameMode).label}</h3>
+                      <p className="text-lg font-bold text-white/80 leading-snug mb-8">{getGameMode(selectedGameMode).description}</p>
 
-                <div className="rounded-[1.4rem] border border-white/10 bg-white/10 p-4 mb-4">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-white/45 mb-2">Best for</p>
-                  <div className="flex flex-wrap gap-2">
-                    {getGameMode(selectedGameMode).bestFor.map((item) => (
-                      <span key={item} className="px-3 py-1 rounded-full bg-white text-brand-dark border-2 border-brand-dark text-xs font-black">
-                        {item}
-                      </span>
-                    ))}
+                      <div className="space-y-6">
+                        <div className="bg-white/10 rounded-2xl p-4 border border-white/10">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-white/50 mb-2">Research Foundation</p>
+                          <p className="font-bold text-white leading-tight">{getGameMode(selectedGameMode).researchCue}</p>
+                        </div>
+
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-white/50 mb-3">Best Applied To</p>
+                          <div className="flex flex-wrap gap-2">
+                            {getGameMode(selectedGameMode).bestFor.map(tag => (
+                              <span key={tag} className="text-[11px] font-black bg-white text-brand-dark px-3 py-1 rounded-full">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-auto pt-8">
+                        <button
+                          onClick={() => void handleHost(hostingPack.id, selectedGameMode, selectedTeamCount)}
+                          disabled={busyAction?.action === 'host'}
+                          className="w-full bg-white text-brand-dark border-4 border-brand-dark py-5 rounded-[1.5rem] font-black text-2xl shadow-[6px_6px_0px_0px_#1A1A1A] hover:translate-y-1 hover:translate-x-1 hover:shadow-none transition-all flex items-center justify-center gap-4 disabled:opacity-50"
+                        >
+                          <Play className="w-8 h-8 fill-brand-dark" />
+                          Launch Session
+                        </button>
+                        <p className="text-center mt-4 text-xs font-bold text-white/40">All participants will automatically be directed to the lobby.</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
-
-                <div className="rounded-[1.4rem] border border-white/10 bg-white/10 p-4">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-white/45 mb-2">Why it works</p>
-                  <p className="font-bold text-white/80">{getGameMode(selectedGameMode).researchCue}</p>
-                </div>
               </div>
             </div>
-
-            {getGameMode(selectedGameMode).teamBased && (
-              <div className="rounded-[1.8rem] border-2 border-brand-dark bg-brand-bg p-5 mb-6">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-3">Team Structure</p>
-                <div className="flex flex-wrap gap-3">
-                  {[3, 4, 5, 6].map((count) => (
-                    <button
-                      key={count}
-                      onClick={() => setSelectedTeamCount(count)}
-                      className={`px-4 py-3 rounded-full border-2 border-brand-dark font-black ${selectedTeamCount === count ? 'bg-brand-orange text-white' : 'bg-white text-brand-dark'}`}
-                    >
-                      {count} Teams
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 rounded-[1.8rem] border-2 border-brand-dark bg-brand-dark text-white p-5">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">Selected format</p>
-                <p className="text-2xl font-black">{getGameMode(selectedGameMode).label}</p>
-                <p className="font-medium text-white/70 mt-1">
-                  {getGameMode(selectedGameMode).teamBased
-                    ? `Students will be auto-assigned into ${selectedTeamCount} teams.`
-                    : 'Students play individually and leaderboard remains personal.'}
-                </p>
-              </div>
-              <button
-                onClick={() => void handleHost(hostingPack.id, selectedGameMode, selectedTeamCount)}
-                className="px-8 py-4 rounded-full bg-brand-orange text-white border-2 border-brand-dark font-black flex items-center gap-3 shadow-[4px_4px_0px_0px_#1A1A1A]"
-              >
-                <Play className="w-5 h-5 fill-current" />
-                Host {getGameMode(selectedGameMode).shortLabel}
-              </button>
-            </div>
-          </div>
+          </motion.div>
         </div>
       )}
     </div>
