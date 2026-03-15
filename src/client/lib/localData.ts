@@ -57,6 +57,7 @@ export interface ContactSubmission {
 const SETTINGS_KEY = 'quizzi.teacher.settings';
 const CLASSES_KEY = 'quizzi.teacher.classes';
 const CONTACTS_KEY = 'quizzi.contact.submissions';
+const APP_LANGUAGE_KEY = 'quizzi.app.language';
 
 const DEFAULT_SETTINGS: TeacherSettingsState = {
   profile: {
@@ -144,13 +145,15 @@ function writeJson<T>(key: string, value: T) {
 
 export function loadTeacherSettings(): TeacherSettingsState {
   const value = readJson<TeacherSettingsState>(SETTINGS_KEY, DEFAULT_SETTINGS);
+  const appLanguage =
+    typeof window !== 'undefined' && window.localStorage.getItem(APP_LANGUAGE_KEY) === 'he' ? 'he' : 'en';
   return {
     profile: { ...DEFAULT_SETTINGS.profile, ...(value.profile || {}) },
     notifications: { ...DEFAULT_SETTINGS.notifications, ...(value.notifications || {}) },
     appearance: {
       ...DEFAULT_SETTINGS.appearance,
       ...(value.appearance || {}),
-      language: value.appearance?.language === 'he' ? 'he' : 'en',
+      language: value.appearance?.language === 'he' ? 'he' : appLanguage,
     },
   };
 }

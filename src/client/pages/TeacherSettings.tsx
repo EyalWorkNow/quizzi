@@ -23,6 +23,7 @@ import {
   saveTeacherSettings,
   type TeacherSettingsState,
 } from '../lib/localData.ts';
+import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { useTeacherLanguage } from '../lib/teacherLanguage.ts';
 import { signOutTeacher } from '../lib/teacherAuth.ts';
 
@@ -36,8 +37,9 @@ export default function TeacherSettings() {
   const [securityForm, setSecurityForm] = useState({ current: '', next: '', confirm: '' });
   const [feedbackKey, setFeedbackKey] = useState<FeedbackKey | ''>('');
   const navigate = useNavigate();
+  const { setLanguage } = useAppLanguage();
   const currentLanguage = settingsState.appearance.language;
-  const { copy, direction } = useTeacherLanguage(currentLanguage);
+  const { copy, direction } = useTeacherLanguage();
   const settingsCopy = copy.settings;
   const navCopy = copy.nav;
 
@@ -286,7 +288,10 @@ export default function TeacherSettings() {
                       ] as const).map((option) => (
                         <button
                           key={option.id}
-                          onClick={() => updateAppearance('language', option.id)}
+                          onClick={() => {
+                            updateAppearance('language', option.id);
+                            setLanguage(option.id);
+                          }}
                           className={`rounded-2xl border-4 border-brand-dark p-5 text-start shadow-[4px_4px_0px_0px_#1A1A1A] transition-colors ${settingsState.appearance.language === option.id ? 'bg-brand-purple text-white' : 'bg-brand-bg text-brand-dark'}`}
                         >
                           <p className="text-xs font-black uppercase tracking-[0.18em] opacity-70 mb-2">

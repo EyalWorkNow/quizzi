@@ -1,5 +1,4 @@
-import { useEffect } from 'react';
-import { loadTeacherSettings, type TeacherLanguage } from './localData.ts';
+import { useAppLanguage } from './appLanguage.tsx';
 
 const TEACHER_LANGUAGE_COPY = {
   en: {
@@ -130,21 +129,11 @@ const TEACHER_LANGUAGE_COPY = {
   },
 } as const;
 
-export function useTeacherLanguage(languageOverride?: TeacherLanguage) {
-  const language = languageOverride ?? loadTeacherSettings().appearance.language;
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const previousLang = document.documentElement.lang;
-    document.documentElement.lang = language === 'he' ? 'he' : 'en';
-    return () => {
-      document.documentElement.lang = previousLang || 'en';
-    };
-  }, [language]);
-
+export function useTeacherLanguage() {
+  const { language, direction } = useAppLanguage();
   return {
     language,
-    direction: language === 'he' ? ('rtl' as const) : ('ltr' as const),
+    direction,
     copy: TEACHER_LANGUAGE_COPY[language],
   };
 }
