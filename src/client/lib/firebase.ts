@@ -72,7 +72,8 @@ export function ensureFirebaseRealtimeReady(): Promise<Database | null> {
       if (!auth?.currentUser) {
         try {
           await signInAnonymously(auth);
-        } catch {
+        } catch (error) {
+          console.warn('[Firebase] Anonymous sign-in failed. Realtime features might be limited until domain is authorized:', error);
           // Keep realtime optional. Public rules can still allow reads and writes.
         }
       }

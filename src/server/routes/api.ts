@@ -2050,6 +2050,7 @@ router.put('/sessions/:id/state', requireTeacherSession, (req, res) => {
     broadcastToSession(sessionId, 'STATE_CHANGE', {
       status,
       current_question_index,
+      state_started_at: Date.now(), // Client-server drift is less critical than internal consistency
       question: questionPayload,
       game_type: hydratedSession?.game_type || updatedSession.game_type,
       team_count: Number(updatedSession.team_count || 0),

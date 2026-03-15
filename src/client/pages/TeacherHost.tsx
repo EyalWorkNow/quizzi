@@ -221,8 +221,15 @@ export default function TeacherHost() {
     const nextTeamCount = data?.team_count ?? data?.teamCount;
     const nextModeConfig = data?.mode_config || data?.modeConfig;
 
+    const nextStateStartedAt = data?.state_started_at;
+
     setStatus(nextStatus);
     setQuestionIndex(nextQuestionIndex);
+    
+    if (nextStateStartedAt) {
+      lastStateChangeAtRef.current = nextStateStartedAt;
+      lastPhaseKeyRef.current = `${nextStatus}:${nextQuestionIndex}`;
+    }
     setSessionMeta((current: any) => {
       if (!current) return current;
       const resolved = {
@@ -492,11 +499,19 @@ export default function TeacherHost() {
     // Safety guards against race conditions:
     // 1. Don't advance if we haven't even initialized the phase timer yet
     // 2. Don't advance if the timer is still showing time left
-    // 3. Don't advance if we just transitioned in the last 3000ms (grace period)
+    // 3. Don't advance if we just transitioned in the last 4000ms (grace period)
     const now = Date.now();
     const elapsedSinceTransition = now - lastStateChangeAtRef.current;
     
-    if (!hasInitializedPhaseRef.current || phaseTimeLeft > 0 || elapsedSinceTransition < 3000) {
+    // NEW IMPORTANT GUARD: Ensure we have the correct question data loaded for the current index
+    // If the question for the current index is missing, we must NOT advance.
+    const hasCorrectQuestionData = pack?.questions?.[questionIndex] !== undefined;
+    
+    if (!hasInitializedPhaseRef.current || phaseTimeLeft > 0 || elapsedSinceTransition < 4000 || !hasCorrectQuestionData) {
+      if (status === 'QUESTION_ACTIVE' && !hasCorrectQuestionData && elapsedSinceTransition > 10000) {
+        // Fallback for extreme cases: if we are stuck for 10s without question data, something is wrong
+        console.warn('[TeacherHost] Stuck in phase without question data:', { status, questionIndex });
+      }
       return;
     }
 
@@ -517,7 +532,7 @@ export default function TeacherHost() {
     }
 
     void updateState('QUESTION_REVEAL', questionIndex);
-  }, [isPeerMode, phaseTimeLeft, questionIndex, status]);
+  }, [isPeerMode, phaseTimeLeft, questionIndex, status, pack]);
 
   const copyPin = async () => {
     try {
