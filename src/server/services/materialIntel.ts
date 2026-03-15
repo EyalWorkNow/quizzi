@@ -354,6 +354,8 @@ export function normalizeGeneratedQuestions(questions: any[], fallbackTags: stri
         tags: (tags.length > 0 ? tags : safeFallbackTags).slice(0, 4),
         time_limit_seconds: Math.max(10, Number(question?.time_limit_seconds || 20)),
         question_order: index + 1,
+        learning_objective: String(question?.learning_objective || '').trim(),
+        bloom_level: String(question?.bloom_level || '').trim(),
       };
     })
     .filter((question) => question.prompt && question.answers.length >= 2);
@@ -440,6 +442,8 @@ export function hydratePack(pack: any) {
     : null;
 
   const topTags = parseJsonArray(pack.top_tags_json);
+  const learningObjectives = parseJsonArray(pack.learning_objectives_json);
+  const bloomLevels = parseJsonArray(pack.bloom_levels_json);
   const questionCount = Number(pack.question_count_cache || 0);
   const estimatedOriginalTokens = Number(profile?.estimated_original_tokens || estimateTokens(pack.source_text || ''));
   const estimatedPromptTokens = Number(profile?.estimated_prompt_tokens || estimatedOriginalTokens);
@@ -451,6 +455,14 @@ export function hydratePack(pack: any) {
     source_excerpt: pack.source_excerpt || profile?.source_excerpt || clipText(pack.source_text || '', 320),
     source_language: pack.source_language || profile?.source_language || detectSourceLanguage(pack.source_text || ''),
     source_word_count: Number(pack.source_word_count || profile?.word_count || 0),
+    course_code: pack.course_code || '',
+    course_name: pack.course_name || '',
+    section_name: pack.section_name || '',
+    academic_term: pack.academic_term || '',
+    week_label: pack.week_label || '',
+    learning_objectives: learningObjectives,
+    bloom_levels: bloomLevels,
+    pack_notes: pack.pack_notes || '',
     teaching_brief: profile?.teaching_brief || '',
     topic_fingerprint: profile?.topic_fingerprint || [],
     key_points: profile?.key_points || [],
@@ -483,6 +495,8 @@ export function getHydratedPackWithQuestions(packId: number) {
       ...question,
       tags: parseJsonArray(question.tags_json),
       answers: parseJsonArray(question.answers_json),
+      learning_objective: question.learning_objective || '',
+      bloom_level: question.bloom_level || '',
     }));
 
   return {

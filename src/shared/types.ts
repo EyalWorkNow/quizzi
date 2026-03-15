@@ -21,6 +21,14 @@ export interface QuizPack {
   teacher_id: number;
   title: string;
   source_text: string;
+  course_code?: string;
+  course_name?: string;
+  section_name?: string;
+  academic_term?: string;
+  week_label?: string;
+  learning_objectives?: string[];
+  bloom_levels?: string[];
+  pack_notes?: string;
   created_at: string;
 }
 
@@ -35,6 +43,8 @@ export interface Question {
   tags_json: string; // stringified array of strings
   difficulty: number; // 1-5
   time_limit_seconds: number;
+  learning_objective?: string;
+  bloom_level?: string;
 }
 
 export interface Session {

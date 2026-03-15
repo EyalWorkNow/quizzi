@@ -59,6 +59,14 @@ export function initDb() {
       teacher_id INTEGER,
       title TEXT,
       source_text TEXT,
+      course_code TEXT DEFAULT '',
+      course_name TEXT DEFAULT '',
+      section_name TEXT DEFAULT '',
+      academic_term TEXT DEFAULT '',
+      week_label TEXT DEFAULT '',
+      learning_objectives_json TEXT DEFAULT '[]',
+      bloom_levels_json TEXT DEFAULT '[]',
+      pack_notes TEXT DEFAULT '',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -72,7 +80,20 @@ export function initDb() {
       explanation TEXT,
       tags_json TEXT,
       difficulty INTEGER DEFAULT 3,
-      time_limit_seconds INTEGER DEFAULT 20
+      time_limit_seconds INTEGER DEFAULT 20,
+      learning_objective TEXT DEFAULT '',
+      bloom_level TEXT DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS quiz_pack_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pack_id INTEGER,
+      teacher_id INTEGER,
+      version_number INTEGER DEFAULT 1,
+      version_label TEXT DEFAULT '',
+      source_label TEXT DEFAULT '',
+      snapshot_json TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS material_profiles (
@@ -212,7 +233,17 @@ export function initDb() {
   ensureColumn('quiz_packs', 'material_profile_id', 'INTEGER');
   ensureColumn('quiz_packs', 'top_tags_json', "TEXT DEFAULT '[]'");
   ensureColumn('quiz_packs', 'question_count_cache', 'INTEGER DEFAULT 0');
+  ensureColumn('quiz_packs', 'course_code', "TEXT DEFAULT ''");
+  ensureColumn('quiz_packs', 'course_name', "TEXT DEFAULT ''");
+  ensureColumn('quiz_packs', 'section_name', "TEXT DEFAULT ''");
+  ensureColumn('quiz_packs', 'academic_term', "TEXT DEFAULT ''");
+  ensureColumn('quiz_packs', 'week_label', "TEXT DEFAULT ''");
+  ensureColumn('quiz_packs', 'learning_objectives_json', "TEXT DEFAULT '[]'");
+  ensureColumn('quiz_packs', 'bloom_levels_json', "TEXT DEFAULT '[]'");
+  ensureColumn('quiz_packs', 'pack_notes', "TEXT DEFAULT ''");
   ensureColumn('questions', 'question_order', 'INTEGER DEFAULT 0');
+  ensureColumn('questions', 'learning_objective', "TEXT DEFAULT ''");
+  ensureColumn('questions', 'bloom_level', "TEXT DEFAULT ''");
   ensureColumn('sessions', 'game_type', "TEXT DEFAULT 'classic_quiz'");
   ensureColumn('sessions', 'team_count', 'INTEGER DEFAULT 0');
   ensureColumn('sessions', 'mode_config_json', "TEXT DEFAULT '{}'");
@@ -230,10 +261,13 @@ export function initDb() {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_quiz_packs_profile ON quiz_packs(material_profile_id);
     CREATE INDEX IF NOT EXISTS idx_quiz_packs_source_hash ON quiz_packs(source_hash);
+    CREATE INDEX IF NOT EXISTS idx_quiz_packs_course_code ON quiz_packs(course_code);
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_questions_pack_question_order ON questions(quiz_pack_id, question_order, id);
+    CREATE INDEX IF NOT EXISTS idx_questions_learning_objective ON questions(learning_objective);
     CREATE INDEX IF NOT EXISTS idx_sessions_game_type ON sessions(game_type);
     CREATE INDEX IF NOT EXISTS idx_participants_session_team ON participants(session_id, team_id);
+    CREATE INDEX IF NOT EXISTS idx_pack_versions_pack ON quiz_pack_versions(pack_id, version_number DESC);
   `);
 
   db.exec(`
@@ -285,12 +319,29 @@ export function initDb() {
   }
 }
 
+export function seedDemoData() {
+  const defaultDemo = db.prepare('SELECT id, email FROM users WHERE email = ?').get('demo@quizzi.app') as any;
+  if (defaultDemo?.id) {
+    seedDemoDataForTeacher(Number(defaultDemo.id), String(defaultDemo.email || 'demo@quizzi.app'));
+    return;
+  }
+
+  const insertTeacher = db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)');
+  const resTeacher = insertTeacher.run('demo@quizzi.app', 'hashed_demo_pw');
+  seedDemoDataForTeacher(Number(resTeacher.lastInsertRowid), 'demo@quizzi.app');
+}
+
 export function seedDemoDataForTeacher(teacherId: number, email: string) {
   // Check if this specific teacher already has the demo pack
   const packExists = db.prepare('SELECT id FROM quiz_packs WHERE title = ? AND teacher_id = ?').get('Demo: Biology 101', teacherId);
   if (packExists) return;
 
-  const insertPack = db.prepare('INSERT INTO quiz_packs (teacher_id, title, source_text, source_excerpt, source_language, source_word_count) VALUES (?, ?, ?, ?, ?, ?)');
+  const insertPack = db.prepare(`
+    INSERT INTO quiz_packs (
+      teacher_id, title, source_text, source_excerpt, source_language, source_word_count,
+      course_code, course_name, section_name, academic_term, week_label, learning_objectives_json, bloom_levels_json, pack_notes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
   const demoSourceText = 'Photosynthesis is the process by which plants use sunlight, water, and carbon dioxide to create oxygen and energy in the form of sugar.';
   const resPack = insertPack.run(
     teacherId,
@@ -299,12 +350,21 @@ export function seedDemoDataForTeacher(teacherId: number, email: string) {
     demoSourceText.slice(0, 320),
     'English',
     demoSourceText.split(/\s+/).length,
+    'BIO101', // course_code
+    'Introduction to Biology', // course_name
+    'Section A', // section_name
+    'Fall 2026', // academic_term
+    'Week 1', // week_label
+    JSON.stringify(['Photosynthesis', 'Energy']), // learning_objectives_json
+    JSON.stringify(['Remember', 'Understand']), // bloom_levels_json
+    'Provides a basic overview of photosynthesis for beginners.', // pack_notes
   );
   const packId = resPack.lastInsertRowid;
 
   const insertQuestion = db.prepare(`
-    INSERT INTO questions (quiz_pack_id, prompt, answers_json, correct_index, explanation, tags_json, time_limit_seconds, question_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO questions (
+      quiz_pack_id, prompt, answers_json, correct_index, explanation, tags_json, time_limit_seconds, question_order, learning_objective, bloom_level
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   insertQuestion.run(
@@ -315,7 +375,9 @@ export function seedDemoDataForTeacher(teacherId: number, email: string) {
     'Plants use sunlight to convert water and carbon dioxide into energy.',
     JSON.stringify(['photosynthesis', 'energy']),
     20,
-    1
+    1,
+    'Identify the main energy source',
+    'Remember'
   );
 
   insertQuestion.run(
@@ -326,7 +388,9 @@ export function seedDemoDataForTeacher(teacherId: number, email: string) {
     'Plants take in carbon dioxide from the air.',
     JSON.stringify(['photosynthesis', 'gases']),
     20,
-    2
+    2,
+    'Recall input gases',
+    'Remember'
   );
 
   insertQuestion.run(
@@ -337,7 +401,9 @@ export function seedDemoDataForTeacher(teacherId: number, email: string) {
     'Oxygen is released into the air as a byproduct.',
     JSON.stringify(['photosynthesis', 'gases']),
     20,
-    3
+    3,
+    'Identify output products',
+    'Understand'
   );
 
   db.prepare(`
