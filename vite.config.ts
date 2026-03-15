@@ -10,6 +10,40 @@ export default defineConfig(({ mode }) => {
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) {
+              return 'vendor-react';
+            }
+            if (id.includes('/react-router') || id.includes('/@remix-run/')) {
+              return 'vendor-router';
+            }
+            if (id.includes('/firebase/') || id.includes('/@firebase/')) {
+              return 'vendor-firebase';
+            }
+            if (id.includes('/lucide-react/')) {
+              return 'vendor-icons';
+            }
+            if (id.includes('/qrcode.react/')) {
+              return 'vendor-qr';
+            }
+            if (id.includes('/@google/genai/')) {
+              return 'vendor-ai';
+            }
+            if (id.includes('/@supabase/')) {
+              return 'vendor-supabase';
+            }
+            if (id.includes('/canvas-confetti/')) {
+              return 'vendor-effects';
+            }
+            return 'vendor-misc';
+          },
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': '.',

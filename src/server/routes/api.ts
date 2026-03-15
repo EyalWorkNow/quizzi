@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomInt } from 'crypto';
 import db from '../db/index.js';
 import { GoogleGenAI } from '@google/genai';
 import multer from 'multer';
@@ -7,6 +7,10 @@ import mammoth from 'mammoth';
 import { createRequire } from 'module';
 import admin from 'firebase-admin';
 import { runPythonEngine } from '../services/pythonEngine.js';
+import { translateUiTexts } from '../services/uiTranslation.js';
+import { broadcastToSession, registerSseClient } from '../services/sseHub.js';
+import { buildRateLimitKey, checkRateLimit, isTrustedOrigin } from '../services/requestGuards.js';
+import { createBoundedTaskGate, defaultTaskConcurrency, envTaskConcurrency } from '../services/taskGate.js';
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -87,17 +91,14 @@ const TEAM_NAME_BANK = [
   'Echo',
 ];
 
-// SSE Clients Map: sessionId -> array of response objects
-const sseClients = new Map<number, any[]>();
-const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
-
-function broadcastToSession(sessionId: number, event: string, data: any) {
-  const clients = sseClients.get(sessionId);
-  if (clients) {
-    const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-    clients.forEach(client => client.write(payload));
-  }
-}
+const SUPPORTED_UI_LANGUAGES = new Set(['en', 'he']);
+const MAX_SESSION_PARTICIPANTS = envTaskConcurrency('QUIZZI_MAX_SESSION_PARTICIPANTS', 500);
+const aiGenerationGate = createBoundedTaskGate({
+  name: 'ai-generation',
+  concurrency: envTaskConcurrency('QUIZZI_AI_GENERATION_CONCURRENCY', Math.max(2, defaultTaskConcurrency(2))),
+  maxQueue: envTaskConcurrency('QUIZZI_AI_GENERATION_MAX_QUEUE', 24),
+});
+const inFlightQuestionGenerations = new Map<string, Promise<any>>();
 
 function parseJsonArray(value: string | null | undefined) {
   if (!value) return [];
@@ -109,59 +110,27 @@ function parseJsonArray(value: string | null | undefined) {
   }
 }
 
-function getClientFingerprint(req: any) {
-  return String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || 'unknown');
-}
-
-function enforceRateLimit(req: any, res: any, key: string, limit: number, windowMs: number) {
-  const bucketKey = `${key}:${getClientFingerprint(req)}`;
-  const now = Date.now();
-  const current = rateLimitBuckets.get(bucketKey);
-  if (!current || current.resetAt <= now) {
-    rateLimitBuckets.set(bucketKey, { count: 1, resetAt: now + windowMs });
+function enforceRateLimit(
+  req: any,
+  res: any,
+  namespace: string,
+  limit: number,
+  windowMs: number,
+  ...parts: Array<string | number | null | undefined>
+) {
+  const result = checkRateLimit(buildRateLimitKey(req, namespace, ...parts), limit, windowMs);
+  if (result.allowed) {
     return true;
   }
-  if (current.count >= limit) {
-    const retryAfter = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
-    res.setHeader('Retry-After', String(retryAfter));
-    res.status(429).json({ error: 'Too many requests, slow down and try again shortly.' });
-    return false;
-  }
-  current.count += 1;
-  return true;
+
+  res.setHeader('Retry-After', String(result.retryAfterSeconds));
+  res.status(429).json({ error: 'Too many requests, slow down and try again shortly.' });
+  return false;
 }
 
 function enforceTrustedOrigin(req: any, res: any) {
-  const origin = String(req.headers.origin || '').trim();
-  if (!origin) return true;
-
-  // In cross-origin deployments (Vercel front → Render back), the Origin header
-  // will be the Vercel domain, NOT matching x-forwarded-host (which is the Render domain).
-  // We must allow known frontend origins explicitly.
-  const TRUSTED_ORIGINS = [
-    'https://quizzi-ivory.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:5173',
-  ];
-
-  if (TRUSTED_ORIGINS.includes(origin)) return true;
-
-  // Fallback: allow same-origin requests (origin matches the backend host)
-  const forwardedProto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http')
-    .split(',')[0]
-    .trim();
-  const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '')
-    .split(',')[0]
-    .trim();
-  if (!forwardedHost) return true;
-
-  const expectedOrigin = `${forwardedProto}://${forwardedHost}`;
-  if (origin === expectedOrigin) return true;
-
-  // In development, allow all origins
-  if (process.env.NODE_ENV !== 'production') return true;
-
-  console.warn(`[security] Origin mismatch: got "${origin}", expected "${expectedOrigin}" or a trusted origin`);
+  if (isTrustedOrigin(req)) return true;
+  console.warn(`[security] Origin mismatch: ${String(req.headers.origin || 'unknown')}`);
   res.status(403).json({ error: 'Origin mismatch' });
   return false;
 }
@@ -181,9 +150,70 @@ function sanitizeMultiline(value: unknown, maxLength = 60000) {
     .slice(0, maxLength);
 }
 
+function sanitizeTranslateTexts(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) =>
+      String(entry || '')
+        .replace(/\u0000/g, '')
+        .trim()
+        .slice(0, 400),
+    )
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
 function parsePositiveInt(value: unknown, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+function clampNumber(value: unknown, minimum: number, maximum: number, fallback = minimum) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(minimum, Math.min(maximum, Math.floor(parsed)));
+}
+
+function sanitizeSessionPin(value: unknown) {
+  return String(value || '')
+    .replace(/\D/g, '')
+    .slice(0, 6);
+}
+
+function sanitizeJsonBlob(value: unknown, maxLength: number, fallback: string) {
+  try {
+    const raw =
+      typeof value === 'string'
+        ? value
+        : value === undefined || value === null
+          ? fallback
+          : JSON.stringify(value);
+    const trimmed = String(raw || '').replace(/\u0000/g, '').trim().slice(0, maxLength);
+    return trimmed || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function sanitizeTelemetry(value: unknown) {
+  if (!value || typeof value !== 'object') return null;
+  const telemetry = value as Record<string, unknown>;
+  return {
+    tfi_ms: clampNumber(telemetry.tfi_ms, 0, 300_000, 0),
+    final_decision_buffer_ms: clampNumber(telemetry.final_decision_buffer_ms, 0, 300_000, 0),
+    total_swaps: clampNumber(telemetry.total_swaps, 0, 100, 0),
+    panic_swaps: clampNumber(telemetry.panic_swaps, 0, 100, 0),
+    answer_path_json: sanitizeJsonBlob(telemetry.answer_path_json, 8_000, '[]'),
+    focus_loss_count: clampNumber(telemetry.focus_loss_count, 0, 100, 0),
+    idle_time_ms: clampNumber(telemetry.idle_time_ms, 0, 300_000, 0),
+    blur_time_ms: clampNumber(telemetry.blur_time_ms, 0, 300_000, 0),
+    longest_idle_streak_ms: clampNumber(telemetry.longest_idle_streak_ms, 0, 300_000, 0),
+    pointer_activity_count: clampNumber(telemetry.pointer_activity_count, 0, 10_000, 0),
+    keyboard_activity_count: clampNumber(telemetry.keyboard_activity_count, 0, 10_000, 0),
+    touch_activity_count: clampNumber(telemetry.touch_activity_count, 0, 10_000, 0),
+    same_answer_reclicks: clampNumber(telemetry.same_answer_reclicks, 0, 10_000, 0),
+    option_dwell_json: sanitizeJsonBlob(telemetry.option_dwell_json, 4_000, '{}'),
+  };
 }
 
 function parseJsonObject(value: string | null | undefined) {
@@ -257,10 +287,76 @@ function uniqueNumbers(values: Array<number | string | null | undefined>) {
   );
 }
 
+function getTeacherOwnedPack(packId: number, teacherUserId: number) {
+  return db.prepare('SELECT * FROM quiz_packs WHERE id = ? AND teacher_id = ?').get(packId, teacherUserId) as any;
+}
+
+function getTeacherOwnedSession(sessionId: number, teacherUserId: number) {
+  return db
+    .prepare(`
+      SELECT s.*
+      FROM sessions s
+      JOIN quiz_packs qp ON qp.id = s.quiz_pack_id
+      WHERE s.id = ? AND qp.teacher_id = ?
+    `)
+    .get(sessionId, teacherUserId) as any;
+}
+
+function getTeacherOwnedSessionByPin(pin: string, teacherUserId: number) {
+  return db
+    .prepare(`
+      SELECT s.*
+      FROM sessions s
+      JOIN quiz_packs qp ON qp.id = s.quiz_pack_id
+      WHERE s.pin = ? AND qp.teacher_id = ?
+    `)
+    .get(pin, teacherUserId) as any;
+}
+
+function getTeacherOwnedParticipant(participantId: number, teacherUserId: number) {
+  return db
+    .prepare(`
+      SELECT p.*, s.id AS live_session_id, s.quiz_pack_id
+      FROM participants p
+      JOIN sessions s ON s.id = p.session_id
+      JOIN quiz_packs qp ON qp.id = s.quiz_pack_id
+      WHERE p.id = ? AND qp.teacher_id = ?
+    `)
+    .get(participantId, teacherUserId) as any;
+}
+
+function createSessionPin() {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const pin = String(randomInt(100000, 1_000_000));
+    const existing = db.prepare('SELECT 1 FROM sessions WHERE pin = ?').get(pin);
+    if (!existing) {
+      return pin;
+    }
+  }
+
+  throw new Error('Failed to generate a unique session PIN. Try again.');
+}
+
+function runInFlightQuestionGeneration<T>(key: string, task: () => Promise<T>) {
+  const existing = inFlightQuestionGenerations.get(key);
+  if (existing) {
+    return existing as Promise<T>;
+  }
+
+  const promise = aiGenerationGate
+    .run(key, task)
+    .finally(() => {
+      inFlightQuestionGenerations.delete(key);
+    });
+
+  inFlightQuestionGenerations.set(key, promise);
+  return promise;
+}
+
 function getTeacherUserIdFromRequest(req: any) {
   const session = req?.teacherSession || readTeacherSession(req);
   if (!session) return 0;
-  return Number(getTeacherUserByEmail(session.email)?.id || 1);
+  return Number(getTeacherUserByEmail(session.email)?.id || 0);
 }
 
 function getTeacherPackBoard(teacherUserId: number) {
@@ -505,6 +601,32 @@ async function getSessionStudentContext(sessionId: number, participantId: number
   };
 }
 
+router.post('/translate', async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  if (!enforceRateLimit(req, res, 'ui-translate', 120, 60 * 1000)) return;
+
+  const targetLanguage = String(req.body?.targetLanguage || '').trim().toLowerCase();
+  const texts = sanitizeTranslateTexts(req.body?.texts);
+
+  if (!SUPPORTED_UI_LANGUAGES.has(targetLanguage)) {
+    res.status(400).json({ error: 'Unsupported target language.' });
+    return;
+  }
+
+  if (texts.length === 0) {
+    res.json({ translations: [] });
+    return;
+  }
+
+  try {
+    const translations = await translateUiTexts(texts, targetLanguage as 'en' | 'he');
+    res.json({ translations });
+  } catch (error: any) {
+    console.error('[translate] Failed to translate UI texts:', error);
+    res.status(502).json({ error: error?.message || 'Translation failed.' });
+  }
+});
+
 // --- Teacher Routes ---
 
 router.post('/auth/register', (req, res) => {
@@ -649,15 +771,14 @@ router.get('/packs/:id', (req, res) => {
 
 router.post('/teacher/packs/:id/duplicate', requireTeacherSession, (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
-  if (!enforceRateLimit(req, res, 'teacher-pack-duplicate', 30, 10 * 60 * 1000)) return;
-
   const teacherUserId = getTeacherUserIdFromRequest(req);
-  const packId = parsePositiveInt(req.params.id);
   if (!teacherUserId) {
     return res.status(401).json({ error: 'Teacher authentication required' });
   }
+  if (!enforceRateLimit(req, res, 'teacher-pack-duplicate', 30, 10 * 60 * 1000, teacherUserId, req.params.id)) return;
 
-  const pack = db.prepare('SELECT * FROM quiz_packs WHERE id = ? AND teacher_id = ?').get(packId, teacherUserId) as any;
+  const packId = parsePositiveInt(req.params.id);
+  const pack = getTeacherOwnedPack(packId, teacherUserId);
   if (!pack) {
     return res.status(404).json({ error: 'Pack not found' });
   }
@@ -740,15 +861,14 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, (req, res) =>
 
 router.delete('/teacher/packs/:id', requireTeacherSession, (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
-  if (!enforceRateLimit(req, res, 'teacher-pack-delete', 20, 10 * 60 * 1000)) return;
-
   const teacherUserId = getTeacherUserIdFromRequest(req);
-  const packId = parsePositiveInt(req.params.id);
   if (!teacherUserId) {
     return res.status(401).json({ error: 'Teacher authentication required' });
   }
+  if (!enforceRateLimit(req, res, 'teacher-pack-delete', 20, 10 * 60 * 1000, teacherUserId, req.params.id)) return;
 
-  const pack = db.prepare('SELECT * FROM quiz_packs WHERE id = ? AND teacher_id = ?').get(packId, teacherUserId) as any;
+  const packId = parsePositiveInt(req.params.id);
+  const pack = getTeacherOwnedPack(packId, teacherUserId);
   if (!pack) {
     return res.status(404).json({ error: 'Pack not found' });
   }
@@ -875,7 +995,11 @@ router.post('/extract-text', requireTeacherSession, (req, res, next) => {
 // Generate questions from text using Gemini
 router.post('/packs/generate', requireTeacherSession, async (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
-  if (!enforceRateLimit(req, res, 'teacher-pack-generate', 20, 10 * 60 * 1000)) return;
+  const teacherUserId = getTeacherUserIdFromRequest(req);
+  if (!teacherUserId) {
+    return res.status(401).json({ error: 'Teacher authentication required' });
+  }
+  if (!enforceRateLimit(req, res, 'teacher-pack-generate', 20, 10 * 60 * 1000, teacherUserId)) return;
   const source_text = sanitizeMultiline(req.body?.source_text, 120000);
   const count = Math.min(20, Math.max(3, parsePositiveInt(req.body?.count, 5)));
   const difficulty = sanitizeLine(req.body?.difficulty || 'Medium', 24);
@@ -916,12 +1040,20 @@ router.post('/packs/generate', requireTeacherSession, async (req, res) => {
       });
     }
 
-    const isHebrew = language.toLowerCase() === 'hebrew';
-    const langInstruction = isHebrew
-      ? "CRITICAL: ALL output text (prompt, answers, explanation, tags) MUST be in HEBREW (עברית). This is an absolute requirement. Do not use English for anything."
-      : "The output MUST be in English.";
+    const generationKey = [
+      Number(materialProfile.id),
+      count,
+      difficulty.toLowerCase(),
+      language.toLowerCase(),
+    ].join(':');
 
-    const prompt = `Task: Generate exactly ${count} multiple-choice questions from the provided educational material.
+    const responsePayload = await runInFlightQuestionGeneration(generationKey, async () => {
+      const isHebrew = language.toLowerCase() === 'hebrew';
+      const langInstruction = isHebrew
+        ? "CRITICAL: ALL output text (prompt, answers, explanation, tags) MUST be in HEBREW (עברית). This is an absolute requirement. Do not use English for anything."
+        : "The output MUST be in English.";
+
+      const prompt = `Task: Generate exactly ${count} multiple-choice questions from the provided educational material.
 Difficulty Level: ${difficulty}
 Output Language: ${language}
 ${langInstruction}
@@ -946,64 +1078,69 @@ Schema:
 Educational Material:
 ${generationSource.material}`;
 
-    // Using the unified SDK (GoogleGenAI)
-    let response;
-    try {
-      response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json'
-        }
-      });
-    } catch (modelError: any) {
-      console.error('[CRITICAL] Gemini Model Error:', modelError);
-      return res.status(500).json({ error: 'AI Model failed: ' + modelError.message });
-    }
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+          },
+        });
+      } catch (modelError: any) {
+        console.error('[CRITICAL] Gemini Model Error:', modelError);
+        throw new Error(`AI Model failed: ${modelError.message}`);
+      }
 
-    const text = response.text;
-    console.log('[DEBUG] Gemini Raw Response Received');
+      const text = response.text;
+      console.log('[DEBUG] Gemini Raw Response Received');
 
-    try {
-      // Clean possible markdown wrapping
-      const cleanJson = text?.replace(/```json\n?|\n?```/g, '').trim() || '{}';
-      const data = JSON.parse(cleanJson);
-      const normalizedQuestions = normalizeGeneratedQuestions(
-        data?.questions || [],
-        materialProfile.topic_fingerprint || [],
-      );
-      const responsePayload = {
-        questions: normalizedQuestions,
-        generation_meta: {
-          cached: false,
-          source_mode: generationSource.source_mode,
-          estimated_original_tokens: generationSource.estimated_original_tokens,
-          estimated_prompt_tokens: generationSource.estimated_prompt_tokens,
-          token_savings_pct: generationSource.token_savings_pct,
-        },
-        material_profile: {
-          id: Number(materialProfile.id),
-          source_language: materialProfile.source_language,
-          source_excerpt: materialProfile.source_excerpt,
-          teaching_brief: materialProfile.teaching_brief,
-          key_points: materialProfile.key_points,
-          topic_fingerprint: materialProfile.topic_fingerprint,
-        },
-      };
-      saveCachedQuestionGeneration(
-        Number(materialProfile.id),
-        Number(count),
-        String(difficulty),
-        String(language),
-        responsePayload,
-      );
-      res.json(responsePayload);
-    } catch (parseError: any) {
-      console.error('[ERROR] Failed to parse Gemini response:', text);
-      res.status(500).json({ error: 'Failed to parse AI response', raw: text });
-    }
+      try {
+        const cleanJson = text?.replace(/```json\n?|\n?```/g, '').trim() || '{}';
+        const data = JSON.parse(cleanJson);
+        const normalizedQuestions = normalizeGeneratedQuestions(
+          data?.questions || [],
+          materialProfile.topic_fingerprint || [],
+        );
+        const payload = {
+          questions: normalizedQuestions,
+          generation_meta: {
+            cached: false,
+            source_mode: generationSource.source_mode,
+            estimated_original_tokens: generationSource.estimated_original_tokens,
+            estimated_prompt_tokens: generationSource.estimated_prompt_tokens,
+            token_savings_pct: generationSource.token_savings_pct,
+          },
+          material_profile: {
+            id: Number(materialProfile.id),
+            source_language: materialProfile.source_language,
+            source_excerpt: materialProfile.source_excerpt,
+            teaching_brief: materialProfile.teaching_brief,
+            key_points: materialProfile.key_points,
+            topic_fingerprint: materialProfile.topic_fingerprint,
+          },
+        };
+        saveCachedQuestionGeneration(
+          Number(materialProfile.id),
+          Number(count),
+          String(difficulty),
+          String(language),
+          payload,
+        );
+        return payload;
+      } catch (parseError: any) {
+        console.error('[ERROR] Failed to parse Gemini response:', text);
+        throw new Error('Failed to parse AI response');
+      }
+    });
+
+    res.json(responsePayload);
   } catch (error: any) {
     console.error('[ERROR] Generate Route Crash:', error);
+    if (/saturated/i.test(String(error?.message || ''))) {
+      res.status(503).json({ error: 'AI generation is busy. Try again shortly.' });
+      return;
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -1011,9 +1148,11 @@ ${generationSource.material}`;
 // Create a new pack
 router.post('/packs', requireTeacherSession, (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
-  if (!enforceRateLimit(req, res, 'teacher-pack-create', 30, 10 * 60 * 1000)) return;
-  const teacherSession = readTeacherSession(req);
-  const teacherUserId = Number((teacherSession && getTeacherUserByEmail(teacherSession.email)?.id) || 1);
+  const teacherUserId = getTeacherUserIdFromRequest(req);
+  if (!teacherUserId) {
+    return res.status(401).json({ error: 'Teacher authentication required' });
+  }
+  if (!enforceRateLimit(req, res, 'teacher-pack-create', 30, 10 * 60 * 1000, teacherUserId)) return;
   const title = sanitizeLine(req.body?.title, 120);
   const source_text = sanitizeMultiline(req.body?.source_text, 120000);
   const questions = Array.isArray(req.body?.questions) ? req.body.questions : [];
@@ -1051,7 +1190,7 @@ router.post('/packs', requireTeacherSession, (req, res) => {
     materialProfile.source_language,
     materialProfile.word_count,
     materialProfile.id,
-  ); // Hardcoded teacher 1
+  );
   const packId = info.lastInsertRowid;
 
   const insertQuestion = db.prepare(`
@@ -1092,16 +1231,24 @@ router.post('/packs', requireTeacherSession, (req, res) => {
 // Host a session
 router.post('/sessions', requireTeacherSession, (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
-  if (!enforceRateLimit(req, res, 'teacher-session-create', 30, 10 * 60 * 1000)) return;
+  const teacherUserId = getTeacherUserIdFromRequest(req);
+  if (!teacherUserId) {
+    return res.status(401).json({ error: 'Teacher authentication required' });
+  }
+  if (!enforceRateLimit(req, res, 'teacher-session-create', 30, 10 * 60 * 1000, teacherUserId)) return;
   const { quiz_pack_id, game_type = 'classic_quiz', team_count = 0, mode_config = {} } = req.body;
   const packId = parsePositiveInt(quiz_pack_id);
-  const packExists = db.prepare('SELECT id FROM quiz_packs WHERE id = ?').get(packId);
-  if (!packExists) {
+  const pack = getTeacherOwnedPack(packId, teacherUserId);
+  if (!pack) {
     return res.status(404).json({ error: 'Quiz pack not found' });
   }
-  const pin = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit PIN
+  const pin = createSessionPin();
   const normalizedGameType = String(game_type || 'classic_quiz').trim() || 'classic_quiz';
   const normalizedTeamCount = isTeamGame(normalizedGameType) ? Math.max(2, Number(team_count) || 4) : 0;
+  const normalizedModeConfig =
+    mode_config && typeof mode_config === 'object' && !Array.isArray(mode_config)
+      ? parseJsonObject(sanitizeJsonBlob(mode_config, 4_000, '{}'))
+      : {};
 
   const insertSession = db.prepare(`
     INSERT INTO sessions (quiz_pack_id, pin, game_type, team_count, mode_config_json, status)
@@ -1112,7 +1259,7 @@ router.post('/sessions', requireTeacherSession, (req, res) => {
     pin,
     normalizedGameType,
     normalizedTeamCount,
-    JSON.stringify(mode_config || {}),
+    JSON.stringify(normalizedModeConfig),
     'LOBBY',
   );
 
@@ -1122,19 +1269,22 @@ router.post('/sessions', requireTeacherSession, (req, res) => {
     status: 'LOBBY',
     game_type: normalizedGameType,
     team_count: normalizedTeamCount,
-    mode_config: mode_config || {},
+    mode_config: normalizedModeConfig,
   });
 });
 
 // Get session by PIN
 router.get('/sessions/:pin', (req, res) => {
-  const session = db.prepare('SELECT * FROM sessions WHERE pin = ?').get(req.params.pin);
+  const pin = sanitizeSessionPin(req.params.pin);
+  const session = db.prepare('SELECT * FROM sessions WHERE pin = ?').get(pin);
   if (!session) return res.status(404).json({ error: 'Session not found' });
   res.json(hydrateSessionRow(session));
 });
 
 router.get('/sessions/:pin/participants', (req, res) => {
-  const session = db.prepare('SELECT id FROM sessions WHERE pin = ?').get(req.params.pin);
+  const pin = sanitizeSessionPin(req.params.pin);
+  if (!enforceRateLimit(req, res, 'session-participants', 120, 60 * 1000, pin)) return;
+  const session = db.prepare('SELECT id FROM sessions WHERE pin = ?').get(pin);
   if (!session) return res.status(404).json({ error: 'Session not found' });
 
   const participants = db
@@ -1150,9 +1300,30 @@ router.get('/sessions/:pin/participants', (req, res) => {
 // Update session state
 router.put('/sessions/:id/state', requireTeacherSession, (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
-  if (!enforceRateLimit(req, res, 'teacher-session-state', 300, 5 * 60 * 1000)) return;
-  const { status, current_question_index } = req.body;
-  const sessionId = Number(req.params.id);
+  const teacherUserId = getTeacherUserIdFromRequest(req);
+  if (!teacherUserId) {
+    return res.status(401).json({ error: 'Teacher authentication required' });
+  }
+  if (!enforceRateLimit(req, res, 'teacher-session-state', 300, 5 * 60 * 1000, teacherUserId, req.params.id)) return;
+  const status = sanitizeLine(req.body?.status, 40).toUpperCase();
+  const sessionId = parsePositiveInt(req.params.id);
+  const session = getTeacherOwnedSession(sessionId, teacherUserId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const allowedStatuses = new Set(['LOBBY', 'QUESTION_ACTIVE', 'QUESTION_REVEAL', 'ENDED']);
+  if (!allowedStatuses.has(status)) {
+    return res.status(400).json({ error: 'Invalid session status' });
+  }
+
+  const questionCount = Number(
+    db.prepare('SELECT COUNT(*) as count FROM questions WHERE quiz_pack_id = ?').get(session.quiz_pack_id)?.count || 0,
+  );
+  const current_question_index =
+    questionCount > 0
+      ? clampNumber(req.body?.current_question_index, 0, Math.max(0, questionCount - 1), 0)
+      : 0;
 
   const update = db.prepare(`
     UPDATE sessions
@@ -1171,18 +1342,18 @@ router.put('/sessions/:id/state', requireTeacherSession, (req, res) => {
   `);
   update.run(status, current_question_index, status, status, sessionId);
 
-  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
-  if (session) {
+  const updatedSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+  if (updatedSession) {
     let questionPayload = null;
     if (status === 'QUESTION_ACTIVE' || status === 'QUESTION_REVEAL') {
       const question = db
         .prepare('SELECT * FROM questions WHERE quiz_pack_id = ? ORDER BY question_order ASC, id ASC LIMIT 1 OFFSET ?')
-        .get(session.quiz_pack_id, current_question_index);
+        .get(updatedSession.quiz_pack_id, current_question_index);
       if (question) {
         questionPayload = { ...question, answers: JSON.parse(question.answers_json) };
         delete questionPayload.answers_json;
         if (status === 'QUESTION_ACTIVE') {
-          delete questionPayload.correct_index; // Hide from clients during active
+          delete questionPayload.correct_index;
           delete questionPayload.explanation;
         }
       }
@@ -1192,8 +1363,8 @@ router.put('/sessions/:id/state', requireTeacherSession, (req, res) => {
       status,
       current_question_index,
       question: questionPayload,
-      game_type: session.game_type,
-      team_count: Number(session.team_count || 0),
+      game_type: updatedSession.game_type,
+      team_count: Number(updatedSession.team_count || 0),
     });
   }
 
@@ -1205,80 +1376,156 @@ router.put('/sessions/:id/state', requireTeacherSession, (req, res) => {
 // Join a session
 router.post('/sessions/:pin/join', (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
-  if (!enforceRateLimit(req, res, 'student-join', 20, 5 * 60 * 1000)) return;
-
+  const pin = sanitizeSessionPin(req.params.pin);
   const nickname = sanitizeLine(req.body?.nickname, 24);
-  const session = hydrateSessionRow(db.prepare('SELECT * FROM sessions WHERE pin = ?').get(req.params.pin));
+  if (!enforceRateLimit(req, res, 'student-join', 20, 5 * 60 * 1000, pin, nickname.toLowerCase())) return;
+
+  const session = hydrateSessionRow(db.prepare('SELECT * FROM sessions WHERE pin = ?').get(pin));
 
   if (!session) return res.status(404).json({ error: 'Session not found' });
   if (session.status !== 'LOBBY') return res.status(400).json({ error: 'Session already started' });
   if (nickname.length < 2) return res.status(400).json({ error: 'Nickname must be at least 2 characters' });
 
-  // Check if nickname exists
-  const existing = db.prepare('SELECT id FROM participants WHERE session_id = ? AND nickname = ?').get(session.id, nickname);
-  if (existing) return res.status(400).json({ error: 'Nickname taken' });
+  try {
+    const joinResult = db.transaction(() => {
+      const latestSession = hydrateSessionRow(db.prepare('SELECT * FROM sessions WHERE id = ?').get(session.id));
+      if (!latestSession || latestSession.status !== 'LOBBY') {
+        throw new Error('Session already started');
+      }
 
-  const currentCount = Number(
-    db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id).count || 0,
-  );
-  const assignedTeamId = isTeamGame(session.game_type) ? (currentCount % Math.max(2, session.team_count || 4)) + 1 : 0;
-  const assignedTeamName = assignedTeamId > 0 ? buildTeamIdentity(assignedTeamId) : null;
-  const seatIndex =
-    assignedTeamId > 0
-      ? Number(
-          db
-            .prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ? AND team_id = ?')
-            .get(session.id, assignedTeamId).count || 0,
-        ) + 1
-      : currentCount + 1;
+      const existing = db
+        .prepare('SELECT id FROM participants WHERE session_id = ? AND LOWER(nickname) = LOWER(?)')
+        .get(session.id, nickname);
+      if (existing) {
+        throw new Error('Nickname taken');
+      }
 
-  const insert = db.prepare(`
-    INSERT INTO participants (session_id, nickname, team_id, team_name, seat_index)
-    VALUES (?, ?, ?, ?, ?)
-  `);
-  const info = insert.run(session.id, nickname, assignedTeamId, assignedTeamName, seatIndex);
+      const currentCount = Number(
+        db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id).count || 0,
+      );
+      if (currentCount >= MAX_SESSION_PARTICIPANTS) {
+        throw new Error('Session capacity reached');
+      }
 
-  const total = db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id).count;
+      const assignedTeamId = isTeamGame(session.game_type)
+        ? (currentCount % Math.max(2, session.team_count || 4)) + 1
+        : 0;
+      const assignedTeamName = assignedTeamId > 0 ? buildTeamIdentity(assignedTeamId) : null;
+      const seatIndex =
+        assignedTeamId > 0
+          ? Number(
+              db
+                .prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ? AND team_id = ?')
+                .get(session.id, assignedTeamId).count || 0,
+            ) + 1
+          : currentCount + 1;
 
-  broadcastToSession(session.id, 'PARTICIPANT_JOINED', {
-    nickname,
-    participant_id: Number(info.lastInsertRowid),
-    total_participants: total,
-    team_id: assignedTeamId,
-    team_name: assignedTeamName,
-    game_type: session.game_type,
-  });
+      const info = db
+        .prepare(`
+          INSERT INTO participants (session_id, nickname, team_id, team_name, seat_index)
+          VALUES (?, ?, ?, ?, ?)
+        `)
+        .run(session.id, nickname, assignedTeamId, assignedTeamName, seatIndex);
 
-  res.json({
-    participant_id: info.lastInsertRowid,
-    session_id: session.id,
-    game_type: session.game_type,
-    team_id: assignedTeamId,
-    team_name: assignedTeamName,
-    seat_index: seatIndex,
-  });
+      const total = Number(
+        db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id).count || 0,
+      );
+
+      return {
+        participant_id: Number(info.lastInsertRowid),
+        total,
+        assignedTeamId,
+        assignedTeamName,
+        seatIndex,
+      };
+    })();
+
+    broadcastToSession(session.id, 'PARTICIPANT_JOINED', {
+      nickname,
+      participant_id: joinResult.participant_id,
+      total_participants: joinResult.total,
+      team_id: joinResult.assignedTeamId,
+      team_name: joinResult.assignedTeamName,
+      game_type: session.game_type,
+    });
+
+    res.json({
+      participant_id: joinResult.participant_id,
+      session_id: session.id,
+      game_type: session.game_type,
+      team_id: joinResult.assignedTeamId,
+      team_name: joinResult.assignedTeamName,
+      seat_index: joinResult.seatIndex,
+    });
+  } catch (error: any) {
+    if (error?.message === 'Nickname taken') {
+      res.status(400).json({ error: 'Nickname taken' });
+      return;
+    }
+    if (error?.message === 'Session capacity reached') {
+      res.status(429).json({ error: 'Session is full. Ask the teacher to open another room.' });
+      return;
+    }
+    if (error?.message === 'Session already started') {
+      res.status(400).json({ error: 'Session already started' });
+      return;
+    }
+    console.error('[ERROR] Session join failed:', error);
+    res.status(500).json({ error: 'Failed to join session' });
+  }
 });
 
 // Submit answer
 router.post('/sessions/:pin/answer', async (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
+  const pin = sanitizeSessionPin(req.params.pin);
   const participant_id = parsePositiveInt(req.body?.participant_id);
   const question_id = parsePositiveInt(req.body?.question_id);
-  const chosen_index = Math.max(0, Number(req.body?.chosen_index) || 0);
-  const response_ms = Math.max(0, Number(req.body?.response_ms) || 0);
-  const telemetry = req.body?.telemetry || {};
+  if (!participant_id || !question_id) {
+    return res.status(400).json({ error: 'participant_id and question_id are required.' });
+  }
+  if (!enforceRateLimit(req, res, 'student-answer', 30, 5 * 60 * 1000, pin, participant_id, question_id)) return;
+  const response_ms = clampNumber(req.body?.response_ms, 0, 300_000, 0);
+  const telemetry = sanitizeTelemetry(req.body?.telemetry);
 
   try {
-    const session = db.prepare('SELECT id, status FROM sessions WHERE pin = ?').get(req.params.pin);
+    const session = db.prepare('SELECT id, status, quiz_pack_id FROM sessions WHERE pin = ?').get(pin) as any;
 
     if (!session || session.status !== 'QUESTION_ACTIVE') {
       return res.status(400).json({ error: 'Invalid session state' });
     }
 
+    const existingAnswer = db
+      .prepare('SELECT score_awarded FROM answers WHERE session_id = ? AND question_id = ? AND participant_id = ?')
+      .get(session.id, question_id, participant_id) as any;
+    if (existingAnswer) {
+      const totalAnswers = Number(
+        db.prepare('SELECT COUNT(*) as count FROM answers WHERE session_id = ? AND question_id = ?').get(session.id, question_id)
+          .count || 0,
+      );
+      const totalParticipants = Number(
+        db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id).count || 0,
+      );
+      return res.json({
+        success: true,
+        duplicate: true,
+        score_awarded: Number(existingAnswer.score_awarded || 0),
+        total_answers: totalAnswers,
+        expected: totalParticipants,
+      });
+    }
+
     const question = db
-      .prepare('SELECT correct_index, time_limit_seconds, tags_json FROM questions WHERE id = ?')
-      .get(question_id);
+      .prepare('SELECT correct_index, time_limit_seconds, tags_json, answers_json FROM questions WHERE id = ? AND quiz_pack_id = ?')
+      .get(question_id, session.quiz_pack_id) as any;
     if (!question) return res.status(404).json({ error: 'Question not found' });
+
+    const answers = parseJsonArray(question.answers_json);
+    const chosenIndexValue = Number(req.body?.chosen_index);
+    if (!Number.isFinite(chosenIndexValue) || answers.length === 0 || chosenIndexValue < 0 || chosenIndexValue >= answers.length) {
+      return res.status(400).json({ error: 'Invalid answer choice' });
+    }
+    const chosen_index = Math.floor(chosenIndexValue);
 
     const participant = db
       .prepare('SELECT nickname FROM participants WHERE id = ? AND session_id = ?')
@@ -1298,62 +1545,79 @@ router.post('/sessions/:pin/answer', async (req, res) => {
       current_mastery: getMasteryRows(participant.nickname),
     });
 
-    const insertAnswer = db.prepare(`
-      INSERT INTO answers (session_id, question_id, participant_id, chosen_index, is_correct, response_ms, score_awarded)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+    const insertTelemetry = db.prepare(`
+      INSERT INTO student_behavior_logs (
+        session_id, question_id, participant_id,
+        tfi_ms, final_decision_buffer_ms, total_swaps, panic_swaps,
+        answer_path_json, focus_loss_count, idle_time_ms, blur_time_ms,
+        longest_idle_streak_ms, pointer_activity_count, keyboard_activity_count,
+        touch_activity_count, same_answer_reclicks, option_dwell_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    insertAnswer.run(
-      session.id,
-      question_id,
-      participant_id,
-      chosen_index,
-      isCorrect ? 1 : 0,
-      response_ms,
-      outcome.score_awarded,
-    );
 
-    if (telemetry) {
-      const insertTelemetry = db.prepare(`
-        INSERT INTO student_behavior_logs (
-          session_id, question_id, participant_id,
-          tfi_ms, final_decision_buffer_ms, total_swaps, panic_swaps,
-          answer_path_json, focus_loss_count, idle_time_ms, blur_time_ms,
-          longest_idle_streak_ms, pointer_activity_count, keyboard_activity_count,
-          touch_activity_count, same_answer_reclicks, option_dwell_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
+    const writeResult = db.transaction(() => {
+      const concurrentAnswer = db
+        .prepare('SELECT score_awarded FROM answers WHERE session_id = ? AND question_id = ? AND participant_id = ?')
+        .get(session.id, question_id, participant_id) as any;
+      if (concurrentAnswer) {
+        return {
+          duplicate: true,
+          score_awarded: Number(concurrentAnswer.score_awarded || 0),
+        };
+      }
 
-      insertTelemetry.run(
+      db.prepare(`
+        INSERT INTO answers (session_id, question_id, participant_id, chosen_index, is_correct, response_ms, score_awarded)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
         session.id,
         question_id,
         participant_id,
-        telemetry.tfi_ms || 0,
-        telemetry.final_decision_buffer_ms || 0,
-        telemetry.total_swaps || 0,
-        telemetry.panic_swaps || 0,
-        telemetry.answer_path_json || '[]',
-        telemetry.focus_loss_count || 0,
-        telemetry.idle_time_ms || 0,
-        telemetry.blur_time_ms || 0,
-        telemetry.longest_idle_streak_ms || 0,
-        telemetry.pointer_activity_count || 0,
-        telemetry.keyboard_activity_count || 0,
-        telemetry.touch_activity_count || 0,
-        telemetry.same_answer_reclicks || 0,
-        telemetry.option_dwell_json || '{}',
+        chosen_index,
+        isCorrect ? 1 : 0,
+        response_ms,
+        outcome.score_awarded,
       );
-    }
 
-    if (outcome.mastery_updates.length > 0) {
+      if (telemetry) {
+        insertTelemetry.run(
+          session.id,
+          question_id,
+          participant_id,
+          telemetry.tfi_ms,
+          telemetry.final_decision_buffer_ms,
+          telemetry.total_swaps,
+          telemetry.panic_swaps,
+          telemetry.answer_path_json,
+          telemetry.focus_loss_count,
+          telemetry.idle_time_ms,
+          telemetry.blur_time_ms,
+          telemetry.longest_idle_streak_ms,
+          telemetry.pointer_activity_count,
+          telemetry.keyboard_activity_count,
+          telemetry.touch_activity_count,
+          telemetry.same_answer_reclicks,
+          telemetry.option_dwell_json,
+        );
+      }
+
+      return {
+        duplicate: false,
+        score_awarded: outcome.score_awarded,
+      };
+    })();
+
+    if (!writeResult.duplicate && outcome.mastery_updates.length > 0) {
       applyMasteryUpdates(participant.nickname, outcome.mastery_updates);
     }
 
-    const totalAnswers = db
-      .prepare('SELECT COUNT(*) as count FROM answers WHERE session_id = ? AND question_id = ?')
-      .get(session.id, question_id).count;
-    const totalParticipants = db
-      .prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?')
-      .get(session.id).count;
+    const totalAnswers = Number(
+      db.prepare('SELECT COUNT(*) as count FROM answers WHERE session_id = ? AND question_id = ?').get(session.id, question_id)
+        .count || 0,
+    );
+    const totalParticipants = Number(
+      db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id).count || 0,
+    );
 
     broadcastToSession(session.id, 'ANSWER_RECEIVED', {
       total_answers: totalAnswers,
@@ -1361,9 +1625,10 @@ router.post('/sessions/:pin/answer', async (req, res) => {
     });
     res.json({
       success: true,
-      score_awarded: outcome.score_awarded,
-      total_answers: Number(totalAnswers || 0),
-      expected: Number(totalParticipants || 0),
+      duplicate: writeResult.duplicate,
+      score_awarded: writeResult.score_awarded,
+      total_answers: totalAnswers,
+      expected: totalParticipants,
     });
   } catch (error: any) {
     console.error('[ERROR] Session answer failed:', error);
@@ -1374,20 +1639,28 @@ router.post('/sessions/:pin/answer', async (req, res) => {
 // Broadcast student selection (pre-lock-in)
 router.post('/sessions/:pin/selection', (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
+  const pin = sanitizeSessionPin(req.params.pin);
   const participant_id = parsePositiveInt(req.body?.participant_id);
-  const chosen_index = Math.max(0, Number(req.body?.chosen_index) || 0);
-  const session = db.prepare('SELECT id, status FROM sessions WHERE pin = ?').get(req.params.pin);
+  if (!participant_id) return res.status(400).json({ error: 'participant_id is required' });
+  if (!enforceRateLimit(req, res, 'student-selection', 240, 60 * 1000, pin, participant_id)) return;
+  const chosen_index = clampNumber(req.body?.chosen_index, 0, 12, 0);
+  const session = db.prepare('SELECT id, status FROM sessions WHERE pin = ?').get(pin) as any;
 
   if (!session || session.status !== 'QUESTION_ACTIVE') {
     return res.status(400).json({ error: 'Invalid session state' });
   }
 
-  const participant = db.prepare('SELECT nickname FROM participants WHERE id = ?').get(participant_id);
+  const participant = db
+    .prepare('SELECT nickname FROM participants WHERE id = ? AND session_id = ?')
+    .get(participant_id, session.id) as any;
+  if (!participant) {
+    return res.status(404).json({ error: 'Participant not found' });
+  }
 
   broadcastToSession(session.id, 'SELECTION_CHANGE', {
     participant_id,
     nickname: participant?.nickname,
-    chosen_index
+    chosen_index,
   });
 
   res.json({ success: true });
@@ -1396,15 +1669,23 @@ router.post('/sessions/:pin/selection', (req, res) => {
 // Broadcast student focus loss
 router.post('/sessions/:pin/focus-loss', (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
+  const pin = sanitizeSessionPin(req.params.pin);
   const participant_id = parsePositiveInt(req.body?.participant_id);
-  const session = db.prepare('SELECT id FROM sessions WHERE pin = ?').get(req.params.pin);
+  if (!participant_id) return res.status(400).json({ error: 'participant_id is required' });
+  if (!enforceRateLimit(req, res, 'student-focus-loss', 60, 60 * 1000, pin, participant_id)) return;
+  const session = db.prepare('SELECT id FROM sessions WHERE pin = ?').get(pin) as any;
   if (!session) return res.status(404).json({ error: 'Session not found' });
 
-  const participant = db.prepare('SELECT nickname FROM participants WHERE id = ?').get(participant_id);
+  const participant = db
+    .prepare('SELECT nickname FROM participants WHERE id = ? AND session_id = ?')
+    .get(participant_id, session.id) as any;
+  if (!participant) {
+    return res.status(404).json({ error: 'Participant not found' });
+  }
 
   broadcastToSession(session.id, 'FOCUS_LOST', {
     participant_id,
-    nickname: participant?.nickname
+    nickname: participant?.nickname,
   });
 
   res.json({ success: true });
@@ -1412,26 +1693,22 @@ router.post('/sessions/:pin/focus-loss', (req, res) => {
 
 // --- SSE Stream ---
 router.get('/sessions/:pin/stream', (req, res) => {
-  const session = db.prepare('SELECT id FROM sessions WHERE pin = ?').get(req.params.pin);
+  if (!enforceTrustedOrigin(req, res)) return;
+  const pin = sanitizeSessionPin(req.params.pin);
+  if (!enforceRateLimit(req, res, 'session-stream-connect', 30, 60 * 1000, pin)) return;
+  const session = db.prepare('SELECT id FROM sessions WHERE pin = ?').get(pin) as any;
   if (!session) return res.status(404).json({ error: 'Session not found' });
 
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
+  res.setHeader('X-Accel-Buffering', 'no');
 
-  const sessionId = session.id;
-  if (!sseClients.has(sessionId)) {
-    sseClients.set(sessionId, []);
+  const registration = registerSseClient(Number(session.id), req, res);
+  if (registration.ok === false) {
+    res.status(registration.status).json({ error: registration.error });
+    return;
   }
-  sseClients.get(sessionId)!.push(res);
-
-  req.on('close', () => {
-    const clients = sseClients.get(sessionId);
-    if (clients) {
-      sseClients.set(sessionId, clients.filter(c => c !== res));
-    }
-  });
 });
 
 // --- Analytics ---
@@ -1439,7 +1716,12 @@ router.get('/analytics/class/:sessionId', async (req, res) => {
   const session = readTeacherSession(req);
   if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
   try {
-    const sessionId = Number(req.params.sessionId);
+    const teacherUserId = Number(getTeacherUserByEmail(session.email)?.id || 0);
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceRateLimit(req, res, 'analytics-class', 60, 5 * 60 * 1000, teacherUserId, req.params.sessionId)) return;
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const ownedSession = getTeacherOwnedSession(sessionId, teacherUserId);
+    if (!ownedSession) return res.status(404).json({ error: 'Session not found' });
     const payload = getSessionPayload(sessionId);
     if (!payload) return res.status(404).json({ error: 'Session not found' });
 
@@ -1455,8 +1737,17 @@ router.get('/analytics/class/:sessionId/student/:participantId', async (req, res
   const session = readTeacherSession(req);
   if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
   try {
-    const sessionId = Number(req.params.sessionId);
-    const participantId = Number(req.params.participantId);
+    const teacherUserId = Number(getTeacherUserByEmail(session.email)?.id || 0);
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceRateLimit(req, res, 'analytics-class-student', 60, 5 * 60 * 1000, teacherUserId, req.params.sessionId, req.params.participantId)) return;
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const participantId = parsePositiveInt(req.params.participantId);
+    const ownedSession = getTeacherOwnedSession(sessionId, teacherUserId);
+    if (!ownedSession) return res.status(404).json({ error: 'Session not found' });
+    const ownedParticipant = getTeacherOwnedParticipant(participantId, teacherUserId);
+    if (!ownedParticipant || Number(ownedParticipant.live_session_id) !== sessionId) {
+      return res.status(404).json({ error: 'Student session analytics not found' });
+    }
     const context = await getSessionStudentContext(sessionId, participantId);
     if (!context) return res.status(404).json({ error: 'Student session analytics not found' });
 
@@ -1486,9 +1777,19 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
   const session = readTeacherSession(req);
   if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
   try {
-    const sessionId = Number(req.params.sessionId);
-    const participantId = Number(req.params.participantId);
-    const requestedCount = Math.max(1, Number(req.body?.count) || 5);
+    const teacherUserId = Number(getTeacherUserByEmail(session.email)?.id || 0);
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceTrustedOrigin(req, res)) return;
+    if (!enforceRateLimit(req, res, 'adaptive-game-create', 20, 10 * 60 * 1000, teacherUserId, req.params.sessionId, req.params.participantId)) return;
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const participantId = parsePositiveInt(req.params.participantId);
+    const requestedCount = clampNumber(req.body?.count, 1, 20, 5);
+    const ownedSession = getTeacherOwnedSession(sessionId, teacherUserId);
+    if (!ownedSession) return res.status(404).json({ error: 'Session not found' });
+    const ownedParticipant = getTeacherOwnedParticipant(participantId, teacherUserId);
+    if (!ownedParticipant || Number(ownedParticipant.live_session_id) !== sessionId) {
+      return res.status(404).json({ error: 'Student session analytics not found' });
+    }
     const context = await getSessionStudentContext(sessionId, participantId);
     if (!context) return res.status(404).json({ error: 'Student session analytics not found' });
 
@@ -1516,7 +1817,6 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
     const originalPackTitle = context.classPayload.pack?.title || `Pack ${context.classPayload.session.quiz_pack_id}`;
     const adaptiveTitle = `Adaptive: ${context.participant.nickname} - ${originalPackTitle}`;
     const adaptiveProfile = getOrCreateMaterialProfile(context.classPayload.pack?.source_text || '');
-    const teacherUserId = Number(getTeacherUserByEmail(session.email)?.id || 1);
     const packInfo = db
       .prepare(`
         INSERT INTO quiz_packs (
@@ -1577,7 +1877,7 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
     insertQuestions(adaptiveGame.questions);
     syncPackDerivedData(adaptivePackId, context.classPayload.pack?.source_text || '', adaptiveGame.questions);
 
-    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    const pin = createSessionPin();
     const sessionInfo = db
       .prepare('INSERT INTO sessions (quiz_pack_id, pin, status) VALUES (?, ?, ?)')
       .run(adaptivePackId, pin, 'LOBBY');
@@ -1603,7 +1903,9 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
 
 router.get('/analytics/student/:nickname', async (req, res) => {
   try {
-    const nickname = req.params.nickname;
+    const nickname = sanitizeLine(req.params.nickname, 48);
+    if (!nickname) return res.status(400).json({ error: 'Nickname is required' });
+    if (!enforceRateLimit(req, res, 'analytics-student', 90, 5 * 60 * 1000, nickname.toLowerCase())) return;
     const dashboard = await getOverallStudentAnalytics(nickname);
 
     res.json(dashboard);
@@ -1616,7 +1918,9 @@ router.get('/analytics/student/:nickname', async (req, res) => {
 // --- Adaptive Practice ---
 router.get('/practice/:nickname', async (req, res) => {
   try {
-    const nickname = req.params.nickname;
+    const nickname = sanitizeLine(req.params.nickname, 48);
+    if (!nickname) return res.status(400).json({ error: 'Nickname is required' });
+    if (!enforceRateLimit(req, res, 'practice-load', 90, 5 * 60 * 1000, nickname.toLowerCase())) return;
     const practiceSet = await runPythonEngine<unknown>('practice-set', {
       nickname,
       mastery: getMasteryRows(nickname),
@@ -1633,14 +1937,28 @@ router.get('/practice/:nickname', async (req, res) => {
 });
 
 router.post('/practice/:nickname/answer', async (req, res) => {
-  const { question_id, chosen_index, response_ms } = req.body;
-  const nickname = req.params.nickname;
+  const question_id = parsePositiveInt(req.body?.question_id);
+  const chosenIndexValue = Number(req.body?.chosen_index);
+  const response_ms = clampNumber(req.body?.response_ms, 0, 300_000, 0);
+  const nickname = sanitizeLine(req.params.nickname, 48);
+  if (!nickname) return res.status(400).json({ error: 'Nickname is required' });
+  if (!question_id) return res.status(400).json({ error: 'question_id is required' });
+  if (!Number.isFinite(chosenIndexValue) || chosenIndexValue < 0) {
+    return res.status(400).json({ error: 'chosen_index is required' });
+  }
+  if (!enforceTrustedOrigin(req, res)) return;
+  if (!enforceRateLimit(req, res, 'practice-answer', 120, 5 * 60 * 1000, nickname.toLowerCase(), question_id)) return;
 
   try {
     const question = db
-      .prepare('SELECT correct_index, explanation, tags_json, time_limit_seconds FROM questions WHERE id = ?')
-      .get(question_id);
+      .prepare('SELECT correct_index, explanation, tags_json, time_limit_seconds, answers_json FROM questions WHERE id = ?')
+      .get(question_id) as any;
     if (!question) return res.status(404).json({ error: 'Question not found' });
+    const answers = parseJsonArray(question.answers_json);
+    if (Math.floor(chosenIndexValue) >= answers.length) {
+      return res.status(400).json({ error: 'Invalid answer choice' });
+    }
+    const chosen_index = Math.floor(chosenIndexValue);
 
     const isCorrect = Number(chosen_index) === Number(question.correct_index);
     const outcome = await runPythonEngine<{
@@ -1681,7 +1999,12 @@ router.get('/reports/class/:session_id', async (req, res) => {
   const session = readTeacherSession(req);
   if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
   try {
-    const sessionId = Number(req.params.session_id);
+    const teacherUserId = Number(getTeacherUserByEmail(session.email)?.id || 0);
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceRateLimit(req, res, 'report-class', 60, 5 * 60 * 1000, teacherUserId, req.params.session_id)) return;
+    const sessionId = parsePositiveInt(req.params.session_id);
+    const ownedSession = getTeacherOwnedSession(sessionId, teacherUserId);
+    if (!ownedSession) return res.status(404).json({ error: 'Session not found' });
     const payload = getSessionPayload(sessionId);
     if (!payload) return res.status(404).json({ error: 'Session not found' });
 
@@ -1696,15 +2019,20 @@ router.get('/reports/class/:session_id', async (req, res) => {
 // Get student personal power map & behavioral stats
 router.get('/reports/student/:participant_id', async (req, res) => {
   try {
-    const participantId = Number(req.params.participant_id);
-    const participant = db.prepare('SELECT * FROM participants WHERE id = ?').get(participantId);
+    const session = readTeacherSession(req);
+    if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
+    const teacherUserId = Number(getTeacherUserByEmail(session.email)?.id || 0);
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceRateLimit(req, res, 'report-student', 60, 5 * 60 * 1000, teacherUserId, req.params.participant_id)) return;
+    const participantId = parsePositiveInt(req.params.participant_id);
+    const participant = getTeacherOwnedParticipant(participantId, teacherUserId);
     if (!participant) return res.status(404).json({ error: 'Participant not found' });
-    const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(participant.session_id);
-    const pack = session
-      ? db.prepare('SELECT * FROM quiz_packs WHERE id = ?').get(session.quiz_pack_id)
+    const liveSession = db.prepare('SELECT * FROM sessions WHERE id = ?').get(participant.session_id) as any;
+    const pack = liveSession
+      ? db.prepare('SELECT * FROM quiz_packs WHERE id = ?').get(liveSession.quiz_pack_id)
       : null;
-    const questions = session
-      ? db.prepare('SELECT * FROM questions WHERE quiz_pack_id = ? ORDER BY question_order ASC, id ASC').all(session.quiz_pack_id)
+    const questions = liveSession
+      ? db.prepare('SELECT * FROM questions WHERE quiz_pack_id = ? ORDER BY question_order ASC, id ASC').all(liveSession.quiz_pack_id)
       : db.prepare('SELECT * FROM questions').all();
 
     const report = await runPythonEngine<any>('student-dashboard', {
@@ -1721,7 +2049,7 @@ router.get('/reports/student/:participant_id', async (req, res) => {
     res.json({
       ...report,
       participant,
-      session,
+      session: liveSession,
       pack,
     });
   } catch (error: any) {
@@ -1734,7 +2062,9 @@ router.get('/dashboard/teacher/overview', async (req, res) => {
   const session = readTeacherSession(req);
   if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
   try {
-    const teacherUserId = Number(getTeacherUserByEmail(session.email)?.id || 1);
+    const teacherUserId = Number(getTeacherUserByEmail(session.email)?.id || 0);
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceRateLimit(req, res, 'teacher-overview', 45, 5 * 60 * 1000, teacherUserId)) return;
     const packs = db.prepare('SELECT * FROM quiz_packs WHERE teacher_id = ?').all(teacherUserId);
     const packIds = uniqueNumbers(packs.map((pack: any) => pack.id));
     const sessions = packIds.length

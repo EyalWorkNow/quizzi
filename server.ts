@@ -2,31 +2,26 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import cors from 'cors';
+import { randomUUID } from 'crypto';
 import { createServer as createViteServer } from 'vite';
-import { initDb, seedAnalyticsShowcase, seedDemoData } from './src/server/db/index.js';
-import { checkPostgresHealth } from './src/server/db/postgres.js';
+import { seedAnalyticsShowcase, seedDemoData } from './src/server/db/index.js';
+import { checkPostgresHealth, closePostgresPool } from './src/server/db/postgres.js';
 import { checkSupabaseRestHealth } from './src/server/services/supabaseAdmin.js';
+import { getTrustedOrigins } from './src/server/services/requestGuards.js';
 import apiRouter from './src/server/routes/api.js';
 
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
   const distDir = path.resolve(process.cwd(), 'dist');
+  const allowedOrigins = getTrustedOrigins();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
-  // Enable CORS — explicit origin required when credentials: true
-  const ALLOWED_ORIGINS = [
-    'https://quizzi-ivory.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:5173',
-  ];
   app.use(cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, server-to-server)
       if (!origin) return callback(null, true);
-      if (ALLOWED_ORIGINS.includes(origin)) return callback(null, origin);
-      // In production, reflect known origins only; in dev, allow all
+      if (allowedOrigins.includes(origin.replace(/\/+$/, ''))) return callback(null, origin);
       if (process.env.NODE_ENV !== 'production') return callback(null, origin);
       console.warn(`[cors] Blocked origin: ${origin}`);
       callback(null, false);
@@ -56,11 +51,23 @@ async function startServer() {
   };
 
   app.use((req, res, next) => {
+    const requestId = String(req.headers['x-request-id'] || randomUUID());
+    req.headers['x-request-id'] = requestId;
+    res.setHeader('X-Request-Id', requestId);
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
-    res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+    res.setHeader('Origin-Agent-Cluster', '?1');
+    res.setHeader('X-DNS-Prefetch-Control', 'off');
+    if (process.env.NODE_ENV === 'production') {
+      const forwardedProto = String(req.headers['x-forwarded-proto'] || req.protocol || '').toLowerCase();
+      if (forwardedProto.includes('https')) {
+        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+      }
+    }
     next();
   });
 
@@ -68,6 +75,7 @@ async function startServer() {
   app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
   app.get('/healthz', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     const latestPostgresHealth = await checkPostgresHealth();
     const latestSupabaseRestHealth = await checkSupabaseRestHealth();
     res.json({
@@ -123,16 +131,14 @@ async function startServer() {
     console.log(`[server] QUIZZI back-end listening on 0.0.0.0:${PORT}`);
     console.log(`[server] Production mode: ${process.env.NODE_ENV === 'production'}`);
     
-    // Start background background tasks (non-blocking)
+    // Start background tasks after the port is bound.
     runHealthChecks();
-    seedDemoData();
-    seedAnalyticsShowcase();
 
     // Automatic Keep-Alive Ping for Render Free Tier Instances
     const renderExternalUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
     if (renderExternalUrl) {
       console.log(`[keep-alive] Auto-ping activated for ${renderExternalUrl}`);
-      setInterval(async () => {
+      const keepAliveTimer = setInterval(async () => {
         try {
           const res = await fetch(`${renderExternalUrl}/healthz`);
           console.log(`[keep-alive] Pinged ${renderExternalUrl}/healthz: ${res.status}`);
@@ -140,9 +146,34 @@ async function startServer() {
           console.error('[keep-alive] Ping failed:', err);
         }
       }, 5 * 60 * 1000); // 5 minutes
+      keepAliveTimer.unref?.();
     }
   });
 
+  server.keepAliveTimeout = Number(process.env.QUIZZI_KEEP_ALIVE_TIMEOUT_MS || 5_000);
+  server.headersTimeout = Number(process.env.QUIZZI_HEADERS_TIMEOUT_MS || 10_000);
+  server.requestTimeout = Number(process.env.QUIZZI_REQUEST_TIMEOUT_MS || 65_000);
+  server.on('clientError', (error, socket) => {
+    console.warn('[server] clientError', error?.message || error);
+    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+  });
+
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[server] Received ${signal}, draining connections...`);
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+    await closePostgresPool().catch((error) => {
+      console.warn('[server] Failed to close Postgres pool cleanly:', error);
+    });
+    process.exit(0);
+  };
+
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  process.once('SIGINT', () => void shutdown('SIGINT'));
 }
 
 startServer();

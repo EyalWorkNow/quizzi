@@ -53,7 +53,19 @@ export default function StudentDashboard() {
 
       const [overallResult, gameResult] = await Promise.allSettled([
         apiFetchJson(`/api/analytics/student/${encodeURIComponent(nickname)}`),
-        participantId ? apiFetchJson(`/api/reports/student/${participantId}`) : Promise.resolve(null),
+        participantId
+          ? apiFetchJson(`/api/reports/student/${participantId}`).catch((error: any) => {
+              const message = String(error?.message || '');
+              if (
+                message.includes('Teacher authentication required') ||
+                message.includes('403') ||
+                message.includes('401')
+              ) {
+                return null;
+              }
+              throw error;
+            })
+          : Promise.resolve(null),
       ]);
 
       if (cancelled) return;

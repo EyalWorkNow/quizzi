@@ -186,12 +186,16 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_sessions_pack_status ON sessions(quiz_pack_id, status);
     CREATE INDEX IF NOT EXISTS idx_participants_session ON participants(session_id);
     CREATE INDEX IF NOT EXISTS idx_participants_nickname_session ON participants(nickname, session_id);
+    CREATE INDEX IF NOT EXISTS idx_participants_session_nickname_lookup ON participants(session_id, nickname);
     CREATE INDEX IF NOT EXISTS idx_answers_session ON answers(session_id);
     CREATE INDEX IF NOT EXISTS idx_answers_participant_session ON answers(participant_id, session_id);
+    CREATE INDEX IF NOT EXISTS idx_answers_session_question_participant ON answers(session_id, question_id, participant_id);
     CREATE INDEX IF NOT EXISTS idx_questions_pack_order ON questions(quiz_pack_id, id);
     CREATE INDEX IF NOT EXISTS idx_behavior_participant_session ON student_behavior_logs(participant_id, session_id);
+    CREATE INDEX IF NOT EXISTS idx_behavior_session_question_participant ON student_behavior_logs(session_id, question_id, participant_id);
     CREATE INDEX IF NOT EXISTS idx_mastery_nickname ON mastery(nickname);
     CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_question ON practice_attempts(nickname, question_id);
+    CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_created ON practice_attempts(nickname, created_at);
     CREATE INDEX IF NOT EXISTS idx_material_profiles_hash ON material_profiles(source_hash);
     CREATE INDEX IF NOT EXISTS idx_generation_cache_lookup ON question_generation_cache(material_profile_id, difficulty, output_language, question_count);
   `);
