@@ -44,6 +44,7 @@ export default function TeacherHost() {
   const modeConfigRef = useRef<Record<string, unknown>>({});
   const autoAdvanceKeyRef = useRef('');
   const peerVoteAdvanceKeyRef = useRef('');
+  const lastStateChangeAtRef = useRef(Date.now());
   const gameMode = getGameMode(sessionMeta?.game_type);
   const gameTone = getGameModeTone(gameMode.id);
   const isTeamMode = gameMode.teamBased;
@@ -92,22 +93,18 @@ export default function TeacherHost() {
       setPhaseTimeLeft(activeQuestionSeconds);
       autoAdvanceKeyRef.current = '';
       peerVoteAdvanceKeyRef.current = '';
-      return;
-    }
-
-    if (status === 'QUESTION_DISCUSSION') {
+    } else if (status === 'QUESTION_DISCUSSION') {
       setPhaseTimeLeft(discussionSeconds);
       autoAdvanceKeyRef.current = '';
-      return;
-    }
-
-    if (status === 'QUESTION_REVOTE') {
+    } else if (status === 'QUESTION_REVOTE') {
       setPhaseTimeLeft(revoteSeconds);
       autoAdvanceKeyRef.current = '';
-      return;
+    } else {
+      setPhaseTimeLeft(0);
     }
-
-    setPhaseTimeLeft(0);
+    
+    // Use a timestamp to detect if we just entered this state to prevent immediate advancement
+    lastStateChangeAtRef.current = Date.now();
   }, [activeQuestionSeconds, discussionSeconds, questionIndex, revoteSeconds, status]);
 
   useEffect(() => {
@@ -478,7 +475,12 @@ export default function TeacherHost() {
   }, [isPeerMode, participants.length, questionIndex, status, studentSelections]);
 
   useEffect(() => {
-    if (phaseTimeLeft > 0 || !['QUESTION_ACTIVE', 'QUESTION_DISCUSSION', 'QUESTION_REVOTE'].includes(status)) {
+    if (!['QUESTION_ACTIVE', 'QUESTION_DISCUSSION', 'QUESTION_REVOTE'].includes(status)) {
+      return;
+    }
+
+    // Prevents immediate "Time's Up" if phaseTimeLeft hasn't updated yet or if we just started
+    if (phaseTimeLeft > 0 || Date.now() - lastStateChangeAtRef.current < 2000) {
       return;
     }
 
