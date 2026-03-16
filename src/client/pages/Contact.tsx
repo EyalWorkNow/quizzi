@@ -275,6 +275,7 @@ function StepCard({
   onPrev,
   children,
 }: {
+  key?: React.Key;
   step: number;
   total: number;
   title: string;
