@@ -5,13 +5,20 @@ import { useNavigate } from 'react-router-dom';
 import { addContactSubmission } from '../lib/localData.ts';
 import { apiFetchJson } from '../lib/api.ts';
 
-const INQUIRY_TYPES = ['New project request', 'Media inquiry', 'Product support', 'Something else'];
+const INQUIRY_TYPES = [
+  'שיתוף פעולה פדגוגי',
+  'פיילוט למוסד לימודי',
+  'אינטגרציה וחיבור מערכות (LMS)',
+  'תמיכה טכנית',
+  'אחר'
+];
 
 const TOTAL_STEPS = 5;
 
 export default function Contact() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     inquiryType: '',
     name: '',
@@ -21,21 +28,22 @@ export default function Contact() {
   });
 
   const pageVariants = {
-    initial: { opacity: 0, y: 40 },
-    in: { opacity: 1, y: 0 },
-    out: { opacity: 0, y: -40 },
+    initial: { opacity: 0, scale: 0.98, y: 20 },
+    in: { opacity: 1, scale: 1, y: 0 },
+    out: { opacity: 0, scale: 1.02, y: -20 },
   };
 
   const pageTransition = {
-    type: 'tween',
-    ease: 'anticipate',
-    duration: 0.5,
+    type: 'spring',
+    stiffness: 260,
+    damping: 20,
   };
 
   const handlePrev = () => setStep((current) => Math.max(0, current - 1));
   const handleNext = () => setStep((current) => Math.min(TOTAL_STEPS, current + 1));
 
   const submit = async () => {
+    setIsSubmitting(true);
     try {
       await apiFetchJson('/api/contact', {
         method: 'POST',
@@ -48,56 +56,86 @@ export default function Contact() {
       // Fallback to local only if API fails, but still show success to user
       addContactSubmission(formData);
       setStep(TOTAL_STEPS);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-brand-bg font-sans text-brand-dark flex flex-col selection:bg-brand-orange selection:text-white">
-      <nav className="page-shell flex items-center justify-between gap-4 border-b-4 border-brand-dark bg-white py-5 relative z-20">
-        <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
+    <div className="min-h-screen bg-brand-bg font-sans text-brand-dark flex flex-col selection:bg-brand-orange selection:text-white overflow-hidden" dir="rtl">
+      {/* Premium Background Elements */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-brand-orange/10 blur-[120px] rounded-full"></div>
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-brand-purple/10 blur-[150px] rounded-full"></div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-[radial-gradient(circle_at_center,_transparent_0%,_rgba(255,255,255,0.4)_100%)]"></div>
+      </div>
+
+      <nav className="page-shell-wide flex items-center justify-between gap-4 py-6 relative z-30">
+        <div className="text-4xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
           <span className="text-brand-orange">Quiz</span>zi
         </div>
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/')} className="w-12 h-12 rounded-full border-4 border-brand-dark flex items-center justify-center hover:bg-brand-dark hover:text-white transition-colors shadow-[4px_4px_0px_0px_#1A1A1A]">
-            <X className="w-6 h-6" />
-          </button>
-        </div>
+        <button 
+          onClick={() => navigate(-1)} 
+          className="w-14 h-14 rounded-full border-2 border-brand-dark/10 bg-white/40 backdrop-blur-md flex items-center justify-center hover:bg-white hover:border-brand-dark transition-all shadow-xl group"
+        >
+          <X className="w-6 h-6 group-hover:rotate-90 transition-transform duration-300" />
+        </button>
       </nav>
 
-      <main className="page-shell relative flex flex-1 items-center justify-center py-6 sm:py-8 overflow-x-clip">
-        <div className="absolute top-20 left-20 w-64 h-64 bg-brand-yellow rounded-full border-4 border-brand-dark opacity-20 -z-10"></div>
-        <div className="absolute bottom-20 right-20 w-96 h-96 bg-brand-purple rounded-full border-4 border-brand-dark opacity-20 -z-10"></div>
-
-        <div className="w-full max-w-4xl">
+      <main className="flex-1 relative flex items-center justify-center p-6 relative z-20">
+        <div className="w-full max-w-5xl">
           <AnimatePresence mode="wait">
             {step === 0 && (
-              <motion.div key="step0" initial="initial" animate="in" exit="out" variants={pageVariants} transition={pageTransition} className="flex flex-col gap-8">
-                <div>
-                  <h1 className="text-3xl sm:text-4xl font-black mb-4">Let's talk</h1>
-                  <p className="text-lg sm:text-xl font-bold text-brand-dark/60 max-w-lg">
-                    Start a conversation around support, new work, or anything that needs a human response.
-                  </p>
+              <motion.div 
+                key="step0" 
+                initial="initial" 
+                animate="in" 
+                exit="out" 
+                variants={pageVariants} 
+                transition={pageTransition}
+                className="flex flex-col gap-10"
+              >
+                <div className="text-center md:text-right">
+                  <motion.div
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.1 }}
+                  >
+                    <span className="text-brand-orange font-black uppercase tracking-[0.2em] text-sm mb-4 block">צרו קשר</span>
+                    <h1 className="text-5xl md:text-7xl font-black mb-6 leading-[1.1]">איך נוכל לסייע<br /><span className="text-brand-purple">למערך הלמידה שלך?</span></h1>
+                    <p className="text-xl md:text-2xl font-bold text-brand-dark/50 max-w-2xl">
+                      התחילו שיח על שיתופי פעולה פדגוגיים, פיילוטים מוסדיים או תמיכה טכנית עם המומחים שלנו.
+                    </p>
+                  </motion.div>
                 </div>
 
-                <div className="flex flex-col gap-6 mt-8">
-                  {INQUIRY_TYPES.map((type) => {
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-4">
+                  {INQUIRY_TYPES.map((type, idx) => {
                     const isSelected = formData.inquiryType === type;
                     return (
-                      <button
+                      <motion.button
                         key={type}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 + idx * 0.05 }}
                         onClick={() => {
                           setFormData((current) => ({ ...current, inquiryType: type }));
-                          setTimeout(() => setStep(1), 250);
+                          setTimeout(() => setStep(1), 300);
                         }}
-                        className="group flex items-center gap-4 sm:gap-6 text-left transition-all"
+                        className={`group relative p-8 rounded-[2.5rem] border-2 text-right transition-all duration-500 overflow-hidden ${
+                          isSelected 
+                            ? 'bg-brand-dark border-brand-dark text-white shadow-2xl scale-[1.02]' 
+                            : 'bg-white/60 backdrop-blur-xl border-brand-dark/10 hover:border-brand-orange hover:shadow-2xl hover:-translate-y-1'
+                        }`}
                       >
-                        <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full border-4 border-brand-dark flex items-center justify-center transition-colors shrink-0 ${isSelected ? 'bg-brand-orange' : 'bg-transparent group-hover:bg-brand-orange/20'}`}>
-                          {isSelected && <div className="w-4 h-4 bg-brand-dark rounded-full"></div>}
+                        <div className={`w-12 h-12 rounded-2xl mb-6 flex items-center justify-center transition-colors ${isSelected ? 'bg-brand-orange text-white' : 'bg-brand-bg text-brand-dark group-hover:bg-brand-orange/10 group-hover:text-brand-orange'}`}>
+                          <ArrowRight className={`w-6 h-6 rotate-180 ${isSelected ? 'animate-pulse' : ''}`} />
                         </div>
-                        <span className={`text-3xl xs:text-4xl sm:text-5xl lg:text-7xl font-black tracking-tight transition-all duration-300 ${isSelected ? 'text-brand-dark' : 'text-transparent'}`} style={{ WebkitTextStroke: isSelected ? '0px' : '2px #1A1A1A' }}>
+                        <span className="text-xl md:text-2xl font-black block leading-tight">
                           {type}
                         </span>
-                      </button>
+                        <div className={`absolute bottom-[-20px] right-[-20px] w-24 h-24 rounded-full transition-all duration-700 opacity-20 ${isSelected ? 'bg-brand-orange scale-[3]' : 'bg-transparent scale-0 group-hover:scale-100 group-hover:bg-brand-orange/20'}`}></div>
+                      </motion.button>
                     );
                   })}
                 </div>
@@ -105,71 +143,122 @@ export default function Contact() {
             )}
 
             {step > 0 && step < TOTAL_STEPS && (
-              <StepCard key={`step-${step}`} step={step} total={TOTAL_STEPS} title={step === 1 ? "What's your name?" : step === 2 ? 'What organization are you with?' : step === 3 ? 'Which email should we answer?' : 'What do you need help with?'} onPrev={handlePrev}>
-                {step === 1 && (
-                  <AdvanceField
-                    placeholder="Type your name"
-                    value={formData.name}
-                    onChange={(value) => setFormData((current) => ({ ...current, name: value }))}
-                    onAdvance={handleNext}
-                  />
-                )}
-                {step === 2 && (
-                  <AdvanceField
-                    placeholder="Your organization"
-                    value={formData.organization}
-                    onChange={(value) => setFormData((current) => ({ ...current, organization: value }))}
-                    onAdvance={handleNext}
-                  />
-                )}
-                {step === 3 && (
-                  <AdvanceField
-                    placeholder="name@company.com"
-                    value={formData.email}
-                    onChange={(value) => setFormData((current) => ({ ...current, email: value }))}
-                    onAdvance={handleNext}
-                    type="email"
-                  />
-                )}
-                {step === 4 && (
-                  <div className="w-full">
-                    <div className="relative border-b-4 border-brand-dark pb-4 focus-within:border-brand-orange transition-colors">
-                      <textarea
-                        autoFocus
-                        placeholder="Write your message"
-                        value={formData.message}
-                        onChange={(event) => setFormData((current) => ({ ...current, message: event.target.value }))}
-                        className="w-full bg-transparent text-2xl xs:text-3xl sm:text-4xl font-black outline-none min-h-40 sm:min-h-48 resize-none placeholder:text-transparent placeholder:[-webkit-text-stroke:2px_#1A1A1A] placeholder:opacity-30"
-                      />
+              <StepCard 
+                key={`step-${step}`} 
+                step={step} 
+                total={TOTAL_STEPS - 1} 
+                title={
+                  step === 1 ? "מה השם שלך?" : 
+                  step === 2 ? "לאיזה מוסד לימודי / ארגון אתה שייך?" : 
+                  step === 3 ? "מהו האימייל הרשמי אליו נשיב?" : 
+                  "במה נוכל לעזור?"
+                } 
+                onPrev={handlePrev}
+              >
+                <div className="w-full">
+                  {step === 1 && (
+                    <AdvanceField
+                      placeholder="הכנס שם מלא"
+                      value={formData.name}
+                      onChange={(value) => setFormData((current) => ({ ...current, name: value }))}
+                      onAdvance={handleNext}
+                    />
+                  )}
+                  {step === 2 && (
+                    <AdvanceField
+                      placeholder="שם הארגון / מוסד"
+                      value={formData.organization}
+                      onChange={(value) => setFormData((current) => ({ ...current, organization: value }))}
+                      onAdvance={handleNext}
+                    />
+                  )}
+                  {step === 3 && (
+                    <AdvanceField
+                      placeholder="name@institution.edu"
+                      value={formData.email}
+                      onChange={(value) => setFormData((current) => ({ ...current, email: value }))}
+                      onAdvance={handleNext}
+                      type="email"
+                    />
+                  )}
+                  {step === 4 && (
+                    <div className="w-full">
+                      <div className="relative border-b-4 border-brand-dark/20 pb-4 focus-within:border-brand-orange transition-all duration-300">
+                        <textarea
+                          autoFocus
+                          placeholder="כתבו לנו פירוט על הבקשה..."
+                          value={formData.message}
+                          onChange={(event) => setFormData((current) => ({ ...current, message: event.target.value }))}
+                          className="w-full bg-transparent text-3xl md:text-5xl font-black outline-none min-h-48 sm:min-h-64 resize-none placeholder:text-brand-dark/10"
+                        />
+                      </div>
+                      <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-6">
+                        <p className="text-lg font-bold text-brand-dark/40">ספרו לנו על ההקשר הפדגוגי, היקף המוסד והדחיפות.</p>
+                        <button
+                          onClick={submit}
+                          disabled={!formData.message.trim() || isSubmitting}
+                          className="px-12 py-5 rounded-full bg-brand-dark text-white flex items-center justify-center gap-3 hover:bg-brand-orange transition-all shadow-[8px_8px_0px_0px_#1A1A1A] hover:shadow-none hover:translate-x-1 hover:translate-y-1 disabled:opacity-50 disabled:pointer-events-none group"
+                        >
+                          {isSubmitting ? (
+                            <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <>
+                              <span className="text-xl font-black">שלח פנייה</span>
+                              <ArrowLeft className="w-6 h-6 group-hover:-translate-x-2 transition-transform" />
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
-                    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-sm font-bold text-brand-dark/40">Describe the context, goal and urgency.</p>
-                      <button
-                        onClick={submit}
-                        disabled={!formData.message.trim()}
-                        className="w-16 h-16 rounded-full bg-brand-dark text-white flex items-center justify-center flex-shrink-0 hover:bg-brand-orange transition-colors shadow-[4px_4px_0px_0px_#FF5A36] disabled:opacity-50"
-                      >
-                        <ArrowRight className="w-8 h-8" />
-                      </button>
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </StepCard>
             )}
 
             {step === TOTAL_STEPS && (
-              <motion.div key="done" initial="initial" animate="in" exit="out" variants={pageVariants} transition={pageTransition} className="flex flex-col items-center text-center gap-8 w-full max-w-3xl mx-auto">
-                <div className="w-32 h-32 bg-brand-yellow rounded-full border-4 border-brand-dark flex items-center justify-center shadow-[8px_8px_0px_0px_#1A1A1A] mb-8">
-                  <span className="text-6xl">🎉</span>
+              <motion.div 
+                key="done" 
+                initial="initial" 
+                animate="in" 
+                exit="out" 
+                variants={pageVariants} 
+                transition={pageTransition} 
+                className="flex flex-col items-center text-center gap-10 w-full max-w-3xl mx-auto"
+              >
+                <div className="relative">
+                  <motion.div 
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: 'spring', damping: 10, delay: 0.2 }}
+                    className="w-40 h-40 bg-brand-yellow rounded-full border-4 border-brand-dark flex items-center justify-center shadow-2xl z-10 relative"
+                  >
+                    <span className="text-7xl">🎓</span>
+                  </motion.div>
+                  <div className="absolute inset-0 bg-brand-orange blur-3xl opacity-30 rounded-full animate-pulse"></div>
                 </div>
-                <h2 className="text-4xl sm:text-6xl font-black mb-4">Thanks, {formData.name}!</h2>
-                <p className="text-xl sm:text-2xl font-bold text-brand-dark/60">
-                  Your {formData.inquiryType.toLowerCase()} was saved for {formData.organization}.<br />
-                  We'll answer at {formData.email}.
-                </p>
-                <button onClick={() => navigate('/help')} className="mt-8 bg-brand-dark text-white px-8 py-4 sm:px-10 sm:py-5 rounded-full font-black text-lg sm:text-xl hover:bg-brand-orange transition-all shadow-[6px_6px_0px_0px_#1A1A1A]">
-                  Back to Help Center
-                </button>
+
+                <div>
+                  <h2 className="text-5xl sm:text-7xl font-black mb-6">תודה, {formData.name.split(' ')[0]}!</h2>
+                  <p className="text-2xl md:text-3xl font-bold text-brand-dark/60 leading-relaxed">
+                    הפנייה בנושא <span className="text-brand-orange">{formData.inquiryType}</span> עבור <span className="text-brand-purple">{formData.organization}</span> נקלטה במערכת.<br />
+                    נציג מקצועי ישיב לך לכתובת {formData.email} בהקדם.
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4 mt-6">
+                  <button 
+                    onClick={() => navigate('/help')} 
+                    className="bg-brand-dark text-white px-12 py-5 rounded-full font-black text-xl hover:bg-brand-orange transition-all shadow-xl hover:-translate-y-1"
+                  >
+                    חזרה למרכז העזרה
+                  </button>
+                  <button 
+                    onClick={() => navigate('/')} 
+                    className="bg-white border-4 border-brand-dark text-brand-dark px-12 py-5 rounded-full font-black text-xl hover:bg-brand-bg transition-all"
+                  >
+                    עמוד הבית
+                  </button>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -186,7 +275,6 @@ function StepCard({
   onPrev,
   children,
 }: {
-  key?: React.Key;
   step: number;
   total: number;
   title: string;
@@ -194,14 +282,27 @@ function StepCard({
   children: React.ReactNode;
 }) {
   return (
-    <motion.div initial="initial" animate="in" exit="out" variants={{ initial: { opacity: 0, y: 40 }, in: { opacity: 1, y: 0 }, out: { opacity: 0, y: -40 } }} transition={{ type: 'tween', ease: 'anticipate', duration: 0.5 }} className="flex flex-col gap-6 sm:gap-8 w-full max-w-3xl mx-auto">
-      <div className="flex items-center gap-4 mb-2 sm:mb-4">
-        <button onClick={onPrev} className="w-10 h-10 rounded-full border-2 border-brand-dark flex items-center justify-center hover:bg-brand-dark hover:text-white transition-colors">
-          <ArrowLeft className="w-5 h-5" />
+    <motion.div 
+      initial="initial" 
+      animate="in" 
+      exit="out" 
+      variants={{ initial: { opacity: 0, x: 40 }, in: { opacity: 1, x: 0 }, out: { opacity: 0, x: -40 } }} 
+      transition={{ type: 'spring', stiffness: 200, damping: 20 }} 
+      className="flex flex-col gap-10 w-full max-w-5xl mx-auto"
+    >
+      <div className="flex items-center gap-6">
+        <button 
+          onClick={onPrev} 
+          className="w-14 h-14 rounded-full border-2 border-brand-dark/10 bg-white/40 backdrop-blur-md flex items-center justify-center hover:bg-white hover:border-brand-dark transition-all shadow-lg group"
+        >
+          <ArrowRight className="w-6 h-6 transition-transform" />
         </button>
-        <span className="font-bold text-brand-dark/60 tracking-widest">{String(step).padStart(2, '0')}/{String(total).padStart(2, '0')}</span>
+        <div className="flex flex-col">
+          <span className="font-black text-brand-orange uppercase tracking-[0.2em] text-xs">שלב {step}</span>
+          <span className="font-bold text-brand-dark/30 tracking-widest text-lg">{String(step).padStart(2, '0')} / {String(total).padStart(2, '0')}</span>
+        </div>
       </div>
-      <h2 className="text-3xl sm:text-4xl font-black mb-4 sm:mb-8">{title}</h2>
+      <h2 className="text-4xl md:text-7xl font-black leading-tight max-w-4xl">{title}</h2>
       {children}
     </motion.div>
   );
@@ -214,7 +315,6 @@ function AdvanceField({
   onAdvance,
   type = 'text',
 }: {
-  key?: React.Key;
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
@@ -222,8 +322,8 @@ function AdvanceField({
   type?: string;
 }) {
   return (
-    <>
-      <div className="relative flex items-end border-b-4 border-brand-dark pb-4 focus-within:border-brand-orange transition-colors">
+    <div className="w-full">
+      <div className="relative flex items-center border-b-4 border-brand-dark/20 pb-4 focus-within:border-brand-orange transition-all duration-300">
         <input
           type={type}
           autoFocus
@@ -231,23 +331,26 @@ function AdvanceField({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => event.key === 'Enter' && value.trim() && onAdvance()}
-          className="w-full bg-transparent text-3xl xs:text-4xl sm:text-6xl font-black outline-none placeholder:text-transparent placeholder:[-webkit-text-stroke:2px_#1A1A1A] placeholder:opacity-30"
+          className="w-full bg-transparent text-4xl md:text-7xl font-black outline-none placeholder:text-brand-dark/10"
         />
         <AnimatePresence>
           {value.trim() && (
             <motion.button
-              initial={{ opacity: 0, scale: 0.5 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.5 }}
+              initial={{ opacity: 0, scale: 0.5, x: 20 }}
+              animate={{ opacity: 1, scale: 1, x: 0 }}
+              exit={{ opacity: 0, scale: 0.5, x: 20 }}
               onClick={onAdvance}
-              className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-brand-dark text-white flex items-center justify-center flex-shrink-0 hover:bg-brand-orange transition-colors shadow-[4px_4px_0px_0px_#FF5A36]"
+              className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-brand-dark text-white flex items-center justify-center flex-shrink-0 hover:bg-brand-orange transition-all shadow-xl group"
             >
-              <ArrowRight className="w-7 h-7 sm:w-8 sm:h-8" />
+              <ArrowLeft className="w-8 h-8 md:w-10 md:h-10 group-hover:-translate-x-2 transition-transform" />
             </motion.button>
           )}
         </AnimatePresence>
       </div>
-      <p className="text-sm font-bold text-brand-dark/40 mt-2">Hit Enter ↵</p>
-    </>
+      <div className="mt-6 flex items-center gap-2">
+        <span className="px-3 py-1 bg-brand-dark/5 rounded-md text-xs font-black text-brand-dark/40 border border-brand-dark/10">ENTER ↵</span>
+        <p className="text-sm font-bold text-brand-dark/40">לחצו על Enter כדי להמשיך</p>
+      </div>
+    </div>
   );
 }
