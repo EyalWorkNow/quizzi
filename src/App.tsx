@@ -14,7 +14,7 @@ const Explore = lazy(() => import('./client/pages/Explore.tsx'));
 const Contact = lazy(() => import('./client/pages/Contact.tsx'));
 const Auth = lazy(() => import('./client/pages/Auth.tsx'));
 const TeacherDashboard = lazy(() => import('./client/pages/TeacherDashboard.tsx'));
-const TeacherHelpCenter = lazy(() => import('./client/pages/TeacherHelpCenter.tsx'));
+const HelpCenter = lazy(() => import('./client/pages/HelpCenter.tsx'));
 const TeacherCreatePack = lazy(() => import('./client/pages/TeacherCreatePack.tsx'));
 const TeacherHost = lazy(() => import('./client/pages/TeacherHost.tsx'));
 const StudentPlay = lazy(() => import('./client/pages/StudentPlay.tsx'));
@@ -58,7 +58,7 @@ export default function App() {
               <Route path="/contact" element={<Contact />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/teacher/dashboard" element={<ProtectedTeacherRoute><TeacherDashboard /></ProtectedTeacherRoute>} />
-              <Route path="/teacher/help" element={<ProtectedTeacherRoute><TeacherHelpCenter /></ProtectedTeacherRoute>} />
+              <Route path="/help" element={<HelpCenter />} />
               <Route path="/teacher/reports" element={<ProtectedTeacherRoute><TeacherReports /></ProtectedTeacherRoute>} />
               <Route path="/teacher/classes" element={<ProtectedTeacherRoute><TeacherClasses /></ProtectedTeacherRoute>} />
               <Route path="/teacher/settings" element={<ProtectedTeacherRoute><TeacherSettings /></ProtectedTeacherRoute>} />

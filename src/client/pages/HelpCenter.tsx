@@ -20,7 +20,9 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { loadContactSubmissions, loadTeacherSettings } from '../lib/localData.ts';
-import { signOutTeacher } from '../lib/teacherAuth.ts';
+import { isTeacherAuthenticated, refreshTeacherSession } from '../lib/teacherAuth.ts';
+import { apiFetchJson } from '../lib/api.ts';
+import TeacherSidebar from '../components/TeacherSidebar.tsx';
 
 const RESOURCES = [
   {
@@ -88,19 +90,30 @@ const FAQS = [
   },
 ];
 
-export default function TeacherHelpCenter() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+export default function HelpCenter() {
+  const navigate = useNavigate();
+  const [teacherSignedIn, setTeacherSignedIn] = useState(() => isTeacherAuthenticated());
   const [query, setQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [openFaqId, setOpenFaqId] = useState<string | null>(FAQS[0].id);
   const [selectedResourceId, setSelectedResourceId] = useState<string>(RESOURCES[0].id);
-  const navigate = useNavigate();
+  
   const teacherProfile = loadTeacherSettings().profile;
   const recentContacts = loadContactSubmissions().slice(0, 3);
-  const handleLogout = async () => {
-    await signOutTeacher();
-    navigate('/');
-  };
+
+  React.useEffect(() => {
+    let cancelled = false;
+    refreshTeacherSession()
+      .then((session) => {
+        if (!cancelled) setTeacherSignedIn(!!session);
+      })
+      .catch(() => {
+        if (!cancelled) setTeacherSignedIn(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const categories = ['All', ...Array.from(new Set([...RESOURCES.map((item) => item.category), ...FAQS.map((item) => item.category)]))];
 
@@ -130,69 +143,31 @@ export default function TeacherHelpCenter() {
   const selectedResource = filteredResources.find((item) => item.id === selectedResourceId) || filteredResources[0] || RESOURCES[0];
 
   return (
-    <div className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white">
-      <motion.aside
-        animate={{ width: isSidebarOpen ? 256 : 80 }}
-        className="h-screen bg-white border-r-2 border-brand-dark flex flex-col flex-shrink-0 transition-all duration-300 relative z-20 shadow-[4px_0px_0px_0px_#1A1A1A]"
-      >
-        <div className="h-20 flex items-center px-6 border-b-2 border-brand-dark">
-          {isSidebarOpen ? (
-            <div className="text-2xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
+    <div className={`min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white`}>
+      {teacherSignedIn && <TeacherSidebar />}
+
+      <div className="flex-1 h-screen overflow-y-auto relative">
+        <div className="absolute inset-x-0 top-0 h-[430px] bg-[radial-gradient(circle_at_top_left,_rgba(255,90,54,0.16),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(180,136,255,0.18),_transparent_36%)] pointer-events-none" />
+
+        {!teacherSignedIn && (
+          <nav className="page-shell-wide relative z-20 flex flex-wrap items-center justify-between gap-4 py-5">
+            <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
               <span className="text-brand-orange">Quiz</span>zi
             </div>
-          ) : (
-            <div className="w-10 h-10 bg-brand-yellow border-2 border-brand-dark text-brand-dark rounded-full flex items-center justify-center text-xl font-black mx-auto cursor-pointer" onClick={() => navigate('/')}>
-              Q
+            <div className="hidden md:flex items-center gap-10 font-bold text-lg">
+              <button onClick={() => navigate('/explore')} className="hover:text-brand-orange transition-colors">Explore</button>
+              <button onClick={() => navigate('/auth')} className="hover:text-brand-orange transition-colors">For Teachers</button>
+              <button onClick={() => navigate('/contact')} className="hover:text-brand-orange transition-colors">Contact Us</button>
             </div>
-          )}
-        </div>
-
-        <div className="p-4 border-b-2 border-brand-dark">
-          <button onClick={() => navigate('/teacher/pack/create')} className="w-full bg-brand-orange text-white border-2 border-brand-dark rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#e84d2a] transition-all shadow-[2px_2px_0px_0px_#1A1A1A] py-3">
-            <Plus className="w-5 h-5" />
-            {isSidebarOpen && <span className="text-base">Create Quiz</span>}
-          </button>
-        </div>
-
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto hide-scrollbar">
-          <NavItem icon={<Library />} label="My Quizzes" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/dashboard')} />
-          <NavItem icon={<Compass />} label="Discover" isOpen={isSidebarOpen} onClick={() => navigate('/explore')} />
-          <NavItem icon={<BarChart />} label="Reports" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/reports')} />
-          <NavItem icon={<Users />} label="Classes" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/classes')} />
-
-          <div className="my-4 border-t-2 border-brand-dark relative">
-            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="absolute -right-6 top-1/2 -translate-y-1/2 w-6 h-6 bg-brand-yellow rounded-full flex items-center justify-center border-2 border-brand-dark hover:bg-yellow-300 transition-colors z-10 shadow-[2px_2px_0px_0px_#1A1A1A]">
-              <ChevronLeft className={`w-4 h-4 transition-transform ${!isSidebarOpen ? 'rotate-180' : ''}`} />
-            </button>
-          </div>
-
-          <NavItem icon={<Settings />} label="Settings" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/settings')} />
-          <NavItem icon={<HelpCircle />} label="Help Center" isOpen={isSidebarOpen} active onClick={() => navigate('/teacher/help')} />
-        </nav>
-
-        <div className="p-4 border-t-2 border-brand-dark bg-brand-purple/10">
-          <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} bg-white border-2 border-brand-dark p-2 rounded-xl shadow-[2px_2px_0px_0px_#1A1A1A]`}>
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-brand-yellow rounded-full flex items-center justify-center text-sm border-2 border-brand-dark overflow-hidden">
-                {teacherProfile.avatar}
-              </div>
-              {isSidebarOpen && (
-                <div>
-                  <p className="font-black text-xs">{teacherProfile.firstName} {teacherProfile.lastName}</p>
-                  <p className="text-[10px] font-bold text-brand-dark/60 truncate w-24">{teacherProfile.email}</p>
-                </div>
-              )}
-            </div>
-            {isSidebarOpen && (
-              <button onClick={handleLogout} className="w-8 h-8 bg-brand-bg border-2 border-brand-dark text-brand-dark rounded-lg flex items-center justify-center hover:bg-brand-orange hover:text-white transition-colors" title="Log out">
-                <LogOut className="w-4 h-4" />
+            <div className="action-row w-full md:w-auto md:justify-end">
+              <button onClick={() => navigate('/')} className="font-bold px-8 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">
+                Home
               </button>
-            )}
-          </div>
-        </div>
-      </motion.aside>
+            </div>
+          </nav>
+        )}
 
-      <main className="flex-1 h-screen overflow-y-auto p-6 lg:p-8 relative bg-brand-bg">
+      <main className={`flex-1 min-h-screen overflow-y-auto p-6 lg:p-8 relative bg-brand-bg ${teacherSignedIn ? '' : 'pt-20'}`}>
         <div className="max-w-[1200px] mx-auto relative z-10">
           <div className="text-center mb-10">
             <h1 className="text-4xl lg:text-5xl font-black tracking-tight mb-4">Teacher Help Center</h1>
@@ -298,12 +273,13 @@ export default function TeacherHelpCenter() {
         </div>
       </main>
     </div>
-  );
+  </div>
+);
 }
 
-function FAQItem({ question, answer, isOpen, onToggle }: { key?: React.Key; question: string; answer: string; isOpen: boolean; onToggle: () => void }) {
+function FAQItem({ question, answer, isOpen, onToggle }: any) {
   return (
-    <div className="border-2 border-brand-dark rounded-2xl overflow-hidden">
+    <div className="border-2 border-brand-dark rounded-2xl overflow-hidden text-left">
       <button onClick={onToggle} className="w-full flex items-center justify-between p-6 bg-brand-bg hover:bg-brand-yellow/20 transition-colors text-left">
         <span className="text-xl font-black pr-8">{question}</span>
         <div className={`w-8 h-8 rounded-full border-2 border-brand-dark flex items-center justify-center flex-shrink-0 transition-transform ${isOpen ? 'rotate-90 bg-brand-yellow' : 'bg-white'}`}>
@@ -324,18 +300,5 @@ function EmptyState({ text, compact = false }: { text: string; compact?: boolean
     <div className={`rounded-2xl border-2 border-dashed border-brand-dark/20 bg-white/50 ${compact ? 'p-4' : 'p-8'} text-center`}>
       <p className="font-bold text-brand-dark/50">{text}</p>
     </div>
-  );
-}
-
-function NavItem({ icon, label, isOpen, active, onClick }: { icon: React.ReactNode; label: string; isOpen: boolean; active?: boolean; onClick?: () => void }) {
-  return (
-    <button onClick={onClick} className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${active ? 'bg-brand-dark text-white border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A]' : 'bg-transparent border-transparent text-brand-dark/70 hover:bg-white hover:border-brand-dark hover:text-brand-dark hover:shadow-[2px_2px_0px_0px_#1A1A1A]'}`}>
-      <div className="flex items-center gap-3">
-        <div className={`w-5 h-5 flex items-center justify-center ${active ? 'text-brand-yellow' : ''}`}>
-          {icon}
-        </div>
-        {isOpen && <span className="font-bold text-sm">{label}</span>}
-      </div>
-    </button>
   );
 }

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { handleContactSubmission } from '../api/contact.js';
 import { randomBytes, randomInt } from 'crypto';
 import db from '../db/index.js';
 import { seedDemoDataForTeacher } from '../db/seeding.js';
@@ -74,6 +75,8 @@ const upload = multer({
 });
 
 const router = Router();
+
+router.post('/contact', handleContactSubmission);
 
 if (!process.env.GEMINI_API_KEY) {
   console.error('⚠️  [CRITICAL] GEMINI_API_KEY is NOT set! AI question generation will fail.');

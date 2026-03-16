@@ -21,6 +21,7 @@ import {
 import { motion } from 'motion/react';
 import { isTeacherAuthenticated, refreshTeacherSession } from '../lib/teacherAuth.ts';
 import { apiFetchJson } from '../lib/api.ts';
+import TeacherSidebar from '../components/TeacherSidebar.tsx';
 
 const CATEGORY_ICONS: Record<string, any> = {
   Math: Calculator,
@@ -151,27 +152,31 @@ export default function Explore() {
   }, [packs]);
 
   return (
-    <div className="min-h-screen bg-brand-bg font-sans text-brand-dark selection:bg-brand-orange selection:text-white pb-20 overflow-x-clip">
-      <div className="absolute inset-x-0 top-0 h-[430px] bg-[radial-gradient(circle_at_top_left,_rgba(255,90,54,0.16),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(180,136,255,0.18),_transparent_36%)] pointer-events-none" />
+    <div className={`min-h-screen bg-brand-bg font-sans text-brand-dark flex overflow-hidden selection:bg-brand-orange selection:text-white`}>
+      {teacherSignedIn && <TeacherSidebar />}
 
-      <nav className="page-shell-wide relative z-20 flex flex-wrap items-center justify-between gap-4 py-5">
-        <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
-          <span className="text-brand-orange">Quiz</span>zi
-        </div>
-        <div className="hidden md:flex items-center gap-10 font-bold text-lg">
-          <button onClick={() => navigate('/explore')} className="text-brand-orange transition-colors flex items-center gap-1">Discover</button>
-          <button onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')} className="hover:text-brand-orange transition-colors">
-            {teacherSignedIn ? 'Teacher Studio' : 'For Teachers'}
-          </button>
-        </div>
-        <div className="action-row w-full md:w-auto md:justify-end">
-          <button onClick={() => navigate('/')} className="font-bold px-8 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">
-            Home
-          </button>
-        </div>
-      </nav>
+      <div className="flex-1 h-screen overflow-y-auto relative">
+        <div className="absolute inset-x-0 top-0 h-[430px] bg-[radial-gradient(circle_at_top_left,_rgba(255,90,54,0.16),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(180,136,255,0.18),_transparent_36%)] pointer-events-none" />
 
-      <main className="page-shell-wide relative z-10">
+        {!teacherSignedIn && (
+          <nav className="page-shell-wide relative z-20 flex flex-wrap items-center justify-between gap-4 py-5">
+            <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
+              <span className="text-brand-orange">Quiz</span>zi
+            </div>
+            <div className="hidden md:flex items-center gap-10 font-bold text-lg">
+              <button onClick={() => navigate('/explore')} className="text-brand-orange transition-colors flex items-center gap-1">Explore</button>
+              <button onClick={() => navigate('/auth')} className="hover:text-brand-orange transition-colors">For Teachers</button>
+              <button onClick={() => navigate('/contact')} className="hover:text-brand-orange transition-colors">Contact Us</button>
+            </div>
+            <div className="action-row w-full md:w-auto md:justify-end">
+              <button onClick={() => navigate('/')} className="font-bold px-8 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">
+                Home
+              </button>
+            </div>
+          </nav>
+        )}
+
+        <main className={`page-shell-wide relative z-10 pb-20 ${teacherSignedIn ? 'pt-8' : ''}`}>
         <section className="pt-8 pb-10">
           <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-8 items-start">
             <div>
@@ -423,6 +428,7 @@ export default function Explore() {
         </div>
       )}
     </div>
+  </div>
   );
 }
 
