@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Library, Search, Layout, Rocket, Play, PlusCircle } from 'lucide-react';
+import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Library, Search, Layout, Rocket, Play, PlusCircle, ChevronDown, ChevronUp, Monitor, Brain, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
@@ -56,6 +56,10 @@ export default function TeacherCreatePack() {
   const [questionCount, setQuestionCount] = useState(5);
   const [difficulty, setDifficulty] = useState('Medium');
   const [language, setLanguage] = useState('English');
+  const [questionFormat, setQuestionFormat] = useState('Multiple Choice');
+  const [cognitiveLevel, setCognitiveLevel] = useState('Mixed');
+  const [explanationDetail, setExplanationDetail] = useState('Concise');
+  const [showAdvancedGen, setShowAdvancedGen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedLaunchMode, setSelectedLaunchMode] = useState<GameModeId>('classic_quiz');
   const [selectedTeamCount, setSelectedTeamCount] = useState<number>(4);
@@ -165,7 +169,10 @@ export default function TeacherCreatePack() {
           source_text: sourceText,
           count: questionCount,
           difficulty,
-          language
+          language,
+          question_format: questionFormat,
+          cognitive_level: cognitiveLevel,
+          explanation_detail: explanationDetail,
         })
       });
       if (data.questions) {
@@ -190,7 +197,7 @@ export default function TeacherCreatePack() {
     const res = await apiFetch('/api/packs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, source_text: sourceText, questions, academic_meta: academicMeta })
+      body: JSON.stringify({ title, source_text: sourceText, questions, language, academic_meta: academicMeta })
     });
     if (!res.ok) {
       const payload = await res.json().catch(() => null);
@@ -422,21 +429,121 @@ export default function TeacherCreatePack() {
                           <p className="text-xs font-bold text-brand-dark/40 uppercase tracking-widest">AI Tuning</p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <select 
-                          value={questionCount} 
-                          onChange={e => setQuestionCount(Number(e.target.value))}
-                          className="w-full p-4 bg-white border-2 border-brand-dark rounded-xl font-bold"
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
+                              <Hash className="w-3 h-3" /> Question Count
+                            </label>
+                            <select 
+                              value={questionCount} 
+                              onChange={e => setQuestionCount(Number(e.target.value))}
+                              className="w-full p-4 bg-white border-2 border-brand-dark rounded-xl font-bold shadow-[2px_2px_0px_0px_#1A1A1A] focus:translate-y-[1px] focus:translate-x-[1px] focus:shadow-none transition-all outline-none"
+                            >
+                              {[5, 10, 15, 20].map(n => <option key={n} value={n}>{n} Items</option>)}
+                            </select>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
+                              <Rocket className="w-3 h-3" /> Difficulty
+                            </label>
+                            <select 
+                              value={difficulty} 
+                              onChange={e => setDifficulty(e.target.value)}
+                              className="w-full p-4 bg-white border-2 border-brand-dark rounded-xl font-bold shadow-[2px_2px_0px_0px_#1A1A1A] focus:translate-y-[1px] focus:translate-x-[1px] focus:shadow-none transition-all outline-none"
+                            >
+                              {['Easy', 'Medium', 'Hard'].map(d => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Advanced Settings Toggle */}
+                        <button
+                          onClick={() => setShowAdvancedGen(!showAdvancedGen)}
+                          className="w-full py-3 px-4 flex items-center justify-between bg-brand-bg border-2 border-brand-dark rounded-xl hover:bg-brand-yellow/10 transition-colors group"
                         >
-                          {[5, 10, 15, 20].map(n => <option key={n} value={n}>{n} Items</option>)}
-                        </select>
-                        <select 
-                          value={difficulty} 
-                          onChange={e => setDifficulty(e.target.value)}
-                          className="w-full p-4 bg-white border-2 border-brand-dark rounded-xl font-bold"
-                        >
-                          {['Easy', 'Medium', 'Hard'].map(d => <option key={d} value={d}>{d}</option>)}
-                        </select>
+                          <div className="flex items-center gap-3">
+                            <div className="p-1.5 bg-white border-2 border-brand-dark rounded-lg shadow-[1px_1px_0px_0px_#1A1A1A] group-hover:bg-brand-yellow transition-colors">
+                              <Settings2 className="w-4 h-4 text-brand-dark" />
+                            </div>
+                            <span className="text-sm font-black text-brand-dark uppercase tracking-widest">Advanced Tuning</span>
+                          </div>
+                          {showAdvancedGen ? <ChevronUp className="w-5 h-5 text-brand-dark" /> : <ChevronDown className="w-5 h-5 text-brand-dark" />}
+                        </button>
+
+                        <AnimatePresence>
+                          {showAdvancedGen && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.3, ease: 'easeInOut' }}
+                              className="overflow-hidden"
+                            >
+                              <div className="pt-2 grid grid-cols-1 gap-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
+                                      <Languages className="w-3 h-3" /> Language
+                                    </label>
+                                    <select 
+                                      value={language} 
+                                      onChange={e => setLanguage(e.target.value)}
+                                      className="w-full p-3 bg-white border-2 border-brand-dark rounded-xl font-bold text-sm"
+                                    >
+                                      <option value="English">🇬🇧 English</option>
+                                      <option value="Hebrew">🇮🇱 עברית</option>
+                                    </select>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
+                                      <Layout className="w-3 h-3" /> Question Style
+                                    </label>
+                                    <select 
+                                      value={questionFormat} 
+                                      onChange={e => setQuestionFormat(e.target.value)}
+                                      className="w-full p-3 bg-white border-2 border-brand-dark rounded-xl font-bold text-sm"
+                                    >
+                                      <option value="Multiple Choice">Multiple Choice</option>
+                                      <option value="True/False">True / False Only</option>
+                                      <option value="Mixed">Mixed Formats</option>
+                                    </select>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
+                                      <Brain className="w-3 h-3" /> Knowledge Depth
+                                    </label>
+                                    <select 
+                                      value={cognitiveLevel} 
+                                      onChange={e => setCognitiveLevel(e.target.value)}
+                                      className="w-full p-3 bg-white border-2 border-brand-dark rounded-xl font-bold text-sm"
+                                    >
+                                      <option value="Foundational">Foundational</option>
+                                      <option value="Mixed">Level Mix (Recommended)</option>
+                                      <option value="Higher Order">Higher Order Thinking</option>
+                                    </select>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
+                                      <MessageSquare className="w-3 h-3" /> Explanations
+                                    </label>
+                                    <select 
+                                      value={explanationDetail} 
+                                      onChange={e => setExplanationDetail(e.target.value)}
+                                      className="w-full p-3 bg-white border-2 border-brand-dark rounded-xl font-bold text-sm"
+                                    >
+                                      <option value="Concise">Concise Tips</option>
+                                      <option value="Detailed">Academic Detail</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </div>
                     </div>
                   </div>
