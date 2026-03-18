@@ -1664,6 +1664,9 @@ router.post('/packs/generate', requireTeacherSession, async (req, res) => {
   const count = Math.min(20, Math.max(3, parsePositiveInt(req.body?.count, 5)));
   const difficulty = sanitizeLine(req.body?.difficulty || 'Medium', 24);
   const language = sanitizeLine(req.body?.language || 'English', 24);
+  const questionFormat = sanitizeLine(req.body?.question_format || 'Multiple Choice', 32);
+  const cognitiveLevel = sanitizeLine(req.body?.cognitive_level || 'Mixed', 32);
+  const explanationDetail = sanitizeLine(req.body?.explanation_detail || 'Concise', 32);
 
   console.log(`[AI GEN] Request: ${count} questions, ${difficulty} difficulty, ${language} language, text length: ${source_text?.length}`);
 
@@ -1705,6 +1708,9 @@ router.post('/packs/generate', requireTeacherSession, async (req, res) => {
       count,
       difficulty.toLowerCase(),
       language.toLowerCase(),
+      questionFormat.toLowerCase(),
+      cognitiveLevel.toLowerCase(),
+      explanationDetail.toLowerCase(),
     ].join(':');
 
     const responsePayload = await runInFlightQuestionGeneration(generationKey, async () => {
@@ -1716,9 +1722,14 @@ router.post('/packs/generate', requireTeacherSession, async (req, res) => {
       const prompt = `Task: Generate exactly ${count} multiple-choice questions from the provided educational material.
 Difficulty Level: ${difficulty}
 Output Language: ${language}
+Question Format: ${questionFormat}
+Cognitive Depth: ${cognitiveLevel}
+Explanation Style: ${explanationDetail}
 ${langInstruction}
 
 Constraint: Return ONLY a raw JSON object matching the schema below. No markdown formatting, no preamble.
+If "True/False" is selected, generate questions with only two "answers" (True and False).
+If "Higher Order" is selected, focus on analysis, evaluation, and complex application rather than simple facts.
 Use the compact course brief and supporting excerpts below as the authoritative source. Prefer high-signal concepts, chronology, causal links, definitions, and tricky confusions from the material.
 
 Schema:
