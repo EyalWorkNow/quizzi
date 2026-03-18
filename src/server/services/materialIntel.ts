@@ -400,7 +400,7 @@ async function topTagsFromDatabase(packId: number) {
   ).slice(0, 6);
 }
 
-export async function syncPackDerivedData(packId: number, sourceText: string, questions?: any[]) {
+export async function syncPackDerivedData(packId: number, sourceText: string, questions?: any[], overrideLanguage?: string) {
   const profile = (await getOrCreateMaterialProfile(sourceText || ''));
   const topTags = questions ? deriveTopTagsFromQuestions(questions) : (await topTagsFromDatabase(packId));
   const questionCount =
@@ -425,7 +425,7 @@ export async function syncPackDerivedData(packId: number, sourceText: string, qu
         profile.id,
         profile.source_hash,
         profile.source_excerpt,
-        profile.source_language,
+        overrideLanguage || profile.source_language,
         profile.word_count,
         JSON.stringify(topTags),
         questionCount,

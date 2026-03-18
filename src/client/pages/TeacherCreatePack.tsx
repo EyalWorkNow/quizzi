@@ -190,7 +190,7 @@ export default function TeacherCreatePack() {
     const res = await apiFetch('/api/packs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, source_text: sourceText, questions, academic_meta: academicMeta })
+      body: JSON.stringify({ title, source_text: sourceText, questions, language, academic_meta: academicMeta })
     });
     if (!res.ok) {
       const payload = await res.json().catch(() => null);
@@ -422,7 +422,7 @@ export default function TeacherCreatePack() {
                           <p className="text-xs font-bold text-brand-dark/40 uppercase tracking-widest">AI Tuning</p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <select 
                           value={questionCount} 
                           onChange={e => setQuestionCount(Number(e.target.value))}
@@ -436,6 +436,13 @@ export default function TeacherCreatePack() {
                           className="w-full p-4 bg-white border-2 border-brand-dark rounded-xl font-bold"
                         >
                           {['Easy', 'Medium', 'Hard'].map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                        <select 
+                          value={language} 
+                          onChange={e => setLanguage(e.target.value)}
+                          className="w-full p-4 bg-white border-2 border-brand-dark rounded-xl font-bold"
+                        >
+                          {['English', 'Hebrew'].map(l => <option key={l} value={l}>{l}</option>)}
                         </select>
                       </div>
                     </div>

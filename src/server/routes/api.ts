@@ -1816,6 +1816,7 @@ router.post('/packs', requireTeacherSession, async (req, res) => {
   const title = sanitizeLine(req.body?.title, 120);
   const source_text = sanitizeMultiline(req.body?.source_text, 120000);
   const questions = Array.isArray(req.body?.questions) ? req.body.questions : [];
+  const language = sanitizeLine(req.body?.language || 'English', 24);
   const academicMeta = sanitizeAcademicMeta(req.body?.academic_meta || req.body);
   if (!title) {
     return res.status(400).json({ error: 'Pack title is required' });
@@ -1864,7 +1865,7 @@ router.post('/packs', requireTeacherSession, async (req, res) => {
     academicMeta.pack_notes,
     materialProfile.source_hash,
     materialProfile.source_excerpt,
-    materialProfile.source_language,
+    language || materialProfile.source_language,
     materialProfile.word_count,
     materialProfile.id,
   );
@@ -1904,7 +1905,7 @@ router.post('/packs', requireTeacherSession, async (req, res) => {
   });
 
   insertMany(normalizedQuestions);
-  (await syncPackDerivedData(Number(packId), source_text || '', normalizedQuestions));
+  (await syncPackDerivedData(Number(packId), source_text || '', normalizedQuestions, language));
   (await createPackVersionSnapshot(Number(packId), teacherUserId, 'Initial version', 'create'));
 
   res.json({ id: packId, title, question_count: normalizedQuestions.length });
