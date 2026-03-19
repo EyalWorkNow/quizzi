@@ -129,66 +129,98 @@ export function buildShowcaseOptionDwell({
 }
 
 export async function seedDemoDataForTeacher(teacherId: number, email: string) {
-  // Check if this specific teacher already has the demo pack
-  const packExists = (await db.prepare('SELECT id FROM quiz_packs WHERE title = ? AND teacher_id = ?').get('Demo: Biology 101', teacherId));
-  if (packExists) return;
+  const existingPack = (await db
+      .prepare('SELECT id FROM quiz_packs WHERE title = ? AND teacher_id = ?')
+      .get('Demo: Biology 101', teacherId)) as any;
+  let packId = Number(existingPack?.id || 0);
 
-  const insertPack = db.prepare(`
-    INSERT INTO quiz_packs (
-      teacher_id, title, source_text, source_excerpt, source_language, source_word_count,
-      course_code, course_name, section_name, academic_term, week_label, learning_objectives_json, bloom_levels_json, pack_notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  if (!packId) {
+    const insertPack = db.prepare(`
+      INSERT INTO quiz_packs (
+        teacher_id, title, source_text, source_excerpt, source_language, source_word_count,
+        course_code, course_name, section_name, academic_term, week_label, learning_objectives_json, bloom_levels_json, pack_notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const demoSourceText = 'Photosynthesis is the process by which plants use sunlight, water, and carbon dioxide to create oxygen and energy in the form of sugar.';
+    const resPack = insertPack.run(
+      teacherId,
+      'Demo: Biology 101',
+      demoSourceText,
+      demoSourceText.slice(0, 320),
+      'English',
+      demoSourceText.split(/\s+/).length,
+      'BIO101',
+      'Introduction to Biology',
+      'Section A',
+      'Fall 2026',
+      'Week 1',
+      JSON.stringify(['Photosynthesis', 'Energy']),
+      JSON.stringify(['Remember', 'Understand']),
+      'Provides a basic overview of photosynthesis for beginners.',
+    );
+    packId = Number(resPack.lastInsertRowid);
+
+    const insertQuestion = db.prepare(`
+      INSERT INTO questions (
+        quiz_pack_id, prompt, answers_json, correct_index, explanation, tags_json, time_limit_seconds, question_order, learning_objective, bloom_level
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    insertQuestion.run(
+      packId,
+      'What is the primary energy source for photosynthesis?',
+      JSON.stringify(['Water', 'Soil', 'Sunlight', 'Oxygen']),
+      2,
+      'Plants use sunlight to convert water and carbon dioxide into energy.',
+      JSON.stringify(['photosynthesis', 'energy']),
+      20,
+      1,
+      'Identify the main energy source',
+      'Remember',
+    );
+
+    insertQuestion.run(
+      packId,
+      'Which gas do plants absorb during photosynthesis?',
+      JSON.stringify(['Oxygen', 'Carbon Dioxide', 'Nitrogen', 'Hydrogen']),
+      1,
+      'Plants take in carbon dioxide from the air.',
+      JSON.stringify(['photosynthesis', 'gases']),
+      20,
+      2,
+      'Recall input gases',
+      'Remember',
+    );
+  }
+
+  const existingClass = (await db
+      .prepare('SELECT id FROM teacher_classes WHERE teacher_id = ? AND name = ? AND archived = 0')
+      .get(teacherId, 'Biology 101 - Section A')) as any;
+  if (existingClass?.id) return;
+
+  const classResult = (await db
+      .prepare(`
+      INSERT INTO teacher_classes (teacher_id, name, subject, grade, color, notes, pack_id, archived, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `)
+      .run(
+        teacherId,
+        'Biology 101 - Section A',
+        'Biology',
+        '9th Grade',
+        'bg-brand-purple',
+        'Demo roster linked to your biology starter pack.',
+        packId || null,
+      ));
+
+  const classId = Number(classResult.lastInsertRowid);
+  const insertStudent = db.prepare(`
+    INSERT INTO teacher_class_students (class_id, name, joined_at, created_at, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `);
-  const demoSourceText = 'Photosynthesis is the process by which plants use sunlight, water, and carbon dioxide to create oxygen and energy in the form of sugar.';
-  const resPack = insertPack.run(
-    teacherId,
-    'Demo: Biology 101',
-    demoSourceText,
-    demoSourceText.slice(0, 320),
-    'English',
-    demoSourceText.split(/\s+/).length,
-    'BIO101', // course_code
-    'Introduction to Biology', // course_name
-    'Section A', // section_name
-    'Fall 2026', // academic_term
-    'Week 1', // week_label
-    JSON.stringify(['Photosynthesis', 'Energy']), // learning_objectives_json
-    JSON.stringify(['Remember', 'Understand']), // bloom_levels_json
-    'Provides a basic overview of photosynthesis for beginners.', // pack_notes
-  );
-  const packId = resPack.lastInsertRowid;
-
-  const insertQuestion = db.prepare(`
-    INSERT INTO questions (
-      quiz_pack_id, prompt, answers_json, correct_index, explanation, tags_json, time_limit_seconds, question_order, learning_objective, bloom_level
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  insertQuestion.run(
-    packId,
-    'What is the primary energy source for photosynthesis?',
-    JSON.stringify(['Water', 'Soil', 'Sunlight', 'Oxygen']),
-    2,
-    'Plants use sunlight to convert water and carbon dioxide into energy.',
-    JSON.stringify(['photosynthesis', 'energy']),
-    20,
-    1,
-    'Identify the main energy source',
-    'Remember'
-  );
-
-  insertQuestion.run(
-    packId,
-    'Which gas do plants absorb during photosynthesis?',
-    JSON.stringify(['Oxygen', 'Carbon Dioxide', 'Nitrogen', 'Hydrogen']),
-    1,
-    'Plants take in carbon dioxide from the air.',
-    JSON.stringify(['photosynthesis', 'gases']),
-    20,
-    2,
-    'Recall input gases',
-    'Remember'
-  );
+  ['Ava Carter', 'Noah Kim', 'Mia Lopez', 'Daniel Reed'].forEach((studentName) => {
+    insertStudent.run(classId, studentName);
+  });
 }
 
 export async function seedDemoData() {

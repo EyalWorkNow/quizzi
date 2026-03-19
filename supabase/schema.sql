@@ -76,9 +76,33 @@ CREATE TABLE IF NOT EXISTS question_generation_cache (
   UNIQUE(material_profile_id, difficulty, output_language, question_count, prompt_version)
 );
 
+CREATE TABLE IF NOT EXISTS teacher_classes (
+  id SERIAL PRIMARY KEY,
+  teacher_id INTEGER NOT NULL,
+  name TEXT,
+  subject TEXT,
+  grade TEXT,
+  color TEXT DEFAULT 'bg-brand-purple',
+  notes TEXT DEFAULT '',
+  pack_id INTEGER,
+  archived INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS teacher_class_students (
+  id SERIAL PRIMARY KEY,
+  class_id INTEGER NOT NULL,
+  name TEXT,
+  joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id SERIAL PRIMARY KEY,
   quiz_pack_id INTEGER,
+  teacher_class_id INTEGER,
   pin TEXT UNIQUE,
   game_type TEXT DEFAULT 'classic_quiz',
   team_count INTEGER DEFAULT 0,
@@ -167,8 +191,12 @@ CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_question ON practice_a
 CREATE INDEX IF NOT EXISTS idx_generation_cache_lookup ON question_generation_cache(material_profile_id, difficulty, output_language, question_count);
 CREATE INDEX IF NOT EXISTS idx_quiz_packs_profile ON quiz_packs(material_profile_id);
 CREATE INDEX IF NOT EXISTS idx_quiz_packs_source_hash ON quiz_packs(source_hash);
+CREATE INDEX IF NOT EXISTS idx_teacher_classes_teacher_archived ON teacher_classes(teacher_id, archived);
+CREATE INDEX IF NOT EXISTS idx_teacher_classes_pack ON teacher_classes(pack_id);
+CREATE INDEX IF NOT EXISTS idx_teacher_class_students_class ON teacher_class_students(class_id);
 CREATE INDEX IF NOT EXISTS idx_questions_pack_question_order ON questions(quiz_pack_id, question_order, id);
 CREATE INDEX IF NOT EXISTS idx_sessions_game_type ON sessions(game_type);
+CREATE INDEX IF NOT EXISTS idx_sessions_teacher_class ON sessions(teacher_class_id, status);
 CREATE INDEX IF NOT EXISTS idx_participants_session_team ON participants(session_id, team_id);
 
 ALTER TABLE mastery
@@ -206,5 +234,14 @@ WHERE auth_provider IS NULL OR auth_provider = '';
 UPDATE users
 SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
 WHERE updated_at IS NULL;
+
+UPDATE teacher_classes
+SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+WHERE updated_at IS NULL;
+
+UPDATE teacher_class_students
+SET joined_at = COALESCE(joined_at, created_at, CURRENT_TIMESTAMP),
+    updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+WHERE joined_at IS NULL OR updated_at IS NULL;
 
 COMMIT;

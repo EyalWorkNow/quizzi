@@ -39,6 +39,13 @@ import {
   verifyTeacherPassword,
 } from '../services/teacherUsers.js';
 import {
+  getHydratedTeacherClass,
+  getTeacherOwnedClass,
+  getTeacherOwnedStudent,
+  listTeacherClasses,
+  sanitizeTeacherClassColor,
+} from '../services/teacherClasses.js';
+import {
   buildGenerationSource,
   getCachedQuestionGeneration,
   getHydratedPackWithQuestions,
@@ -270,6 +277,22 @@ function sanitizeAcademicMeta(value: any) {
   };
 }
 
+function sanitizeTeacherClassPayload(value: any) {
+  const raw = value && typeof value === 'object' ? value : {};
+  return {
+    name: sanitizeLine(raw.name, 80),
+    subject: sanitizeLine(raw.subject, 80),
+    grade: sanitizeLine(raw.grade, 40),
+    color: sanitizeTeacherClassColor(raw.color),
+    notes: sanitizeMultiline(raw.notes, 1200),
+    pack_id: parsePositiveInt(raw.pack_id ?? raw.packId),
+  };
+}
+
+function sanitizeTeacherStudentName(value: unknown) {
+  return sanitizeLine(value, 120);
+}
+
 function sanitizeQuestionDraft(question: any, index: number, fallbackTags: string[] = []) {
   const safeTags = Array.isArray(question?.tags) ? question.tags : fallbackTags;
   const answers = Array.isArray(question?.answers) ? question.answers.map((answer: unknown) => sanitizeLine(answer, 180)) : [];
@@ -377,6 +400,7 @@ function hydrateSessionRow(session: any) {
     ...session,
     id: Number(session.id),
     quiz_pack_id: Number(session.quiz_pack_id),
+    teacher_class_id: Number(session.teacher_class_id || 0) || null,
     current_question_index: Number(session.current_question_index || 0),
     team_count: Number(session.team_count || 0),
     mode_config: getSessionModeConfig(session),
@@ -1217,6 +1241,259 @@ router.get('/teacher/packs', requireTeacherSession, async (req, res) => {
   }
 });
 
+router.get('/teacher/classes', requireTeacherSession, async (req, res) => {
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-classes-list', 120, 5 * 60 * 1000, teacherUserId)) return;
+    res.json((await listTeacherClasses(teacherUserId, { recentSessionLimit: 5 })));
+  } catch (error: any) {
+    console.error('[ERROR] Teacher classes failed:', error);
+    res.status(500).json({ error: error.message || 'Failed to load classes' });
+  }
+});
+
+router.post('/teacher/classes', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-classes-create', 60, 10 * 60 * 1000, teacherUserId)) return;
+
+    const payload = sanitizeTeacherClassPayload(req.body);
+    if (!payload.name || !payload.subject || !payload.grade) {
+      return res.status(400).json({ error: 'Class name, subject, and grade are required.' });
+    }
+
+    const packId = Number(payload.pack_id || 0);
+    if (packId) {
+      const pack = (await getTeacherOwnedPack(packId, teacherUserId));
+      if (!pack) {
+        return res.status(400).json({ error: 'Assigned pack was not found.' });
+      }
+    }
+
+    const studentNames = Array.isArray(req.body?.students)
+      ? req.body.students
+          .map((student: any) => sanitizeTeacherStudentName(student?.name ?? student))
+          .filter(Boolean)
+          .slice(0, 120)
+      : [];
+
+    const createTeacherClass = db.transaction((input: typeof payload, roster: string[]) => {
+      const info = db
+        .prepare(`
+          INSERT INTO teacher_classes (teacher_id, name, subject, grade, color, notes, pack_id, archived, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `)
+        .run(
+          teacherUserId,
+          input.name,
+          input.subject,
+          input.grade,
+          input.color,
+          input.notes,
+          input.pack_id || null,
+        );
+
+      const classId = Number(info.lastInsertRowid);
+      const insertStudent = db.prepare(`
+        INSERT INTO teacher_class_students (class_id, name, joined_at, created_at, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `);
+
+      roster.forEach((studentName) => {
+        insertStudent.run(classId, studentName);
+      });
+
+      return classId;
+    });
+
+    const classId = createTeacherClass(payload, studentNames);
+    res.status(201).json((await getHydratedTeacherClass(classId, teacherUserId)));
+  } catch (error: any) {
+    console.error('[ERROR] Create teacher class failed:', error);
+    res.status(500).json({ error: error.message || 'Failed to create class' });
+  }
+});
+
+router.put('/teacher/classes/:id', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-classes-update', 120, 10 * 60 * 1000, teacherUserId, req.params.id)) return;
+
+    const classId = parsePositiveInt(req.params.id);
+    const existingClass = (await getTeacherOwnedClass(classId, teacherUserId));
+    if (!existingClass) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+
+    const payload = sanitizeTeacherClassPayload(req.body);
+    if (!payload.name || !payload.subject || !payload.grade) {
+      return res.status(400).json({ error: 'Class name, subject, and grade are required.' });
+    }
+
+    const packId = Number(payload.pack_id || 0);
+    if (packId) {
+      const pack = (await getTeacherOwnedPack(packId, teacherUserId));
+      if (!pack) {
+        return res.status(400).json({ error: 'Assigned pack was not found.' });
+      }
+    }
+
+    (await db
+        .prepare(`
+        UPDATE teacher_classes
+        SET name = ?, subject = ?, grade = ?, color = ?, notes = ?, pack_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND teacher_id = ?
+      `)
+        .run(
+          payload.name,
+          payload.subject,
+          payload.grade,
+          payload.color,
+          payload.notes,
+          payload.pack_id || null,
+          classId,
+          teacherUserId,
+        ));
+
+    res.json((await getHydratedTeacherClass(classId, teacherUserId)));
+  } catch (error: any) {
+    console.error('[ERROR] Update teacher class failed:', error);
+    res.status(500).json({ error: error.message || 'Failed to update class' });
+  }
+});
+
+router.delete('/teacher/classes/:id', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-classes-delete', 60, 10 * 60 * 1000, teacherUserId, req.params.id)) return;
+
+    const classId = parsePositiveInt(req.params.id);
+    const existingClass = (await getTeacherOwnedClass(classId, teacherUserId));
+    if (!existingClass) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+
+    const activeSession = (await db
+        .prepare(`
+        SELECT id
+        FROM sessions
+        WHERE teacher_class_id = ?
+          AND UPPER(COALESCE(status, '')) <> 'ENDED'
+        LIMIT 1
+      `)
+        .get(classId)) as any;
+    if (activeSession?.id) {
+      return res.status(409).json({ error: 'End the active class session before removing this class.' });
+    }
+
+    (await db
+        .prepare(`
+        UPDATE teacher_classes
+        SET archived = 1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND teacher_id = ?
+      `)
+        .run(classId, teacherUserId));
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('[ERROR] Delete teacher class failed:', error);
+    res.status(500).json({ error: error.message || 'Failed to remove class' });
+  }
+});
+
+router.post('/teacher/classes/:id/students', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-class-student-create', 180, 10 * 60 * 1000, teacherUserId, req.params.id)) return;
+
+    const classId = parsePositiveInt(req.params.id);
+    const existingClass = (await getTeacherOwnedClass(classId, teacherUserId));
+    if (!existingClass) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+
+    const studentName = sanitizeTeacherStudentName(req.body?.name);
+    if (!studentName) {
+      return res.status(400).json({ error: 'Student name is required.' });
+    }
+
+    (await db
+        .prepare(`
+        INSERT INTO teacher_class_students (class_id, name, joined_at, created_at, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `)
+        .run(classId, studentName));
+    (await db
+        .prepare('UPDATE teacher_classes SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND teacher_id = ?')
+        .run(classId, teacherUserId));
+
+    res.status(201).json((await getHydratedTeacherClass(classId, teacherUserId)));
+  } catch (error: any) {
+    console.error('[ERROR] Add class student failed:', error);
+    res.status(500).json({ error: error.message || 'Failed to add student' });
+  }
+});
+
+router.delete('/teacher/classes/:classId/students/:studentId', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(
+      req,
+      res,
+      'teacher-class-student-delete',
+      180,
+      10 * 60 * 1000,
+      teacherUserId,
+      req.params.classId,
+      req.params.studentId,
+    )) return;
+
+    const classId = parsePositiveInt(req.params.classId);
+    const studentId = parsePositiveInt(req.params.studentId);
+    const existingClass = (await getTeacherOwnedClass(classId, teacherUserId));
+    if (!existingClass) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+    const student = (await getTeacherOwnedStudent(studentId, classId, teacherUserId));
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    (await db.prepare('DELETE FROM teacher_class_students WHERE id = ? AND class_id = ?').run(studentId, classId));
+    (await db
+        .prepare('UPDATE teacher_classes SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND teacher_id = ?')
+        .run(classId, teacherUserId));
+
+    res.json((await getHydratedTeacherClass(classId, teacherUserId)));
+  } catch (error: any) {
+    console.error('[ERROR] Remove class student failed:', error);
+    res.status(500).json({ error: error.message || 'Failed to remove student' });
+  }
+});
+
 // Get a specific pack with questions
 router.get('/packs/:id', async (req, res) => {
   const pack = (await getHydratedPackWithQuestions(Number(req.params.id)));
@@ -1579,6 +1856,13 @@ router.delete('/teacher/packs/:id', requireTeacherSession, async (req, res) => {
 
   const deletePackCascade = db.transaction(async () => {
     (await db.prepare('DELETE FROM quiz_pack_versions WHERE pack_id = ?').run(packId));
+    (await db
+        .prepare(`
+        UPDATE teacher_classes
+        SET pack_id = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE teacher_id = ? AND pack_id = ?
+      `)
+        .run(teacherUserId, packId));
 
     if (sessionIds.length) {
       const sessionPlaceholders = sessionIds.map(() => '?').join(', ');
@@ -1930,11 +2214,19 @@ router.post('/sessions', requireTeacherSession, async (req, res) => {
     return res.status(401).json({ error: 'Teacher authentication required' });
   }
   if (!enforceRateLimit(req, res, 'teacher-session-create', 30, 10 * 60 * 1000, teacherUserId)) return;
-  const { quiz_pack_id, game_type = 'classic_quiz', team_count = 0, mode_config = {} } = req.body;
+  const { quiz_pack_id, teacher_class_id, game_type = 'classic_quiz', team_count = 0, mode_config = {} } = req.body;
   const packId = parsePositiveInt(quiz_pack_id);
+  const teacherClassId = parsePositiveInt(teacher_class_id);
   const pack = (await getTeacherOwnedPack(packId, teacherUserId));
   if (!pack) {
     return res.status(404).json({ error: 'Quiz pack not found' });
+  }
+  const teacherClass = teacherClassId ? (await getTeacherOwnedClass(teacherClassId, teacherUserId)) : null;
+  if (teacherClassId && !teacherClass) {
+    return res.status(404).json({ error: 'Class not found' });
+  }
+  if (teacherClass?.pack_id && Number(teacherClass.pack_id) !== packId) {
+    return res.status(400).json({ error: 'This class is assigned to a different pack. Update the class assignment first.' });
   }
   const selectedMode = getGameMode(String(game_type || 'classic_quiz').trim());
   const pin = (await createSessionPin());
@@ -1945,11 +2237,12 @@ router.post('/sessions', requireTeacherSession, async (req, res) => {
   const normalizedModeConfig = sanitizeModeConfig(normalizedGameType, mode_config);
 
   const insertSession = db.prepare(`
-    INSERT INTO sessions (quiz_pack_id, pin, game_type, team_count, mode_config_json, status)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO sessions (quiz_pack_id, teacher_class_id, pin, game_type, team_count, mode_config_json, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   const info = insertSession.run(
     packId,
+    teacherClassId || null,
     pin,
     normalizedGameType,
     normalizedTeamCount,
@@ -1961,6 +2254,7 @@ router.post('/sessions', requireTeacherSession, async (req, res) => {
     id: info.lastInsertRowid,
     pin,
     status: 'LOBBY',
+    teacher_class_id: teacherClassId || null,
     game_type: normalizedGameType,
     team_count: normalizedTeamCount,
     mode_config: normalizedModeConfig,

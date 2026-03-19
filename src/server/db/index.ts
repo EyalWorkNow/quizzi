@@ -131,9 +131,33 @@ export async function initDb() {
       UNIQUE(material_profile_id, difficulty, output_language, question_count, prompt_version)
     );
 
+    CREATE TABLE IF NOT EXISTS teacher_classes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      teacher_id INTEGER NOT NULL,
+      name TEXT,
+      subject TEXT,
+      grade TEXT,
+      color TEXT DEFAULT 'bg-brand-purple',
+      notes TEXT DEFAULT '',
+      pack_id INTEGER,
+      archived INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS teacher_class_students (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      class_id INTEGER NOT NULL,
+      name TEXT,
+      joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       quiz_pack_id INTEGER,
+      teacher_class_id INTEGER,
       pin TEXT UNIQUE,
       game_type TEXT DEFAULT 'classic_quiz',
       team_count INTEGER DEFAULT 0,
@@ -223,6 +247,9 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_created ON practice_attempts(nickname, created_at);
     CREATE INDEX IF NOT EXISTS idx_material_profiles_hash ON material_profiles(source_hash);
     CREATE INDEX IF NOT EXISTS idx_generation_cache_lookup ON question_generation_cache(material_profile_id, difficulty, output_language, question_count);
+    CREATE INDEX IF NOT EXISTS idx_teacher_classes_teacher_archived ON teacher_classes(teacher_id, archived);
+    CREATE INDEX IF NOT EXISTS idx_teacher_classes_pack ON teacher_classes(pack_id);
+    CREATE INDEX IF NOT EXISTS idx_teacher_class_students_class ON teacher_class_students(class_id);
   `);
 
   (await ensureColumn('quiz_packs', 'source_hash', 'TEXT'));
@@ -249,9 +276,17 @@ export async function initDb() {
   (await ensureColumn('quiz_packs', 'generation_model', "TEXT DEFAULT ''"));
   (await ensureColumn('quiz_packs', 'lms_provider', "TEXT DEFAULT 'generic_csv'"));
   (await ensureColumn('quiz_packs', 'lms_assignment_label', "TEXT DEFAULT ''"));
+  (await ensureColumn('teacher_classes', 'color', "TEXT DEFAULT 'bg-brand-purple'"));
+  (await ensureColumn('teacher_classes', 'notes', "TEXT DEFAULT ''"));
+  (await ensureColumn('teacher_classes', 'pack_id', 'INTEGER'));
+  (await ensureColumn('teacher_classes', 'archived', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('teacher_classes', 'updated_at', 'DATETIME'));
+  (await ensureColumn('teacher_class_students', 'joined_at', 'DATETIME'));
+  (await ensureColumn('teacher_class_students', 'updated_at', 'DATETIME'));
   (await ensureColumn('questions', 'question_order', 'INTEGER DEFAULT 0'));
   (await ensureColumn('questions', 'learning_objective', "TEXT DEFAULT ''"));
   (await ensureColumn('questions', 'bloom_level', "TEXT DEFAULT ''"));
+  (await ensureColumn('sessions', 'teacher_class_id', 'INTEGER'));
   (await ensureColumn('sessions', 'game_type', "TEXT DEFAULT 'classic_quiz'"));
   (await ensureColumn('sessions', 'team_count', 'INTEGER DEFAULT 0'));
   (await ensureColumn('sessions', 'mode_config_json', "TEXT DEFAULT '{}'"));
@@ -274,6 +309,10 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_questions_pack_question_order ON questions(quiz_pack_id, question_order, id);
     CREATE INDEX IF NOT EXISTS idx_questions_learning_objective ON questions(learning_objective);
     CREATE INDEX IF NOT EXISTS idx_sessions_game_type ON sessions(game_type);
+    CREATE INDEX IF NOT EXISTS idx_teacher_classes_teacher_archived ON teacher_classes(teacher_id, archived);
+    CREATE INDEX IF NOT EXISTS idx_teacher_classes_pack ON teacher_classes(pack_id);
+    CREATE INDEX IF NOT EXISTS idx_teacher_class_students_class ON teacher_class_students(class_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_teacher_class ON sessions(teacher_class_id, status);
     CREATE INDEX IF NOT EXISTS idx_participants_session_team ON participants(session_id, team_id);
     CREATE INDEX IF NOT EXISTS idx_pack_versions_pack ON quiz_pack_versions(pack_id, version_number DESC);
   `);
@@ -310,6 +349,15 @@ export async function initDb() {
     UPDATE users
     SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
     WHERE updated_at IS NULL;
+
+    UPDATE teacher_classes
+    SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+    WHERE updated_at IS NULL;
+
+    UPDATE teacher_class_students
+    SET joined_at = COALESCE(joined_at, created_at, CURRENT_TIMESTAMP),
+        updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+    WHERE joined_at IS NULL OR updated_at IS NULL;
   `);
 }
 

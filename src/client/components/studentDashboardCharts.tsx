@@ -1,4 +1,76 @@
 import React from 'react';
+import { useAppLanguage } from '../lib/appLanguage.tsx';
+
+const STUDENT_CHART_COPY = {
+  en: {
+    empty: {
+      perQuestion: 'No per-question chart data is available yet.',
+      sessionHistory: 'No session history is available yet.',
+      revisionCategory: 'No revision-category chart is available for this run.',
+      questionStatus: 'No question status data is available yet.',
+      mastery: 'No mastery chart is available yet.',
+    },
+    legend: {
+      stress: 'Stress',
+      volatility: 'Volatility',
+      response: 'Response',
+      accuracy: 'Accuracy',
+      score: 'Score',
+    },
+    stats: {
+      highestStress: 'Highest stress',
+      mostVolatile: 'Most volatile',
+      slowestResponse: 'Slowest response',
+      stressSuffix: 'stress',
+      volatilitySuffix: 'volatility',
+      ofQuestions: 'of questions',
+      questions: 'questions',
+      firstChoice: 'First choice',
+      commit: 'commit',
+    },
+    labels: {
+      stable: 'Stable',
+      shaky: 'Shaky',
+      missed: 'Missed',
+      questionPrefix: 'Q',
+      sessionPrefix: 'S',
+    },
+  },
+  he: {
+    empty: {
+      perQuestion: 'עדיין אין נתוני גרף לפי שאלה.',
+      sessionHistory: 'עדיין אין היסטוריית סשנים.',
+      revisionCategory: 'אין עדיין גרף קטגוריות תיקון לסשן הזה.',
+      questionStatus: 'עדיין אין נתוני סטטוס לשאלות.',
+      mastery: 'עדיין אין גרף שליטה זמין.',
+    },
+    legend: {
+      stress: 'לחץ',
+      volatility: 'תנודתיות',
+      response: 'זמן תגובה',
+      accuracy: 'דיוק',
+      score: 'ציון',
+    },
+    stats: {
+      highestStress: 'הלחץ הגבוה ביותר',
+      mostVolatile: 'התנודתיות הגבוהה ביותר',
+      slowestResponse: 'התגובה האיטית ביותר',
+      stressSuffix: 'לחץ',
+      volatilitySuffix: 'תנודתיות',
+      ofQuestions: 'מהשאלות',
+      questions: 'שאלות',
+      firstChoice: 'בחירה ראשונה',
+      commit: 'נעילה',
+    },
+    labels: {
+      stable: 'יציב',
+      shaky: 'מהוסס',
+      missed: 'שגוי',
+      questionPrefix: 'ש',
+      sessionPrefix: 'ס',
+    },
+  },
+} as const;
 
 function formatMs(value: number) {
   if (!Number.isFinite(value)) return '0ms';
@@ -25,8 +97,10 @@ export function QuestionFlowChart({
   responseKey?: string;
   volatilityKey?: string;
 }) {
+  const { language, direction } = useAppLanguage();
+  const copy = STUDENT_CHART_COPY[language];
   if (!rows.length) {
-    return <p className="font-bold text-brand-dark/60">No per-question chart data is available yet.</p>;
+    return <p className="font-bold text-brand-dark/60">{copy.empty.perQuestion}</p>;
   }
 
   const width = 760;
@@ -53,14 +127,14 @@ export function QuestionFlowChart({
     .join(' ');
 
   return (
-    <div>
+    <div dir={direction}>
       <div className="flex flex-wrap gap-3 mb-4">
-        <LegendSwatch label="Stress" color="bg-brand-orange" />
-        <LegendSwatch label="Volatility" color="bg-brand-purple" />
-        <LegendSwatch label="Response" color="bg-brand-yellow" />
+        <LegendSwatch label={copy.legend.stress} color="bg-brand-orange" />
+        <LegendSwatch label={copy.legend.volatility} color="bg-brand-purple" />
+        <LegendSwatch label={copy.legend.response} color="bg-brand-yellow" />
       </div>
       <div className="chart-scroll-shell">
-        <svg viewBox={`0 0 ${width} ${height}`} className="h-[190px] min-w-[460px] w-full sm:h-[220px] sm:min-w-0">
+        <svg dir="ltr" viewBox={`0 0 ${width} ${height}`} className="h-[190px] min-w-[460px] w-full sm:h-[220px] sm:min-w-0">
           {[0, 25, 50, 75, 100].map((tick) => {
             const y = padding + ((100 - tick) / 100) * graphHeight;
             return (
@@ -91,7 +165,7 @@ export function QuestionFlowChart({
                   strokeWidth="2"
                 />
                 <text x={x} y={height - 4} textAnchor="middle" fontSize="10" fontWeight="900" fill="#1A1A1A">
-                  Q{row.question_index || index + 1}
+                  {copy.labels.questionPrefix}{row.question_index || index + 1}
                 </text>
               </g>
             );
@@ -115,18 +189,18 @@ export function QuestionFlowChart({
       </div>
       <div className="grid grid-cols-1 gap-3 mt-4 sm:grid-cols-2 xl:grid-cols-3">
         <ChartStat
-          label="Highest stress"
-          value={`Q${rows.reduce((best, row) => (Number(row.stress_index || 0) > Number(best.stress_index || 0) ? row : best), rows[0]).question_index}`}
-          body={`${Number(rows.reduce((best, row) => (Number(row.stress_index || 0) > Number(best.stress_index || 0) ? row : best), rows[0]).stress_index || 0).toFixed(0)}% stress`}
+          label={copy.stats.highestStress}
+          value={`${copy.labels.questionPrefix}${rows.reduce((best, row) => (Number(row.stress_index || 0) > Number(best.stress_index || 0) ? row : best), rows[0]).question_index}`}
+          body={`${Number(rows.reduce((best, row) => (Number(row.stress_index || 0) > Number(best.stress_index || 0) ? row : best), rows[0]).stress_index || 0).toFixed(0)}% ${copy.stats.stressSuffix}`}
         />
         <ChartStat
-          label="Most volatile"
-          value={`Q${rows.reduce((best, row) => (Number(row?.[volatilityKey] || 0) > Number(best?.[volatilityKey] || 0) ? row : best), rows[0]).question_index}`}
-          body={`${Number(rows.reduce((best, row) => (Number(row?.[volatilityKey] || 0) > Number(best?.[volatilityKey] || 0) ? row : best), rows[0])?.[volatilityKey] || 0).toFixed(0)}% volatility`}
+          label={copy.stats.mostVolatile}
+          value={`${copy.labels.questionPrefix}${rows.reduce((best, row) => (Number(row?.[volatilityKey] || 0) > Number(best?.[volatilityKey] || 0) ? row : best), rows[0]).question_index}`}
+          body={`${Number(rows.reduce((best, row) => (Number(row?.[volatilityKey] || 0) > Number(best?.[volatilityKey] || 0) ? row : best), rows[0])?.[volatilityKey] || 0).toFixed(0)}% ${copy.stats.volatilitySuffix}`}
         />
         <ChartStat
-          label="Slowest response"
-          value={`Q${rows.reduce((best, row) => (Number(row?.[responseKey] || 0) > Number(best?.[responseKey] || 0) ? row : best), rows[0]).question_index}`}
+          label={copy.stats.slowestResponse}
+          value={`${copy.labels.questionPrefix}${rows.reduce((best, row) => (Number(row?.[responseKey] || 0) > Number(best?.[responseKey] || 0) ? row : best), rows[0]).question_index}`}
           body={formatMs(Number(rows.reduce((best, row) => (Number(row?.[responseKey] || 0) > Number(best?.[responseKey] || 0) ? row : best), rows[0])?.[responseKey] || 0))}
         />
       </div>
@@ -135,8 +209,10 @@ export function QuestionFlowChart({
 }
 
 export function SessionHistoryTrendChart({ rows }: { rows: any[] }) {
+  const { language, direction } = useAppLanguage();
+  const copy = STUDENT_CHART_COPY[language];
   if (!rows.length) {
-    return <p className="font-bold text-brand-dark/60">No session history is available yet.</p>;
+    return <p className="font-bold text-brand-dark/60">{copy.empty.sessionHistory}</p>;
   }
 
   const width = 760;
@@ -154,14 +230,14 @@ export function SessionHistoryTrendChart({ rows }: { rows: any[] }) {
     .join(' ');
 
   return (
-    <div>
+    <div dir={direction}>
       <div className="flex flex-wrap gap-3 mb-4">
-        <LegendSwatch label="Accuracy" color="bg-brand-purple" />
-        <LegendSwatch label="Stress" color="bg-brand-orange" />
-        <LegendSwatch label="Score" color="bg-brand-yellow" />
+        <LegendSwatch label={copy.legend.accuracy} color="bg-brand-purple" />
+        <LegendSwatch label={copy.legend.stress} color="bg-brand-orange" />
+        <LegendSwatch label={copy.legend.score} color="bg-brand-yellow" />
       </div>
       <div className="chart-scroll-shell">
-        <svg viewBox={`0 0 ${width} ${height}`} className="h-[190px] min-w-[460px] w-full sm:h-[224px] sm:min-w-0">
+        <svg dir="ltr" viewBox={`0 0 ${width} ${height}`} className="h-[190px] min-w-[460px] w-full sm:h-[224px] sm:min-w-0">
           {[0, 25, 50, 75, 100].map((tick) => {
             const y = padding + ((100 - tick) / 100) * graphHeight;
             return (
@@ -182,7 +258,7 @@ export function SessionHistoryTrendChart({ rows }: { rows: any[] }) {
               <g key={`session-score-${row.session_id || index}`}>
                 <rect x={x - 12} y={y} width="24" height={Math.max(10, barHeight)} rx="10" fill="#F6CD3B" stroke="#1A1A1A" strokeWidth="2" />
                 <text x={x} y={height - 4} textAnchor="middle" fontSize="10" fontWeight="900" fill="#1A1A1A">
-                  S{index + 1}
+                  {copy.labels.sessionPrefix}{index + 1}
                 </text>
               </g>
             );
@@ -209,16 +285,18 @@ export function SessionHistoryTrendChart({ rows }: { rows: any[] }) {
 }
 
 export function RevisionCategoryChart({ categories }: { categories: any[] }) {
+  const { language, direction } = useAppLanguage();
+  const copy = STUDENT_CHART_COPY[language];
   const rows = Array.isArray(categories) ? categories.filter((row) => Number(row.count || 0) > 0) : [];
   if (!rows.length) {
-    return <p className="font-bold text-brand-dark/60">No revision-category chart is available for this run.</p>;
+    return <p className="font-bold text-brand-dark/60">{copy.empty.revisionCategory}</p>;
   }
 
   const total = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
 
   return (
-    <div>
-      <div className="h-6 rounded-full border-2 border-brand-dark overflow-hidden flex mb-4">
+    <div dir={direction}>
+      <div className={`h-6 rounded-full border-2 border-brand-dark overflow-hidden flex mb-4 ${direction === 'rtl' ? 'flex-row-reverse' : ''}`}>
         {rows.map((row) => (
           <div
             key={`revision-stack-${row.id}`}
@@ -234,7 +312,7 @@ export function RevisionCategoryChart({ categories }: { categories: any[] }) {
             <div className="flex items-start justify-between gap-3 mb-3">
               <div className="min-w-0">
                 <p className="font-black leading-tight">{row.label}</p>
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mt-1">{row.count} questions</p>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mt-1">{row.count} {copy.stats.questions}</p>
               </div>
               <span className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark font-black shrink-0">
                 {Number(row.rate || 0).toFixed(1)}%
@@ -254,6 +332,8 @@ export function RevisionCategoryChart({ categories }: { categories: any[] }) {
 }
 
 export function QuestionStatusStripChart({ rows }: { rows: any[] }) {
+  const { language, direction } = useAppLanguage();
+  const copy = STUDENT_CHART_COPY[language];
   const counts = rows.reduce(
     (acc, row) => {
       const key = row.status === 'missed' ? 'missed' : row.status === 'shaky' ? 'shaky' : 'stable';
@@ -265,18 +345,18 @@ export function QuestionStatusStripChart({ rows }: { rows: any[] }) {
   const total = counts.stable + counts.shaky + counts.missed;
 
   if (!total) {
-    return <p className="font-bold text-brand-dark/60">No question status data is available yet.</p>;
+    return <p className="font-bold text-brand-dark/60">{copy.empty.questionStatus}</p>;
   }
 
   const cards = [
-    { id: 'stable', label: 'Stable', count: counts.stable, tone: 'bg-emerald-300' },
-    { id: 'shaky', label: 'Shaky', count: counts.shaky, tone: 'bg-brand-yellow' },
-    { id: 'missed', label: 'Missed', count: counts.missed, tone: 'bg-brand-orange' },
+    { id: 'stable', label: copy.labels.stable, count: counts.stable, tone: 'bg-emerald-300' },
+    { id: 'shaky', label: copy.labels.shaky, count: counts.shaky, tone: 'bg-brand-yellow' },
+    { id: 'missed', label: copy.labels.missed, count: counts.missed, tone: 'bg-brand-orange' },
   ];
 
   return (
-    <div>
-      <div className="h-6 rounded-full border-2 border-brand-dark overflow-hidden flex mb-4">
+    <div dir={direction}>
+      <div className={`h-6 rounded-full border-2 border-brand-dark overflow-hidden flex mb-4 ${direction === 'rtl' ? 'flex-row-reverse' : ''}`}>
         {cards.map((card) => (
           <div
             key={`status-${card.id}`}
@@ -292,7 +372,7 @@ export function QuestionStatusStripChart({ rows }: { rows: any[] }) {
             <ChartStat
               label={card.label}
               value={`${card.count}`}
-              body={`${((card.count / total) * 100).toFixed(0)}% of questions`}
+              body={`${((card.count / total) * 100).toFixed(0)}% ${copy.stats.ofQuestions}`}
               tone={card.tone}
             />
           </React.Fragment>
@@ -309,22 +389,24 @@ export function MasteryBarChart({
   rows: any[];
   limit?: number;
 }) {
+  const { language, direction } = useAppLanguage();
+  const copy = STUDENT_CHART_COPY[language];
   const items = [...(Array.isArray(rows) ? rows : [])]
     .sort((left, right) => Number(right.score || right.accuracy || 0) - Number(left.score || left.accuracy || 0))
     .slice(0, limit);
 
   if (!items.length) {
-    return <p className="font-bold text-brand-dark/60">No mastery chart is available yet.</p>;
+    return <p className="font-bold text-brand-dark/60">{copy.empty.mastery}</p>;
   }
 
   return (
-    <div className="space-y-3">
+    <div dir={direction} className="space-y-3">
       {items.map((item) => {
         const value = Number(item.score ?? item.accuracy ?? 0);
         return (
           <div key={item.tag || item.label} className="rounded-[1.25rem] border-2 border-brand-dark bg-brand-bg p-4">
             <div className="flex items-center justify-between gap-3 mb-3">
-              <p className="font-black capitalize">{item.tag || item.label}</p>
+              <p className="font-black">{item.tag || item.label}</p>
               <span className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark font-black">
                 {value.toFixed(0)}%
               </span>
@@ -337,7 +419,7 @@ export function MasteryBarChart({
             </div>
             {'first_choice_accuracy' in item || 'avg_commitment_latency_ms' in item ? (
               <p className="font-medium text-sm text-brand-dark/66 mt-3">
-                First choice {Number(item.first_choice_accuracy || 0).toFixed(0)}% · commit {formatMs(Number(item.avg_commitment_latency_ms || 0))}
+                {copy.stats.firstChoice} {Number(item.first_choice_accuracy || 0).toFixed(0)}% · {copy.stats.commit} {formatMs(Number(item.avg_commitment_latency_ms || 0))}
               </p>
             ) : null}
           </div>
@@ -348,8 +430,9 @@ export function MasteryBarChart({
 }
 
 function LegendSwatch({ label, color }: { label: string; color: string }) {
+  const { direction } = useAppLanguage();
   return (
-    <div className="flex items-center gap-2">
+    <div className={`flex items-center gap-2 ${direction === 'rtl' ? 'flex-row-reverse' : ''}`}>
       <div className={`w-4 h-4 rounded-full border-2 border-brand-dark ${color}`} />
       <span className="text-sm font-black">{label}</span>
     </div>
@@ -367,8 +450,9 @@ function ChartStat({
   body: string;
   tone?: string;
 }) {
+  const { direction } = useAppLanguage();
   return (
-    <div className={`${tone} min-w-0 rounded-[1.2rem] border-2 border-brand-dark p-4`}>
+    <div className={`${tone} min-w-0 rounded-[1.2rem] border-2 border-brand-dark p-4 ${direction === 'rtl' ? 'text-right' : 'text-left'}`}>
       <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">{label}</p>
       <p className="text-xl font-black leading-none sm:text-2xl break-words">{value}</p>
       <p className="font-medium text-sm text-brand-dark/68 mt-2">{body}</p>
