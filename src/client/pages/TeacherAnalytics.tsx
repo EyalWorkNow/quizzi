@@ -1169,21 +1169,21 @@ export default function TeacherAnalytics() {
       data-no-translate="true"
       className="min-h-screen bg-brand-bg pb-20 font-sans text-brand-dark selection:bg-brand-orange selection:text-white"
     >
-      <div className="sticky top-0 z-30 bg-white border-b-4 border-brand-dark shadow-[0_4px_0px_0px_#1A1A1A]">
-        <div className={`max-w-[1520px] mx-auto px-6 transition-all duration-200 ${showExpandedHeader ? 'py-4 space-y-4' : 'py-3 space-y-2'}`}>
+      <div className={`sticky top-0 z-30 border-b-4 border-brand-dark shadow-[0_4px_0px_0px_#1A1A1A] transition-all duration-300 ${isHeaderCondensed ? 'bg-white/85 backdrop-blur-md' : 'bg-white'}`}>
+        <div className={`max-w-[1520px] mx-auto px-6 transition-all duration-300 ${showExpandedHeader ? 'py-4 space-y-4' : 'py-2 space-y-1'}`}>
           <div className={`flex flex-col justify-between gap-4 ${showExpandedHeader ? '2xl:flex-row 2xl:items-start' : 'xl:flex-row xl:items-center'} ${isRtl ? '2xl:flex-row-reverse xl:flex-row-reverse' : ''}`}>
             <div className={`flex items-start gap-4 min-w-0 ${isRtl ? 'flex-row-reverse' : ''}`}>
               <button
                 onClick={() => navigate('/teacher/reports')}
-                className="w-12 h-12 rounded-full bg-brand-yellow border-2 border-brand-dark flex items-center justify-center shadow-[2px_2px_0px_0px_#1A1A1A] shrink-0"
+                className={`${showExpandedHeader ? 'w-12 h-12' : 'w-10 h-10'} rounded-full bg-brand-yellow border-2 border-brand-dark flex items-center justify-center shadow-[2px_2px_0px_0px_#1A1A1A] shrink-0 transition-all duration-300`}
               >
-                <ArrowLeft className="w-5 h-5" />
+                <ArrowLeft className={`${showExpandedHeader ? 'w-5 h-5' : 'w-4 h-4'} transition-all`} />
               </button>
               <div className="min-w-0">
                 <p className="text-xs font-black uppercase tracking-[0.24em] text-brand-purple mb-2">
                   {showExpandedHeader ? t('Teacher Command Board') : t('Session analytics')}
                 </p>
-                <h1 className={`${showExpandedHeader ? 'text-4xl lg:text-5xl' : 'text-2xl lg:text-3xl'} font-black tracking-tight leading-tight break-words`}>
+                <h1 className={`${showExpandedHeader ? 'text-4xl lg:text-5xl' : 'text-xl lg:text-2xl'} font-black tracking-tight leading-tight break-words transition-all duration-300`}>
                   {data?.session?.pack_title || t(`Session #${sessionId}`)}
                 </h1>
                 {showExpandedHeader ? (
@@ -1195,20 +1195,18 @@ export default function TeacherAnalytics() {
                     {t(executiveSummary.classStateTitle)} • {t(executiveSummary.actionTitle)}
                   </p>
                 )}
-                <div className="flex flex-wrap gap-2 mt-3">
-                  <ContextChip label="Session" value={`#${data?.session?.id || sessionId}`} tone="neutral" />
-                  <ContextChip label="Status" value={data?.session?.status || 'Unknown'} tone={data?.session?.status === 'ENDED' ? 'good' : 'mid'} />
-                  <ContextChip label="Students" value={`${participants.length}`} tone="neutral" />
-                  <ContextChip label="Questions" value={`${questionRows.length}`} tone="neutral" />
-                  {showExpandedHeader && (
-                    <>
-                      <ContextChip label="Mode" value={gameMode.label} tone="neutral" />
-                      {showAdvancedPanels && (
-                        <ContextChip label="Research Rows" value={compactNumber.format(researchRows.length || 0)} tone="neutral" />
-                      )}
-                    </>
-                  )}
-                </div>
+                {showExpandedHeader && (
+                  <div className="flex flex-wrap gap-2 mt-3 transition-opacity">
+                    <ContextChip label="Session" value={`#${data?.session?.id || sessionId}`} tone="neutral" />
+                    <ContextChip label="Status" value={data?.session?.status || 'Unknown'} tone={data?.session?.status === 'ENDED' ? 'good' : 'mid'} />
+                    <ContextChip label="Students" value={`${participants.length}`} tone="neutral" />
+                    <ContextChip label="Questions" value={`${questionRows.length}`} tone="neutral" />
+                    <ContextChip label="Mode" value={gameMode.label} tone="neutral" />
+                    {showAdvancedPanels && (
+                      <ContextChip label="Research Rows" value={compactNumber.format(researchRows.length || 0)} tone="neutral" />
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1230,16 +1228,16 @@ export default function TeacherAnalytics() {
               {isHeaderCondensed && (
                 <button
                   onClick={() => setIsHeaderPinnedOpen((current) => !current)}
-                  className="px-5 py-3 bg-brand-bg border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
+                  className={`${showExpandedHeader ? 'px-5 py-3' : 'px-3 py-2 text-xs'} bg-brand-bg border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A] transition-all`}
                 >
-                  {showExpandedHeader ? t('Collapse header') : t('Expand header')}
+                  {showExpandedHeader ? t('Collapse header') : t('Expand')}
                 </button>
               )}
               <button
                 onClick={loadAnalytics}
-                className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
+                className={`${showExpandedHeader ? 'px-5 py-3' : 'px-3 py-2 text-xs'} bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A] transition-all`}
               >
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw className={`${showExpandedHeader ? 'w-4 h-4' : 'w-3 h-3'}`} />
                 {t('Refresh')}
               </button>
               {showExpandedHeader && showAdvancedPanels && (
@@ -1286,11 +1284,11 @@ export default function TeacherAnalytics() {
               {selectedStudent && (
                 <button
                   onClick={() => navigate(`/teacher/analytics/class/${sessionId}/student/${selectedStudent.id}`)}
-                className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
-              >
-                {t(`Open ${selectedStudent.nickname}`)}
-                <ArrowUpRight className="w-4 h-4" />
-              </button>
+                  className={`${showExpandedHeader ? 'px-5 py-3' : 'px-3 py-2 text-xs'} bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A] transition-all`}
+                >
+                  {t(selectedStudent.nickname)}
+                  <ArrowUpRight className={`${showExpandedHeader ? 'w-4 h-4' : 'w-3 h-3'}`} />
+                </button>
               )}
             </div>
           </div>
