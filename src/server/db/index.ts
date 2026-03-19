@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { buildLegacyStudentIdentityKey } from '../services/studentIdentity.js';
 
 const dbPath = path.resolve(process.cwd(), 'quizzi.db');
 let db: Database.Database;
@@ -19,9 +20,11 @@ try {
     // Enable WAL mode for better concurrency (local)
     db.pragma('journal_mode = WAL');
   }
+  db.pragma('foreign_keys = ON');
 } catch (error) {
   console.warn('SQLite init failed (e.g., read-only filesystem). Falling back to in-memory DB.', error);
   db = new Database(':memory:');
+  db.pragma('foreign_keys = ON');
 }
 
 // Hard-initialize tables before exporting the db instance to routes
@@ -44,6 +47,79 @@ async function ensureColumn(table: string, column: string, definition: string) {
   }
 }
 
+async function migrateMasteryTableIfNeeded() {
+  if (await columnExists('mastery', 'identity_key')) {
+    return;
+  }
+
+  db.exec(`
+    ALTER TABLE mastery RENAME TO mastery_legacy;
+
+    CREATE TABLE mastery (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      identity_key TEXT NOT NULL,
+      nickname TEXT,
+      tag TEXT,
+      score INTEGER DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(identity_key, tag)
+    );
+  `);
+
+  const legacyRows = (await db.prepare('SELECT * FROM mastery_legacy').all()) as any[];
+  const insertRow = db.prepare(`
+    INSERT INTO mastery (identity_key, nickname, tag, score, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const insertMany = db.transaction((rows: any[]) => {
+    for (const row of rows) {
+      insertRow.run(
+        buildLegacyStudentIdentityKey(String(row.nickname || '')),
+        String(row.nickname || '').trim() || null,
+        String(row.tag || '').trim(),
+        Number(row.score || 0),
+        row.updated_at || null,
+      );
+    }
+  });
+  insertMany(legacyRows);
+  db.exec('DROP TABLE mastery_legacy;');
+}
+
+async function backfillParticipantIdentityKeys() {
+  const rows = (await db.prepare(`
+    SELECT id, nickname
+    FROM participants
+    WHERE identity_key IS NULL OR TRIM(COALESCE(identity_key, '')) = ''
+  `).all()) as any[];
+  if (!rows.length) return;
+
+  const update = db.prepare('UPDATE participants SET identity_key = ? WHERE id = ?');
+  const apply = db.transaction((entries: any[]) => {
+    for (const row of entries) {
+      update.run(buildLegacyStudentIdentityKey(String(row.nickname || '')), Number(row.id));
+    }
+  });
+  apply(rows);
+}
+
+async function backfillPracticeAttemptIdentityKeys() {
+  const rows = (await db.prepare(`
+    SELECT id, nickname
+    FROM practice_attempts
+    WHERE identity_key IS NULL OR TRIM(COALESCE(identity_key, '')) = ''
+  `).all()) as any[];
+  if (!rows.length) return;
+
+  const update = db.prepare('UPDATE practice_attempts SET identity_key = ? WHERE id = ?');
+  const apply = db.transaction((entries: any[]) => {
+    for (const row of entries) {
+      update.run(buildLegacyStudentIdentityKey(String(row.nickname || '')), Number(row.id));
+    }
+  });
+  apply(rows);
+}
+
 // Initialize schema
 export async function initDb() {
   db.exec(`
@@ -57,6 +133,7 @@ export async function initDb() {
     CREATE TABLE IF NOT EXISTS quiz_packs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       teacher_id INTEGER,
+      is_public INTEGER DEFAULT 0,
       title TEXT,
       source_text TEXT,
       course_code TEXT DEFAULT '',
@@ -79,6 +156,7 @@ export async function initDb() {
       quiz_pack_id INTEGER,
       type TEXT DEFAULT 'multiple_choice',
       prompt TEXT,
+      image_url TEXT DEFAULT '',
       answers_json TEXT,
       correct_index INTEGER,
       explanation TEXT,
@@ -171,6 +249,7 @@ export async function initDb() {
     CREATE TABLE IF NOT EXISTS participants (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id INTEGER,
+      identity_key TEXT,
       nickname TEXT,
       team_id INTEGER DEFAULT 0,
       team_name TEXT,
@@ -214,15 +293,17 @@ export async function initDb() {
 
     CREATE TABLE IF NOT EXISTS mastery (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      identity_key TEXT NOT NULL,
       nickname TEXT,
       tag TEXT,
       score INTEGER DEFAULT 0,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(nickname, tag)
+      UNIQUE(identity_key, tag)
     );
 
     CREATE TABLE IF NOT EXISTS practice_attempts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      identity_key TEXT,
       nickname TEXT,
       question_id INTEGER,
       is_correct BOOLEAN,
@@ -251,6 +332,8 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_teacher_classes_pack ON teacher_classes(pack_id);
     CREATE INDEX IF NOT EXISTS idx_teacher_class_students_class ON teacher_class_students(class_id);
   `);
+
+  await migrateMasteryTableIfNeeded();
 
   (await ensureColumn('quiz_packs', 'source_hash', 'TEXT'));
   (await ensureColumn('users', 'first_name', 'TEXT'));
@@ -286,13 +369,17 @@ export async function initDb() {
   (await ensureColumn('questions', 'question_order', 'INTEGER DEFAULT 0'));
   (await ensureColumn('questions', 'learning_objective', "TEXT DEFAULT ''"));
   (await ensureColumn('questions', 'bloom_level', "TEXT DEFAULT ''"));
+  (await ensureColumn('questions', 'image_url', "TEXT DEFAULT ''"));
   (await ensureColumn('sessions', 'teacher_class_id', 'INTEGER'));
   (await ensureColumn('sessions', 'game_type', "TEXT DEFAULT 'classic_quiz'"));
   (await ensureColumn('sessions', 'team_count', 'INTEGER DEFAULT 0'));
   (await ensureColumn('sessions', 'mode_config_json', "TEXT DEFAULT '{}'"));
+  (await ensureColumn('quiz_packs', 'is_public', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('participants', 'identity_key', 'TEXT'));
   (await ensureColumn('participants', 'team_id', 'INTEGER DEFAULT 0'));
   (await ensureColumn('participants', 'team_name', 'TEXT'));
   (await ensureColumn('participants', 'seat_index', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('practice_attempts', 'identity_key', 'TEXT'));
   (await ensureColumn('student_behavior_logs', 'blur_time_ms', 'INTEGER DEFAULT 0'));
   (await ensureColumn('student_behavior_logs', 'longest_idle_streak_ms', 'INTEGER DEFAULT 0'));
   (await ensureColumn('student_behavior_logs', 'pointer_activity_count', 'INTEGER DEFAULT 0'));
@@ -302,6 +389,13 @@ export async function initDb() {
   (await ensureColumn('student_behavior_logs', 'option_dwell_json', "TEXT DEFAULT '{}'"));
 
   db.exec(`
+    DELETE FROM answers
+    WHERE id NOT IN (
+      SELECT MIN(id)
+      FROM answers
+      GROUP BY session_id, question_id, participant_id
+    );
+
     CREATE INDEX IF NOT EXISTS idx_quiz_packs_profile ON quiz_packs(material_profile_id);
     CREATE INDEX IF NOT EXISTS idx_quiz_packs_source_hash ON quiz_packs(source_hash);
     CREATE INDEX IF NOT EXISTS idx_quiz_packs_course_code ON quiz_packs(course_code);
@@ -314,8 +408,16 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_teacher_class_students_class ON teacher_class_students(class_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_teacher_class ON sessions(teacher_class_id, status);
     CREATE INDEX IF NOT EXISTS idx_participants_session_team ON participants(session_id, team_id);
+    CREATE INDEX IF NOT EXISTS idx_participants_identity_key ON participants(identity_key, created_at);
+    CREATE INDEX IF NOT EXISTS idx_mastery_identity_key ON mastery(identity_key);
+    CREATE INDEX IF NOT EXISTS idx_practice_attempts_identity_created ON practice_attempts(identity_key, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_participants_session_nickname_unique ON participants(session_id, nickname COLLATE NOCASE);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_answers_unique_submission ON answers(session_id, question_id, participant_id);
     CREATE INDEX IF NOT EXISTS idx_pack_versions_pack ON quiz_pack_versions(pack_id, version_number DESC);
   `);
+
+  await backfillParticipantIdentityKeys();
+  await backfillPracticeAttemptIdentityKeys();
 
   db.exec(`
     UPDATE questions

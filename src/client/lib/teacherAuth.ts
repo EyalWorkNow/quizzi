@@ -1,8 +1,9 @@
 import { loadTeacherSettings, saveTeacherSettings } from './localData.ts';
 import { getFirebaseAuth, googleProvider, signInWithPopup } from './firebase.ts';
 
-export const DEMO_TEACHER_EMAIL = 'mail@mail.com';
-export const DEMO_TEACHER_PASSWORD = '123123';
+export const DEMO_AUTH_ENABLED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_AUTH === 'true';
+export const DEMO_TEACHER_EMAIL = DEMO_AUTH_ENABLED ? 'mail@mail.com' : '';
+export const DEMO_TEACHER_PASSWORD = DEMO_AUTH_ENABLED ? '123123' : '';
 
 const AUTH_KEY = 'quizzi.teacher.auth';
 const AUTH_REQUEST_TIMEOUT_MS = 30000;

@@ -5,6 +5,8 @@
  * uses relative paths in development (proxied by Vite).
  */
 
+import { getParticipantToken } from './studentSession.ts';
+
 const API_BASE = import.meta.env.VITE_API_PROXY_TARGET || (import.meta.env.PROD ? 'https://quizzi-mqru.onrender.com' : '');
 
 /**
@@ -28,9 +30,15 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   const url = typeof input === 'string' 
     ? getApiUrl(input) 
     : input;
+  const participantToken = typeof window !== 'undefined' ? getParticipantToken() : '';
+  const headers = new Headers(init?.headers || undefined);
+  if (participantToken && !headers.has('X-Quizzi-Participant-Token')) {
+    headers.set('X-Quizzi-Participant-Token', participantToken);
+  }
     
   return fetch(url, {
     ...init,
+    headers,
     // CRITICAL: credentials: 'include' is required for cross-origin cookie sending
     // Without this, the browser won't send the session cookie from Vercel to Render
     credentials: 'include',

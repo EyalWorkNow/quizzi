@@ -24,9 +24,36 @@ function parseCsvList(value: string) {
     .filter(Boolean);
 }
 
+const MAX_QUESTION_ANSWERS = 8;
+const MAX_QUESTION_IMAGE_FILE_SIZE = 3 * 1024 * 1024;
+
+function createEmptyQuestion() {
+  return {
+    prompt: '',
+    image_url: '',
+    answers: ['', '', '', ''],
+    correct_index: 0,
+    explanation: '',
+    tags: ['general'],
+    time_limit_seconds: 20,
+    learning_objective: '',
+    bloom_level: '',
+  };
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Failed to read image file'));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function TeacherCreatePack() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const questionImageInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const [title, setTitle] = useState('');
   const [sourceText, setSourceText] = useState('');
   const [questions, setQuestions] = useState<any[]>([]);
@@ -38,6 +65,7 @@ export default function TeacherCreatePack() {
   const [materialProfile, setMaterialProfile] = useState<any>(null);
   const [generationMeta, setGenerationMeta] = useState<any>(null);
   const [genError, setGenError] = useState('');
+  const [saveError, setSaveError] = useState('');
   const [academicMeta, setAcademicMeta] = useState({
     course_code: '',
     course_name: '',
@@ -155,6 +183,7 @@ export default function TeacherCreatePack() {
     if (!sourceText.trim()) return;
     setIsGenerating(true);
     setGenError('');
+    setSaveError('');
     setGenerationStep('Analyzing your material...');
 
     try {
@@ -194,10 +223,45 @@ export default function TeacherCreatePack() {
     if (!title.trim() || questions.length === 0) {
       throw new Error('Pack title and at least one question are required.');
     }
+    const preparedQuestions = questions.map((question, index) => {
+      const prompt = String(question?.prompt || '').trim();
+      if (!prompt) {
+        throw new Error(`Question ${index + 1} needs a prompt.`);
+      }
+
+      const answerEntries = (Array.isArray(question?.answers) ? question.answers : [])
+        .map((answer: string, answerIndex: number) => ({
+          answer: String(answer || '').trim(),
+          answerIndex,
+        }))
+        .filter((entry) => entry.answer)
+        .slice(0, MAX_QUESTION_ANSWERS);
+
+      if (answerEntries.length < 2) {
+        throw new Error(`Question ${index + 1} needs at least two answer choices.`);
+      }
+
+      const correctAnswerIndex = answerEntries.findIndex(
+        (entry) => entry.answerIndex === Number(question?.correct_index || 0),
+      );
+      if (correctAnswerIndex < 0) {
+        throw new Error(`Question ${index + 1} must mark one of the filled answers as correct.`);
+      }
+
+      return {
+        ...question,
+        prompt,
+        image_url: String(question?.image_url || ''),
+        answers: answerEntries.map((entry) => entry.answer),
+        correct_index: correctAnswerIndex,
+        question_order: index + 1,
+      };
+    });
+
     const res = await apiFetch('/api/packs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, source_text: sourceText, questions, language, academic_meta: academicMeta })
+      body: JSON.stringify({ title, source_text: sourceText, questions: preparedQuestions, language, academic_meta: academicMeta })
     });
     if (!res.ok) {
       const payload = await res.json().catch(() => null);
@@ -208,11 +272,13 @@ export default function TeacherCreatePack() {
 
   const handleSave = async () => {
     setIsSaving(true);
+    setSaveError('');
     try {
       await persistPack();
       navigate('/teacher/dashboard');
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setSaveError(err?.message || 'Failed to save pack.');
     } finally {
       setIsSaving(false);
     }
@@ -221,6 +287,7 @@ export default function TeacherCreatePack() {
   const handleSaveAndHost = async () => {
     const mode = getGameMode(selectedLaunchMode);
     setIsHosting(true);
+    setSaveError('');
     try {
       const savedPack = await persistPack();
       const response = await apiFetch('/api/sessions', {
@@ -241,50 +308,108 @@ export default function TeacherCreatePack() {
       navigate(`/teacher/session/${session.pin}/host`, {
         state: { sessionId: session.id, packId: savedPack.id },
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setSaveError(err?.message || 'Failed to launch live session.');
     } finally {
       setIsHosting(false);
     }
   };
 
   const addQuestion = () => {
-    setQuestions([...questions, {
-      prompt: '',
-      answers: ['', '', '', ''],
-      correct_index: 0,
-      explanation: '',
-      tags: ['general'],
-      time_limit_seconds: 20,
-      learning_objective: '',
-      bloom_level: '',
-    }]);
+    setSaveError('');
+    setQuestions([...questions, createEmptyQuestion()]);
   };
 
   const updateQuestion = (index: number, field: string, value: any) => {
+    setSaveError('');
     const newQuestions = [...questions];
     newQuestions[index][field] = value;
     setQuestions(newQuestions);
   };
 
   const updateAnswer = (qIndex: number, aIndex: number, value: string) => {
+    setSaveError('');
     const newQuestions = [...questions];
     newQuestions[qIndex].answers[aIndex] = value;
     setQuestions(newQuestions);
   };
 
+  const addAnswer = (qIndex: number) => {
+    setSaveError('');
+    setQuestions((current) =>
+      current.map((question, index) =>
+        index === qIndex
+          ? {
+              ...question,
+              answers:
+                question.answers.length < MAX_QUESTION_ANSWERS
+                  ? [...question.answers, '']
+                  : question.answers,
+            }
+          : question,
+      ),
+    );
+  };
+
+  const removeAnswer = (qIndex: number, aIndex: number) => {
+    setSaveError('');
+    setQuestions((current) =>
+      current.map((question, index) => {
+        if (index !== qIndex || question.answers.length <= 2) return question;
+        const nextAnswers = question.answers.filter((_: string, answerIndex: number) => answerIndex !== aIndex);
+        let nextCorrectIndex = Number(question.correct_index || 0);
+        if (nextCorrectIndex === aIndex) {
+          nextCorrectIndex = 0;
+        } else if (nextCorrectIndex > aIndex) {
+          nextCorrectIndex -= 1;
+        }
+        return {
+          ...question,
+          answers: nextAnswers,
+          correct_index: Math.max(0, Math.min(nextCorrectIndex, nextAnswers.length - 1)),
+        };
+      }),
+    );
+  };
+
   const removeQuestion = (index: number) => {
+    setSaveError('');
     const newQuestions = [...questions];
     newQuestions.splice(index, 1);
     setQuestions(newQuestions);
   };
 
+  const handleQuestionImageUpload = async (qIndex: number, file?: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setSaveError('Question images must be image files.');
+      return;
+    }
+    if (file.size > MAX_QUESTION_IMAGE_FILE_SIZE) {
+      setSaveError('Question images must be 3MB or smaller.');
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      updateQuestion(qIndex, 'image_url', dataUrl);
+    } catch (error: any) {
+      setSaveError(error?.message || 'Failed to attach question image.');
+    } finally {
+      const input = questionImageInputRefs.current[qIndex];
+      if (input) input.value = '';
+    }
+  };
+
   const importQuestionFromBank = (item: any) => {
+    setSaveError('');
     setQuestions((current) => [
       ...current,
       {
         prompt: item.prompt || '',
-        answers: Array.isArray(item.answers) ? item.answers.slice(0, 4) : ['', '', '', ''],
+        image_url: item.image_url || '',
+        answers: Array.isArray(item.answers) ? item.answers.slice(0, MAX_QUESTION_ANSWERS) : ['', '', '', ''],
         correct_index: Number(item.correct_index || 0),
         explanation: item.explanation || '',
         tags: Array.isArray(item.tags) && item.tags.length > 0 ? item.tags : ['general'],
@@ -611,6 +736,11 @@ export default function TeacherCreatePack() {
                    <h2 className="text-4xl font-black text-brand-dark italic">Design Board</h2>
                    <button onClick={addQuestion} className="px-6 py-3 bg-white border-4 border-brand-dark rounded-xl font-black shadow-[4px_4px_0px_0px_#1A1A1A] hover:bg-brand-yellow transition-all">+ Add Manually</button>
                 </div>
+                {saveError && (
+                  <div className="rounded-[1.5rem] border-4 border-brand-dark bg-brand-orange/10 p-5 font-black text-brand-dark">
+                    {saveError}
+                  </div>
+                )}
 
                 {questions.length === 0 ? (
                   <div className="premium-card p-20 text-center flex flex-col items-center gap-6 border-dashed opacity-50">
@@ -639,24 +769,95 @@ export default function TeacherCreatePack() {
                         />
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="flex flex-wrap items-center gap-3 mb-6">
+                        <button
+                          type="button"
+                          onClick={() => questionImageInputRefs.current[qIndex]?.click()}
+                          className="px-4 py-2 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2"
+                        >
+                          <Upload className="w-4 h-4" />
+                          {q.image_url ? 'Replace Question Image' : 'Upload Question Image'}
+                        </button>
+                        {q.image_url && (
+                          <button
+                            type="button"
+                            onClick={() => updateQuestion(qIndex, 'image_url', '')}
+                            className="px-4 py-2 bg-brand-bg border-2 border-brand-dark rounded-full font-black flex items-center gap-2"
+                          >
+                            <X className="w-4 h-4" />
+                            Remove Image
+                          </button>
+                        )}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          ref={(node) => {
+                            questionImageInputRefs.current[qIndex] = node;
+                          }}
+                          onChange={(event) => handleQuestionImageUpload(qIndex, event.target.files?.[0])}
+                          className="hidden"
+                        />
+                      </div>
+
+                      {q.image_url && (
+                        <div className="mb-6 rounded-[1.8rem] border-4 border-brand-dark bg-white overflow-hidden shadow-[4px_4px_0px_0px_#1A1A1A]">
+                          <img
+                            src={q.image_url}
+                            alt={`Question ${qIndex + 1}`}
+                            className="w-full max-h-[320px] object-contain bg-white"
+                          />
+                        </div>
+                      )}
+
+                      <div
+                        className="grid gap-4"
+                        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}
+                      >
                         {q.answers.map((ans, aIndex) => (
                           <div 
                             key={`a-edit-${qIndex}-${aIndex}`}
                             className={`flex items-center gap-4 p-4 rounded-2xl border-4 ${q.correct_index === aIndex ? 'bg-brand-orange/10 border-brand-dark' : 'bg-brand-bg/30 border-brand-dark/10'}`}
                           >
                             <button 
+                              type="button"
                               onClick={() => updateQuestion(qIndex, 'correct_index', aIndex)}
                               className={`w-10 h-10 rounded-full border-4 ${q.correct_index === aIndex ? 'bg-brand-orange border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A]' : 'bg-white border-brand-dark/20'}`}
                             />
+                            <span className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">
+                              {String.fromCharCode(65 + (aIndex % 26))}
+                            </span>
                             <input
                               type="text"
                               value={ans}
                               onChange={(e) => updateAnswer(qIndex, aIndex, e.target.value)}
                               className="flex-1 bg-transparent border-none font-bold text-lg focus:ring-0"
                             />
+                            {q.answers.length > 2 && (
+                              <button
+                                type="button"
+                                onClick={() => removeAnswer(qIndex, aIndex)}
+                                className="w-10 h-10 rounded-full border-2 border-brand-dark bg-white flex items-center justify-center shrink-0"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         ))}
+                      </div>
+
+                      <div className="mt-5 flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => addAnswer(qIndex)}
+                          disabled={q.answers.length >= MAX_QUESTION_ANSWERS}
+                          className="px-4 py-2 bg-brand-yellow border-2 border-brand-dark rounded-full font-black flex items-center gap-2 disabled:opacity-50"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Add Answer
+                        </button>
+                        <p className="text-sm font-bold text-brand-dark/55">
+                          Up to {MAX_QUESTION_ANSWERS} answers per question.
+                        </p>
                       </div>
                     </motion.div>
                   ))

@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { CheckCircle, XCircle, Clock, Trophy, Sparkles, Flame, Star, Zap } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'motion/react';
+import Avatar, { extractNickname } from '../components/Avatar.tsx';
+import QuestionImageCard from '../components/QuestionImageCard.tsx';
 import {
   attachParticipantPresence,
   publishAnswerProgress,
@@ -14,6 +16,7 @@ import { getGameMode } from '../lib/gameModes.ts';
 import { getGameModeTone } from '../lib/gameModePresentation.ts';
 import { isPeerInstructionMode, requiresConfidenceLock } from '../lib/sessionModeRules.ts';
 import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
+import { getParticipantToken } from '../lib/studentSession.ts';
 
 const COLORS = [
   { bg: 'bg-brand-purple', text: 'text-white', border: 'border-brand-dark', shadow: 'shadow-[8px_8px_0px_0px_#1A1A1A]' },
@@ -67,9 +70,10 @@ export default function StudentPlay() {
 
   const participantId = localStorage.getItem('participant_id');
   const nickname = localStorage.getItem('nickname');
-  const avatar = localStorage.getItem('avatar') || '😎';
+  const participantToken = getParticipantToken();
   const teamName = localStorage.getItem('team_name') || '';
   const savedGameType = localStorage.getItem('game_type') || '';
+  const displayNickname = extractNickname(String(nickname || ''));
   const modeConfig = sessionMeta?.mode_config || sessionMeta?.modeConfig || {};
   const gameMode = getGameMode(sessionMeta?.game_type || savedGameType || 'classic_quiz');
   const gameTone = getGameModeTone(gameMode.id);
@@ -146,7 +150,7 @@ export default function StudentPlay() {
   };
 
   useEffect(() => {
-    if (!participantId || !nickname) {
+    if (!participantId || !nickname || !participantToken) {
       navigate('/');
       return;
     }
@@ -283,7 +287,7 @@ export default function StudentPlay() {
       presenceCleanup?.();
       eventSource?.close();
     };
-  }, [navigate, nickname, participantId, pin, savedGameType, teamName]);
+  }, [navigate, nickname, participantId, participantToken, pin, savedGameType, teamName]);
 
   // Timer effect & telemetry watchers
   useEffect(() => {
@@ -516,16 +520,19 @@ export default function StudentPlay() {
           transition={{ type: 'spring', bounce: 0.5 }}
           className="relative z-10 bg-white border-4 border-brand-dark rounded-[2.2rem] sm:rounded-[3rem] p-6 sm:p-12 shadow-[16px_16px_0px_0px_#1A1A1A] max-w-lg w-full flex flex-col items-center"
         >
-          <div className="w-24 h-24 sm:w-32 sm:h-32 bg-brand-yellow rounded-full border-4 border-brand-dark flex items-center justify-center text-5xl sm:text-6xl mb-6 sm:mb-8 shadow-[8px_8px_0px_0px_#1A1A1A] -rotate-6">
-            {avatar}
-          </div>
+          <Avatar
+            nickname={String(nickname || '')}
+            className="mb-6 sm:mb-8"
+            imgClassName="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-brand-yellow border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] -rotate-6"
+            textClassName="hidden"
+          />
           <h2 className="text-4xl sm:text-5xl font-black mb-2 tracking-tight">You're in!</h2>
           <p className="text-lg sm:text-xl font-bold text-brand-dark/60 mb-6 sm:mb-8">Waiting for the host to start...</p>
 
           <div className="space-y-4 w-full">
             <div className="bg-brand-bg px-5 sm:px-8 py-4 rounded-full border-2 border-brand-dark/20 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
               <span className="text-sm font-bold text-brand-dark/50 uppercase tracking-widest">Playing as</span>
-              <span className="text-xl sm:text-2xl font-black">{nickname}</span>
+              <span className="text-xl sm:text-2xl font-black">{displayNickname}</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -583,8 +590,17 @@ export default function StudentPlay() {
 
           <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-dark text-white p-6 text-left">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-3">Question</p>
+            <QuestionImageCard
+              imageUrl={question?.image_url}
+              alt={question?.prompt || 'Question image'}
+              className="mb-5 shadow-none border-white/20"
+              imgClassName="max-h-[260px]"
+            />
             <p className="text-2xl sm:text-3xl font-black mb-5">{question?.prompt}</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div
+              className="grid gap-3"
+              style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+            >
               {question?.answers?.map((answer: string, index: number) => (
                 <div
                   key={index}
@@ -691,8 +707,11 @@ export default function StudentPlay() {
               <XCircle className="w-7 h-7" />
             </motion.button>
             <div className="flex items-center gap-4 bg-white px-6 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
-              <span className="text-3xl">{avatar}</span>
-              <span className="font-black text-xl lg:text-2xl">{nickname}</span>
+              <Avatar
+                nickname={String(nickname || '')}
+                imgClassName="w-12 h-12 rounded-2xl"
+                textClassName="font-black text-xl lg:text-2xl"
+              />
             </div>
             {(teamName || isTeamGameLabel(sessionMeta?.game_type || savedGameType)) && (
               <div className="flex items-center gap-3 bg-brand-yellow px-6 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
@@ -760,6 +779,12 @@ export default function StudentPlay() {
             </div>
           </div>
           
+          <QuestionImageCard
+            imageUrl={question?.image_url}
+            alt={question?.prompt || 'Question image'}
+            className="relative z-10 max-w-4xl mx-auto w-full mb-6"
+            imgClassName="max-h-[340px]"
+          />
           <h2 className="text-3xl sm:text-4xl md:text-6xl font-black text-brand-dark leading-tight mb-4 tracking-tight">
             {question?.prompt}
           </h2>
@@ -801,7 +826,10 @@ export default function StudentPlay() {
         )}
 
         {/* Answers Grid */}
-        <div className="relative z-10 flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-6xl mx-auto w-full mb-12">
+        <div
+          className="relative z-10 flex-1 grid gap-6 max-w-6xl mx-auto w-full mb-12"
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
+        >
           <AnimatePresence mode="popLayout">
             {question?.answers?.map((ans: string, i: number) => {
               const isSelected = currentSelectedAnswer === i;

@@ -8,6 +8,7 @@ import { trackStudentJoinEvent, trackTeacherAuthEvent, toAnalyticsErrorCode } fr
 import { announceParticipantJoin } from '../lib/firebaseRealtime.ts';
 import { isValidSessionPin, sanitizeSessionPin } from '../lib/joinCodes.ts';
 import { apiFetch } from '../lib/api.ts';
+import { getOrCreateStudentIdentityKey, storeJoinedParticipantSession } from '../lib/studentSession.ts';
 import {
   loadTeacherAuth,
   isTeacherAuthenticated,
@@ -107,22 +108,30 @@ export default function Home() {
       const fullNickname = selectedAvatar.endsWith('.png') 
         ? `[${selectedAvatar}] ${trimmedNickname}`
         : `${selectedAvatar} ${trimmedNickname}`;
+      const identityKey = getOrCreateStudentIdentityKey();
       const res = await apiFetch(`/api/sessions/${sessionPin}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nickname: fullNickname })
+        body: JSON.stringify({
+          nickname: fullNickname,
+          identity_key: identityKey,
+        })
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to join');
 
-      localStorage.setItem('participant_id', data.participant_id.toString());
-      localStorage.setItem('session_id', data.session_id.toString());
-      localStorage.setItem('session_pin', sessionPin);
-      localStorage.setItem('nickname', fullNickname);
-      if (data.team_name) localStorage.setItem('team_name', data.team_name);
-      else localStorage.removeItem('team_name');
-      if (data.game_type) localStorage.setItem('game_type', data.game_type);
+      storeJoinedParticipantSession({
+        participantId: Number(data.participant_id),
+        sessionId: Number(data.session_id),
+        sessionPin,
+        nickname: fullNickname,
+        avatar: selectedAvatar,
+        participantToken: String(data.participant_token || ''),
+        identityKey: String(data.identity_key || identityKey),
+        teamName: data.team_name || null,
+        gameType: data.game_type || null,
+      });
 
       void announceParticipantJoin(sessionPin, {
         participantId: Number(data.participant_id),

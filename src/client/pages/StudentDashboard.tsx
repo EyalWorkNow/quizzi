@@ -25,7 +25,8 @@ import {
   SessionHistoryTrendChart,
 } from '../components/studentDashboardCharts.tsx';
 import { apiFetchJson } from '../lib/api.ts';
-import Avatar from '../components/Avatar.tsx';
+import Avatar, { extractNickname } from '../components/Avatar.tsx';
+import { clearJoinedParticipantSession } from '../lib/studentSession.ts';
 
 // Replaced by central apiFetchJson
 
@@ -33,7 +34,7 @@ export default function StudentDashboard() {
   const { nickname } = useParams();
   const navigate = useNavigate();
   const participantId = localStorage.getItem('participant_id');
-  const avatar = localStorage.getItem('avatar') || '😎';
+  const displayNickname = extractNickname(localStorage.getItem('nickname') || nickname || '');
 
   const [overallData, setOverallData] = useState<any>(null);
   const [gameData, setGameData] = useState<any>(null);
@@ -185,7 +186,7 @@ export default function StudentDashboard() {
             </button>
             <div>
               <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Student Command Center</p>
-              <h1 className="text-3xl font-black tracking-tight">{nickname}</h1>
+              <h1 className="text-3xl font-black tracking-tight">{displayNickname}</h1>
               <p className="font-bold text-brand-dark/60">
                 {latestSessionTitle ? `Latest game: ${latestSessionTitle}` : 'Overall learning profile'}
               </p>
@@ -208,10 +209,7 @@ export default function StudentDashboard() {
             </button>
             <button
               onClick={() => {
-                localStorage.removeItem('nickname');
-                localStorage.removeItem('participant_id');
-                localStorage.removeItem('session_id');
-                localStorage.removeItem('session_pin');
+                clearJoinedParticipantSession();
                 navigate('/');
               }}
               className="px-5 py-3 bg-brand-dark text-white border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#FF5A36]"
@@ -242,7 +240,7 @@ export default function StudentDashboard() {
                 textClassName="hidden"
               />
               <div>
-                <h2 className="text-3xl font-black">{nickname}</h2>
+                <h2 className="text-3xl font-black">{displayNickname}</h2>
                 <p className="font-bold text-white/65">Personal learning profile</p>
               </div>
             </div>

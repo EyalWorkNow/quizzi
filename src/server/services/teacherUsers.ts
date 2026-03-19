@@ -67,23 +67,28 @@ export async function createTeacherUser({
   password,
   name,
   school,
+  authProvider = 'password',
 }: {
   email: string;
-  password: string;
+  password?: string;
   name?: string;
   school?: string;
+  authProvider?: 'password' | 'google' | 'facebook';
 }) {
   const normalizedEmail = normalizeTeacherEmail(email);
   const { firstName, lastName } = splitTeacherName(name || '');
   const normalizedSchool = String(school || '').trim().slice(0, 160);
-  const passwordHash = hashTeacherPassword(password);
+  if (authProvider === 'password' && !String(password || '')) {
+    throw new Error('Password-based accounts require a password.');
+  }
+  const passwordHash = authProvider === 'password' ? hashTeacherPassword(String(password || '')) : null;
 
   const result = (await db
       .prepare(`
       INSERT INTO users (email, password_hash, first_name, last_name, school, auth_provider, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'password', CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `)
-      .run(normalizedEmail, passwordHash, firstName || null, lastName || null, normalizedSchool || null));
+      .run(normalizedEmail, passwordHash, firstName || null, lastName || null, normalizedSchool || null, authProvider));
 
   const newUserId = result.lastInsertRowid as number;
   

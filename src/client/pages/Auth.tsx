@@ -15,6 +15,7 @@ import {
 import { loadTeacherSettings, saveTeacherSettings } from '../lib/localData.ts';
 import { trackTeacherAuthEvent, toAnalyticsErrorCode } from '../lib/appAnalytics.ts';
 import {
+  DEMO_AUTH_ENABLED,
   DEMO_TEACHER_EMAIL,
   DEMO_TEACHER_PASSWORD,
   loadTeacherAuth,
@@ -39,8 +40,8 @@ export default function Auth() {
   const [mode, setMode] = useState<AccessMode>('login');
   const [name, setName] = useState(`${teacherSettings.profile.firstName} ${teacherSettings.profile.lastName}`.trim());
   const [school, setSchool] = useState(teacherSettings.profile.school);
-  const [email, setEmail] = useState(DEMO_TEACHER_EMAIL);
-  const [password, setPassword] = useState(DEMO_TEACHER_PASSWORD);
+  const [email, setEmail] = useState(DEMO_AUTH_ENABLED ? DEMO_TEACHER_EMAIL : teacherSettings.profile.email || '');
+  const [password, setPassword] = useState(DEMO_AUTH_ENABLED ? DEMO_TEACHER_PASSWORD : '');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
@@ -100,6 +101,7 @@ export default function Auth() {
   };
 
   const applyDemoCredentials = () => {
+    if (!DEMO_AUTH_ENABLED) return;
     setMode('login');
     setEmail(DEMO_TEACHER_EMAIL);
     setPassword(DEMO_TEACHER_PASSWORD);
@@ -131,7 +133,9 @@ export default function Auth() {
     setPendingAction('password');
     const normalizedEmail = email.trim().toLowerCase();
     const useDemoAccount =
-      normalizedEmail === DEMO_TEACHER_EMAIL.toLowerCase() && password === DEMO_TEACHER_PASSWORD;
+      DEMO_AUTH_ENABLED &&
+      normalizedEmail === DEMO_TEACHER_EMAIL.toLowerCase() &&
+      password === DEMO_TEACHER_PASSWORD;
     const accessMode: AccessMode = useDemoAccount ? 'login' : mode;
     void trackTeacherAuthEvent({
       action: 'sign_in',
@@ -191,6 +195,10 @@ export default function Auth() {
   };
 
   const handleDemoAccess = async () => {
+    if (!DEMO_AUTH_ENABLED) {
+      setError('Demo access is unavailable in this environment.');
+      return;
+    }
     applyDemoCredentials();
     setPendingAction('password');
     void trackTeacherAuthEvent({
@@ -329,6 +337,7 @@ export default function Auth() {
             </div>
           </motion.div>
 
+          {DEMO_AUTH_ENABLED && (
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
@@ -364,6 +373,7 @@ export default function Auth() {
               Enter With Demo Account
             </button>
           </motion.div>
+          )}
         </section>
 
         <motion.section
@@ -426,7 +436,14 @@ export default function Auth() {
           <div className="grid grid-cols-1 gap-3 mb-8 xs:grid-cols-2">
             <button
               type="button"
-              onClick={applyDemoCredentials}
+              onClick={() => {
+                setMode('login');
+                setError('');
+                setFeedback('');
+                if (DEMO_AUTH_ENABLED) {
+                  applyDemoCredentials();
+                }
+              }}
               className={`px-5 py-4 rounded-2xl border-2 border-brand-dark font-black ${mode === 'login' ? 'bg-brand-dark text-white' : 'bg-brand-bg text-brand-dark'}`}
             >
               Sign In
@@ -488,10 +505,10 @@ export default function Auth() {
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Email Access</p>
-                  <h3 className="text-2xl font-black">{mode === 'create' ? 'Create a teacher account' : 'Use the demo teacher login'}</h3>
+                  <h3 className="text-2xl font-black">{mode === 'create' ? 'Create a teacher account' : 'Use your teacher login'}</h3>
                 </div>
-                <span className={`px-3 py-2 rounded-full border-2 border-brand-dark text-xs font-black uppercase tracking-[0.15em] ${mode === 'create' ? 'bg-white' : 'bg-brand-yellow'}`}>
-                  {mode === 'create' ? 'Secure Sign-Up' : 'Demo Ready'}
+                <span className={`px-3 py-2 rounded-full border-2 border-brand-dark text-xs font-black uppercase tracking-[0.15em] ${mode === 'create' ? 'bg-white' : DEMO_AUTH_ENABLED ? 'bg-brand-yellow' : 'bg-brand-bg'}`}>
+                  {mode === 'create' ? 'Secure Sign-Up' : DEMO_AUTH_ENABLED ? 'Demo Ready' : 'Secure Sign-In'}
                 </span>
               </div>
 
@@ -501,7 +518,7 @@ export default function Auth() {
                   icon={<Mail className="w-5 h-5" />}
                   value={email}
                   onChange={setEmail}
-                  placeholder={DEMO_TEACHER_EMAIL}
+                  placeholder={DEMO_AUTH_ENABLED ? DEMO_TEACHER_EMAIL : 'teacher@school.edu'}
                   autoComplete="email"
                 />
                 <Field
@@ -509,7 +526,7 @@ export default function Auth() {
                   icon={<Lock className="w-5 h-5" />}
                   value={password}
                   onChange={setPassword}
-                  placeholder={mode === 'login' ? DEMO_TEACHER_PASSWORD : 'Create a password'}
+                  placeholder={mode === 'login' ? (DEMO_AUTH_ENABLED ? DEMO_TEACHER_PASSWORD : 'Enter your password') : 'Create a password'}
                   type="password"
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                 />

@@ -37,6 +37,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
     CREATE TABLE IF NOT EXISTS quiz_packs (
       id SERIAL PRIMARY KEY,
       teacher_id INTEGER,
+      is_public INTEGER DEFAULT 0,
       title TEXT,
       source_text TEXT,
       course_code TEXT DEFAULT '',
@@ -71,6 +72,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       quiz_pack_id INTEGER,
       type TEXT DEFAULT 'multiple_choice',
       prompt TEXT,
+      image_url TEXT DEFAULT '',
       answers_json TEXT,
       correct_index INTEGER,
       explanation TEXT,
@@ -171,6 +173,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
     CREATE TABLE IF NOT EXISTS participants (
       id SERIAL PRIMARY KEY,
       session_id INTEGER,
+      identity_key TEXT,
       nickname TEXT,
       team_id INTEGER DEFAULT 0,
       team_name TEXT,
@@ -233,6 +236,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS generation_model TEXT DEFAULT ''`,
   `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS lms_provider TEXT DEFAULT 'generic_csv'`,
   `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS lms_assignment_label TEXT DEFAULT ''`,
+  `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS is_public INTEGER DEFAULT 0`,
   `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS color TEXT DEFAULT 'bg-brand-purple'`,
   `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT ''`,
   `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS pack_id INTEGER`,
@@ -242,7 +246,9 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS learning_objective TEXT DEFAULT ''`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS bloom_level TEXT DEFAULT ''`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS image_url TEXT DEFAULT ''`,
   `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS teacher_class_id INTEGER`,
+  `ALTER TABLE participants ADD COLUMN IF NOT EXISTS identity_key TEXT`,
   `ALTER TABLE mastery ALTER COLUMN score TYPE DOUBLE PRECISION USING score::double precision`,
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS option_hover_counts_json TEXT DEFAULT '{}'`,
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS outside_answer_pointer_moves INTEGER DEFAULT 0`,
@@ -250,16 +256,18 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `
     CREATE TABLE IF NOT EXISTS mastery (
       id SERIAL PRIMARY KEY,
+      identity_key TEXT NOT NULL,
       nickname TEXT,
       tag TEXT,
       score DOUBLE PRECISION DEFAULT 0,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(nickname, tag)
+      UNIQUE(identity_key, tag)
     )
   `,
   `
     CREATE TABLE IF NOT EXISTS practice_attempts (
       id SERIAL PRIMARY KEY,
+      identity_key TEXT,
       nickname TEXT,
       question_id INTEGER,
       is_correct BOOLEAN,
@@ -267,16 +275,21 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `,
+  `ALTER TABLE practice_attempts ADD COLUMN IF NOT EXISTS identity_key TEXT`,
   'CREATE INDEX IF NOT EXISTS idx_sessions_pin ON sessions(pin)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_pack_status ON sessions(quiz_pack_id, status)',
   'CREATE INDEX IF NOT EXISTS idx_participants_session ON participants(session_id)',
   'CREATE INDEX IF NOT EXISTS idx_participants_nickname_session ON participants(nickname, session_id)',
+  'CREATE INDEX IF NOT EXISTS idx_participants_identity_key ON participants(identity_key, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_answers_session ON answers(session_id)',
   'CREATE INDEX IF NOT EXISTS idx_answers_participant_session ON answers(participant_id, session_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_answers_unique_submission ON answers(session_id, question_id, participant_id)',
   'CREATE INDEX IF NOT EXISTS idx_questions_pack_order ON questions(quiz_pack_id, id)',
   'CREATE INDEX IF NOT EXISTS idx_behavior_participant_session ON student_behavior_logs(participant_id, session_id)',
   'CREATE INDEX IF NOT EXISTS idx_mastery_nickname ON mastery(nickname)',
+  'CREATE INDEX IF NOT EXISTS idx_mastery_identity_key ON mastery(identity_key)',
   'CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_question ON practice_attempts(nickname, question_id)',
+  'CREATE INDEX IF NOT EXISTS idx_practice_attempts_identity_created ON practice_attempts(identity_key, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_generation_cache_lookup ON question_generation_cache(material_profile_id, difficulty, output_language, question_count)',
   'CREATE INDEX IF NOT EXISTS idx_quiz_packs_profile ON quiz_packs(material_profile_id)',
   'CREATE INDEX IF NOT EXISTS idx_quiz_packs_source_hash ON quiz_packs(source_hash)',
@@ -288,6 +301,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'CREATE INDEX IF NOT EXISTS idx_questions_learning_objective ON questions(learning_objective)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_game_type ON sessions(game_type)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_teacher_class ON sessions(teacher_class_id, status)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_participants_session_nickname_unique ON participants(session_id, LOWER(nickname))',
   'CREATE INDEX IF NOT EXISTS idx_participants_session_team ON participants(session_id, team_id)',
   'CREATE INDEX IF NOT EXISTS idx_pack_versions_pack ON quiz_pack_versions(pack_id, version_number DESC)',
 ] as const;

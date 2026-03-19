@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { apiFetchJson } from './api.ts';
 
@@ -330,7 +330,7 @@ function chunkTexts(texts: string[]) {
 
   for (const text of texts) {
     const candidateSize = currentSize + text.length + TRANSLATION_SEPARATOR.length;
-    if (current.length > 0 && (candidateSize > 900 || current.length >= 8)) {
+    if (current.length > 0 && (candidateSize > 1600 || current.length >= 16)) {
       batches.push(current);
       current = [];
       currentSize = 0;
@@ -371,6 +371,9 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
   const trackedTextNodesRef = useRef(new Set<Text>());
   const trackedElementsRef = useRef(new Set<Element>());
   const scanScheduledRef = useRef(false);
+  const scanFrameRef = useRef<number | null>(null);
+  const activeScanIdRef = useRef(0);
+  const isApplyingTranslationsRef = useRef(false);
   const observerRef = useRef<MutationObserver | null>(null);
 
   const direction = language === 'he' ? 'rtl' : 'ltr';
@@ -423,18 +426,63 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
     return existing;
   };
 
+  const commitTranslationMutation = (apply: () => void) => {
+    isApplyingTranslationsRef.current = true;
+
+    try {
+      apply();
+    } finally {
+      isApplyingTranslationsRef.current = false;
+    }
+  };
+
+  const applyResolvedTranslations = (
+    pendingTextNodes: Map<string, Text[]>,
+    pendingAttributes: Map<string, Array<{ element: Element; attributeName: string }>>,
+    resolveTranslation: (original: string) => string | undefined,
+  ) => {
+    commitTranslationMutation(() => {
+      pendingTextNodes.forEach((nodes, original) => {
+        const translated = resolveTranslation(original);
+        if (!translated) return;
+
+        nodes.forEach((node) => {
+          if (!node.isConnected) return;
+          const record = ensureTextRecord(node);
+          record.original = record.original || original;
+          record.translated = translated;
+          if (node.nodeValue !== translated) {
+            node.nodeValue = translated;
+          }
+        });
+      });
+
+      pendingAttributes.forEach((entries, original) => {
+        const translated = resolveTranslation(original);
+        if (!translated) return;
+
+        entries.forEach(({ element, attributeName }) => {
+          if (!element.isConnected) return;
+          const record = ensureAttributeRecord(element, attributeName);
+          record.original = record.original || original;
+          record.translated = translated;
+          if (element.getAttribute(attributeName) !== translated) {
+            element.setAttribute(attributeName, translated);
+          }
+        });
+      });
+    });
+  };
+
   const scanAndTranslate = async () => {
     scanScheduledRef.current = false;
     if (!isBrowser()) return;
-
-    // Optimization: If switching to English and we're already basically in English,
-    // we still need to scan once to revert any translated nodes, but subsequent scans can be lighter.
-    // However, the current logic already handles this via records.
-    // Let's add a check to see if we really need to scan.
-    if (language === 'en' && Object.keys(translationCacheRef.current).length === 0) {
-      // If cache is empty and language is English, there's likely nothing to revert.
-      // But we should still allow the first scan.
+    if (scanFrameRef.current != null) {
+      window.cancelAnimationFrame(scanFrameRef.current);
+      scanFrameRef.current = null;
     }
+    const scanId = ++activeScanIdRef.current;
+    const cacheForLanguage = { ...translationCacheRef.current };
 
     const pendingTextNodes = new Map<string, Text[]>();
     const pendingAttributes = new Map<string, Array<{ element: Element; attributeName: string }>>();
@@ -461,7 +509,9 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
       if (shouldIgnoreValue(record.original, language)) {
         record.translated = undefined;
         if (node.nodeValue !== record.original) {
-          node.nodeValue = record.original;
+          commitTranslationMutation(() => {
+            node.nodeValue = record.original;
+          });
         }
         continue;
       }
@@ -482,7 +532,9 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
         if (shouldIgnoreValue(record.original, language)) {
           record.translated = undefined;
           if (element.getAttribute(attributeName) !== record.original) {
-            element.setAttribute(attributeName, record.original);
+            commitTranslationMutation(() => {
+              element.setAttribute(attributeName, record.original);
+            });
           }
           return;
         }
@@ -495,66 +547,70 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
     });
 
     const uniqueTexts = Array.from(new Set([...pendingTextNodes.keys(), ...pendingAttributes.keys()]));
-    const unresolved = uniqueTexts.filter((text) => !translationCacheRef.current[text] && !RUNTIME_TRANSLATIONS[language][text]);
+    const resolveKnownTranslation = (text: string) => RUNTIME_TRANSLATIONS[language][text] || cacheForLanguage[text];
 
-    for (const batch of chunkTexts(unresolved)) {
-      try {
-        const translatedBatch = await translateBatch(batch, language);
-        batch.forEach((text, index) => {
-          translationCacheRef.current[text] = translatedBatch[index] || text;
-        });
-      } catch {
-        // Do not cache the original text on API failure. This prevents "cache poisoning"
-        // where temporary network or rate limit issues cause English text to be permanently
-        // saved as "Hebrew" translations in local storage.
-        console.warn('Translation batch failed. Skipping cache injection to retry later.');
+    applyResolvedTranslations(pendingTextNodes, pendingAttributes, resolveKnownTranslation);
+
+    const unresolved = uniqueTexts.filter((text) => !resolveKnownTranslation(text));
+    if (unresolved.length === 0) return;
+
+    const batches = chunkTexts(unresolved);
+    const translatedBatches = await Promise.all(
+      batches.map(async (batch) => {
+        try {
+          return await translateBatch(batch, language);
+        } catch {
+          // Do not cache the original text on API failure. This prevents "cache poisoning"
+          // where temporary network or rate limit issues cause English text to be permanently
+          // saved as translated UI copy in local storage.
+          console.warn('Translation batch failed. Skipping cache injection to retry later.');
+          return null;
+        }
+      }),
+    );
+
+    if (scanId !== activeScanIdRef.current) return;
+
+    let resolvedAnyBatch = false;
+    translatedBatches.forEach((translatedBatch, batchIndex) => {
+      if (!translatedBatch) return;
+      const batch = batches[batchIndex] || [];
+      batch.forEach((text, index) => {
+        cacheForLanguage[text] = translatedBatch[index] || text;
+      });
+      resolvedAnyBatch = true;
+    });
+
+    if (resolvedAnyBatch) {
+      translationCacheRef.current = cacheForLanguage;
+      saveCache(language, cacheForLanguage);
+      applyResolvedTranslations(pendingTextNodes, pendingAttributes, (text) => RUNTIME_TRANSLATIONS[language][text] || cacheForLanguage[text]);
+    }
+  };
+
+  const scheduleScan = (mode: 'deferred' | 'immediate' = 'deferred') => {
+    if (!isBrowser()) return;
+
+    if (mode === 'immediate') {
+      if (scanFrameRef.current != null) {
+        window.cancelAnimationFrame(scanFrameRef.current);
+        scanFrameRef.current = null;
       }
+      scanScheduledRef.current = false;
+      void scanAndTranslate();
+      return;
     }
 
-    if (unresolved.length > 0) {
-      saveCache(language, translationCacheRef.current);
-    }
-
-    pendingTextNodes.forEach((nodes, original) => {
-      const translated = RUNTIME_TRANSLATIONS[language][original] || translationCacheRef.current[original] || original;
-      nodes.forEach((node) => {
-        if (!node.isConnected) return;
-        const record = ensureTextRecord(node);
-        record.original = record.original || original;
-        record.translated = translated;
-        if (node.nodeValue !== translated) {
-          node.nodeValue = translated;
-        }
-      });
-    });
-
-    pendingAttributes.forEach((entries, original) => {
-      const translated = RUNTIME_TRANSLATIONS[language][original] || translationCacheRef.current[original] || original;
-      entries.forEach(({ element, attributeName }) => {
-        if (!element.isConnected) return;
-        const record = ensureAttributeRecord(element, attributeName);
-        record.original = record.original || original;
-        record.translated = translated;
-        if (element.getAttribute(attributeName) !== translated) {
-          element.setAttribute(attributeName, translated);
-        }
-      });
-    });
-  };
-
-  const scheduleScan = () => {
-    if (!isBrowser() || scanScheduledRef.current) return;
+    if (scanScheduledRef.current) return;
     scanScheduledRef.current = true;
-    
-    // Debounce to prevent multiple scans within a short window
-    window.setTimeout(() => {
-      window.requestAnimationFrame(() => {
-        void scanAndTranslate();
-      });
-    }, 40);
+
+    scanFrameRef.current = window.requestAnimationFrame(() => {
+      scanFrameRef.current = null;
+      void scanAndTranslate();
+    });
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isBrowser()) return;
     document.documentElement.lang = language;
     document.documentElement.dir = direction;
@@ -563,6 +619,7 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
 
     observerRef.current?.disconnect();
     observerRef.current = new MutationObserver(() => {
+      if (isApplyingTranslationsRef.current) return;
       scheduleScan();
     });
     observerRef.current.observe(document.body, {
@@ -573,17 +630,21 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
       attributeFilter: ATTRIBUTE_NAMES as unknown as string[],
     });
 
-    scheduleScan();
+    scheduleScan('immediate');
 
     return () => {
+      if (scanFrameRef.current != null) {
+        window.cancelAnimationFrame(scanFrameRef.current);
+        scanFrameRef.current = null;
+      }
       observerRef.current?.disconnect();
       observerRef.current = null;
     };
   }, [direction, language]);
 
-  useEffect(() => {
-    scheduleScan();
-  }, [language, location.key, location.pathname, location.search]);
+  useLayoutEffect(() => {
+    scheduleScan('immediate');
+  }, [location.key, location.pathname, location.search]);
 
   useEffect(() => {
     if (!isBrowser()) return;

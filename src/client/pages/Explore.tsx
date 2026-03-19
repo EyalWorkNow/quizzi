@@ -307,7 +307,11 @@ export default function Explore() {
   }, [packs]);
 
   return (
-    <div dir={direction} className={`min-h-screen bg-brand-bg font-sans text-brand-dark flex overflow-hidden selection:bg-brand-orange selection:text-white`}>
+    <div
+      dir={direction}
+      data-no-translate="true"
+      className={`min-h-screen bg-brand-bg font-sans text-brand-dark flex overflow-hidden selection:bg-brand-orange selection:text-white`}
+    >
       {teacherSignedIn && <TeacherSidebar />}
 
       <div className="flex-1 h-screen overflow-y-auto relative">

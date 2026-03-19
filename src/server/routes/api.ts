@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { handleContactSubmission } from '../api/contact.js';
-import { randomBytes, randomInt } from 'crypto';
+import { randomInt } from 'crypto';
 import db from '../db/index.js';
 import { seedDemoDataForTeacher } from '../db/seeding.js';
 import { GoogleGenAI } from '@google/genai';
@@ -14,6 +14,12 @@ import { broadcastToSession, registerSseClient } from '../services/sseHub.js';
 import { buildRateLimitKey, checkRateLimit, isTrustedOrigin } from '../services/requestGuards.js';
 import { createBoundedTaskGate, defaultTaskConcurrency, envTaskConcurrency } from '../services/taskGate.js';
 import { GAME_MODES, getGameMode, getTeamGameModeIds, type GameModeConfig } from '../../shared/gameModes.js';
+import { buildFollowUpEnginePreview, type FollowUpPlan } from '../../shared/followUpEngine.js';
+import {
+  createParticipantAccessToken,
+  readParticipantAccessToken,
+  resolveStudentIdentityKey,
+} from '../services/studentIdentity.js';
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -106,6 +112,7 @@ const TEAM_NAME_BANK = [
 
 const SUPPORTED_UI_LANGUAGES = new Set(['en', 'he']);
 const MAX_SESSION_PARTICIPANTS = envTaskConcurrency('QUIZZI_MAX_SESSION_PARTICIPANTS', 500);
+const MAX_QUESTION_ANSWERS = 8;
 const SESSION_STATE_SET = new Set([
   'LOBBY',
   'QUESTION_ACTIVE',
@@ -155,6 +162,15 @@ function enforceTrustedOrigin(req: any, res: any) {
   console.warn(`[security] Origin mismatch: ${String(req.headers.origin || 'unknown')}`);
   res.status(403).json({ error: 'Origin mismatch' });
   return false;
+}
+
+function respondWithServerError(res: any, fallbackMessage: string) {
+  res.status(500).json({ error: fallbackMessage });
+}
+
+function isUniqueConstraintError(error: any, hint = '') {
+  const message = String(error?.message || '');
+  return message.includes('UNIQUE constraint failed') && (!hint || message.includes(hint));
 }
 
 function sanitizeLine(value: unknown, maxLength = 120) {
@@ -293,14 +309,33 @@ function sanitizeTeacherStudentName(value: unknown) {
   return sanitizeLine(value, 120);
 }
 
+function sanitizeQuestionImage(value: unknown) {
+  const normalized = sanitizeMultiline(value, 4_000_000);
+  if (!normalized) return '';
+  if (normalized.startsWith('data:image/')) return normalized;
+  if (/^https?:\/\/\S+$/i.test(normalized)) return normalized;
+  return '';
+}
+
 function sanitizeQuestionDraft(question: any, index: number, fallbackTags: string[] = []) {
   const safeTags = Array.isArray(question?.tags) ? question.tags : fallbackTags;
-  const answers = Array.isArray(question?.answers) ? question.answers.map((answer: unknown) => sanitizeLine(answer, 180)) : [];
+  const rawAnswers = Array.isArray(question?.answers)
+    ? question.answers
+    : typeof question?.answers_json === 'string'
+      ? parseJsonArray(question.answers_json)
+      : Array.isArray(question?.answers_json)
+        ? question.answers_json
+      : [];
+  const answers = rawAnswers
+    .map((answer: unknown) => sanitizeLine(answer, 180))
+    .filter(Boolean)
+    .slice(0, MAX_QUESTION_ANSWERS);
   return {
     prompt: sanitizeMultiline(question?.prompt, 320),
-    answers: answers.slice(0, 4),
-    correct_index: clampNumber(question?.correct_index, 0, 3, 0),
+    answers,
+    correct_index: clampNumber(question?.correct_index, 0, Math.max(0, answers.length - 1), 0),
     explanation: sanitizeMultiline(question?.explanation, 500),
+    image_url: sanitizeQuestionImage(question?.image_url ?? question?.imageUrl),
     tags: sanitizeStringList(safeTags, 6, 40),
     time_limit_seconds: clampNumber(question?.time_limit_seconds, 10, 90, 20),
     question_order: clampNumber(question?.question_order, 1, 999, index + 1),
@@ -416,18 +451,29 @@ function isTeamGame(gameType: string | null | undefined) {
   return TEAM_GAME_TYPES.has(String(gameType || '').trim() as any);
 }
 
-async function getMasteryRows(nickname: string) {
-  return (await db.prepare('SELECT tag, score FROM mastery WHERE nickname = ?').all(nickname));
+function getParticipantIdentityKey(participant: { identity_key?: string | null; nickname?: string | null }) {
+  return resolveStudentIdentityKey(participant?.identity_key, participant?.nickname || '');
+}
+
+async function getMasteryRows(identityKey: string) {
+  return (await db.prepare('SELECT tag, score FROM mastery WHERE identity_key = ?').all(identityKey));
 }
 
 const upsertMastery = db.prepare(`
-  INSERT INTO mastery (nickname, tag, score) VALUES (?, ?, ?)
-  ON CONFLICT(nickname, tag) DO UPDATE SET score = excluded.score, updated_at = CURRENT_TIMESTAMP
+  INSERT INTO mastery (identity_key, nickname, tag, score) VALUES (?, ?, ?, ?)
+  ON CONFLICT(identity_key, tag) DO UPDATE
+  SET score = excluded.score,
+      nickname = excluded.nickname,
+      updated_at = CURRENT_TIMESTAMP
 `);
 
-const applyMasteryUpdates = db.transaction(async (nickname: string, updates: Array<{ tag: string; score: number }>) => {
+const applyMasteryUpdates = db.transaction(async (
+  identityKey: string,
+  nickname: string,
+  updates: Array<{ tag: string; score: number }>,
+) => {
   for (const update of updates) {
-    upsertMastery.run(nickname, update.tag, update.score);
+    upsertMastery.run(identityKey, nickname, update.tag, update.score);
   }
 });
 
@@ -494,6 +540,54 @@ async function getTeacherOwnedParticipant(participantId: number, teacherUserId: 
       .get(participantId, teacherUserId)) as any;
 }
 
+async function getParticipantsForIdentityKey(identityKey: string) {
+  return (await db.prepare('SELECT * FROM participants WHERE identity_key = ?').all(identityKey));
+}
+
+async function getAuthorizedParticipantAccess(req: any) {
+  const access = readParticipantAccessToken(req);
+  if (!access) return null;
+
+  const participant = (await db
+      .prepare('SELECT * FROM participants WHERE id = ? AND session_id = ?')
+      .get(access.participantId, access.sessionId)) as any;
+  if (!participant) return null;
+
+  const identityKey = getParticipantIdentityKey(participant);
+  if (identityKey !== access.identityKey) return null;
+
+  return {
+    access,
+    participant: {
+      ...participant,
+      identity_key: identityKey,
+    },
+  };
+}
+
+async function getAuthorizedParticipantForPin(req: any, pin: string, claimedParticipantId = 0) {
+  const authorized = await getAuthorizedParticipantAccess(req);
+  if (!authorized) return null;
+  if (claimedParticipantId && Number(authorized.participant.id) !== Number(claimedParticipantId)) {
+    return null;
+  }
+
+  const session = (await db
+      .prepare(`
+      SELECT s.*
+      FROM sessions s
+      JOIN participants p ON p.session_id = s.id
+      WHERE s.pin = ? AND p.id = ?
+    `)
+      .get(pin, authorized.participant.id)) as any;
+  if (!session) return null;
+
+  return {
+    ...authorized,
+    session: hydrateSessionRow(session),
+  };
+}
+
 async function createSessionPin() {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const pin = String(randomInt(100000, 1_000_000));
@@ -533,7 +627,7 @@ async function getTeacherPackBoard(teacherUserId: number) {
       .prepare('SELECT * FROM quiz_packs WHERE teacher_id = ? ORDER BY created_at DESC, id DESC')
       .all(teacherUserId));
 
-  const hydratedPacks = rawPacks.map(async (pack: any) => (await hydratePack(pack)));
+  const hydratedPacks = await Promise.all(rawPacks.map((pack: any) => hydratePack(pack)));
   const packIds = uniqueNumbers(hydratedPacks.map((pack: any) => pack.id));
   const sessions = packIds.length
     ? (await db
@@ -660,6 +754,7 @@ async function buildPackSnapshot(packId: number) {
     },
     questions: (pack.questions || []).map((question: any, index: number) => ({
       prompt: question.prompt,
+      image_url: question.image_url || '',
       answers: Array.isArray(question.answers) ? question.answers : parseJsonArray(question.answers_json),
       correct_index: Number(question.correct_index || 0),
       explanation: question.explanation || '',
@@ -768,6 +863,7 @@ async function createPackFromSnapshot(
     INSERT INTO questions (
       quiz_pack_id,
       prompt,
+      image_url,
       answers_json,
       correct_index,
       explanation,
@@ -777,13 +873,14 @@ async function createPackFromSnapshot(
       learning_objective,
       bloom_level
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   questionRows.forEach((question) => {
     insertQuestion.run(
       newPackId,
       question.prompt,
+      question.image_url || '',
       JSON.stringify(question.answers),
       question.correct_index,
       question.explanation,
@@ -908,10 +1005,6 @@ async function buildCrossSectionComparison(sessionId: number, teacherUserId: num
   };
 }
 
-async function getParticipantsForNickname(nickname: string) {
-  return (await db.prepare('SELECT * FROM participants WHERE nickname = ?').all(nickname));
-}
-
 async function getLogsForParticipantIds(participantIds: number[]) {
   if (participantIds.length === 0) return [];
   const placeholders = participantIds.map(() => '?').join(', ');
@@ -985,8 +1078,14 @@ function buildAnalyticsComparison(sessionAnalytics: any, overallAnalytics: any) 
   };
 }
 
-async function getOverallStudentAnalytics(nickname: string) {
-  const participants = (await getParticipantsForNickname(nickname));
+async function getOverallStudentAnalytics({
+  identityKey,
+  nickname,
+}: {
+  identityKey: string;
+  nickname: string;
+}) {
+  const participants = (await getParticipantsForIdentityKey(identityKey));
   const participantIds = uniqueNumbers(participants.map((row: any) => row.id));
   const sessionIds = uniqueNumbers(participants.map((row: any) => row.session_id));
   const sessions = (await getSessionsForIds(sessionIds));
@@ -994,18 +1093,18 @@ async function getOverallStudentAnalytics(nickname: string) {
 
   return runPythonEngine<any>('student-dashboard', {
     nickname,
-    mastery: (await getMasteryRows(nickname)),
+    mastery: (await getMasteryRows(identityKey)),
     answers: (await db
           .prepare(`
         SELECT a.*
         FROM answers a
         JOIN participants p ON a.participant_id = p.id
-        WHERE p.nickname = ?
+        WHERE p.identity_key = ?
       `)
-          .all(nickname)),
+          .all(identityKey)),
     questions: (await db.prepare('SELECT * FROM questions').all()),
     behavior_logs: (await getLogsForParticipantIds(participantIds)),
-    practice_attempts: (await db.prepare('SELECT * FROM practice_attempts WHERE nickname = ?').all(nickname)),
+    practice_attempts: (await db.prepare('SELECT * FROM practice_attempts WHERE identity_key = ?').all(identityKey)),
     sessions,
     packs,
   });
@@ -1018,8 +1117,9 @@ async function getSessionStudentContext(sessionId: number, participantId: number
   const participant = classPayload.participants.find((row: any) => Number(row.id) === participantId);
   if (!participant) return null;
 
-  const mastery = (await getMasteryRows(participant.nickname));
-  const practice_attempts = (await db.prepare('SELECT * FROM practice_attempts WHERE nickname = ?').all(participant.nickname));
+  const identityKey = getParticipantIdentityKey(participant);
+  const mastery = (await getMasteryRows(identityKey));
+  const practice_attempts = (await db.prepare('SELECT * FROM practice_attempts WHERE identity_key = ?').all(identityKey));
   const answers = classPayload.answers.filter((answer: any) => Number(answer.participant_id) === participantId);
   const behavior_logs = classPayload.behavior_logs.filter((log: any) => Number(log.participant_id) === participantId);
 
@@ -1033,7 +1133,10 @@ async function getSessionStudentContext(sessionId: number, participantId: number
     sessions: [classPayload.session],
     packs: classPayload.pack ? [classPayload.pack] : [],
   });
-  const overallAnalytics = await getOverallStudentAnalytics(participant.nickname);
+  const overallAnalytics = await getOverallStudentAnalytics({
+    identityKey,
+    nickname: participant.nickname,
+  });
 
   const adaptivePreview = await runPythonEngine<any>('practice-set', {
     nickname: participant.nickname,
@@ -1059,6 +1162,7 @@ async function getSessionStudentContext(sessionId: number, participantId: number
   return {
     classPayload,
     participant,
+    identityKey,
     mastery,
     practice_attempts,
     sessionAnalytics,
@@ -1067,6 +1171,140 @@ async function getSessionStudentContext(sessionId: number, participantId: number
     adaptivePreview,
     classDashboard,
     studentSummary,
+  };
+}
+
+async function getClassFollowUpContext(sessionId: number) {
+  const classPayload = (await getSessionPayload(sessionId));
+  if (!classPayload) return null;
+
+  const classDashboard = (await runPythonEngine<any>('class-dashboard', classPayload)) as Record<string, any>;
+  const packDetail = (await getHydratedPackWithQuestions(Number(classPayload.pack?.id || classPayload.session?.quiz_pack_id || 0)));
+  const followUpEngine = buildFollowUpEnginePreview({
+    participants: Array.isArray(classDashboard?.participants) ? classDashboard.participants : [],
+    attentionQueue: Array.isArray(classDashboard?.studentSpotlight?.attention_needed) ? classDashboard.studentSpotlight.attention_needed : [],
+    questionDiagnostics: Array.isArray(classDashboard?.research?.question_diagnostics) ? classDashboard.research.question_diagnostics : [],
+    topicBehaviorProfiles: Array.isArray(classDashboard?.research?.topic_behavior_profiles)
+      ? classDashboard.research.topic_behavior_profiles
+      : Array.isArray(classDashboard?.tagSummary)
+        ? classDashboard.tagSummary
+        : [],
+    packQuestions: Array.isArray(packDetail?.questions) ? packDetail.questions : [],
+  });
+
+  return {
+    classPayload,
+    classDashboard,
+    packDetail,
+    followUpEngine,
+  };
+}
+
+async function createFollowUpPack({
+  teacherUserId,
+  sourceSession,
+  sourcePack,
+  questions,
+  title,
+  packNotes,
+}: {
+  teacherUserId: number;
+  sourceSession: any;
+  sourcePack: any;
+  questions: any[];
+  title: string;
+  packNotes: string;
+}) {
+  const sourceText = String(sourcePack?.source_text || '');
+  const materialProfile = (await getOrCreateMaterialProfile(sourceText));
+
+  const packInfo = (await db
+        .prepare(`
+      INSERT INTO quiz_packs (
+        teacher_id,
+        title,
+        source_text,
+        course_code,
+        course_name,
+        section_name,
+        academic_term,
+        week_label,
+        learning_objectives_json,
+        bloom_levels_json,
+        pack_notes,
+        source_hash,
+        source_excerpt,
+        source_language,
+        source_word_count,
+        material_profile_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+        .run(
+          teacherUserId,
+          title,
+          sourceText,
+          sourcePack?.course_code || '',
+          sourcePack?.course_name || '',
+          sourcePack?.section_name || '',
+          sourcePack?.academic_term || '',
+          sourcePack?.week_label || '',
+          JSON.stringify(Array.isArray(sourcePack?.learning_objectives) ? sourcePack.learning_objectives : []),
+          JSON.stringify(Array.isArray(sourcePack?.bloom_levels) ? sourcePack.bloom_levels : []),
+          packNotes,
+          materialProfile.source_hash,
+          materialProfile.source_excerpt,
+          sourcePack?.source_language || materialProfile.source_language,
+          materialProfile.word_count,
+          materialProfile.id,
+        ));
+  const packId = Number(packInfo.lastInsertRowid);
+
+  const insertQuestion = db.prepare(`
+    INSERT INTO questions (
+      quiz_pack_id,
+      type,
+      prompt,
+      image_url,
+      answers_json,
+      correct_index,
+      explanation,
+      tags_json,
+      difficulty,
+      time_limit_seconds,
+      question_order,
+      learning_objective,
+      bloom_level
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const insertQuestions = db.transaction(async (draftQuestions: any[]) => {
+    draftQuestions.forEach((question, index) => {
+      insertQuestion.run(
+        packId,
+        question.type || 'multiple_choice',
+        question.prompt,
+        question.image_url || '',
+        question.answers_json || JSON.stringify(question.answers || []),
+        question.correct_index,
+        question.explanation || '',
+        question.tags_json || JSON.stringify(question.tags || []),
+        question.difficulty || 3,
+        question.time_limit_seconds || 20,
+        index + 1,
+        question.learning_objective || '',
+        question.bloom_level || '',
+      );
+    });
+  });
+
+  insertQuestions(questions);
+  (await syncPackDerivedData(packId, sourceText, questions, sourcePack?.source_language || materialProfile.source_language));
+  (await createPackVersionSnapshot(packId, teacherUserId, 'Follow-up baseline', 'follow-up-engine'));
+
+  return {
+    packId,
+    teacherClassId: Number(sourceSession?.teacher_class_id || 0) || null,
   };
 }
 
@@ -1192,9 +1430,9 @@ router.post('/auth/social', async (req, res) => {
       // Auto-register the teacher if they don't exist
       teacherUser = (await createTeacherUser({
               email,
-              password: randomBytes(32).toString('hex'), // Secure unguessable random password
               name,
               school: '',
+              authProvider: 'google',
             }));
     }
 
@@ -1215,7 +1453,11 @@ router.post('/auth/logout', (req, res) => {
 
 // Get all packs
 router.get('/packs', async (req, res) => {
-  res.json((await listHydratedPacks()));
+  const teacherUserId = (await getTeacherUserIdFromRequest(req));
+  const packs = teacherUserId
+    ? (await listHydratedPacks({ teacherUserId }))
+    : (await listHydratedPacks({ publicOnly: true }));
+  res.json(packs);
 });
 
 router.get('/teacher/packs', requireTeacherSession, async (req, res) => {
@@ -1237,7 +1479,7 @@ router.get('/teacher/packs', requireTeacherSession, async (req, res) => {
     res.json(packs);
   } catch (error: any) {
     console.error('[ERROR] Teacher pack board failed:', error);
-    res.status(500).json({ error: error.message || 'Failed to load teacher packs' });
+    respondWithServerError(res, 'Failed to load teacher packs');
   }
 });
 
@@ -1251,7 +1493,7 @@ router.get('/teacher/classes', requireTeacherSession, async (req, res) => {
     res.json((await listTeacherClasses(teacherUserId, { recentSessionLimit: 5 })));
   } catch (error: any) {
     console.error('[ERROR] Teacher classes failed:', error);
-    res.status(500).json({ error: error.message || 'Failed to load classes' });
+    respondWithServerError(res, 'Failed to load classes');
   }
 });
 
@@ -1317,7 +1559,7 @@ router.post('/teacher/classes', requireTeacherSession, async (req, res) => {
     res.status(201).json((await getHydratedTeacherClass(classId, teacherUserId)));
   } catch (error: any) {
     console.error('[ERROR] Create teacher class failed:', error);
-    res.status(500).json({ error: error.message || 'Failed to create class' });
+    respondWithServerError(res, 'Failed to create class');
   }
 });
 
@@ -1369,7 +1611,7 @@ router.put('/teacher/classes/:id', requireTeacherSession, async (req, res) => {
     res.json((await getHydratedTeacherClass(classId, teacherUserId)));
   } catch (error: any) {
     console.error('[ERROR] Update teacher class failed:', error);
-    res.status(500).json({ error: error.message || 'Failed to update class' });
+    respondWithServerError(res, 'Failed to update class');
   }
 });
 
@@ -1412,7 +1654,7 @@ router.delete('/teacher/classes/:id', requireTeacherSession, async (req, res) =>
     res.json({ success: true });
   } catch (error: any) {
     console.error('[ERROR] Delete teacher class failed:', error);
-    res.status(500).json({ error: error.message || 'Failed to remove class' });
+    respondWithServerError(res, 'Failed to remove class');
   }
 });
 
@@ -1449,7 +1691,7 @@ router.post('/teacher/classes/:id/students', requireTeacherSession, async (req, 
     res.status(201).json((await getHydratedTeacherClass(classId, teacherUserId)));
   } catch (error: any) {
     console.error('[ERROR] Add class student failed:', error);
-    res.status(500).json({ error: error.message || 'Failed to add student' });
+    respondWithServerError(res, 'Failed to add student');
   }
 });
 
@@ -1490,13 +1732,17 @@ router.delete('/teacher/classes/:classId/students/:studentId', requireTeacherSes
     res.json((await getHydratedTeacherClass(classId, teacherUserId)));
   } catch (error: any) {
     console.error('[ERROR] Remove class student failed:', error);
-    res.status(500).json({ error: error.message || 'Failed to remove student' });
+    respondWithServerError(res, 'Failed to remove student');
   }
 });
 
 // Get a specific pack with questions
 router.get('/packs/:id', async (req, res) => {
-  const pack = (await getHydratedPackWithQuestions(Number(req.params.id)));
+  const teacherUserId = (await getTeacherUserIdFromRequest(req));
+  const pack = (await getHydratedPackWithQuestions(Number(req.params.id), {
+    teacherUserId: teacherUserId || null,
+    allowPublic: true,
+  }));
   if (!pack) return res.status(404).json({ error: 'Pack not found' });
   res.json(pack);
 });
@@ -1535,6 +1781,7 @@ router.get('/teacher/question-bank', requireTeacherSession, async (req, res) => 
           q.id,
           q.quiz_pack_id,
           q.prompt,
+          q.image_url,
           q.answers_json,
           q.correct_index,
           q.explanation,
@@ -1576,6 +1823,7 @@ router.get('/teacher/question-bank', requireTeacherSession, async (req, res) => 
         id: Number(row.id),
         quiz_pack_id: Number(row.quiz_pack_id),
         prompt: row.prompt,
+        image_url: row.image_url || '',
         answers: parseJsonArray(row.answers_json),
         correct_index: Number(row.correct_index || 0),
         explanation: row.explanation || '',
@@ -1594,7 +1842,7 @@ router.get('/teacher/question-bank', requireTeacherSession, async (req, res) => 
     );
   } catch (error: any) {
     console.error('[ERROR] Question bank failed:', error);
-    res.status(500).json({ error: error.message || 'Failed to load question bank' });
+    respondWithServerError(res, 'Failed to load question bank');
   }
 });
 
@@ -1612,7 +1860,7 @@ router.get('/teacher/packs/:id/versions', requireTeacherSession, async (req, res
     res.json({ versions: (await getPackVersions(packId)) });
   } catch (error: any) {
     console.error('[ERROR] Pack versions failed:', error);
-    res.status(500).json({ error: error.message || 'Failed to load versions' });
+    respondWithServerError(res, 'Failed to load versions');
   }
 });
 
@@ -1638,7 +1886,7 @@ router.post('/teacher/packs/:id/versions', requireTeacherSession, async (req, re
     res.status(201).json({ version });
   } catch (error: any) {
     console.error('[ERROR] Pack snapshot failed:', error);
-    res.status(500).json({ error: error.message || 'Failed to create snapshot' });
+    respondWithServerError(res, 'Failed to create snapshot');
   }
 });
 
@@ -1677,7 +1925,7 @@ router.post('/teacher/packs/:id/versions/:versionId/restore', requireTeacherSess
     res.status(201).json(restoredPack || { id: restoredPackId, title: restoredTitle });
   } catch (error: any) {
     console.error('[ERROR] Restore pack version failed:', error);
-    res.status(500).json({ error: error.message || 'Failed to restore version' });
+    respondWithServerError(res, 'Failed to restore version');
   }
 });
 
@@ -1745,6 +1993,7 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, async (req, r
         quiz_pack_id,
         type,
         prompt,
+        image_url,
         answers_json,
         correct_index,
         explanation,
@@ -1754,7 +2003,7 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, async (req, r
         question_order,
         learning_objective,
         bloom_level
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     questions.forEach((question: any, index: number) => {
@@ -1762,6 +2011,7 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, async (req, r
         newPackId,
         question.type || 'multiple_choice',
         question.prompt,
+        question.image_url || '',
         question.answers_json,
         question.correct_index,
         question.explanation,
@@ -1776,6 +2026,7 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, async (req, r
 
     (await syncPackDerivedData(newPackId, pack.source_text || '', questions.map((question: any, index: number) => ({
             prompt: question.prompt,
+            image_url: question.image_url || '',
             answers: parseJsonArray(question.answers_json),
             correct_index: Number(question.correct_index || 0),
             explanation: question.explanation,
@@ -2096,7 +2347,7 @@ ${generationSource.material}`;
       res.status(503).json({ error: 'AI generation is busy. Try again shortly.' });
       return;
     }
-    res.status(500).json({ error: error.message });
+    respondWithServerError(res, 'Failed to generate questions');
   }
 });
 
@@ -2170,6 +2421,7 @@ router.post('/packs', requireTeacherSession, async (req, res) => {
     INSERT INTO questions (
       quiz_pack_id,
       prompt,
+      image_url,
       answers_json,
       correct_index,
       explanation,
@@ -2179,7 +2431,7 @@ router.post('/packs', requireTeacherSession, async (req, res) => {
       learning_objective,
       bloom_level
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = db.transaction(async (qs: any[]) => {
@@ -2187,6 +2439,7 @@ router.post('/packs', requireTeacherSession, async (req, res) => {
       insertQuestion.run(
         packId,
         q.prompt,
+        q.image_url || '',
         JSON.stringify(q.answers),
         q.correct_index,
         q.explanation,
@@ -2377,6 +2630,7 @@ router.post('/sessions/:pin/join', async (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
   const pin = sanitizeSessionPin(req.params.pin);
   const nickname = sanitizeLine(req.body?.nickname, 24);
+  const identityKey = resolveStudentIdentityKey(req.body?.identity_key, nickname);
   if (!enforceRateLimit(req, res, 'student-join', 20, 5 * 60 * 1000, pin, nickname.toLowerCase())) return;
 
   const session = hydrateSessionRow((await db.prepare('SELECT * FROM sessions WHERE pin = ?').get(pin)));
@@ -2421,10 +2675,13 @@ router.post('/sessions/:pin/join', async (req, res) => {
 
       const info = (await db
               .prepare(`
-          INSERT INTO participants (session_id, nickname, team_id, team_name, seat_index)
-          VALUES (?, ?, ?, ?, ?)
+          INSERT OR IGNORE INTO participants (session_id, identity_key, nickname, team_id, team_name, seat_index)
+          VALUES (?, ?, ?, ?, ?, ?)
         `)
-              .run(session.id, nickname, assignedTeamId, assignedTeamName, seatIndex));
+              .run(session.id, identityKey, nickname, assignedTeamId, assignedTeamName, seatIndex));
+      if (!Number(info.changes || 0)) {
+        throw new Error('Nickname taken');
+      }
 
       const total = Number(
         (await db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id)).count || 0,
@@ -2436,8 +2693,16 @@ router.post('/sessions/:pin/join', async (req, res) => {
         assignedTeamId,
         assignedTeamName,
         seatIndex,
+        identityKey,
       };
     })();
+
+    const { token: participantToken } = createParticipantAccessToken({
+      participantId: joinResult.participant_id,
+      sessionId: session.id,
+      identityKey: joinResult.identityKey,
+      nickname,
+    });
 
     broadcastToSession(session.id, 'PARTICIPANT_JOINED', {
       nickname,
@@ -2455,9 +2720,15 @@ router.post('/sessions/:pin/join', async (req, res) => {
       team_id: joinResult.assignedTeamId,
       team_name: joinResult.assignedTeamName,
       seat_index: joinResult.seatIndex,
+      identity_key: joinResult.identityKey,
+      participant_token: participantToken,
     });
   } catch (error: any) {
     if (error?.message === 'Nickname taken') {
+      res.status(400).json({ error: 'Nickname taken' });
+      return;
+    }
+    if (isUniqueConstraintError(error, 'participants')) {
       res.status(400).json({ error: 'Nickname taken' });
       return;
     }
@@ -2489,9 +2760,11 @@ router.post('/sessions/:pin/answer', async (req, res) => {
   const confidence_level = clampNumber(req.body?.confidence_level, 1, 3, 2);
 
   try {
-    const session = (await db
-          .prepare('SELECT id, status, quiz_pack_id, game_type, mode_config_json FROM sessions WHERE pin = ?')
-          .get(pin)) as any;
+    const authorized = await getAuthorizedParticipantForPin(req, pin, participant_id);
+    if (!authorized) {
+      return res.status(401).json({ error: 'Participant authentication required' });
+    }
+    const session = authorized.session as any;
 
     if (!session || !['QUESTION_ACTIVE', 'QUESTION_REVOTE'].includes(String(session.status || ''))) {
       return res.status(400).json({ error: 'Invalid session state' });
@@ -2533,9 +2806,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
     }
     const chosen_index = Math.floor(chosenIndexValue);
 
-    const participant = (await db
-          .prepare('SELECT nickname FROM participants WHERE id = ? AND session_id = ?')
-          .get(participant_id, session.id));
+    const participant = authorized.participant;
     if (!participant) return res.status(404).json({ error: 'Participant not found' });
 
     const isCorrect = Number(chosen_index) === Number(question.correct_index);
@@ -2549,7 +2820,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
       response_ms,
       time_limit_seconds: effectiveTimeLimitSeconds,
       tags: parseJsonArray(question.tags_json),
-      current_mastery: (await getMasteryRows(participant.nickname)),
+      current_mastery: (await getMasteryRows(getParticipantIdentityKey(participant))),
     });
     const adjustedScoreAwarded = Number(outcome.score_awarded || 0) + resolveConfidenceBonus(session.game_type, isCorrect, confidence_level);
 
@@ -2574,18 +2845,27 @@ router.post('/sessions/:pin/answer', async (req, res) => {
         };
       }
 
-      (await db.prepare(`
-        INSERT INTO answers (session_id, question_id, participant_id, chosen_index, is_correct, response_ms, score_awarded)
+      const insertAnswerResult = (await db.prepare(`
+        INSERT OR IGNORE INTO answers (session_id, question_id, participant_id, chosen_index, is_correct, response_ms, score_awarded)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
-                session.id,
-                question_id,
-                participant_id,
-                chosen_index,
-                isCorrect ? 1 : 0,
-                response_ms,
-                adjustedScoreAwarded,
-              ));
+        session.id,
+        question_id,
+        participant_id,
+        chosen_index,
+        isCorrect ? 1 : 0,
+        response_ms,
+        adjustedScoreAwarded,
+      ));
+      if (!Number(insertAnswerResult.changes || 0)) {
+        const persistedAnswer = (await db
+            .prepare('SELECT score_awarded FROM answers WHERE session_id = ? AND question_id = ? AND participant_id = ?')
+            .get(session.id, question_id, participant_id)) as any;
+        return {
+          duplicate: true,
+          score_awarded: Number(persistedAnswer?.score_awarded || 0),
+        };
+      }
 
       if (telemetry) {
         insertTelemetry.run(
@@ -2616,7 +2896,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
     })();
 
     if (!writeResult.duplicate && outcome.mastery_updates.length > 0) {
-      applyMasteryUpdates(participant.nickname, outcome.mastery_updates);
+      applyMasteryUpdates(getParticipantIdentityKey(participant), participant.nickname, outcome.mastery_updates);
     }
 
     const totalAnswers = Number(
@@ -2641,7 +2921,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
     });
   } catch (error: any) {
     console.error('[ERROR] Session answer failed:', error);
-    res.status(500).json({ error: error.message });
+    respondWithServerError(res, 'Failed to submit answer');
   }
 });
 
@@ -2653,15 +2933,15 @@ router.post('/sessions/:pin/selection', async (req, res) => {
   if (!participant_id) return res.status(400).json({ error: 'participant_id is required' });
   if (!enforceRateLimit(req, res, 'student-selection', 240, 60 * 1000, pin, participant_id)) return;
   const chosen_index = clampNumber(req.body?.chosen_index, 0, 12, 0);
-  const session = (await db.prepare('SELECT id, status FROM sessions WHERE pin = ?').get(pin)) as any;
+  const authorized = await getAuthorizedParticipantForPin(req, pin, participant_id);
+  if (!authorized) return res.status(401).json({ error: 'Participant authentication required' });
+  const session = authorized.session as any;
 
   if (!session || !['QUESTION_ACTIVE', 'QUESTION_REVOTE'].includes(String(session.status || ''))) {
     return res.status(400).json({ error: 'Invalid session state' });
   }
 
-  const participant = (await db
-      .prepare('SELECT nickname FROM participants WHERE id = ? AND session_id = ?')
-      .get(participant_id, session.id)) as any;
+  const participant = authorized.participant as any;
   if (!participant) {
     return res.status(404).json({ error: 'Participant not found' });
   }
@@ -2682,12 +2962,12 @@ router.post('/sessions/:pin/focus-loss', async (req, res) => {
   const participant_id = parsePositiveInt(req.body?.participant_id);
   if (!participant_id) return res.status(400).json({ error: 'participant_id is required' });
   if (!enforceRateLimit(req, res, 'student-focus-loss', 60, 60 * 1000, pin, participant_id)) return;
-  const session = (await db.prepare('SELECT id FROM sessions WHERE pin = ?').get(pin)) as any;
+  const authorized = await getAuthorizedParticipantForPin(req, pin, participant_id);
+  if (!authorized) return res.status(401).json({ error: 'Participant authentication required' });
+  const session = authorized.session as any;
   if (!session) return res.status(404).json({ error: 'Session not found' });
 
-  const participant = (await db
-      .prepare('SELECT nickname FROM participants WHERE id = ? AND session_id = ?')
-      .get(participant_id, session.id)) as any;
+  const participant = authorized.participant as any;
   if (!participant) {
     return res.status(404).json({ error: 'Participant not found' });
   }
@@ -2736,6 +3016,17 @@ router.get('/analytics/class/:sessionId', async (req, res) => {
 
     const dashboard = (await runPythonEngine<any>('class-dashboard', payload)) as Record<string, any>;
     const packDetail = (await getHydratedPackWithQuestions(Number(payload.pack?.id || ownedSession.quiz_pack_id)));
+    const followUpEngine = buildFollowUpEnginePreview({
+      participants: Array.isArray(dashboard?.participants) ? dashboard.participants : [],
+      attentionQueue: Array.isArray(dashboard?.studentSpotlight?.attention_needed) ? dashboard.studentSpotlight.attention_needed : [],
+      questionDiagnostics: Array.isArray(dashboard?.research?.question_diagnostics) ? dashboard.research.question_diagnostics : [],
+      topicBehaviorProfiles: Array.isArray(dashboard?.research?.topic_behavior_profiles)
+        ? dashboard.research.topic_behavior_profiles
+        : Array.isArray(dashboard?.tagSummary)
+          ? dashboard.tagSummary
+          : [],
+      packQuestions: Array.isArray(packDetail?.questions) ? packDetail.questions : [],
+    });
     const questionMeta = new Map(
       (packDetail?.questions || []).map((question: any) => [
         Number(question.id),
@@ -2755,6 +3046,7 @@ router.get('/analytics/class/:sessionId', async (req, res) => {
     res.json({
       ...dashboard,
       pack: packDetail,
+      follow_up_engine: followUpEngine,
       cross_section_comparison: (await buildCrossSectionComparison(sessionId, teacherUserId)),
       questions: Array.isArray(dashboard?.questions) ? dashboard.questions.map(mapQuestionMeta) : dashboard?.questions,
       research: {
@@ -2766,7 +3058,119 @@ router.get('/analytics/class/:sessionId', async (req, res) => {
     });
   } catch (error: any) {
     console.error('[ERROR] Class analytics failed:', error);
-    res.status(500).json({ error: error.message });
+    respondWithServerError(res, 'Failed to load class analytics');
+  }
+});
+
+router.post('/analytics/class/:sessionId/follow-up-engine', async (req, res) => {
+  const session = readTeacherSession(req);
+  if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
+  try {
+    const teacherUserId = Number((await getTeacherUserByEmail(session.email))?.id || 0);
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceTrustedOrigin(req, res)) return;
+    if (!enforceRateLimit(req, res, 'follow-up-engine-create', 20, 10 * 60 * 1000, teacherUserId, req.params.sessionId)) return;
+
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const planId = String(req.body?.plan_id || '').trim() as FollowUpPlan['id'];
+    const launchNow = Boolean(req.body?.launch_now);
+    if (!sessionId || !planId) {
+      return res.status(400).json({ error: 'sessionId and plan_id are required' });
+    }
+
+    const ownedSession = (await getTeacherOwnedSession(sessionId, teacherUserId));
+    if (!ownedSession) return res.status(404).json({ error: 'Session not found' });
+
+    const context = await getClassFollowUpContext(sessionId);
+    if (!context) return res.status(404).json({ error: 'Class analytics not found' });
+
+    const selectedPlan = context.followUpEngine.plans.find((plan) => plan.id === planId);
+    if (!selectedPlan) {
+      return res.status(400).json({ error: 'Requested follow-up plan is unavailable' });
+    }
+
+    const sourceQuestions = Array.isArray(context.classPayload.questions) && context.classPayload.questions.length > 0
+      ? context.classPayload.questions
+      : Array.isArray(context.packDetail?.questions)
+        ? context.packDetail.questions
+        : [];
+
+    const practiceSet = await runPythonEngine<any>('practice-set', {
+      questions: sourceQuestions,
+      count: Math.min(selectedPlan.question_count, Math.max(1, sourceQuestions.length || 1)),
+      focus_tags: selectedPlan.focus_tags,
+      priority_question_ids: selectedPlan.priority_question_ids,
+    });
+
+    const followUpQuestions =
+      Array.isArray(practiceSet?.questions) && practiceSet.questions.length > 0
+        ? practiceSet.questions
+        : sourceQuestions.filter((question: any) => selectedPlan.priority_question_ids.includes(Number(question?.id || 0)));
+
+    if (!followUpQuestions.length) {
+      return res.status(400).json({ error: 'No follow-up questions are available for this plan' });
+    }
+
+    const sourcePackTitle = context.packDetail?.title || context.classPayload.pack?.title || `Pack ${ownedSession.quiz_pack_id}`;
+    const followUpTitle = `Follow-Up: ${selectedPlan.title} - ${sourcePackTitle}`;
+    const packNotes = [
+      `Follow-up plan: ${selectedPlan.title}`,
+      selectedPlan.focus_tags.length > 0 ? `Focus tags: ${selectedPlan.focus_tags.join(', ')}` : '',
+      selectedPlan.priority_question_indexes.length > 0
+        ? `Priority questions: ${selectedPlan.priority_question_indexes.map((index) => `Q${index}`).join(', ')}`
+        : '',
+      selectedPlan.target_student_names.length > 0
+        ? `Target students: ${selectedPlan.target_student_names.join(', ')}`
+        : `Target scope: ${selectedPlan.audience}`,
+      `Source session: ${sessionId}`,
+    ]
+      .filter(Boolean)
+      .join(' | ');
+
+    const createdPack = await createFollowUpPack({
+      teacherUserId,
+      sourceSession: ownedSession,
+      sourcePack: context.packDetail || context.classPayload.pack || {},
+      questions: followUpQuestions,
+      title: followUpTitle,
+      packNotes,
+    });
+
+    let hostedSessionPayload: { id: number; pin: string } | null = null;
+    if (launchNow) {
+      const pin = (await createSessionPin());
+      const hostedSession = (await db
+            .prepare(`
+          INSERT INTO sessions (quiz_pack_id, teacher_class_id, pin, game_type, team_count, mode_config_json, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+            .run(
+              createdPack.packId,
+              createdPack.teacherClassId,
+              pin,
+              'classic_quiz',
+              0,
+              JSON.stringify(sanitizeModeConfig('classic_quiz', null)),
+              'LOBBY',
+            ));
+      hostedSessionPayload = {
+        id: Number(hostedSession.lastInsertRowid),
+        pin,
+      };
+    }
+
+    res.json({
+      pack_id: createdPack.packId,
+      title: followUpTitle,
+      question_count: followUpQuestions.length,
+      plan: selectedPlan,
+      strategy: practiceSet?.strategy || null,
+      session_id: hostedSessionPayload?.id || null,
+      pin: hostedSessionPayload?.pin || null,
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Follow-up engine creation failed:', error);
+    respondWithServerError(res, 'Failed to create follow-up pack');
   }
 });
 
@@ -2806,7 +3210,7 @@ router.get('/analytics/class/:sessionId/student/:participantId', async (req, res
     });
   } catch (error: any) {
     console.error('[ERROR] Teacher student analytics failed:', error);
-    res.status(500).json({ error: error.message });
+    respondWithServerError(res, 'Failed to load student session analytics');
   }
 });
 
@@ -2884,6 +3288,7 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
         quiz_pack_id,
         type,
         prompt,
+        image_url,
         answers_json,
         correct_index,
         explanation,
@@ -2892,7 +3297,7 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
         time_limit_seconds,
         question_order
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertQuestions = db.transaction(async (questions: any[]) => {
@@ -2901,6 +3306,7 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
           adaptivePackId,
           question.type || 'multiple_choice',
           question.prompt,
+          question.image_url || '',
           question.answers_json || JSON.stringify(question.answers || []),
           question.correct_index,
           question.explanation || '',
@@ -2934,42 +3340,46 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
     });
   } catch (error: any) {
     console.error('[ERROR] Adaptive game creation failed:', error);
-    res.status(500).json({ error: error.message });
+    respondWithServerError(res, 'Failed to create adaptive game');
   }
 });
 
 router.get('/analytics/student/:nickname', async (req, res) => {
   try {
-    const nickname = sanitizeLine(req.params.nickname, 48);
-    if (!nickname) return res.status(400).json({ error: 'Nickname is required' });
-    if (!enforceRateLimit(req, res, 'analytics-student', 90, 5 * 60 * 1000, nickname.toLowerCase())) return;
-    const dashboard = await getOverallStudentAnalytics(nickname);
+    const authorized = await getAuthorizedParticipantAccess(req);
+    if (!authorized) return res.status(401).json({ error: 'Participant authentication required' });
+    if (!enforceRateLimit(req, res, 'analytics-student', 90, 5 * 60 * 1000, authorized.participant.id)) return;
+    const dashboard = await getOverallStudentAnalytics({
+      identityKey: getParticipantIdentityKey(authorized.participant),
+      nickname: authorized.participant.nickname,
+    });
 
     res.json(dashboard);
   } catch (error: any) {
     console.error('[ERROR] Student analytics failed:', error);
-    res.status(500).json({ error: error.message });
+    respondWithServerError(res, 'Failed to load student analytics');
   }
 });
 
 // --- Adaptive Practice ---
 router.get('/practice/:nickname', async (req, res) => {
   try {
-    const nickname = sanitizeLine(req.params.nickname, 48);
-    if (!nickname) return res.status(400).json({ error: 'Nickname is required' });
-    if (!enforceRateLimit(req, res, 'practice-load', 90, 5 * 60 * 1000, nickname.toLowerCase())) return;
+    const authorized = await getAuthorizedParticipantAccess(req);
+    if (!authorized) return res.status(401).json({ error: 'Participant authentication required' });
+    const identityKey = getParticipantIdentityKey(authorized.participant);
+    if (!enforceRateLimit(req, res, 'practice-load', 90, 5 * 60 * 1000, authorized.participant.id)) return;
     const practiceSet = await runPythonEngine<unknown>('practice-set', {
-      nickname,
-      mastery: (await getMasteryRows(nickname)),
+      nickname: authorized.participant.nickname,
+      mastery: (await getMasteryRows(identityKey)),
       questions: (await db.prepare('SELECT * FROM questions').all()),
-      practice_attempts: (await db.prepare('SELECT * FROM practice_attempts WHERE nickname = ?').all(nickname)),
+      practice_attempts: (await db.prepare('SELECT * FROM practice_attempts WHERE identity_key = ?').all(identityKey)),
       count: 5,
     });
 
     res.json(practiceSet);
   } catch (error: any) {
     console.error('[ERROR] Practice selection failed:', error);
-    res.status(500).json({ error: error.message });
+    respondWithServerError(res, 'Failed to load adaptive practice');
   }
 });
 
@@ -2977,16 +3387,18 @@ router.post('/practice/:nickname/answer', async (req, res) => {
   const question_id = parsePositiveInt(req.body?.question_id);
   const chosenIndexValue = Number(req.body?.chosen_index);
   const response_ms = clampNumber(req.body?.response_ms, 0, 300_000, 0);
-  const nickname = sanitizeLine(req.params.nickname, 48);
-  if (!nickname) return res.status(400).json({ error: 'Nickname is required' });
   if (!question_id) return res.status(400).json({ error: 'question_id is required' });
   if (!Number.isFinite(chosenIndexValue) || chosenIndexValue < 0) {
     return res.status(400).json({ error: 'chosen_index is required' });
   }
   if (!enforceTrustedOrigin(req, res)) return;
-  if (!enforceRateLimit(req, res, 'practice-answer', 120, 5 * 60 * 1000, nickname.toLowerCase(), question_id)) return;
 
   try {
+    const authorized = await getAuthorizedParticipantAccess(req);
+    if (!authorized) return res.status(401).json({ error: 'Participant authentication required' });
+    const identityKey = getParticipantIdentityKey(authorized.participant);
+    if (!enforceRateLimit(req, res, 'practice-answer', 120, 5 * 60 * 1000, authorized.participant.id, question_id)) return;
+
     const question = (await db
           .prepare('SELECT correct_index, explanation, tags_json, time_limit_seconds, answers_json FROM questions WHERE id = ?')
           .get(question_id)) as any;
@@ -3006,16 +3418,16 @@ router.post('/practice/:nickname/answer', async (req, res) => {
       response_ms,
       time_limit_seconds: question.time_limit_seconds,
       tags: parseJsonArray(question.tags_json),
-      current_mastery: (await getMasteryRows(nickname)),
+      current_mastery: (await getMasteryRows(identityKey)),
     });
 
     (await db.prepare(`
-      INSERT INTO practice_attempts (nickname, question_id, is_correct, response_ms)
-      VALUES (?, ?, ?, ?)
-    `).run(nickname, question_id, isCorrect ? 1 : 0, response_ms));
+      INSERT INTO practice_attempts (identity_key, nickname, question_id, is_correct, response_ms)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(identityKey, authorized.participant.nickname, question_id, isCorrect ? 1 : 0, response_ms));
 
     if (outcome.mastery_updates.length > 0) {
-      applyMasteryUpdates(nickname, outcome.mastery_updates);
+      applyMasteryUpdates(identityKey, authorized.participant.nickname, outcome.mastery_updates);
     }
 
     res.json({
@@ -3025,7 +3437,7 @@ router.post('/practice/:nickname/answer', async (req, res) => {
     });
   } catch (error: any) {
     console.error('[ERROR] Practice answer failed:', error);
-    res.status(500).json({ error: error.message });
+    respondWithServerError(res, 'Failed to submit practice answer');
   }
 });
 
@@ -3049,7 +3461,7 @@ router.get('/reports/class/:session_id', async (req, res) => {
     res.json(report);
   } catch (error: any) {
     console.error('[ERROR] Class report failed:', error);
-    res.status(500).json({ error: error.message });
+    respondWithServerError(res, 'Failed to load class report');
   }
 });
 
@@ -3074,12 +3486,12 @@ router.get('/reports/student/:participant_id', async (req, res) => {
 
     const report = await runPythonEngine<any>('student-dashboard', {
       nickname: participant.nickname,
-      mastery: (await getMasteryRows(participant.nickname)),
+      mastery: (await getMasteryRows(getParticipantIdentityKey(participant))),
       answers: (await db.prepare('SELECT * FROM answers WHERE participant_id = ?').all(participantId)),
       questions,
       behavior_logs: (await db.prepare('SELECT * FROM student_behavior_logs WHERE participant_id = ?').all(participantId)),
-      practice_attempts: (await db.prepare('SELECT * FROM practice_attempts WHERE nickname = ?').all(participant.nickname)),
-      sessions: session ? [session] : [],
+      practice_attempts: (await db.prepare('SELECT * FROM practice_attempts WHERE identity_key = ?').all(getParticipantIdentityKey(participant))),
+      sessions: liveSession ? [liveSession] : [],
       packs: pack ? [pack] : [],
     });
 
@@ -3091,7 +3503,7 @@ router.get('/reports/student/:participant_id', async (req, res) => {
     });
   } catch (error: any) {
     console.error('[ERROR] Student report failed:', error);
-    res.status(500).json({ error: error.message });
+    respondWithServerError(res, 'Failed to load student report');
   }
 });
 
@@ -3125,7 +3537,7 @@ router.get('/dashboard/teacher/overview', async (req, res) => {
     res.json(overview);
   } catch (error: any) {
     console.error('[ERROR] Teacher overview failed:', error);
-    res.status(500).json({ error: error.message });
+    respondWithServerError(res, 'Failed to load teacher overview');
   }
 });
 

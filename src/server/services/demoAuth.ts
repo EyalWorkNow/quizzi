@@ -1,13 +1,11 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { timingSafeEqual } from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
+import { buildScopedHmac, isDemoAuthEnabled } from './authSecrets.js';
 
 const AUTH_COOKIE = 'quizzi_teacher_session';
-// CRITICAL: In production, set QUIZZI_AUTH_SECRET as an env var on Render.
-// The fallback is deterministic so sessions survive server restarts / cold starts.
-const AUTH_SECRET = process.env.QUIZZI_AUTH_SECRET || 'quizzi-dev-secret-change-me-in-production-2024';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const DEMO_TEACHER_EMAIL = 'mail@mail.com';
-const DEMO_TEACHER_PASSWORD_HASH = createHmac('sha256', AUTH_SECRET).update('123123').digest('hex');
+const DEMO_TEACHER_PASSWORD_HASH = buildScopedHmac('demo-teacher-password', '123123');
 
 type AuthProvider = 'password' | 'google' | 'facebook';
 
@@ -35,7 +33,7 @@ function parseCookies(headerValue?: string | null) {
 }
 
 function signValue(value: string) {
-  return createHmac('sha256', AUTH_SECRET).update(value).digest('hex');
+  return buildScopedHmac('teacher-session-cookie', value);
 }
 
 function shouldUseSecureCookies(req?: Request) {
@@ -82,7 +80,8 @@ function serializeExpiredCookie(secure: boolean) {
 }
 
 export function verifyDemoPassword(password: string) {
-  const candidate = createHmac('sha256', AUTH_SECRET).update(String(password || '')).digest('hex');
+  if (!isDemoAuthEnabled()) return false;
+  const candidate = buildScopedHmac('demo-teacher-password', String(password || ''));
   const left = Buffer.from(candidate);
   const right = Buffer.from(DEMO_TEACHER_PASSWORD_HASH);
   return left.length === right.length && timingSafeEqual(left, right);
@@ -173,4 +172,5 @@ export function isDemoTeacherEmail(value: string) {
 export const authConfig = {
   cookieName: AUTH_COOKIE,
   demoEmail: DEMO_TEACHER_EMAIL,
+  demoEnabled: isDemoAuthEnabled(),
 };

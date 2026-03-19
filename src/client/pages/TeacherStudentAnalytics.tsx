@@ -100,17 +100,6 @@ export default function TeacherStudentAnalytics() {
     const studentSummary = classPayload?.participants?.find((row: any) => Number(row.id) === Number(participantId));
     const reportPayload = await apiFetchJson(`/api/reports/student/${participantId}`);
 
-    const overallPayload = studentSummary?.nickname
-      ? await apiFetchJson(`/api/analytics/student/${encodeURIComponent(studentSummary.nickname)}`)
-      : null;
-
-    const previewPayload = studentSummary?.nickname
-      ? await apiFetchJson(`/api/practice/${encodeURIComponent(studentSummary.nickname)}`).catch(() => ({
-          questions: [],
-          strategy: null,
-        }))
-      : { questions: [], strategy: null };
-
     return {
       session: reportPayload?.session || classPayload?.session || { id: Number(sessionId) },
       pack:
@@ -128,9 +117,9 @@ export default function TeacherStudentAnalytics() {
       class_summary: classPayload?.summary || null,
       class_distributions: classPayload?.distributions || null,
       analytics: reportPayload,
-      overall_analytics: overallPayload,
-      session_vs_overall: buildSessionComparison(reportPayload, overallPayload),
-      adaptive_game_preview: previewPayload,
+      overall_analytics: null,
+      session_vs_overall: buildSessionComparison(reportPayload, null),
+      adaptive_game_preview: { questions: [], strategy: null },
     };
   };
 

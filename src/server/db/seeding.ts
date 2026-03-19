@@ -1,4 +1,5 @@
 import db from './index.js';
+import { buildLegacyStudentIdentityKey } from '../services/studentIdentity.js';
 
 export function numericClamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(maximum, value));
@@ -128,7 +129,7 @@ export function buildShowcaseOptionDwell({
   );
 }
 
-export async function seedDemoDataForTeacher(teacherId: number, email: string) {
+export async function seedDemoDataForTeacher(teacherId: number, email: string, { isPublic = false }: { isPublic?: boolean } = {}) {
   const existingPack = (await db
       .prepare('SELECT id FROM quiz_packs WHERE title = ? AND teacher_id = ?')
       .get('Demo: Biology 101', teacherId)) as any;
@@ -137,13 +138,14 @@ export async function seedDemoDataForTeacher(teacherId: number, email: string) {
   if (!packId) {
     const insertPack = db.prepare(`
       INSERT INTO quiz_packs (
-        teacher_id, title, source_text, source_excerpt, source_language, source_word_count,
+        teacher_id, is_public, title, source_text, source_excerpt, source_language, source_word_count,
         course_code, course_name, section_name, academic_term, week_label, learning_objectives_json, bloom_levels_json, pack_notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const demoSourceText = 'Photosynthesis is the process by which plants use sunlight, water, and carbon dioxide to create oxygen and energy in the form of sugar.';
     const resPack = insertPack.run(
       teacherId,
+      isPublic ? 1 : 0,
       'Demo: Biology 101',
       demoSourceText,
       demoSourceText.slice(0, 320),
@@ -159,7 +161,6 @@ export async function seedDemoDataForTeacher(teacherId: number, email: string) {
       'Provides a basic overview of photosynthesis for beginners.',
     );
     packId = Number(resPack.lastInsertRowid);
-
     const insertQuestion = db.prepare(`
       INSERT INTO questions (
         quiz_pack_id, prompt, answers_json, correct_index, explanation, tags_json, time_limit_seconds, question_order, learning_objective, bloom_level
@@ -192,6 +193,10 @@ export async function seedDemoDataForTeacher(teacherId: number, email: string) {
       'Remember',
     );
   }
+
+  (await db
+      .prepare('UPDATE quiz_packs SET is_public = ? WHERE id = ? AND teacher_id = ?')
+      .run(isPublic ? 1 : 0, packId, teacherId));
 
   const existingClass = (await db
       .prepare('SELECT id FROM teacher_classes WHERE teacher_id = ? AND name = ? AND archived = 0')
@@ -226,13 +231,13 @@ export async function seedDemoDataForTeacher(teacherId: number, email: string) {
 export async function seedDemoData() {
   const defaultDemo = (await db.prepare('SELECT id, email FROM users WHERE email = ?').get('demo@quizzi.app')) as any;
   if (defaultDemo?.id) {
-    (await seedDemoDataForTeacher(Number(defaultDemo.id), String(defaultDemo.email || 'demo@quizzi.app')));
+    (await seedDemoDataForTeacher(Number(defaultDemo.id), String(defaultDemo.email || 'demo@quizzi.app'), { isPublic: true }));
     return;
   }
 
   const insertTeacher = db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)');
   const resTeacher = insertTeacher.run('demo@quizzi.app', 'hashed_demo_pw');
-  (await seedDemoDataForTeacher(Number(resTeacher.lastInsertRowid), 'demo@quizzi.app'));
+  (await seedDemoDataForTeacher(Number(resTeacher.lastInsertRowid), 'demo@quizzi.app', { isPublic: true }));
 }
 
 export async function seedAnalyticsShowcase() {
@@ -476,8 +481,8 @@ export async function seedAnalyticsShowcase() {
     ) VALUES (?, ?, ?, ?, ?, ?)
   `);
   const insertParticipant = db.prepare(`
-    INSERT INTO participants (session_id, nickname, created_at)
-    VALUES (?, ?, ?)
+    INSERT INTO participants (session_id, identity_key, nickname, created_at)
+    VALUES (?, ?, ?, ?)
   `);
   const insertAnswer = db.prepare(`
     INSERT INTO answers (
@@ -514,13 +519,16 @@ export async function seedAnalyticsShowcase() {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const upsertMastery = db.prepare(`
-    INSERT INTO mastery (nickname, tag, score)
-    VALUES (?, ?, ?)
-    ON CONFLICT(nickname, tag) DO UPDATE SET score = excluded.score, updated_at = CURRENT_TIMESTAMP
+    INSERT INTO mastery (identity_key, nickname, tag, score)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(identity_key, tag) DO UPDATE
+    SET score = excluded.score,
+        nickname = excluded.nickname,
+        updated_at = CURRENT_TIMESTAMP
   `);
   const insertPracticeAttempt = db.prepare(`
-    INSERT INTO practice_attempts (nickname, question_id, is_correct, response_ms, created_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO practice_attempts (identity_key, nickname, question_id, is_correct, response_ms, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
 
   const baseTagScores: Record<string, number> = {
@@ -551,8 +559,10 @@ export async function seedAnalyticsShowcase() {
     const sessionId = Number(sessionResult.lastInsertRowid);
 
     profiles.forEach((profile, studentIndex) => {
+      const identityKey = buildLegacyStudentIdentityKey(profile.nickname);
       const participantResult = insertParticipant.run(
         sessionId,
+        identityKey,
         profile.nickname,
         config.startedAt,
       );
@@ -770,6 +780,7 @@ export async function seedAnalyticsShowcase() {
   });
 
   profiles.forEach((profile, studentIndex) => {
+    const identityKey = buildLegacyStudentIdentityKey(profile.nickname);
     Object.entries(baseTagScores).forEach(([tag, baseScore], tagIndex) => {
       const strengthBoost = profile.strengths.includes(tag) ? 12 : 0;
       const weaknessPenalty = profile.weaknesses.includes(tag) ? -18 : 0;
@@ -784,7 +795,7 @@ export async function seedAnalyticsShowcase() {
           96,
         ),
       );
-      upsertMastery.run(profile.nickname, tag, score);
+      upsertMastery.run(identityKey, profile.nickname, tag, score);
     });
 
     questionRows.forEach((question, questionIndex) => {
@@ -809,6 +820,7 @@ export async function seedAnalyticsShowcase() {
           .replace('T', ' ');
 
         insertPracticeAttempt.run(
+          identityKey,
           profile.nickname,
           Number(question.id),
           isCorrect ? 1 : 0,

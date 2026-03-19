@@ -119,6 +119,7 @@ export default function TeacherReports() {
   return (
     <div
       dir={direction}
+      data-no-translate="true"
       className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white"
     >
       <TeacherSidebar />

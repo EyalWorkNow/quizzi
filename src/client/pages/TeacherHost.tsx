@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { QRCodeSVG } from 'qrcode.react';
 import Avatar, { extractNickname } from '../components/Avatar.tsx';
+import QuestionImageCard from '../components/QuestionImageCard.tsx';
 import {
   subscribeToHostedSessionRealtime,
   syncHostedParticipants,
@@ -71,6 +72,20 @@ export default function TeacherHost() {
   const activeQuestionSeconds = currentQuestion
     ? resolveSessionQuestionTimeLimit(currentQuestion, modeConfig)
     : 20;
+  const packQuestionCount = pack?.questions?.length || 0;
+  const recentParticipants = participants.slice(-4).reverse();
+  const roomReadTitle =
+    participants.length === 0
+      ? 'Waiting for the first student.'
+      : participants.length < 4
+        ? 'The room is filling up.'
+        : 'The room looks ready.';
+  const roomReadBody =
+    participants.length === 0
+      ? 'Keep the PIN visible. New names will appear here automatically as soon as students join.'
+      : participants.length < 4
+        ? 'A few students are already here. Give the room another moment if you expect more names to arrive.'
+        : 'You have enough students in the room to launch cleanly once the roster stops changing.';
   const responseCountLabel =
     status === 'QUESTION_ACTIVE' && isPeerMode
       ? `${Object.keys(studentSelections).length} / ${participants.length} Votes`
@@ -697,44 +712,46 @@ export default function TeacherHost() {
               >
                 <div className="flex items-center gap-3 mb-5">
                   <BarChart3 className="w-6 h-6 text-brand-purple" />
-                  <h2 className="text-3xl font-black">Room Snapshot</h2>
+                  <h2 className="text-3xl font-black">Launch Summary</h2>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4 mb-5">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Room read</p>
+                  <p className="text-2xl font-black mb-2">{roomReadTitle}</p>
+                  <p className="font-medium text-brand-dark/70">{roomReadBody}</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mb-5">
                   <LobbyMetric label="Players" value={participants.length} icon={<Users className="w-5 h-5" />} tone="light" />
-                  <LobbyMetric label="Questions" value={pack?.questions?.length || 0} icon={<BookOpen className="w-5 h-5" />} tone="warm" />
+                  <LobbyMetric label="Questions" value={packQuestionCount} icon={<BookOpen className="w-5 h-5" />} tone="warm" />
                   <LobbyMetric label={isTeamMode ? 'Teams' : 'Pack'} value={isTeamMode ? (sessionMeta?.team_count || 0) : (pack?.title ? 'Loaded' : 'Loading')} icon={<Rocket className="w-5 h-5" />} tone="dark" />
                   <LobbyMetric label="Status" value={participants.length > 0 ? 'Ready' : 'Waiting'} icon={<Clock className="w-5 h-5" />} tone="light" />
                 </div>
-              </motion.div>
 
-              <motion.div
-                initial={{ opacity: 0, y: 22 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.07 }}
-                className="bg-brand-dark text-white rounded-[2.4rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#FF5A36] p-7"
-              >
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">Current pack</p>
-                <h2 className="text-3xl font-black mb-3">{pack?.title || 'Loading pack...'}</h2>
-                <p className="font-medium text-white/70 mb-5">
-                  {pack?.questions?.length
-                    ? `${pack.questions.length} question${pack.questions.length === 1 ? '' : 's'} are loaded and ready.`
-                    : 'Pack data is loading. Once ready, the room can launch immediately.'}
-                </p>
-                <div className="rounded-[1.4rem] border border-white/10 bg-white/10 p-4 mb-4">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-white/45 mb-2">Format</p>
-                  <p className="text-xl font-black">{gameMode.label}</p>
-                  <p className="font-medium text-white/70 mt-1">{gameMode.description}</p>
+                <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Current pack</p>
+                  <p className="text-xl font-black">{pack?.title || 'Loading pack...'}</p>
+                  <p className="font-medium text-brand-dark/65 mt-1">
+                    {packQuestionCount
+                      ? `${packQuestionCount} question${packQuestionCount === 1 ? '' : 's'} are loaded in ${gameMode.label}.`
+                      : 'Pack data is loading. Once it lands, the room can launch immediately.'}
+                  </p>
                 </div>
-                <div className="grid grid-cols-1 gap-3">
-                  <div className="rounded-[1.4rem] border border-white/10 bg-white/10 p-4">
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-white/45 mb-2">Lobby rule</p>
-                    <p className="font-bold text-white/75">Do not start while names are still arriving in bursts.</p>
+
+                {recentParticipants.length > 0 && (
+                  <div className="mt-5">
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-3">Most recent joins</p>
+                    <div className="flex flex-wrap gap-2">
+                      {recentParticipants.map((participant: any) => (
+                        <span
+                          key={`recent-${participant.id || participant.nickname}`}
+                          className="px-3 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark font-black text-sm"
+                        >
+                          {extractNickname(participant.nickname || '')}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                  <div className="rounded-[1.4rem] border border-white/10 bg-white/10 p-4">
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-white/45 mb-2">After the game</p>
-                    <p className="font-bold text-white/75">You land directly in the class analytics dashboard with drill-down and CSV export.</p>
-                  </div>
-                </div>
+                )}
               </motion.div>
 
               <motion.div
@@ -748,9 +765,9 @@ export default function TeacherHost() {
                   <h2 className="text-3xl font-black">Host Checklist</h2>
                 </div>
                 <div className="space-y-3">
-                  <TipRow title="PIN visible" body="Keep the strip in view until the class roster stops changing." />
-                  <TipRow title="Roster stable" body="Watch for late joiners before starting question one." />
-                  <TipRow title="Pack confirmed" body="Make sure the current pack title matches the lesson you intend to run." />
+                  <TipRow title="PIN visible" body="Keep the code and QR in view until the roster stops changing." />
+                  <TipRow title="Roster calm" body="Start only after the last burst of joins settles down." />
+                  <TipRow title="Pack confirmed" body="Check that the pack title matches the lesson you intend to run." />
                 </div>
               </motion.div>
             </section>
@@ -805,15 +822,12 @@ export default function TeacherHost() {
                                   animate={{ opacity: 1, scale: 1 }}
                                   exit={{ opacity: 0, scale: 0.9 }}
                                   key={`${participant.nickname}-${index}`}
-                                  className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4 flex items-center gap-4"
+                                  className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4"
                                 >
-                                  <Avatar 
-                                    nickname={participant.nickname} 
-                                    imgClassName="w-12 h-12" 
-                                    textClassName="font-black text-lg"
+                                  <LobbyParticipantCard
+                                    participant={participant}
+                                    subtitle={`Seat ${participant.seat_index || index + 1}`}
                                   />
-                                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 ml-14 -mt-4">Seat {participant.seat_index || index + 1}</p>
-
                                 </motion.div>
                               ))}
                             </AnimatePresence>
@@ -830,15 +844,9 @@ export default function TeacherHost() {
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.9 }}
                             key={`${participant.nickname}-${index}`}
-                            className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-4 flex items-center gap-4"
+                            className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-4"
                           >
-                            <Avatar 
-                              nickname={participant.nickname} 
-                              imgClassName="w-12 h-12" 
-                              textClassName="font-black text-lg"
-                            />
-                            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 ml-14 -mt-4">Ready in lobby</p>
-
+                            <LobbyParticipantCard participant={participant} subtitle="Ready in lobby" />
                           </motion.div>
                         ))}
                       </AnimatePresence>
@@ -864,30 +872,13 @@ export default function TeacherHost() {
                 className="bg-white rounded-[2.4rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#1A1A1A] p-7"
               >
                 <div className="flex items-center gap-3 mb-5">
-                  <Sparkles className="w-6 h-6 text-brand-purple" />
-                  <h2 className="text-3xl font-black">Host Flow</h2>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <StepCard step="1" title="Share the PIN" body="Keep the lobby open while students join from the homepage." />
-                  <StepCard step="2" title="Watch the room" body="New names appear instantly so you can see when the class is ready." />
-                  <StepCard step="3" title="Launch cleanly" body="Start once the room looks stable. Analytics unlock after the session ends." />
-                </div>
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 24 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="bg-brand-yellow rounded-[2.4rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#1A1A1A] p-7"
-              >
-                <div className="flex items-center gap-3 mb-5">
                   <AlertTriangle className="w-6 h-6 text-brand-orange" />
-                  <h2 className="text-3xl font-black">Host Tips</h2>
+                  <h2 className="text-3xl font-black">Before You Launch</h2>
                 </div>
                 <div className="space-y-3">
-                  <TipRow title="Best launch timing" body="Wait until the room is stable, then start immediately to keep attention high." />
-                  <TipRow title="If someone is late" body="They can still join before the first question starts as long as the lobby stays open." />
-                  <TipRow title="After the game" body="You will land in the class analytics dashboard with student drill-down and adaptive follow-up tools." />
+                  <TipRow title="Share the PIN" body="Keep the lobby visible while students join from the homepage or QR link." />
+                  <TipRow title="Watch the room" body="New names appear instantly, so you can see when the class has settled." />
+                  <TipRow title="Launch cleanly" body="Start once the room looks calm. After the session, analytics open automatically." />
                 </div>
               </motion.div>
             </section>
@@ -1004,6 +995,12 @@ export default function TeacherHost() {
                     {gameMode.researchCue}
                   </span>
                 </div>
+                <QuestionImageCard
+                  imageUrl={currentQuestion?.image_url}
+                  alt={currentQuestion?.prompt || 'Question image'}
+                  className="mb-4 max-w-3xl"
+                  imgClassName="max-h-[280px]"
+                />
                 <h2 className="text-4xl md:text-5xl font-black text-slate-900 leading-tight mb-3">
                   {currentQuestion?.prompt}
                 </h2>
@@ -1021,7 +1018,10 @@ export default function TeacherHost() {
             </div>
           </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+          <div
+            className="grid gap-6 w-full"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
+          >
             {currentAnswers.map((ans: string, i: number) => {
               const selectionCount = Object.values(studentSelections).filter((idx) => idx === i).length;
               const selectionPct = participants.length > 0 ? Math.round((selectionCount / participants.length) * 100) : 0;
@@ -1108,6 +1108,12 @@ export default function TeacherHost() {
         </div>
 
         <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-6xl mx-auto w-full">
+          <QuestionImageCard
+            imageUrl={currentQuestion?.image_url}
+            alt={currentQuestion?.prompt || 'Question image'}
+            className="w-full max-w-3xl mb-6"
+            imgClassName="max-h-[320px]"
+          />
           <motion.h2
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -1116,7 +1122,10 @@ export default function TeacherHost() {
             {currentQuestion?.prompt}
           </motion.h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full mb-12">
+          <div
+            className="grid gap-6 w-full mb-12"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
+          >
             {currentAnswers.map((ans: string, i: number) => {
               const isCorrect = i === currentQuestion.correct_index;
               return (
@@ -1446,14 +1455,24 @@ function JoinStep({ title, body }: { title: string; body: string }) {
   );
 }
 
-function StepCard({ step, title, body }: { step: string; title: string; body: string }) {
+function LobbyParticipantCard({
+  participant,
+  subtitle,
+}: {
+  participant: any;
+  subtitle: string;
+}) {
   return (
-    <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
-      <div className="w-10 h-10 rounded-full bg-brand-dark text-white border-2 border-brand-dark flex items-center justify-center font-black mb-4">
-        {step}
+    <div className="flex items-center gap-4">
+      <Avatar
+        nickname={participant.nickname}
+        imgClassName="w-12 h-12 rounded-2xl"
+        textClassName="hidden"
+      />
+      <div className="min-w-0">
+        <p className="font-black text-lg truncate">{extractNickname(participant.nickname || '')}</p>
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{subtitle}</p>
       </div>
-      <p className="text-xl font-black mb-2">{title}</p>
-      <p className="font-medium text-brand-dark/65">{body}</p>
     </div>
   );
 }

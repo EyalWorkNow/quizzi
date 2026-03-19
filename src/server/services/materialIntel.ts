@@ -348,19 +348,23 @@ export async function saveCachedQuestionGeneration(
 
 export function normalizeGeneratedQuestions(questions: any[], fallbackTags: string[] = []) {
   const safeFallbackTags = fallbackTags.length > 0 ? fallbackTags.slice(0, 3) : ['general'];
+  const maxAnswers = 8;
 
   return (Array.isArray(questions) ? questions : [])
     .map((question, index) => {
-      const answers = Array.isArray(question?.answers) ? question.answers.map((answer: any) => String(answer || '').trim()) : [];
+      const answers = Array.isArray(question?.answers)
+        ? question.answers.map((answer: any) => String(answer || '').trim()).filter(Boolean).slice(0, maxAnswers)
+        : [];
       const tags = Array.isArray(question?.tags)
         ? question.tags.map((tag: any) => String(tag || '').trim()).filter(Boolean)
         : [];
 
       return {
         prompt: String(question?.prompt || '').trim(),
-        answers: answers.slice(0, 4),
-        correct_index: Number(question?.correct_index || 0),
+        answers,
+        correct_index: Math.max(0, Math.min(answers.length - 1, Number(question?.correct_index || 0))),
         explanation: String(question?.explanation || '').trim(),
+        image_url: String(question?.image_url || question?.imageUrl || '').trim(),
         tags: (tags.length > 0 ? tags : safeFallbackTags).slice(0, 4),
         time_limit_seconds: Math.max(10, Number(question?.time_limit_seconds || 20)),
         question_order: index + 1,
@@ -486,15 +490,51 @@ export async function hydratePack(pack: any) {
   };
 }
 
-export async function listHydratedPacks() {
-  return (await db
-      .prepare('SELECT * FROM quiz_packs ORDER BY created_at DESC')
-      .all())
-    .map(async (pack: any) => (await hydratePack(pack)));
+export async function listHydratedPacks({
+  teacherUserId,
+  publicOnly = false,
+}: {
+  teacherUserId?: number | null;
+  publicOnly?: boolean;
+} = {}) {
+  const normalizedTeacherUserId = Number(teacherUserId || 0);
+  let rows: any[] = [];
+
+  if (normalizedTeacherUserId > 0) {
+    rows = (await db
+        .prepare('SELECT * FROM quiz_packs WHERE teacher_id = ? ORDER BY created_at DESC, id DESC')
+        .all(normalizedTeacherUserId)) as any[];
+  } else if (publicOnly) {
+    rows = (await db
+        .prepare('SELECT * FROM quiz_packs WHERE is_public = 1 ORDER BY created_at DESC, id DESC')
+        .all()) as any[];
+  }
+
+  return Promise.all(rows.map((pack: any) => hydratePack(pack)));
 }
 
-export async function getHydratedPackWithQuestions(packId: number) {
-  const pack = (await db.prepare('SELECT * FROM quiz_packs WHERE id = ?').get(packId));
+export async function getHydratedPackWithQuestions(
+  packId: number,
+  {
+    teacherUserId,
+    allowPublic = false,
+  }: {
+    teacherUserId?: number | null;
+    allowPublic?: boolean;
+  } = {},
+) {
+  const normalizedTeacherUserId = Number(teacherUserId || 0);
+  const filters = ['id = ?'];
+  const params: Array<number> = [packId];
+
+  if (normalizedTeacherUserId > 0) {
+    filters.push(allowPublic ? '(teacher_id = ? OR is_public = 1)' : 'teacher_id = ?');
+    params.push(normalizedTeacherUserId);
+  } else if (allowPublic) {
+    filters.push('is_public = 1');
+  }
+
+  const pack = (await db.prepare(`SELECT * FROM quiz_packs WHERE ${filters.join(' AND ')}`).get(...params));
   if (!pack) return null;
 
   const hydratedPack = (await hydratePack(pack));
@@ -505,6 +545,7 @@ export async function getHydratedPackWithQuestions(packId: number) {
       ...question,
       tags: parseJsonArray(question.tags_json),
       answers: parseJsonArray(question.answers_json),
+      image_url: question.image_url || '',
       learning_objective: question.learning_objective || '',
       bloom_level: question.bloom_level || '',
     }));

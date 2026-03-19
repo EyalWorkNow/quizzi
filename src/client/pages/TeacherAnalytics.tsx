@@ -13,7 +13,6 @@ import {
   CircleHelp,
   Download,
   Eye,
-  Flame,
   Gauge,
   ListChecks,
   RefreshCw,
@@ -26,8 +25,17 @@ import {
 import { motion } from 'motion/react';
 import { getGameMode } from '../lib/gameModes.ts';
 import { apiFetchJson } from '../lib/api.ts';
+import { useTeacherAnalyticsLanguage } from '../lib/teacherAnalyticsLanguage.ts';
 
 const compactNumber = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
+const TEACHER_BOARD_VIEW_KEY = 'quizzi.teacher.analytics.view';
+
+type TeacherBoardViewMode = 'simple' | 'advanced';
+
+function readTeacherBoardViewMode(): TeacherBoardViewMode {
+  if (typeof window === 'undefined') return 'simple';
+  return window.localStorage.getItem(TEACHER_BOARD_VIEW_KEY) === 'advanced' ? 'advanced' : 'simple';
+}
 
 function slugify(value: string) {
   return value
@@ -96,51 +104,96 @@ function severityRank(level?: string) {
   return 1;
 }
 
-const METRIC_EXPLANATIONS: Record<string, { title: string; body: string }> = {
-  accuracy: {
-    title: 'מדד דיוק',
-    body: 'אחוז התשובות הנכונות מכלל הניסיונות בכיתה. עוזר להבין את רמת השליטה הכללית בחומר.',
+const METRIC_EXPLANATIONS = {
+  en: {
+    accuracy: {
+      title: 'Accuracy',
+      body: 'Percent of correct answers out of all attempts in the class.',
+    },
+    'first-pass': {
+      title: 'First-Pass Accuracy',
+      body: 'How often students chose the correct answer on the first attempt.',
+    },
+    'harmful-revisions': {
+      title: 'Harmful Revisions',
+      body: 'Times a student changed a correct answer into a wrong one.',
+    },
+    pressure: {
+      title: 'Pressure Load',
+      body: 'Share of answers submitted in the last seconds before time ran out.',
+    },
+    focus: {
+      title: 'Focus Drag',
+      body: 'How often students left the tab or lost focus during the session.',
+    },
+    coverage: {
+      title: 'Coverage',
+      body: 'The share of possible answers that were actually submitted by the class.',
+    },
+    'decision-quality': {
+      title: 'Decision Quality',
+      body: 'Whether students arrived at answers from knowledge or unstable guessing.',
+    },
+    'confidence-stability': {
+      title: 'Confidence Stability',
+      body: 'How consistently students stayed with their answer choice.',
+    },
+    'revision-efficiency': {
+      title: 'Revision Efficiency',
+      body: 'Whether changing an answer helped or hurt the student.',
+    },
+    'attention-drag': {
+      title: 'Attention Drag',
+      body: 'A cognitive-load signal built from hesitation, blur, and activity patterns.',
+    },
   },
-  'first-pass': {
-    title: 'דיוק בבחירה ראשונה',
-    body: 'אחוז הפעמים שבהן הסטודנטים בחרו בתשובה הנכונה כבר בניסיון הראשון, ללא היסוס או שינוי.',
+  he: {
+    accuracy: {
+      title: 'מדד דיוק',
+      body: 'אחוז התשובות הנכונות מכלל הניסיונות בכיתה.',
+    },
+    'first-pass': {
+      title: 'דיוק בבחירה ראשונה',
+      body: 'אחוז הפעמים שבהן התלמידים בחרו בתשובה הנכונה כבר בניסיון הראשון.',
+    },
+    'harmful-revisions': {
+      title: 'שינויים מזיקים',
+      body: 'מספר הפעמים שתלמיד שינה תשובה נכונה לתשובה שגויה.',
+    },
+    pressure: {
+      title: 'עומס ולחץ',
+      body: 'אחוז התשובות שניתנו בשניות האחרונות לפני תום הזמן.',
+    },
+    focus: {
+      title: 'איבוד ריכוז',
+      body: 'מספר הפעמים שתלמידים יצאו מהטאב או איבדו פוקוס במהלך המשחק.',
+    },
+    coverage: {
+      title: 'מדד השתתפות',
+      body: 'היחס בין מספר התשובות שניתנו לבין המקסימום האפשרי.',
+    },
+    'decision-quality': {
+      title: 'איכות החלטה',
+      body: 'האם התלמידים הגיעו לתשובה מתוך ידע מבוסס או מתוך ניחוש לא יציב.',
+    },
+    'confidence-stability': {
+      title: 'יציבות הביטחון',
+      body: 'עד כמה התלמידים דבקו בבחירה שלהם לאורך התהליך.',
+    },
+    'revision-efficiency': {
+      title: 'יעילות תיקון',
+      body: 'האם שינוי התשובה עזר לתלמיד או הזיק לו.',
+    },
+    'attention-drag': {
+      title: 'גרירת קשב',
+      body: 'אות לעומס קוגניטיבי המבוסס על היסוס, יציאה מפוקוס ודפוסי פעילות.',
+    },
   },
-  'harmful-revisions': {
-    title: 'שינויים מזיקים',
-    body: 'מספר הפעמים שסטודנט שינה תשובה נכונה לתשובה שגויה. מעיד על חוסר ביטחון או הטעיה של מסיחים.',
-  },
-  pressure: {
-    title: 'עומס ולחץ',
-    body: 'אחוז התשובות שניתנו בשניות האחרונות לפני תום הזמן. לחץ גבוה עלול לפגוע באיכות קבלת ההחלטות.',
-  },
-  focus: {
-    title: 'איבוד ריכוז',
-    body: 'מספר הפעמים שתלמידים יצאו מהטאב או איבדו פוקוס במהלך המשחק. מדד למעורבות וקשב.',
-  },
-  coverage: {
-    title: 'מדד השתתפות',
-    body: 'היחס בין מספר התשובות שניתנו לבין המקסימום האפשרי. מראה כמה מהכיתה באמת לקחה חלק פעיל.',
-  },
-  'decision-quality': {
-    title: 'איכות החלטה',
-    body: 'בוחן האם התלמידים מגיעים לתשובה מתוך ידע מבוסס או ניחוש, על פי זמן התגובה ודיוק הבחירה הראשונה.',
-  },
-  'confidence-stability': {
-    title: 'יציבות הביטחון',
-    body: 'בודק כמה התלמידים דבקים בבחירה שלהם. שינויים רבים מעידים על היסוס, גם אם התוצאה הסופית נכונה.',
-  },
-  'revision-efficiency': {
-    title: 'יעילות תיקון',
-    body: 'האם שינוי התשובה עזר לתלמיד (מעבר משגוי לנכון) או הזיק לו. מדד ליכולת למידה תוך כדי תנועה.',
-  },
-  'attention-drag': {
-    title: 'גרירת קשב',
-    body: 'מדד לעומס קוגניטיבי המבוסס על תנועות עכבר והיסוס. ערך גבוה מעיד על קושי בעיבוד המידע.',
-  },
-};
+} as const;
 
 function InfoTooltip({ metricId }: { metricId: string }) {
-  const explanation = METRIC_EXPLANATIONS[metricId];
+  const { language } = useTeacherAnalyticsLanguage();
+  const explanation = METRIC_EXPLANATIONS[language][metricId as keyof typeof METRIC_EXPLANATIONS.en];
   if (!explanation) return null;
 
   return (
@@ -158,12 +211,16 @@ function InfoTooltip({ metricId }: { metricId: string }) {
 export default function TeacherAnalytics() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+  const { direction, isRtl, t } = useTeacherAnalyticsLanguage();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
   const [isHeaderCondensed, setIsHeaderCondensed] = useState(false);
   const [isHeaderPinnedOpen, setIsHeaderPinnedOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<TeacherBoardViewMode>(() => readTeacherBoardViewMode());
+  const [followUpBusyPlanId, setFollowUpBusyPlanId] = useState<string | null>(null);
+  const [followUpNotice, setFollowUpNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
 
   const loadAnalytics = async () => {
     if (!sessionId) return;
@@ -172,7 +229,9 @@ export default function TeacherAnalytics() {
       setError('');
       const payload = await apiFetchJson(`/api/analytics/class/${sessionId}`);
       setData(payload);
-      setSelectedStudentId((current) => current ?? (Number(payload?.participants?.[0]?.id ?? 0) || null));
+      const defaultStudentId =
+        Number(payload?.studentSpotlight?.attention_needed?.[0]?.id ?? payload?.participants?.[0]?.id ?? 0) || null;
+      setSelectedStudentId((current) => current ?? defaultStudentId);
     } catch (loadError: any) {
       setError(loadError.message || 'Failed to load analytics');
     } finally {
@@ -197,6 +256,17 @@ export default function TeacherAnalytics() {
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(TEACHER_BOARD_VIEW_KEY, viewMode);
+  }, [viewMode]);
+
+  useEffect(() => {
+    if (!followUpNotice) return;
+    const timeout = window.setTimeout(() => setFollowUpNotice(null), 4200);
+    return () => window.clearTimeout(timeout);
+  }, [followUpNotice]);
 
   const participants = data?.participants || [];
   const questionRows = data?.questions || [];
@@ -224,6 +294,7 @@ export default function TeacherAnalytics() {
   const riskDistribution = data?.distributions?.risk || [];
   const gameMode = getGameMode(data?.session?.game_type);
   const packMeta = data?.pack || null;
+  const followUpEngine = data?.follow_up_engine || null;
   const crossSectionComparison = data?.cross_section_comparison || null;
   const sortedAlerts = useMemo(
     () => [...alertList].sort((left: any, right: any) => severityRank(right.severity) - severityRank(left.severity)),
@@ -902,17 +973,174 @@ export default function TeacherAnalytics() {
     return `${leadingPattern.label} is the dominant follow-up pattern at ${Number(leadingPattern.rate || 0).toFixed(0)}%.`;
   }, [recoveryPatterns]);
 
+  const showAdvancedPanels = viewMode === 'advanced';
+
+  const scrollToBoardSection = (sectionId: string) => {
+    if (typeof document === 'undefined') return;
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const openAdvancedView = (targetSectionId = 'teacher-board-advanced') => {
+    setViewMode('advanced');
+    if (typeof window === 'undefined') return;
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        scrollToBoardSection(targetSectionId);
+      }, 0);
+    });
+  };
+
+  const guidedWorkflowCards = useMemo(
+    () => [
+      {
+        id: 'class-decision',
+        step: 'Step 1',
+        label: 'Class Decision',
+        title: executiveSummary.actionTitle,
+        body: executiveSummary.actionBody,
+        tone: 'bg-brand-purple text-white',
+        actionLabel: 'Open the misconception block',
+        action: () => scrollToBoardSection('teacher-board-teach'),
+      },
+      {
+        id: 'student-follow-up',
+        step: 'Step 2',
+        label: 'Student Follow-Up',
+        title: topAttentionStudents[0]?.nickname || 'No student needs immediate follow-up',
+        body: topAttentionStudents[0]?.recommendation || 'The page is already simplified for a fast teaching read.',
+        tone: 'bg-brand-yellow text-brand-dark',
+        actionLabel: topAttentionStudents[0] ? 'Open individual dashboard' : 'Student Command Center',
+        action: () =>
+          topAttentionStudents[0]
+            ? openStudentDashboard(topAttentionStudents[0].id)
+            : scrollToBoardSection('teacher-board-students-list'),
+      },
+      {
+        id: 'question-focus',
+        step: 'Step 3',
+        label: 'Question Focus',
+        title: leadQuestion ? `Question ${leadQuestion.question_index}` : 'Question Diagnostics',
+        body: leadQuestion?.recommendation || 'No question hotspot has separated from the rest yet.',
+        tone: 'bg-white text-brand-dark',
+        actionLabel: 'Jump to question diagnostics',
+        action: () => scrollToBoardSection('teacher-board-questions'),
+      },
+    ],
+    [executiveSummary, leadQuestion, topAttentionStudents],
+  );
+
+  const quickNavigationCards = useMemo(
+    () => [
+      {
+        id: 'overview',
+        label: 'Overview',
+        body: executiveSummary.classStateTitle,
+        action: () => scrollToBoardSection('teacher-board-overview'),
+      },
+      {
+        id: 'follow-up',
+        label: 'Follow-Up',
+        body: followUpEngine?.plans?.[0]?.title || 'Build the next round from this session',
+        action: () => scrollToBoardSection('teacher-board-follow-up'),
+      },
+      {
+        id: 'students',
+        label: 'Students',
+        body: topAttentionStudents.length > 0 ? `${topAttentionStudents.length} students` : 'No student queue has been produced yet.',
+        action: () => scrollToBoardSection('teacher-board-students'),
+      },
+      {
+        id: 'questions',
+        label: 'Questions',
+        body: leadQuestion ? `Question ${leadQuestion.question_index}` : 'Question Diagnostics',
+        action: () => scrollToBoardSection('teacher-board-questions'),
+      },
+      {
+        id: 'advanced',
+        label: showAdvancedPanels ? 'Advanced View' : 'Advanced',
+        body: showAdvancedPanels
+          ? 'Advanced view opens the full research layer, detailed distributions, and export-oriented analytics.'
+          : 'Advanced analysis is currently hidden',
+        action: () => {
+          if (showAdvancedPanels) {
+            scrollToBoardSection('teacher-board-advanced');
+            return;
+          }
+          openAdvancedView();
+        },
+      },
+    ],
+    [executiveSummary.classStateTitle, followUpEngine?.plans, leadQuestion, showAdvancedPanels, topAttentionStudents.length],
+  );
+
+  const prioritizedParticipants = useMemo(() => {
+    const attentionOrder = new Map<number, number>(
+      attentionQueue.map((student: any, index: number) => [Number(student.id), index] as const),
+    );
+    return [...participants].sort((left: any, right: any) => {
+      const leftAttentionIndex = attentionOrder.get(Number(left.id));
+      const rightAttentionIndex = attentionOrder.get(Number(right.id));
+
+      if (leftAttentionIndex != null || rightAttentionIndex != null) {
+        if (leftAttentionIndex == null) return 1;
+        if (rightAttentionIndex == null) return -1;
+        if (leftAttentionIndex !== rightAttentionIndex) {
+          return Number(leftAttentionIndex) - Number(rightAttentionIndex);
+        }
+      }
+
+      const riskDelta = severityRank(right.risk_level) - severityRank(left.risk_level);
+      if (riskDelta !== 0) return riskDelta;
+
+      const accuracyDelta = Number(left.accuracy || 0) - Number(right.accuracy || 0);
+      if (accuracyDelta !== 0) return accuracyDelta;
+
+      const rankDelta = Number(left.rank || Number.MAX_SAFE_INTEGER) - Number(right.rank || Number.MAX_SAFE_INTEGER);
+      if (rankDelta !== 0) return rankDelta;
+
+      return String(left.nickname || '').localeCompare(String(right.nickname || ''));
+    });
+  }, [attentionQueue, participants]);
+
   const openStudentDashboard = (studentId: number | string) => {
     if (!sessionId) return;
     navigate(`/teacher/analytics/class/${sessionId}/student/${studentId}`);
   };
 
+  const handleFollowUpAction = async (planId: string, launchNow: boolean) => {
+    if (!sessionId) return;
+
+    try {
+      setFollowUpBusyPlanId(`${planId}:${launchNow ? 'host' : 'pack'}`);
+      setFollowUpNotice(null);
+      const payload = await apiFetchJson(`/api/analytics/class/${sessionId}/follow-up-engine`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plan_id: planId,
+          launch_now: launchNow,
+        }),
+      });
+
+      if (launchNow && payload?.pin) {
+        navigate(`/teacher/session/${payload.pin}/host`);
+        return;
+      }
+
+      setFollowUpNotice({ tone: 'success', message: 'Follow-up pack created.' });
+    } catch (actionError: any) {
+      setFollowUpNotice({ tone: 'error', message: actionError?.message || 'Failed to create follow-up pack.' });
+    } finally {
+      setFollowUpBusyPlanId(null);
+    }
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-brand-bg flex items-center justify-center text-brand-dark">
+      <div dir={direction} className="min-h-screen bg-brand-bg flex items-center justify-center text-brand-dark">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-brand-dark border-t-brand-orange rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-xl font-black">Loading class command center...</p>
+          <p className="text-xl font-black">{t('Loading class command center...')}</p>
         </div>
       </div>
     );
@@ -920,15 +1148,15 @@ export default function TeacherAnalytics() {
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-brand-bg flex items-center justify-center p-8">
+      <div dir={direction} className="min-h-screen bg-brand-bg flex items-center justify-center p-8">
         <div className="bg-white border-4 border-brand-dark rounded-[2rem] shadow-[8px_8px_0px_0px_#1A1A1A] p-8 max-w-xl text-center">
-          <p className="text-3xl font-black mb-3">Analytics unavailable</p>
-          <p className="font-bold text-brand-dark/60 mb-6">{error || 'No analytics payload was returned.'}</p>
+          <p className="text-3xl font-black mb-3">{t('Analytics unavailable')}</p>
+          <p className="font-bold text-brand-dark/60 mb-6">{t(error || 'No analytics payload was returned.')}</p>
           <button
             onClick={() => navigate('/teacher/reports')}
             className="px-6 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black"
           >
-            Back to Reports
+            {t('Back to Reports')}
           </button>
         </div>
       </div>
@@ -936,11 +1164,15 @@ export default function TeacherAnalytics() {
   }
 
   return (
-    <div className="min-h-screen bg-brand-bg pb-20 font-sans text-brand-dark selection:bg-brand-orange selection:text-white">
+    <div
+      dir={direction}
+      data-no-translate="true"
+      className="min-h-screen bg-brand-bg pb-20 font-sans text-brand-dark selection:bg-brand-orange selection:text-white"
+    >
       <div className="sticky top-0 z-30 bg-white border-b-4 border-brand-dark shadow-[0_4px_0px_0px_#1A1A1A]">
         <div className={`max-w-[1520px] mx-auto px-6 transition-all duration-200 ${showExpandedHeader ? 'py-4 space-y-4' : 'py-3 space-y-2'}`}>
-          <div className={`flex flex-col justify-between gap-4 ${showExpandedHeader ? '2xl:flex-row 2xl:items-start' : 'xl:flex-row xl:items-center'}`}>
-            <div className="flex items-start gap-4 min-w-0">
+          <div className={`flex flex-col justify-between gap-4 ${showExpandedHeader ? '2xl:flex-row 2xl:items-start' : 'xl:flex-row xl:items-center'} ${isRtl ? '2xl:flex-row-reverse xl:flex-row-reverse' : ''}`}>
+            <div className={`flex items-start gap-4 min-w-0 ${isRtl ? 'flex-row-reverse' : ''}`}>
               <button
                 onClick={() => navigate('/teacher/reports')}
                 className="w-12 h-12 rounded-full bg-brand-yellow border-2 border-brand-dark flex items-center justify-center shadow-[2px_2px_0px_0px_#1A1A1A] shrink-0"
@@ -949,18 +1181,18 @@ export default function TeacherAnalytics() {
               </button>
               <div className="min-w-0">
                 <p className="text-xs font-black uppercase tracking-[0.24em] text-brand-purple mb-2">
-                  {showExpandedHeader ? 'Teacher Command Board' : 'Session analytics'}
+                  {showExpandedHeader ? t('Teacher Command Board') : t('Session analytics')}
                 </p>
                 <h1 className={`${showExpandedHeader ? 'text-4xl lg:text-5xl' : 'text-2xl lg:text-3xl'} font-black tracking-tight leading-tight break-words`}>
-                  {data?.session?.pack_title || `Session #${sessionId}`}
+                  {data?.session?.pack_title || t(`Session #${sessionId}`)}
                 </h1>
                 {showExpandedHeader ? (
                   <p className="font-bold text-brand-dark/65 mt-2 max-w-3xl">
-                    Read the class state, locate the misconception, then decide who needs follow-up. This header is intentionally tuned for a fast teaching decision.
+                    {t('Read the class state, locate the misconception, then decide who needs follow-up. This header is intentionally tuned for a fast teaching decision.')}
                   </p>
                 ) : (
                   <p className="font-bold text-brand-dark/60 mt-1 max-w-3xl">
-                    {executiveSummary.classStateTitle} • {executiveSummary.actionTitle}
+                    {t(executiveSummary.classStateTitle)} • {t(executiveSummary.actionTitle)}
                   </p>
                 )}
                 <div className="flex flex-wrap gap-2 mt-3">
@@ -971,7 +1203,9 @@ export default function TeacherAnalytics() {
                   {showExpandedHeader && (
                     <>
                       <ContextChip label="Mode" value={gameMode.label} tone="neutral" />
-                      <ContextChip label="Research Rows" value={compactNumber.format(researchRows.length || 0)} tone="neutral" />
+                      {showAdvancedPanels && (
+                        <ContextChip label="Research Rows" value={compactNumber.format(researchRows.length || 0)} tone="neutral" />
+                      )}
                     </>
                   )}
                 </div>
@@ -979,12 +1213,26 @@ export default function TeacherAnalytics() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex items-center rounded-full border-2 border-brand-dark bg-brand-bg p-1 shadow-[2px_2px_0px_0px_#1A1A1A]">
+                <button
+                  onClick={() => setViewMode('simple')}
+                  className={`px-4 py-2 rounded-full font-black text-sm ${viewMode === 'simple' ? 'bg-white text-brand-dark' : 'text-brand-dark/65'}`}
+                >
+                  {t('Simple View')}
+                </button>
+                <button
+                  onClick={() => setViewMode('advanced')}
+                  className={`px-4 py-2 rounded-full font-black text-sm ${viewMode === 'advanced' ? 'bg-brand-dark text-white' : 'text-brand-dark/65'}`}
+                >
+                  {t('Advanced View')}
+                </button>
+              </div>
               {isHeaderCondensed && (
                 <button
                   onClick={() => setIsHeaderPinnedOpen((current) => !current)}
                   className="px-5 py-3 bg-brand-bg border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
                 >
-                  {showExpandedHeader ? 'Collapse header' : 'Expand header'}
+                  {showExpandedHeader ? t('Collapse header') : t('Expand header')}
                 </button>
               )}
               <button
@@ -992,30 +1240,30 @@ export default function TeacherAnalytics() {
                 className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
               >
                 <RefreshCw className="w-4 h-4" />
-                Refresh
+                {t('Refresh')}
               </button>
-              {showExpandedHeader && (
+              {showExpandedHeader && showAdvancedPanels && (
                 <>
                   <button
                     onClick={() => downloadCsv(`${exportBaseName}-students.csv`, studentCsvRows)}
                     className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
                   >
                     <Download className="w-4 h-4" />
-                    Students CSV
+                    {t('Students CSV')}
                   </button>
                   <button
                     onClick={() => downloadCsv(`${exportBaseName}-questions.csv`, questionCsvRows)}
                     className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
                   >
                     <Download className="w-4 h-4" />
-                    Questions CSV
+                    {t('Questions CSV')}
                   </button>
                   <button
                     onClick={() => downloadCsv(`${exportBaseName}-lms-gradebook.csv`, lmsCsvRows)}
                     className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
                   >
                     <Download className="w-4 h-4" />
-                    LMS Gradebook CSV
+                    {t('LMS Gradebook CSV')}
                   </button>
                   {teams.length > 0 && (
                     <button
@@ -1023,7 +1271,7 @@ export default function TeacherAnalytics() {
                       className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
                     >
                       <Download className="w-4 h-4" />
-                      Teams CSV
+                      {t('Teams CSV')}
                     </button>
                   )}
                   <button
@@ -1031,18 +1279,18 @@ export default function TeacherAnalytics() {
                     className="px-5 py-3 bg-brand-yellow border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
                   >
                     <Download className="w-4 h-4" />
-                    Response Rows CSV
+                    {t('Response Rows CSV')}
                   </button>
                 </>
               )}
               {selectedStudent && (
                 <button
                   onClick={() => navigate(`/teacher/analytics/class/${sessionId}/student/${selectedStudent.id}`)}
-                  className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
-                >
-                  Open {selectedStudent.nickname}
-                  <ArrowUpRight className="w-4 h-4" />
-                </button>
+                className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
+              >
+                {t(`Open ${selectedStudent.nickname}`)}
+                <ArrowUpRight className="w-4 h-4" />
+              </button>
               )}
             </div>
           </div>
@@ -1072,41 +1320,42 @@ export default function TeacherAnalytics() {
         />
 
         <motion.section
+          id="teacher-board-overview"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-brand-dark text-white rounded-[2.5rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#FF5A36] p-8 lg:p-9 mb-8 overflow-hidden relative"
+          className="scroll-mt-40 bg-brand-dark text-white rounded-[2.5rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#FF5A36] p-8 lg:p-9 mb-8 overflow-hidden relative"
         >
           <div className="absolute right-[-40px] top-[-50px] w-60 h-60 rounded-full bg-white/10" />
           <div className="absolute right-24 bottom-[-45px] w-32 h-32 rounded-full bg-brand-yellow/20" />
           <div className="relative z-10 grid grid-cols-1 xl:grid-cols-[1.12fr_0.88fr] gap-6">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-yellow mb-3">Executive Diagnosis</p>
+              <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-yellow mb-3">{t('Executive Diagnosis')}</p>
               <h2 className="text-4xl lg:text-5xl font-black leading-tight mb-4">
-                {data?.summary?.headline || 'Class snapshot ready'}
+                {t(data?.summary?.headline || 'Class snapshot ready')}
               </h2>
               <p className="text-lg font-medium text-white/75 max-w-3xl">
-                {data?.summary?.summary || 'We are loading the class narrative and will surface the strongest signal first.'}
+                {t(data?.summary?.summary || 'We are loading the class narrative and will surface the strongest signal first.')}
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
                 <div className="rounded-[1.6rem] border border-white/15 bg-white/10 p-4">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">Diagnosis</p>
-                  <p className="text-xl font-black leading-tight">{executiveSummary.topIssueTitle}</p>
-                  <p className="font-medium text-white/72 mt-2">{executiveSummary.topIssueBody}</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">{t('Diagnosis')}</p>
+                  <p className="text-xl font-black leading-tight">{t(executiveSummary.topIssueTitle)}</p>
+                  <p className="font-medium text-white/72 mt-2">{t(executiveSummary.topIssueBody)}</p>
                 </div>
                 <div className="rounded-[1.6rem] border border-white/15 bg-white/10 p-4">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">Why It Matters</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">{t('Why It Matters')}</p>
                   <p className="text-xl font-black leading-tight">
-                    {helpfulRevisionRate > harmfulRevisionRate ? 'Students can recover, but too late for fluent mastery.' : 'The class is not correcting itself reliably enough.'}
+                    {t(helpfulRevisionRate > harmfulRevisionRate ? 'Students can recover, but too late for fluent mastery.' : 'The class is not correcting itself reliably enough.')}
                   </p>
                   <p className="font-medium text-white/72 mt-2">
-                    {helpfulRevisionRate.toFixed(0)}% corrected a wrong start, while {harmfulRevisionRate.toFixed(0)}% reversed away from the right answer.
+                    {t(`${helpfulRevisionRate.toFixed(0)}% corrected a wrong start, while ${harmfulRevisionRate.toFixed(0)}% reversed away from the right answer.`)}
                   </p>
                 </div>
                 <div className="rounded-[1.6rem] border border-white/15 bg-white/10 p-4">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">Recommended Move</p>
-                  <p className="text-xl font-black leading-tight">{executiveSummary.actionTitle}</p>
-                  <p className="font-medium text-white/72 mt-2">{executiveSummary.actionBody}</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">{t('Recommended Move')}</p>
+                  <p className="text-xl font-black leading-tight">{t(executiveSummary.actionTitle)}</p>
+                  <p className="font-medium text-white/72 mt-2">{t(executiveSummary.actionBody)}</p>
                 </div>
               </div>
             </div>
@@ -1116,8 +1365,8 @@ export default function TeacherAnalytics() {
                 <div className="flex items-center gap-3 mb-4">
                   <ListChecks className="w-5 h-5 text-brand-purple" />
                   <div>
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple">Who Needs Attention Now</p>
-                    <p className="font-bold text-brand-dark/65">Open these students first if you only have a minute.</p>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple">{t('Who Needs Attention Now')}</p>
+                    <p className="font-bold text-brand-dark/65">{t('Open these students first if you only have a minute.')}</p>
                   </div>
                 </div>
                 <div className="space-y-3">
@@ -1131,10 +1380,10 @@ export default function TeacherAnalytics() {
                         <p className="font-black text-lg">{student.nickname}</p>
                         <RiskBadge level={student.risk_level} compact />
                       </div>
-                      <p className="font-medium text-brand-dark/70">{student.recommendation}</p>
+                      <p className="font-medium text-brand-dark/70">{t(student.recommendation)}</p>
                     </button>
                   )) : (
-                    <p className="font-bold text-brand-dark/60">No student queue has been produced yet.</p>
+                    <p className="font-bold text-brand-dark/60">{t('No student queue has been produced yet.')}</p>
                   )}
                 </div>
               </div>
@@ -1142,11 +1391,11 @@ export default function TeacherAnalytics() {
               <div className="rounded-[1.9rem] border-4 border-brand-dark bg-brand-yellow text-brand-dark p-5 shadow-[6px_6px_0px_0px_#1A1A1A]">
                 <div className="flex items-center gap-3 mb-3">
                   <CircleAlert className="w-5 h-5 text-brand-orange" />
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/60">Critical Alert</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/60">{t('Critical Alert')}</p>
                 </div>
-                <p className="text-2xl font-black leading-tight mb-2">{leadAlert?.title || 'No urgent class-wide alert'}</p>
+                <p className="text-2xl font-black leading-tight mb-2">{t(leadAlert?.title || 'No urgent class-wide alert')}</p>
                 <p className="font-medium text-brand-dark/75">
-                  {leadAlert?.body || 'The class does not currently show a single alert that outweighs the rest of the board.'}
+                  {t(leadAlert?.body || 'The class does not currently show a single alert that outweighs the rest of the board.')}
                 </p>
               </div>
             </div>
@@ -1169,15 +1418,232 @@ export default function TeacherAnalytics() {
           ))}
         </section>
 
-        {(packMeta || crossSectionComparison) && (
-          <section className="grid grid-cols-1 xl:grid-cols-[0.92fr_1.08fr] gap-8 mb-10">
+        <section className="grid grid-cols-1 xl:grid-cols-[1.08fr_0.92fr] gap-8 mb-10">
+          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+            <div className="flex items-center gap-3 mb-4">
+              <ListChecks className="w-6 h-6 text-brand-purple" />
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Teacher Workflow')}</p>
+                <h2 className="text-3xl font-black">{t('What to do now')}</h2>
+                <p className="font-bold text-brand-dark/60 mt-1">{t('Three fast moves for this class')}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {guidedWorkflowCards.map((card) => (
+                <React.Fragment key={card.id}>
+                  <WorkflowActionCard
+                    step={card.step}
+                    label={card.label}
+                    title={card.title}
+                    body={card.body}
+                    tone={card.tone}
+                    actionLabel={card.actionLabel}
+                    onAction={card.action}
+                  />
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+              <div className="flex items-center gap-3 mb-4">
+                <Sparkles className="w-6 h-6 text-brand-orange" />
+                <div>
+                  <h2 className="text-3xl font-black">{t('Focus Mode')}</h2>
+                  <p className="font-bold text-brand-dark/60 mt-1">{t('Make the board usable in under a minute')}</p>
+                </div>
+              </div>
+              <div className="inline-flex items-center rounded-full border-2 border-brand-dark bg-brand-bg p-1 mb-4">
+                <button
+                  onClick={() => setViewMode('simple')}
+                  className={`px-4 py-2 rounded-full font-black ${viewMode === 'simple' ? 'bg-white' : 'text-brand-dark/60'}`}
+                >
+                  {t('Simple View')}
+                </button>
+                <button
+                  onClick={() => setViewMode('advanced')}
+                  className={`px-4 py-2 rounded-full font-black ${viewMode === 'advanced' ? 'bg-brand-dark text-white' : 'text-brand-dark/60'}`}
+                >
+                  {t('Advanced View')}
+                </button>
+              </div>
+              <p className="font-medium text-brand-dark/72">
+                {t(
+                  viewMode === 'simple'
+                    ? 'Simple view keeps the board focused on what to teach, who needs help, and which question to review first.'
+                    : 'Advanced view opens the full research layer, detailed distributions, and export-oriented analytics.',
+                )}
+              </p>
+              {!showAdvancedPanels && (
+                <div className="rounded-[1.35rem] border-2 border-brand-dark bg-brand-bg p-4 mt-4">
+                  <p className="font-black">{t('Advanced analysis is currently hidden')}</p>
+                  <p className="font-medium text-brand-dark/70 mt-2">
+                    {t('Simple view is hiding deeper research charts, benchmarks, telemetry tables, and export-heavy diagnostics until you ask for them.')}
+                  </p>
+                  <button
+                    onClick={() => openAdvancedView()}
+                    className="mt-4 px-5 py-3 bg-brand-dark text-white border-2 border-brand-dark rounded-full font-black"
+                  >
+                    {t('Show advanced analysis')}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+              <div className="flex items-center gap-3 mb-4">
+                <Target className="w-6 h-6 text-brand-purple" />
+                <div>
+                  <h2 className="text-3xl font-black">{t('Quick Navigation')}</h2>
+                  <p className="font-bold text-brand-dark/60 mt-1">{t('Jump to the next teaching decision instead of scanning the whole page.')}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {quickNavigationCards.map((card) => (
+                  <React.Fragment key={card.id}>
+                    <QuickNavCard
+                      label={card.label}
+                      body={card.body}
+                      onClick={card.action}
+                    />
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {followUpEngine?.plans?.length > 0 && (
+          <section id="teacher-board-follow-up" className="scroll-mt-40 mb-10">
+            <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+              <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-6">
+                <div>
+                  <div className="flex items-center gap-3 mb-3">
+                    <Sparkles className="w-6 h-6 text-brand-orange" />
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange">{t('Follow-Up Engine')}</p>
+                  </div>
+                  <h2 className="text-3xl font-black">{t('Turn this session into the next lesson')}</h2>
+                  <p className="font-bold text-brand-dark/60 mt-2 max-w-3xl">
+                    {t('Pick a ready-made follow-up path, create the pack, or open it live right now from the same analytics board.')}
+                  </p>
+                </div>
+                {followUpNotice && (
+                  <div
+                    className={`rounded-[1.35rem] border-2 px-4 py-3 font-black ${
+                      followUpNotice.tone === 'success'
+                        ? 'border-emerald-700 bg-emerald-100 text-emerald-900'
+                        : 'border-brand-dark bg-brand-yellow text-brand-dark'
+                    }`}
+                  >
+                    {t(followUpNotice.message)}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+                {followUpEngine.plans.map((plan: any) => {
+                  const createKey = `${plan.id}:pack`;
+                  const hostKey = `${plan.id}:host`;
+                  const isCreatingPack = followUpBusyPlanId === createKey;
+                  const isHostingPack = followUpBusyPlanId === hostKey;
+                  return (
+                    <div key={plan.id} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
+                      <div className="flex items-start justify-between gap-4 mb-4">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t(plan.audience)}</p>
+                          <h3 className="text-2xl font-black">{t(plan.title)}</h3>
+                        </div>
+                        <div className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-sm font-black">
+                          {plan.question_count}
+                        </div>
+                      </div>
+
+                      <p className="font-medium text-brand-dark/72 mb-4">{t(plan.body)}</p>
+
+                      <div className="grid grid-cols-2 gap-3 mb-4">
+                        <div className="rounded-[1.2rem] border-2 border-brand-dark bg-white p-3">
+                          <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-1">{t('Students')}</p>
+                          <p className="text-xl font-black">{plan.target_student_count}</p>
+                        </div>
+                        <div className="rounded-[1.2rem] border-2 border-brand-dark bg-white p-3">
+                          <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-1">{t('Questions')}</p>
+                          <p className="text-xl font-black">{plan.priority_question_indexes?.length || plan.question_count}</p>
+                        </div>
+                      </div>
+
+                      {plan.focus_tags?.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">{t('Focus Tags')}</p>
+                          <div className="flex flex-wrap gap-2">
+                            {plan.focus_tags.map((tag: string) => (
+                              <span key={`${plan.id}-${tag}`} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-xs font-black capitalize">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {plan.priority_question_indexes?.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">{t('Priority Questions')}</p>
+                          <div className="flex flex-wrap gap-2">
+                            {plan.priority_question_indexes.map((questionIndex: number) => (
+                              <span key={`${plan.id}-q-${questionIndex}`} className="px-3 py-1 rounded-full bg-brand-yellow border-2 border-brand-dark text-xs font-black">
+                                {t(`Question ${questionIndex}`)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {plan.target_student_names?.length > 0 && (
+                        <div className="mb-5">
+                          <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">{t('Student Group')}</p>
+                          <div className="flex flex-wrap gap-2">
+                            {plan.target_student_names.map((studentName: string) => (
+                              <span key={`${plan.id}-${studentName}`} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
+                                {studentName}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <button
+                          onClick={() => void handleFollowUpAction(plan.id, false)}
+                          disabled={Boolean(followUpBusyPlanId)}
+                          className="flex-1 px-4 py-3 bg-white border-2 border-brand-dark rounded-full font-black disabled:opacity-60"
+                        >
+                          {isCreatingPack ? t('Creating...') : t('Create follow-up pack')}
+                        </button>
+                        <button
+                          onClick={() => void handleFollowUpAction(plan.id, true)}
+                          disabled={Boolean(followUpBusyPlanId)}
+                          className="flex-1 px-4 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black disabled:opacity-60"
+                        >
+                          {isHostingPack ? t('Creating...') : t('Create and host now')}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {showAdvancedPanels && (packMeta || crossSectionComparison) && (
+          <section id="teacher-board-advanced" className="scroll-mt-40 grid grid-cols-1 xl:grid-cols-[0.92fr_1.08fr] gap-8 mb-10">
             {packMeta && (
               <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
                 <div className="flex items-center gap-3 mb-4">
                   <Target className="w-6 h-6 text-brand-purple" />
                   <div>
-                    <h2 className="text-3xl font-black">Academic Mapping</h2>
-                    <p className="font-bold text-brand-dark/60 mt-1">Keep this session anchored to the course structure, not just the game.</p>
+                    <h2 className="text-3xl font-black">{t('Academic Mapping')}</h2>
+                    <p className="font-bold text-brand-dark/60 mt-1">{t('Keep this session anchored to the course structure, not just the game.')}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 mb-4">
@@ -1188,7 +1654,7 @@ export default function TeacherAnalytics() {
                 </div>
                 {(packMeta.learning_objectives || []).length > 0 && (
                   <div className="mb-4">
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Learning outcomes</p>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Learning outcomes')}</p>
                     <div className="flex flex-wrap gap-2">
                       {(packMeta.learning_objectives || []).map((objective: string) => (
                         <span key={objective} className="px-3 py-2 rounded-full bg-emerald-100 border-2 border-brand-dark text-xs font-black">
@@ -1200,7 +1666,7 @@ export default function TeacherAnalytics() {
                 )}
                 {(packMeta.bloom_levels || []).length > 0 && (
                   <div>
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Bloom coverage</p>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Bloom coverage')}</p>
                     <div className="flex flex-wrap gap-2">
                       {(packMeta.bloom_levels || []).map((level: string) => (
                         <span key={level} className="px-3 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark text-xs font-black">
@@ -1217,20 +1683,20 @@ export default function TeacherAnalytics() {
               <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
                 <div className="flex items-center justify-between gap-4 mb-4">
                   <div>
-                    <h2 className="text-3xl font-black">Cross-Section Comparison</h2>
+                    <h2 className="text-3xl font-black">{t('Cross-Section Comparison')}</h2>
                     <p className="font-bold text-brand-dark/60 mt-1">
-                      Compare this run against {crossSectionComparison.benchmark?.compared_sessions || 0} prior session{Number(crossSectionComparison.benchmark?.compared_sessions || 0) === 1 ? '' : 's'} on the same {crossSectionComparison.basis === 'course_code' ? 'course code' : 'pack'}.
+                      {t(`Compare this run against ${crossSectionComparison.benchmark?.compared_sessions || 0} prior session${Number(crossSectionComparison.benchmark?.compared_sessions || 0) === 1 ? '' : 's'} on the same ${crossSectionComparison.basis === 'course_code' ? 'course code' : 'pack'}.`)}
                     </p>
                   </div>
                   <div className="px-4 py-3 rounded-full bg-brand-bg border-2 border-brand-dark font-black text-sm">
-                    {crossSectionComparison.course_code || 'Pack scope'}
+                    {t(crossSectionComparison.course_code || 'Pack scope')}
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
                   <PackMetric
                     label="Accuracy delta"
-                    value={`${Number(crossSectionComparison.benchmark?.delta_accuracy || 0).toFixed(1)}pts`}
+                    value={`${Number(crossSectionComparison.benchmark?.delta_accuracy || 0).toFixed(1)} pts`}
                   />
                   <PackMetric
                     label="Peer avg accuracy"
@@ -1248,24 +1714,24 @@ export default function TeacherAnalytics() {
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-2">
                         <div>
                           <p className="font-black text-lg">
-                            {row.section_name || 'Main'}
-                            {row.is_current ? ' • Current session' : ''}
+                            {row.section_name || t('Main')}
+                            {row.is_current ? ` • ${t('Current session')}` : ''}
                           </p>
                           <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-dark/50">
-                            {[row.academic_term, row.week_label].filter(Boolean).join(' • ') || 'Unmapped session'}
+                            {[row.academic_term, row.week_label].filter(Boolean).join(' • ') || t('Unmapped session')}
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <span className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
-                            {Number(row.accuracy || 0).toFixed(1)}% accuracy
+                            {t(`${Number(row.accuracy || 0).toFixed(1)}% accuracy`)}
                           </span>
                           <span className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
-                            {row.participant_count} students
+                            {t(`${row.participant_count} students`)}
                           </span>
                         </div>
                       </div>
                       <p className="font-medium text-brand-dark/70">
-                        Avg response {formatMs(Number(row.avg_response_ms || 0))} • Session #{row.session_id}
+                        {t(`Avg response ${formatMs(Number(row.avg_response_ms || 0))} • Session #${row.session_id}`)}
                       </p>
                     </div>
                   ))}
@@ -1281,13 +1747,13 @@ export default function TeacherAnalytics() {
           body="These sections prioritize verdicts, misconceptions, and revision behavior so the page answers what to reteach, what to slow down, and who to support."
         />
 
-        <section className="grid grid-cols-1 xl:grid-cols-[1.08fr_0.92fr] gap-8 mb-8">
+        <section id="teacher-board-teach" className="scroll-mt-40 grid grid-cols-1 xl:grid-cols-[1.08fr_0.92fr] gap-8 mb-8">
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
             <div className="flex items-center gap-3 mb-4">
               <BrainCircuit className="w-6 h-6 text-brand-purple" />
               <div>
-                <h2 className="text-3xl font-black">Decision Intelligence</h2>
-                <p className="font-bold text-brand-dark/60 mt-1">Three verdicts first, then the evidence underneath.</p>
+                <h2 className="text-3xl font-black">{t('Decision Intelligence')}</h2>
+                <p className="font-bold text-brand-dark/60 mt-1">{t('Three verdicts first, then the evidence underneath.')}</p>
               </div>
             </div>
 
@@ -1320,9 +1786,9 @@ export default function TeacherAnalytics() {
 
           <div className="space-y-6">
             <div className="bg-brand-dark text-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#FF5A36] p-6 lg:p-7">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">Recovery + Drift</p>
-              <h2 className="text-3xl font-black mb-3">{fatigueDrift?.headline || 'No fatigue read yet'}</h2>
-              <p className="font-medium text-white/75 mb-5">{fatigueDrift?.body || 'There are not enough rows yet to estimate drift.'}</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">{t('Recovery + Drift')}</p>
+              <h2 className="text-3xl font-black mb-3">{t(fatigueDrift?.headline || 'No fatigue read yet')}</h2>
+              <p className="font-medium text-white/75 mb-5">{t(fatigueDrift?.body || 'There are not enough rows yet to estimate drift.')}</p>
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <MiniMetric label="Recovery Rate" value={`${Number(recoveryProfile?.recovery_rate || 0).toFixed(0)}%`} />
                 <MiniMetric label="Commit Window" value={formatMs(Number(behaviorPatterns?.commitment_latency_ms?.median || 0))} />
@@ -1330,16 +1796,16 @@ export default function TeacherAnalytics() {
                 <MiniMetric label="Late Accuracy" value={`${Number(fatigueDrift?.late_accuracy || 0).toFixed(0)}%`} />
               </div>
               <div className="rounded-[1.5rem] border border-white/15 bg-white/10 p-4">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-white/45 mb-2">So what?</p>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-white/45 mb-2">{t('So what?')}</p>
                 <p className="text-xl font-black mb-1">
-                  {fatigueDrift?.direction === 'flat' ? 'The main issue is not only fatigue.' : 'Some students fade as the session goes on.'}
+                  {t(fatigueDrift?.direction === 'flat' ? 'The main issue is not only fatigue.' : 'Some students fade as the session goes on.')}
                 </p>
                 <p className="font-medium text-white/72">
-                  {fatigueDrift?.direction === 'flat'
+                  {t(fatigueDrift?.direction === 'flat'
                     ? highRiskFatigueCount > 0
                       ? `${highRiskFatigueCount} high-risk students still showed late fade even though the class average stayed flatter.`
                       : 'Class-wide fatigue stayed limited, so the bigger teaching move is conceptual clarification plus calmer pacing.'
-                    : `${fatigueAffectedCount} students show a fatigue pattern, with ${highRiskFatigueCount} of them already in the high-risk group.`}
+                    : `${fatigueAffectedCount} students show a fatigue pattern, with ${highRiskFatigueCount} of them already in the high-risk group.`)}
                 </p>
               </div>
             </div>
@@ -1348,11 +1814,11 @@ export default function TeacherAnalytics() {
               <div className="flex items-center gap-3 mb-4">
                 <AlertTriangle className="w-6 h-6 text-brand-orange" />
                 <div>
-                  <h2 className="text-3xl font-black">Recurrent Misconceptions</h2>
+                  <h2 className="text-3xl font-black">{t('Recurrent Misconceptions')}</h2>
                   <p className="font-bold text-brand-dark/60 mt-1">
-                    {visibleMisconceptions.length > 0
+                    {t(visibleMisconceptions.length > 0
                       ? 'Show the most instruction-worthy confusion clusters first.'
-                      : 'No misconception cluster repeated enough to outrank the rest.'}
+                      : 'No misconception cluster repeated enough to outrank the rest.')}
                   </p>
                 </div>
               </div>
@@ -1370,12 +1836,12 @@ export default function TeacherAnalytics() {
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2 mb-2">
                             <span className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-[11px] font-black uppercase tracking-[0.18em]">
-                              {index === 0 ? 'Most Widespread' : severityLabel}
+                              {t(index === 0 ? 'Most Widespread' : severityLabel)}
                             </span>
                             <span className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange">{humanizeTag(pattern.tag)}</span>
                           </div>
                           <p className="font-black leading-tight text-lg">
-                            Distractor {pattern.choice_label}: {pattern.choice_text}
+                            {t(`Distractor ${pattern.choice_label}: ${pattern.choice_text}`)}
                           </p>
                         </div>
                         <span className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark font-black shrink-0">
@@ -1383,16 +1849,16 @@ export default function TeacherAnalytics() {
                         </span>
                       </div>
                       <p className="font-medium text-brand-dark/72">
-                        {pattern.student_count} students hit this misconception across {pattern.question_count} question{Number(pattern.question_count) === 1 ? '' : 's'}.
+                        {t(`${pattern.student_count} students hit this misconception across ${pattern.question_count} question${Number(pattern.question_count) === 1 ? '' : 's'}.`)}
                       </p>
-                      <p className="font-black text-brand-dark mt-3">{actionHint}</p>
+                      <p className="font-black text-brand-dark mt-3">{t(actionHint)}</p>
                     </div>
                   );
                 }) : (
                   <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
-                    <p className="font-black">No repeated misconception cluster outran the noise floor.</p>
+                    <p className="font-black">{t('No repeated misconception cluster outran the noise floor.')}</p>
                     <p className="font-medium text-brand-dark/70 mt-2">
-                      Treat the weaker items as isolated question problems rather than one repeating class-wide misunderstanding.
+                      {t('Treat the weaker items as isolated question problems rather than one repeating class-wide misunderstanding.')}
                     </p>
                   </div>
                 )}
@@ -1401,8 +1867,8 @@ export default function TeacherAnalytics() {
                   <details className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4">
                     <summary className="cursor-pointer list-none flex items-center justify-between gap-3">
                       <div>
-                        <p className="font-black">Show {hiddenMisconceptions.length} additional misconception patterns</p>
-                        <p className="font-medium text-brand-dark/65">Keep the top three open by default so the page stays scannable.</p>
+                        <p className="font-black">{t(`Show ${hiddenMisconceptions.length} additional misconception patterns`)}</p>
+                        <p className="font-medium text-brand-dark/65">{t('Keep the top three open by default so the page stays scannable.')}</p>
                       </div>
                       <ChevronDown className="w-5 h-5 shrink-0" />
                     </summary>
@@ -1410,9 +1876,9 @@ export default function TeacherAnalytics() {
                       {hiddenMisconceptions.map((pattern: any) => (
                         <div key={`hidden-${pattern.tag}-${pattern.choice_label}-${pattern.choice_text}`} className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4">
                           <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-1">{humanizeTag(pattern.tag)}</p>
-                          <p className="font-black">Distractor {pattern.choice_label}: {pattern.choice_text}</p>
+                          <p className="font-black">{t(`Distractor ${pattern.choice_label}: ${pattern.choice_text}`)}</p>
                           <p className="font-medium text-brand-dark/70 mt-2">
-                            {pattern.student_count} students across {pattern.question_count} question{Number(pattern.question_count) === 1 ? '' : 's'}.
+                            {t(`${pattern.student_count} students across ${pattern.question_count} question${Number(pattern.question_count) === 1 ? '' : 's'}.`)}
                           </p>
                         </div>
                       ))}
@@ -1424,12 +1890,13 @@ export default function TeacherAnalytics() {
           </div>
         </section>
 
-        <details className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] mb-8">
+        {showAdvancedPanels && (
+        <details id={packMeta || crossSectionComparison ? undefined : 'teacher-board-advanced'} className="scroll-mt-40 bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] mb-8">
           <summary className="list-none cursor-pointer p-6 lg:p-7 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Supporting Context</p>
-              <h2 className="text-3xl font-black">Session context and attention signals</h2>
-              <p className="font-bold text-brand-dark/60 mt-2">Open this when you need the quiz format context or the raw attention telemetry behind the verdicts above.</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Supporting Context')}</p>
+              <h2 className="text-3xl font-black">{t('Session context and attention signals')}</h2>
+              <p className="font-bold text-brand-dark/60 mt-2">{t('Open this when you need the quiz format context or the raw attention telemetry behind the verdicts above.')}</p>
             </div>
             <div className="flex items-center gap-3">
               <ContextChip label="Mode" value={gameMode.label} tone="neutral" />
@@ -1439,17 +1906,17 @@ export default function TeacherAnalytics() {
           </summary>
           <div className="px-6 lg:px-7 pb-7 grid grid-cols-1 xl:grid-cols-[0.78fr_1.22fr] gap-8">
             <div className="bg-brand-bg rounded-[1.8rem] border-2 border-brand-dark p-6">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-3">Session Context</p>
-              <h3 className="text-3xl font-black mb-3">{gameMode.label}</h3>
-              <p className="font-medium text-brand-dark/70 mb-5">{gameMode.description}</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-3">{t('Session Context')}</p>
+              <h3 className="text-3xl font-black mb-3">{t(gameMode.label)}</h3>
+              <p className="font-medium text-brand-dark/70 mb-5">{t(gameMode.description)}</p>
               <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4 mb-4">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Research cue</p>
-                <p className="font-black">{gameMode.researchCue}</p>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Research cue')}</p>
+                <p className="font-black">{t(gameMode.researchCue)}</p>
               </div>
               <div className="flex flex-wrap gap-2 mb-5">
                 {gameMode.objectives.map((objective) => (
                   <span key={objective} className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
-                    {objective}
+                    {t(objective)}
                   </span>
                 ))}
               </div>
@@ -1463,14 +1930,14 @@ export default function TeacherAnalytics() {
 
             <div className="bg-brand-bg rounded-[1.8rem] border-2 border-brand-dark p-6">
               <div className="mb-5">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Attention Signals</p>
-                <h3 className="text-3xl font-black">Human-readable telemetry</h3>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Attention Signals')}</p>
+                <h3 className="text-3xl font-black">{t('Human-readable telemetry')}</h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
                 {attentionInsights.map((insight) => (
                   <div key={insight.id} className="rounded-[1.3rem] border-2 border-brand-dark bg-white p-4">
-                    <p className="font-black leading-tight">{insight.title}</p>
-                    <p className="font-medium text-brand-dark/68 mt-2">{insight.body}</p>
+                    <p className="font-black leading-tight">{t(insight.title)}</p>
+                    <p className="font-medium text-brand-dark/68 mt-2">{t(insight.body)}</p>
                   </div>
                 ))}
               </div>
@@ -1487,22 +1954,28 @@ export default function TeacherAnalytics() {
             </div>
           </div>
         </details>
+        )}
 
         <SectionIntro
-          eyebrow="Class Behavior"
-          title="Read where the class bent under pressure"
-          body="Use these charts after you know the misconception. They explain when the room destabilized, which students stayed resilient, and whether time pressure changed the outcome."
+          eyebrow={showAdvancedPanels ? 'Class Behavior' : 'Student Attention'}
+          title={showAdvancedPanels ? 'Read where the class bent under pressure' : 'See who needs teacher attention first'}
+          body={
+            showAdvancedPanels
+              ? 'Use these charts after you know the misconception. They explain when the room destabilized, which students stayed resilient, and whether time pressure changed the outcome.'
+              : 'Start with the student map and the attention queue. Open the advanced view for revision flow, timing curves, and the deeper research layer.'
+          }
         />
 
-        <section className="grid grid-cols-1 xl:grid-cols-[1.16fr_0.84fr] gap-8 mb-8">
+        <section id="teacher-board-students" className={`scroll-mt-40 grid grid-cols-1 gap-8 mb-8 ${showAdvancedPanels ? 'xl:grid-cols-[1.16fr_0.84fr]' : ''}`}>
+          {showAdvancedPanels && (
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden h-full flex flex-col">
             <div className="p-6 lg:p-7 border-b-4 border-brand-dark bg-white">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-[0.22em] text-brand-purple mb-2">Decision Paths</p>
-                  <h2 className="text-3xl font-black">Decision Revision Flow</h2>
+                  <p className="text-xs font-black uppercase tracking-[0.22em] text-brand-purple mb-2">{t('Decision Paths')}</p>
+                  <h2 className="text-3xl font-black">{t('Decision Revision Flow')}</h2>
                   <p className="font-bold text-brand-dark/65 mt-2">
-                    {helpfulRevisionRate.toFixed(0)}% improved after revision, but {harmfulRevisionRate.toFixed(0)}% reversed from correct to incorrect.
+                    {t(`${helpfulRevisionRate.toFixed(0)}% improved after revision, but ${harmfulRevisionRate.toFixed(0)}% reversed from correct to incorrect.`)}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -1527,14 +2000,15 @@ export default function TeacherAnalytics() {
               <DecisionRevisionFlowChart flow={decisionRevisionFlow} />
             </div>
           </div>
+          )}
 
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden h-full flex flex-col">
             <div className="p-6 lg:p-7 border-b-4 border-brand-dark bg-brand-yellow">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-[0.22em] text-brand-dark/55 mb-2">Student Map</p>
-                  <h2 className="text-3xl font-black">Student Pressure Scatter</h2>
-                  <p className="font-bold text-brand-dark/65 mt-2">Each dot is one student. X = accuracy, Y = stress. The quadrants show who is stable, pressured, or drifting out of control.</p>
+                  <p className="text-xs font-black uppercase tracking-[0.22em] text-brand-dark/55 mb-2">{t('Student Map')}</p>
+                  <h2 className="text-3xl font-black">{t('Student Pressure Scatter')}</h2>
+                  <p className="font-bold text-brand-dark/65 mt-2">{t('Each dot is one student. X = accuracy, Y = stress. The quadrants show who is stable, pressured, or drifting out of control.')}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <ContextChip label="High Risk" value={participants.filter((student: any) => student.risk_level === 'high').length} tone="bad" />
@@ -1553,11 +2027,13 @@ export default function TeacherAnalytics() {
           </div>
         </section>
 
+        {showAdvancedPanels && (
+          <>
         <section className="grid grid-cols-1 2xl:grid-cols-[1.1fr_0.9fr] gap-8 mb-8">
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden">
             <div className="p-7 border-b-4 border-brand-dark bg-brand-purple text-white">
-              <h2 className="text-3xl font-black">Session Dynamics</h2>
-              <p className="font-bold text-white/70 mt-2">Question-by-question turning points for accuracy, stress, response time, and panic behavior.</p>
+              <h2 className="text-3xl font-black">{t('Session Dynamics')}</h2>
+              <p className="font-bold text-white/70 mt-2">{t('Question-by-question turning points for accuracy, stress, response time, and panic behavior.')}</p>
             </div>
             <div className="p-7">
               <ResearchLineChart rows={sequenceDynamics} />
@@ -1566,8 +2042,8 @@ export default function TeacherAnalytics() {
 
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden">
             <div className="p-6 lg:p-7 border-b-4 border-brand-dark bg-brand-yellow">
-              <h2 className="text-3xl font-black">Recovery Patterns</h2>
-              <p className="font-bold text-brand-dark/65 mt-2">{recoverySummary}</p>
+              <h2 className="text-3xl font-black">{t('Recovery Patterns')}</h2>
+              <p className="font-bold text-brand-dark/65 mt-2">{t(recoverySummary)}</p>
             </div>
             <div className="p-6">
               <RecoveryPatternsChart rows={[...recoveryPatterns].sort((left, right) => Number(right.count || 0) - Number(left.count || 0))} />
@@ -1578,8 +2054,8 @@ export default function TeacherAnalytics() {
         <section className="grid grid-cols-1 xl:grid-cols-[1.08fr_0.92fr] gap-8 mb-8">
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden">
             <div className="p-7 border-b-4 border-brand-dark bg-white">
-              <h2 className="text-3xl font-black">Fatigue / Drift Timeline</h2>
-              <p className="font-bold text-brand-dark/60 mt-2">Rolling accuracy, response time, and hesitation across the run of the game.</p>
+              <h2 className="text-3xl font-black">{t('Fatigue / Drift Timeline')}</h2>
+              <p className="font-bold text-brand-dark/60 mt-2">{t('Rolling accuracy, response time, and hesitation across the run of the game.')}</p>
             </div>
             <div className="p-6">
               <FatigueTimelineChart rows={fatigueTimeline} />
@@ -1588,8 +2064,8 @@ export default function TeacherAnalytics() {
 
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden">
             <div className="p-7 border-b-4 border-brand-dark bg-brand-bg">
-              <h2 className="text-3xl font-black">Deadline Dependency Curve</h2>
-              <p className="font-bold text-brand-dark/60 mt-2">Binned by remaining time, so you can see whether late decisions help or hurt.</p>
+              <h2 className="text-3xl font-black">{t('Deadline Dependency Curve')}</h2>
+              <p className="font-bold text-brand-dark/60 mt-2">{t('Binned by remaining time, so you can see whether late decisions help or hurt.')}</p>
             </div>
             <div className="p-6">
               <DeadlineDependencyChart rows={deadlineCurve} />
@@ -1600,9 +2076,9 @@ export default function TeacherAnalytics() {
         <details className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] mb-8">
           <summary className="list-none cursor-pointer p-6 lg:p-7 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Deeper Read</p>
-              <h2 className="text-3xl font-black">Student drilldown and statistical detail</h2>
-              <p className="font-bold text-brand-dark/60 mt-2">Open this layer when you need richer student context, correlation reads, or the slower diagnostic charts below.</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Deeper Read')}</p>
+              <h2 className="text-3xl font-black">{t('Student drilldown and statistical detail')}</h2>
+              <p className="font-bold text-brand-dark/60 mt-2">{t('Open this layer when you need richer student context, correlation reads, or the slower diagnostic charts below.')}</p>
             </div>
             <div className="flex items-center gap-3">
               <ContextChip label="Stats" value={`${descriptiveStats.length}`} tone="neutral" />
@@ -1615,15 +2091,15 @@ export default function TeacherAnalytics() {
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
             <div className="flex items-center gap-3 mb-5">
               <BarChart3 className="w-6 h-6 text-brand-purple" />
-              <h2 className="text-3xl font-black">Descriptive Statistics</h2>
+              <h2 className="text-3xl font-black">{t('Descriptive Statistics')}</h2>
             </div>
-            <p className="font-bold text-brand-dark/60 mb-6">Mean, spread, and quartiles for the main instructional and behavioral signals in this session.</p>
+            <p className="font-bold text-brand-dark/60 mb-6">{t('Mean, spread, and quartiles for the main instructional and behavioral signals in this session.')}</p>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {descriptiveStats.map((metric: any) => (
                 <div key={metric.id} className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
                   <div className="flex items-start justify-between gap-3 mb-4">
                     <div>
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{metric.label}</p>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t(metric.label)}</p>
                       <p className="text-3xl font-black">
                         {metric.summary?.mean}
                         <span className="text-base ml-1">{metric.unit}</span>
@@ -1646,15 +2122,15 @@ export default function TeacherAnalytics() {
             <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
               <div className="flex items-center gap-3 mb-5">
                 <BrainCircuit className="w-6 h-6 text-brand-orange" />
-                <h2 className="text-3xl font-black">Correlation Lab</h2>
+                <h2 className="text-3xl font-black">{t('Correlation Lab')}</h2>
               </div>
               <div className="space-y-3">
                 {correlations.map((correlation: any) => (
                   <div key={correlation.label} className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <div>
-                        <p className="font-black text-lg">{correlation.label}</p>
-                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{correlation.strength} signal · {correlation.direction}</p>
+                        <p className="font-black text-lg">{t(correlation.label)}</p>
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{t(correlation.strength)} {t('signal')} · {t(correlation.direction)}</p>
                       </div>
                       <div className={`px-3 py-2 rounded-full border-2 border-brand-dark font-black ${Math.abs(Number(correlation.value)) >= 0.65 ? 'bg-brand-orange text-white' : Math.abs(Number(correlation.value)) >= 0.35 ? 'bg-brand-yellow text-brand-dark' : 'bg-white text-brand-dark'}`}>
                         r = {Number(correlation.value).toFixed(3)}
@@ -1678,8 +2154,8 @@ export default function TeacherAnalytics() {
             <div className="bg-brand-dark text-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#FF5A36] p-7">
               <div className="flex items-center justify-between gap-4 mb-5">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">Selected Student</p>
-                  <h2 className="text-3xl font-black">{selectedStudent?.nickname || 'No student selected'}</h2>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">{t('Selected Student')}</p>
+                  <h2 className="text-3xl font-black">{selectedStudent?.nickname || t('No student selected')}</h2>
                 </div>
                 {selectedStudent && <RiskBadge level={selectedStudent.risk_level} />}
               </div>
@@ -1698,8 +2174,8 @@ export default function TeacherAnalytics() {
                     <MiniMetric label="Commit" value={formatMs(Number(selectedStudent.avg_commitment_latency_ms || 0))} />
                     <MiniMetric label="Stability" value={`${Number(selectedStudent.stability_score || 0).toFixed(0)}`} />
                   </div>
-                  <p className="text-xl font-black text-brand-yellow mb-2">{selectedStudent.headline}</p>
-                  <p className="font-medium text-white/75 mb-5">{selectedStudent.body}</p>
+                  <p className="text-xl font-black text-brand-yellow mb-2">{t(selectedStudent.headline)}</p>
+                  <p className="font-medium text-white/75 mb-5">{t(selectedStudent.body)}</p>
 
                   <div className="flex flex-wrap gap-2 mb-5">
                     {(selectedStudent.weak_tags || []).slice(0, 3).map((tag: string) => (
@@ -1710,20 +2186,20 @@ export default function TeacherAnalytics() {
                   </div>
 
                   <div className="bg-white/10 rounded-2xl border border-white/15 p-4 mb-5">
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-white/50 mb-2">Recommended move</p>
-                    <p className="font-medium text-white/80">{selectedStudent.recommendation}</p>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-white/50 mb-2">{t('Recommended move')}</p>
+                    <p className="font-medium text-white/80">{t(selectedStudent.recommendation)}</p>
                   </div>
 
                   <button
                     onClick={() => navigate(`/teacher/analytics/class/${sessionId}/student/${selectedStudent.id}`)}
                     className="w-full px-5 py-4 bg-brand-yellow text-brand-dark border-2 border-brand-dark rounded-full font-black flex items-center justify-center gap-2"
                   >
-                    Open Personal Dashboard
+                    {t('Open Personal Dashboard')}
                     <ArrowUpRight className="w-4 h-4" />
                   </button>
                 </>
               ) : (
-                <p className="font-bold text-white/60">No student data available.</p>
+                <p className="font-bold text-white/60">{t('No student data available.')}</p>
               )}
             </div>
           </div>
@@ -1732,8 +2208,8 @@ export default function TeacherAnalytics() {
         <section className="grid grid-cols-1 xl:grid-cols-[0.95fr_1.05fr] gap-8">
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden">
             <div className="p-7 border-b-4 border-brand-dark bg-white">
-              <h2 className="text-3xl font-black">Commitment Behavior</h2>
-              <p className="font-bold text-brand-dark/60 mt-2">A histogram of commitment latency, so mean values do not hide different solving styles.</p>
+              <h2 className="text-3xl font-black">{t('Commitment Behavior')}</h2>
+              <p className="font-bold text-brand-dark/60 mt-2">{t('A histogram of commitment latency, so mean values do not hide different solving styles.')}</p>
             </div>
             <div className="p-6">
               <CommitmentDistributionChart rows={commitmentDistribution} />
@@ -1742,8 +2218,8 @@ export default function TeacherAnalytics() {
 
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden">
             <div className="p-7 border-b-4 border-brand-dark bg-[#d8f1ff]">
-              <h2 className="text-3xl font-black">Re-engagement Outcomes</h2>
-              <p className="font-bold text-brand-dark/65 mt-2">Whether quick or prolonged returns from blur actually hurt the class.</p>
+              <h2 className="text-3xl font-black">{t('Re-engagement Outcomes')}</h2>
+              <p className="font-bold text-brand-dark/65 mt-2">{t('Whether quick or prolonged returns from blur actually hurt the class.')}</p>
             </div>
             <div className="p-6">
               <ReengagementOutcomeChart rows={reengagementOutcomes} />
@@ -1756,9 +2232,9 @@ export default function TeacherAnalytics() {
         <details className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] mb-8">
           <summary className="list-none cursor-pointer p-6 lg:p-7 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Supporting Analysis</p>
-              <h2 className="text-3xl font-black">Benchmarks, clusters, and deeper telemetry</h2>
-              <p className="font-bold text-brand-dark/60 mt-2">Open this layer when you want the fuller statistical context behind the main read.</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Supporting Analysis')}</p>
+              <h2 className="text-3xl font-black">{t('Benchmarks, clusters, and deeper telemetry')}</h2>
+              <p className="font-bold text-brand-dark/60 mt-2">{t('Open this layer when you want the fuller statistical context behind the main read.')}</p>
             </div>
             <div className="flex items-center gap-3">
               <ContextChip label="Quartiles" value={`${Object.values(quartileBenchmarks).length}`} tone="neutral" />
@@ -1771,31 +2247,31 @@ export default function TeacherAnalytics() {
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
             <div className="flex items-center gap-3 mb-5">
               <Users className="w-6 h-6 text-brand-purple" />
-              <h2 className="text-3xl font-black">Cohort Benchmarks</h2>
+              <h2 className="text-3xl font-black">{t('Cohort Benchmarks')}</h2>
             </div>
             <div className="space-y-4">
               {Object.values(quartileBenchmarks).map((group: any) => (
                 <div key={group.id} className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div>
-                      <p className="text-lg font-black">{group.label}</p>
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{group.count} students</p>
+                      <p className="text-lg font-black">{t(group.label)}</p>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{t(`${group.count} students`)}</p>
                     </div>
                     <div className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark font-black">
-                      {group.accuracy?.toFixed?.(1) ?? group.accuracy}% accuracy
+                      {t(`${group.accuracy?.toFixed?.(1) ?? group.accuracy}% accuracy`)}
                     </div>
                   </div>
                   <div className="space-y-3">
                     <div>
                       <div className="flex items-center justify-between text-sm font-black mb-2">
-                        <span>Stress</span>
+                            <span>{t('Stress')}</span>
                         <span>{group.stress_index}%</span>
                       </div>
                       <Bar value={Number(group.stress_index) || 0} tone={accuracyTone(100 - Number(group.stress_index || 0))} />
                     </div>
                     <div>
                       <div className="flex items-center justify-between text-sm font-black mb-2">
-                        <span>Focus</span>
+                            <span>{t('Focus')}</span>
                         <span>{group.focus_score}</span>
                       </div>
                       <Bar value={Number(group.focus_score) || 0} tone={accuracyTone(Number(group.focus_score) || 0)} />
@@ -1812,7 +2288,7 @@ export default function TeacherAnalytics() {
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
             <div className="flex items-center gap-3 mb-5">
               <Activity className="w-6 h-6 text-brand-orange" />
-              <h2 className="text-3xl font-black">Behavior Research</h2>
+              <h2 className="text-3xl font-black">{t('Behavior Research')}</h2>
             </div>
             <DistributionGroup title="Pace distribution" items={behaviorPatterns?.pace_distribution || []} />
             <DistributionGroup title="Commit style distribution" items={behaviorPatterns?.commit_style_distribution || []} />
@@ -1825,8 +2301,8 @@ export default function TeacherAnalytics() {
               {(behaviorPatterns?.accuracy_by_pace || []).map((row: any) => (
                 <div key={row.label}>
                   <div className="flex items-center justify-between gap-3 text-sm font-black mb-2">
-                    <span className="capitalize">{row.label}</span>
-                    <span>{row.accuracy}% accuracy · {row.count} rows</span>
+                    <span className="capitalize">{t(row.label)}</span>
+                    <span>{t(`${row.accuracy}% accuracy`)} · {t(`${row.count} rows`)}</span>
                   </div>
                   <Bar value={Number(row.accuracy) || 0} tone={accuracyTone(Number(row.accuracy) || 0)} />
                 </div>
@@ -1837,21 +2313,21 @@ export default function TeacherAnalytics() {
           <div className="bg-brand-yellow rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
             <div className="flex items-center gap-3 mb-5">
               <Sparkles className="w-6 h-6 text-brand-orange" />
-              <h2 className="text-3xl font-black">Clusters and Outliers</h2>
+              <h2 className="text-3xl font-black">{t('Clusters and Outliers')}</h2>
             </div>
             <div className="space-y-4 mb-6">
               {clusters.map((cluster: any) => (
                 <div key={cluster.id} className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div>
-                      <p className="text-lg font-black">{cluster.label}</p>
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{cluster.count} students</p>
+                      <p className="text-lg font-black">{t(cluster.label)}</p>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{t(`${cluster.count} students`)}</p>
                     </div>
                     <div className="px-3 py-2 rounded-full border-2 border-brand-dark bg-brand-bg font-black">
                       {cluster.count}
                     </div>
                   </div>
-                  <p className="font-medium text-brand-dark/70 mb-3">{cluster.description}</p>
+                  <p className="font-medium text-brand-dark/70 mb-3">{t(cluster.description)}</p>
                   <p className="font-bold text-brand-dark/60">
                     {(cluster.students || []).slice(0, 4).map((student: any) => student.nickname).join(', ')}
                   </p>
@@ -1862,12 +2338,12 @@ export default function TeacherAnalytics() {
             <div className="space-y-3">
               {outliers.map((outlier: any, index: number) => (
                 <div key={`${outlier.title}-${index}`} className="rounded-[1.3rem] border-2 border-brand-dark bg-white p-4">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{outlier.title}</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t(outlier.title)}</p>
                   <div className="flex items-center justify-between gap-3 mb-2">
                     <p className="text-lg font-black">{outlier.label}</p>
                     <span className="px-3 py-1 rounded-full bg-brand-bg border-2 border-brand-dark font-black">{outlier.value}</span>
                   </div>
-                  <p className="font-medium text-brand-dark/70">{outlier.body}</p>
+                  <p className="font-medium text-brand-dark/70">{t(outlier.body)}</p>
                 </div>
               ))}
             </div>
@@ -1880,16 +2356,16 @@ export default function TeacherAnalytics() {
               <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
                 <div className="flex items-center gap-3 mb-5">
                   <Users className="w-6 h-6 text-brand-purple" />
-                  <h2 className="text-3xl font-black">Team BI Board</h2>
+                  <h2 className="text-3xl font-black">{t('Team BI Board')}</h2>
                 </div>
                 <div className="space-y-4">
                   {teams.map((team: any) => (
                     <div key={team.team_id || team.team_name} className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
                       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
                         <div>
-                          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Rank #{team.rank}</p>
+                          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t(`Rank #${team.rank}`)}</p>
                           <p className="text-2xl font-black">{team.team_name}</p>
-                          <p className="font-medium text-brand-dark/65">{team.student_count} students · consensus {team.consensus_index}%</p>
+                          <p className="font-medium text-brand-dark/65">{t(`${team.student_count} students`)} · {t('Consensus')} {team.consensus_index}%</p>
                         </div>
                         <div className="grid grid-cols-2 gap-2 min-w-[240px]">
                           <SignalPill label="Score" value={team.total_score} />
@@ -1901,14 +2377,14 @@ export default function TeacherAnalytics() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
                           <div className="flex items-center justify-between gap-3 text-sm font-black mb-2">
-                            <span>Accuracy</span>
+                            <span>{t('Accuracy')}</span>
                             <span>{team.accuracy}%</span>
                           </div>
                           <Bar value={Number(team.accuracy) || 0} tone={accuracyTone(Number(team.accuracy) || 0)} />
                         </div>
                         <div>
                           <div className="flex items-center justify-between gap-3 text-sm font-black mb-2">
-                            <span>Consensus</span>
+                            <span>{t('Consensus')}</span>
                             <span>{team.consensus_index}%</span>
                           </div>
                           <Bar value={Number(team.consensus_index) || 0} tone={accuracyTone(Number(team.consensus_index) || 0)} />
@@ -1926,7 +2402,7 @@ export default function TeacherAnalytics() {
             <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
               <div className="flex items-center gap-3 mb-5">
                 <Gauge className="w-6 h-6 text-brand-orange" />
-                <h2 className="text-3xl font-black">Student Telemetry Table</h2>
+                <h2 className="text-3xl font-black">{t('Student Telemetry Table')}</h2>
               </div>
               <div className="space-y-3">
                 {[...participants]
@@ -1941,7 +2417,7 @@ export default function TeacherAnalytics() {
                       <div className="grid grid-cols-[1.2fr_repeat(4,minmax(0,0.8fr))] gap-3 items-center">
                         <div>
                           <p className="font-black text-lg">{student.nickname}</p>
-                          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{student.team_name || 'Solo'} · {student.risk_level}</p>
+                          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{t(student.team_name || 'Solo')} · {t(student.risk_level)}</p>
                         </div>
                         <SignalPill label="Drag" value={student.attention_drag_index ?? 0} tone={riskTone(student.attention_drag_index >= 70 ? 'high' : student.attention_drag_index >= 40 ? 'medium' : 'low')} />
                         <SignalPill label="Blur" value={formatMs(Number(student.avg_blur_time_ms || 0))} />
@@ -1956,50 +2432,54 @@ export default function TeacherAnalytics() {
         )}
           </div>
         </details>
+          </>
+        )}
 
-        <section className="grid grid-cols-1 xl:grid-cols-[0.95fr_1.05fr] gap-8 mb-8">
-          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
-            <div className="flex items-center gap-3 mb-5">
-              <BrainCircuit className="w-6 h-6 text-brand-purple" />
-              <h2 className="text-3xl font-black">Concept Heatmap</h2>
-            </div>
-            <p className="font-bold text-brand-dark/60 mb-6">These are the concept clusters that generated the weakest outcomes across the class.</p>
-            <div className="space-y-4">
-              {topGapTags.map((tag: any) => (
-                <div key={tag.tag} className="bg-brand-bg rounded-2xl border-2 border-brand-dark p-4">
-                  <div className="flex items-center justify-between gap-4 mb-3">
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Concept</p>
-                      <p className="text-2xl font-black capitalize">{tag.tag}</p>
+        <section className={`grid grid-cols-1 gap-8 mb-8 ${showAdvancedPanels ? 'xl:grid-cols-[0.95fr_1.05fr]' : ''}`}>
+          {showAdvancedPanels && (
+            <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
+              <div className="flex items-center gap-3 mb-5">
+                <BrainCircuit className="w-6 h-6 text-brand-purple" />
+                <h2 className="text-3xl font-black">{t('Concept Heatmap')}</h2>
+              </div>
+              <p className="font-bold text-brand-dark/60 mb-6">{t('These are the concept clusters that generated the weakest outcomes across the class.')}</p>
+              <div className="space-y-4">
+                {topGapTags.map((tag: any) => (
+                  <div key={tag.tag} className="bg-brand-bg rounded-2xl border-2 border-brand-dark p-4">
+                    <div className="flex items-center justify-between gap-4 mb-3">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{t('Concept')}</p>
+                        <p className="text-2xl font-black capitalize">{tag.tag}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-3xl font-black">{tag.accuracy.toFixed(0)}%</p>
+                        <p className="text-xs font-bold text-brand-dark/50">{t(`${tag.students_count ?? tag.attempts ?? 0} students touched this topic`)}</p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-3xl font-black">{tag.accuracy.toFixed(0)}%</p>
-                      <p className="text-xs font-bold text-brand-dark/50">{tag.students_count ?? tag.attempts ?? 0} students touched this topic</p>
+                    <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
+                      <SignalPill label="Stress" value={`${tag.stress_index.toFixed(0)}%`} tone={tag.stress_level} />
+                      <SignalPill label="Avg TFI" value={formatMs(Number(tag.avg_tfi || 0))} />
+                      <SignalPill label="1st Choice" value={`${Number(tag.first_choice_accuracy || 0).toFixed(0)}%`} tone={accuracyTone(Number(tag.first_choice_accuracy || 0))} />
+                      <SignalPill label="Commit" value={formatMs(Number(tag.avg_commitment_latency_ms || 0))} />
                     </div>
+                    <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
+                      <SignalPill label="Corrected" value={`${Number(tag.correction_rate || 0).toFixed(0)}%`} tone="good" />
+                      <SignalPill label="Wrong Revision" value={`${Number(tag.changed_away_from_correct_rate || 0).toFixed(0)}%`} tone={Number(tag.changed_away_from_correct_rate || 0) >= 15 ? 'bad' : 'mid'} />
+                      <SignalPill label="Deadline" value={`${Number(tag.deadline_dependency_rate || 0).toFixed(0)}%`} tone={Number(tag.deadline_dependency_rate || 0) >= 25 ? 'bad' : 'mid'} />
+                      <SignalPill label="Panic" value={tag.total_panic_swaps} />
+                    </div>
+                    <Bar value={tag.accuracy} tone={accuracyTone(tag.accuracy)} />
                   </div>
-                  <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
-                    <SignalPill label="Stress" value={`${tag.stress_index.toFixed(0)}%`} tone={tag.stress_level} />
-                    <SignalPill label="Avg TFI" value={formatMs(Number(tag.avg_tfi || 0))} />
-                    <SignalPill label="1st Choice" value={`${Number(tag.first_choice_accuracy || 0).toFixed(0)}%`} tone={accuracyTone(Number(tag.first_choice_accuracy || 0))} />
-                    <SignalPill label="Commit" value={formatMs(Number(tag.avg_commitment_latency_ms || 0))} />
-                  </div>
-                  <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
-                    <SignalPill label="Corrected" value={`${Number(tag.correction_rate || 0).toFixed(0)}%`} tone="good" />
-                    <SignalPill label="Wrong Revision" value={`${Number(tag.changed_away_from_correct_rate || 0).toFixed(0)}%`} tone={Number(tag.changed_away_from_correct_rate || 0) >= 15 ? 'bad' : 'mid'} />
-                    <SignalPill label="Deadline" value={`${Number(tag.deadline_dependency_rate || 0).toFixed(0)}%`} tone={Number(tag.deadline_dependency_rate || 0) >= 25 ? 'bad' : 'mid'} />
-                    <SignalPill label="Panic" value={tag.total_panic_swaps} />
-                  </div>
-                  <Bar value={tag.accuracy} tone={accuracyTone(tag.accuracy)} />
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className={`grid grid-cols-1 gap-6 ${showAdvancedPanels ? 'lg:grid-cols-2' : ''}`}>
             <div className="bg-brand-yellow rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
               <div className="flex items-center gap-3 mb-5">
                 <AlertTriangle className="w-6 h-6 text-brand-orange" />
-                <h2 className="text-3xl font-black">Teacher Alerts</h2>
+                <h2 className="text-3xl font-black">{t('Teacher Alerts')}</h2>
               </div>
               <div className="space-y-4">
                 {alertList.length > 0 ? alertList.map((alert: any, index: number) => (
@@ -2009,42 +2489,46 @@ export default function TeacherAnalytics() {
                         <AlertTriangle className="w-5 h-5" />
                       </div>
                       <div>
-                        <p className="font-black text-lg leading-tight mb-1">{alert.title}</p>
-                        <p className="font-medium text-brand-dark/70">{alert.body}</p>
+                        <p className="font-black text-lg leading-tight mb-1">{t(alert.title)}</p>
+                        <p className="font-medium text-brand-dark/70">{t(alert.body)}</p>
                       </div>
                     </div>
                   </div>
                 )) : (
-                  <p className="font-bold text-brand-dark/60">No urgent class-level alerts were produced for this session.</p>
+                  <p className="font-bold text-brand-dark/60">{t('No urgent class-level alerts were produced for this session.')}</p>
                 )}
               </div>
             </div>
 
-            <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
-              <div className="flex items-center gap-3 mb-5">
-                <BarChart3 className="w-6 h-6 text-brand-dark" />
-                <h2 className="text-3xl font-black">Signal Distribution</h2>
+            {showAdvancedPanels && (
+              <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
+                <div className="flex items-center gap-3 mb-5">
+                  <BarChart3 className="w-6 h-6 text-brand-dark" />
+                  <h2 className="text-3xl font-black">{t('Signal Distribution')}</h2>
+                </div>
+                <DistributionGroup title="Accuracy bands" items={accuracyDistribution} />
+                <DistributionGroup title="Stress bands" items={stressDistribution} />
+                <DistributionGroup title="Risk bands" items={riskDistribution} />
               </div>
-              <DistributionGroup title="Accuracy bands" items={accuracyDistribution} />
-              <DistributionGroup title="Stress bands" items={stressDistribution} />
-              <DistributionGroup title="Risk bands" items={riskDistribution} />
-            </div>
+            )}
           </div>
         </section>
 
-        <section className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden mb-8">
+        <section id="teacher-board-questions" className="scroll-mt-40 bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden mb-8">
           <div className="p-7 border-b-4 border-brand-dark bg-white flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
-              <h2 className="text-3xl font-black">Question Diagnostics</h2>
-              <p className="font-bold text-brand-dark/60 mt-2">Open with the hardest items first. The rest stay tucked behind a single click so the page keeps its hierarchy.</p>
+              <h2 className="text-3xl font-black">{t('Question Diagnostics')}</h2>
+              <p className="font-bold text-brand-dark/60 mt-2">{t('Open with the hardest items first. The rest stay tucked behind a single click so the page keeps its hierarchy.')}</p>
             </div>
-            <button
-              onClick={() => downloadCsv(`${exportBaseName}-question-diagnostics.csv`, questionCsvRows)}
-              className="w-fit px-5 py-3 bg-brand-yellow border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
-            >
-              <Download className="w-4 h-4" />
-              Export Diagnostics CSV
-            </button>
+            {showAdvancedPanels && (
+              <button
+                onClick={() => downloadCsv(`${exportBaseName}-question-diagnostics.csv`, questionCsvRows)}
+                className="w-fit px-5 py-3 bg-brand-yellow border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
+              >
+                <Download className="w-4 h-4" />
+                {t('Export Diagnostics CSV')}
+              </button>
+            )}
           </div>
 
           <div className="p-6 grid grid-cols-1 xl:grid-cols-2 gap-5">
@@ -2052,7 +2536,7 @@ export default function TeacherAnalytics() {
               <div key={question.question_id} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
                 <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-4">
                   <div className="min-w-0">
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Question {question.question_index}</p>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t(`Question ${question.question_index}`)}</p>
                     <p className="text-xl font-black leading-tight mb-3">{question.question_prompt}</p>
                     <div className="flex flex-wrap gap-2">
                       {(question.tags || []).map((tag: string) => (
@@ -2074,7 +2558,7 @@ export default function TeacherAnalytics() {
                   </div>
                   <div className="grid grid-cols-2 gap-2 min-w-[220px]">
                     <SignalPill label="Difficulty" value={`${question.difficulty_index.toFixed(0)}%`} tone={question.difficulty_index >= 50 ? 'bad' : 'mid'} />
-                    <SignalPill label="Discrimination" value={`${question.discrimination_index.toFixed(0)}pts`} tone={question.discrimination_index >= 30 ? 'good' : question.discrimination_index >= 10 ? 'mid' : 'bad'} />
+                    <SignalPill label="Discrimination" value={`${question.discrimination_index.toFixed(0)} pts`} tone={question.discrimination_index >= 30 ? 'good' : question.discrimination_index >= 10 ? 'mid' : 'bad'} />
                     <SignalPill label="Stress" value={`${question.stress_index.toFixed(0)}%`} tone={riskTone(question.stress_index >= 70 ? 'high' : question.stress_index >= 40 ? 'medium' : 'low')} />
                     <SignalPill label="Response" value={formatMs(Number(question.avg_response_ms || 0))} />
                   </div>
@@ -2082,15 +2566,15 @@ export default function TeacherAnalytics() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <div className="flex items-center justify-between gap-3 text-sm font-black mb-2">
-                      <span>Accuracy</span>
+                        <span>{t('Accuracy')}</span>
                       <span>{question.accuracy}%</span>
                     </div>
                     <Bar value={question.accuracy} tone={accuracyTone(question.accuracy)} />
                   </div>
                   <div>
                     <div className="flex items-center justify-between gap-3 text-sm font-black mb-2">
-                      <span>Top vs Bottom Gap</span>
-                      <span>{question.discrimination_index}pts</span>
+                        <span>{t('Top vs Bottom Gap')}</span>
+                      <span>{t(`${question.discrimination_index} pts`)}</span>
                     </div>
                     <Bar value={Math.max(0, Math.min(100, question.discrimination_index + 50))} tone={question.discrimination_index >= 30 ? 'good' : question.discrimination_index >= 10 ? 'mid' : 'bad'} />
                   </div>
@@ -2103,25 +2587,26 @@ export default function TeacherAnalytics() {
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr] gap-4 mt-4">
                   <div className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4">
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Top distractor</p>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Top distractor')}</p>
                     {question.top_distractor ? (
                       <>
                         <p className="font-black text-lg mb-1">
                           {question.top_distractor.label}. {question.top_distractor.text}
                         </p>
                         <p className="font-medium text-brand-dark/70">
-                          {Number(question.top_distractor.rate || 0).toFixed(1)}% of students were pulled here.
-                          Deadline dependency on this item was {Number(question.deadline_dependency_rate || 0).toFixed(1)}%.
+                          {t(`${Number(question.top_distractor.rate || 0).toFixed(1)}% of students were pulled here.`)}
+                          {' '}
+                          {t(`Deadline dependency on this item was ${Number(question.deadline_dependency_rate || 0).toFixed(1)}%.`)}
                         </p>
                       </>
                     ) : (
                       <p className="font-medium text-brand-dark/70">
-                        No single wrong option emerged as a dominant misconception on this question.
+                        {t('No single wrong option emerged as a dominant misconception on this question.')}
                       </p>
                     )}
                   </div>
                   <div className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4">
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Choice distribution</p>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">{t('Choice distribution')}</p>
                     <ChoiceDistributionSparkline
                       choices={question.choice_distribution || []}
                       highlightLabel={question.top_distractor?.label}
@@ -2137,8 +2622,8 @@ export default function TeacherAnalytics() {
               <details className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
                 <summary className="list-none cursor-pointer flex items-center justify-between gap-3">
                   <div>
-                    <p className="font-black">Show {questionDiagnostics.length - 4} more question diagnostics</p>
-                    <p className="font-medium text-brand-dark/65">Keep the top trouble spots visible by default, and open the rest only when you need item-level follow-up.</p>
+                    <p className="font-black">{t(`Show ${questionDiagnostics.length - 4} more question diagnostics`)}</p>
+                    <p className="font-medium text-brand-dark/65">{t('Keep the top trouble spots visible by default, and open the rest only when you need item-level follow-up.')}</p>
                   </div>
                   <ChevronDown className="w-5 h-5 shrink-0" />
                 </summary>
@@ -2147,7 +2632,7 @@ export default function TeacherAnalytics() {
                     <div key={`extra-${question.question_id}`} className="rounded-[1.75rem] border-2 border-brand-dark bg-white p-5">
                       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-4">
                         <div className="min-w-0">
-                          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Question {question.question_index}</p>
+                          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t(`Question ${question.question_index}`)}</p>
                           <p className="text-xl font-black leading-tight mb-3">{question.question_prompt}</p>
                           <div className="flex flex-wrap gap-2">
                             {(question.tags || []).map((tag: string) => (
@@ -2166,8 +2651,8 @@ export default function TeacherAnalytics() {
                       </div>
                       <p className="font-medium text-brand-dark/70">
                         {question.top_distractor
-                          ? `${Number(question.top_distractor.rate || 0).toFixed(0)}% were pulled to distractor ${question.top_distractor.label}.`
-                          : 'No single distractor dominated this item.'}
+                          ? t(`${Number(question.top_distractor.rate || 0).toFixed(0)}% were pulled to distractor ${question.top_distractor.label}.`)
+                          : t('No single distractor dominated this item.')}
                       </p>
                     </div>
                   ))}
@@ -2177,99 +2662,114 @@ export default function TeacherAnalytics() {
           )}
         </section>
 
-        <section className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden mb-8">
-          <div className="p-7 border-b-4 border-brand-dark bg-white">
-            <h2 className="text-3xl font-black">Distractor Heatmap</h2>
-            <p className="font-bold text-brand-dark/60 mt-2">See whether errors are scattered or whether the same distractors are repeatedly seducing the class.</p>
-          </div>
-          <div className="p-6">
-            <DistractorHeatmapChart heatmap={distractorHeatmap} />
-          </div>
-        </section>
-
-        <section className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-8 mb-8">
-          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden">
-            <div className="p-7 border-b-4 border-brand-dark bg-brand-purple text-white">
-              <h2 className="text-3xl font-black">Question Pressure Map</h2>
-              <p className="font-bold text-white/70 mt-2">Every item is scored on both mastery and behavioral pressure.</p>
+        {showAdvancedPanels && (
+          <section className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden mb-8">
+            <div className="p-7 border-b-4 border-brand-dark bg-white">
+              <h2 className="text-3xl font-black">{t('Distractor Heatmap')}</h2>
+              <p className="font-bold text-brand-dark/60 mt-2">{t('See whether errors are scattered or whether the same distractors are repeatedly seducing the class.')}</p>
             </div>
-            <div className="p-6 space-y-4">
-              {questionRows.map((question: any) => (
-                <div key={question.id} className="rounded-2xl border-2 border-brand-dark bg-brand-bg p-5">
-                  <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-4">
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Question {question.index}</p>
-                      <p className="text-xl font-black leading-tight">{question.prompt}</p>
-                      <div className="flex flex-wrap gap-2 mt-3">
-                        {question.tags?.map((tag: string) => (
-                          <span key={`${question.id}-${tag}`} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-xs font-black capitalize">
-                            {tag}
-                          </span>
-                        ))}
+            <div className="p-6">
+              <DistractorHeatmapChart heatmap={distractorHeatmap} />
+            </div>
+          </section>
+        )}
+
+        <section className={`grid grid-cols-1 gap-8 mb-8 ${showAdvancedPanels ? 'xl:grid-cols-[1.1fr_0.9fr]' : ''}`}>
+          {showAdvancedPanels && (
+            <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden">
+              <div className="p-7 border-b-4 border-brand-dark bg-brand-purple text-white">
+                <h2 className="text-3xl font-black">{t('Question Pressure Map')}</h2>
+                <p className="font-bold text-white/70 mt-2">{t('Every item is scored on both mastery and behavioral pressure.')}</p>
+              </div>
+              <div className="p-6 space-y-4">
+                {questionRows.map((question: any) => (
+                  <div key={question.id} className="rounded-2xl border-2 border-brand-dark bg-brand-bg p-5">
+                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-4">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t(`Question ${question.index}`)}</p>
+                        <p className="text-xl font-black leading-tight">{question.prompt}</p>
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          {question.tags?.map((tag: string) => (
+                            <span key={`${question.id}-${tag}`} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-xs font-black capitalize">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 min-w-[200px]">
+                        <SignalPill label="Accuracy" value={`${question.accuracy.toFixed(0)}%`} tone={accuracyTone(question.accuracy)} />
+                        <SignalPill label="Stress" value={`${question.stress_index.toFixed(0)}%`} tone={question.stress_level} />
+                        <SignalPill label="1st Choice" value={`${Number(question.first_choice_accuracy || 0).toFixed(0)}%`} tone={accuracyTone(Number(question.first_choice_accuracy || 0))} />
+                        <SignalPill label="Deadline" value={`${Number(question.deadline_dependency_rate || 0).toFixed(0)}%`} tone={Number(question.deadline_dependency_rate || 0) >= 25 ? 'bad' : 'mid'} />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 min-w-[200px]">
-                      <SignalPill label="Accuracy" value={`${question.accuracy.toFixed(0)}%`} tone={accuracyTone(question.accuracy)} />
-                      <SignalPill label="Stress" value={`${question.stress_index.toFixed(0)}%`} tone={question.stress_level} />
-                      <SignalPill label="1st Choice" value={`${Number(question.first_choice_accuracy || 0).toFixed(0)}%`} tone={accuracyTone(Number(question.first_choice_accuracy || 0))} />
-                      <SignalPill label="Deadline" value={`${Number(question.deadline_dependency_rate || 0).toFixed(0)}%`} tone={Number(question.deadline_dependency_rate || 0) >= 25 ? 'bad' : 'mid'} />
-                    </div>
+                    <Bar value={question.accuracy} tone={accuracyTone(question.accuracy)} />
+                    <p className="font-medium text-brand-dark/70 mt-3">{t(question.recommendation)}</p>
                   </div>
-                  <Bar value={question.accuracy} tone={accuracyTone(question.accuracy)} />
-                  <p className="font-medium text-brand-dark/70 mt-3">{question.recommendation}</p>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="space-y-6">
             <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
               <div className="flex items-center gap-3 mb-5">
                 <Sparkles className="w-6 h-6 text-brand-orange" />
-                <h2 className="text-3xl font-black">Attention Queue</h2>
+                <h2 className="text-3xl font-black">{t('Attention Queue')}</h2>
               </div>
               <div className="space-y-3">
-                {(data?.studentSpotlight?.attention_needed || []).slice(0, 5).map((student: any) => (
-                  <button
-                    key={`queue-${student.id}`}
-                    onMouseEnter={() => setSelectedStudentId(Number(student.id))}
-                    onFocus={() => setSelectedStudentId(Number(student.id))}
-                    onClick={() => openStudentDashboard(student.id)}
-                    className={`w-full text-left rounded-2xl border-2 border-brand-dark p-4 transition-colors ${Number(selectedStudent?.id) === Number(student.id) ? 'bg-brand-yellow' : 'bg-brand-bg hover:bg-white'}`}
-                  >
-                    <div className="flex items-center justify-between gap-3 mb-2">
-                      <p className="text-lg font-black">{student.nickname}</p>
-                      <RiskBadge level={student.risk_level} compact />
-                    </div>
-                    <p className="font-medium text-brand-dark/70">{student.recommendation}</p>
-                  </button>
-                ))}
+                {attentionQueue.slice(0, 5).length > 0 ? (
+                  attentionQueue.slice(0, 5).map((student: any) => (
+                    <button
+                      key={`queue-${student.id}`}
+                      onMouseEnter={() => setSelectedStudentId(Number(student.id))}
+                      onFocus={() => setSelectedStudentId(Number(student.id))}
+                      onClick={() => openStudentDashboard(student.id)}
+                      className={`w-full text-left rounded-2xl border-2 border-brand-dark p-4 transition-colors ${Number(selectedStudent?.id) === Number(student.id) ? 'bg-brand-yellow' : 'bg-brand-bg hover:bg-white'}`}
+                    >
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <p className="text-lg font-black">{student.nickname}</p>
+                        <RiskBadge level={student.risk_level} compact />
+                      </div>
+                      <p className="font-medium text-brand-dark/70">{t(student.recommendation)}</p>
+                    </button>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border-2 border-brand-dark bg-brand-bg p-4">
+                    <p className="font-black">{t('No student queue has been produced yet.')}</p>
+                    <p className="font-medium text-brand-dark/70 mt-2">
+                      {t('The page is already simplified for a fast teaching read.')}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="bg-brand-dark text-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#FF5A36] p-7">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">Data Pack</p>
-              <h2 className="text-3xl font-black mb-3">Research export ready</h2>
-              <p className="font-medium text-white/75 mb-5">
-                Exported response rows include timing, swaps, focus-loss, commit window, volatility, and question metadata so the session can be reused later for statistical analysis.
-              </p>
-              <div className="grid grid-cols-3 gap-3">
-                <MiniMetric label="Rows" value={compactNumber.format(researchRows.length || 0)} />
-                <MiniMetric label="Questions" value={`${questionDiagnostics.length}`} />
-                <MiniMetric label="Students" value={`${participants.length}`} />
+            {showAdvancedPanels && (
+              <div className="bg-brand-dark text-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#FF5A36] p-7">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">{t('Data Pack')}</p>
+                <h2 className="text-3xl font-black mb-3">{t('Research export ready')}</h2>
+                <p className="font-medium text-white/75 mb-5">
+                  {t('Exported response rows include timing, swaps, focus-loss, commit window, volatility, and question metadata so the session can be reused later for statistical analysis.')}
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  <MiniMetric label="Rows" value={compactNumber.format(researchRows.length || 0)} />
+                  <MiniMetric label="Questions" value={`${questionDiagnostics.length}`} />
+                  <MiniMetric label="Students" value={`${participants.length}`} />
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </section>
 
-        <section className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden">
+        <section id="teacher-board-students-list" className="scroll-mt-40 bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden">
           <div className="p-7 border-b-4 border-brand-dark bg-white">
-            <h2 className="text-3xl font-black">Student Command Center</h2>
-            <p className="font-bold text-brand-dark/60 mt-2">Select a student for quick insight, then drill into the personal dashboard to build a same-material follow-up game.</p>
+            <h2 className="text-3xl font-black">{t('Student Command Center')}</h2>
+            <p className="font-bold text-brand-dark/60 mt-2">{t('Select a student for quick insight, then drill into the personal dashboard to build a same-material follow-up game.')}</p>
           </div>
 
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {participants.map((student: any) => (
+            {prioritizedParticipants.map((student: any) => (
               <button
                 key={student.id}
                 onMouseEnter={() => setSelectedStudentId(Number(student.id))}
@@ -2279,9 +2779,9 @@ export default function TeacherAnalytics() {
               >
                 <div className="flex items-start justify-between gap-3 mb-5">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-2">Rank #{student.rank}</p>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-2">{t(`Rank #${student.rank}`)}</p>
                     <h3 className="text-2xl font-black">{student.nickname}</h3>
-                    <p className="font-bold text-brand-dark/60">{student.decision_style}</p>
+                    <p className="font-bold text-brand-dark/60">{t(student.decision_style)}</p>
                   </div>
                   <RiskBadge level={student.risk_level} compact />
                 </div>
@@ -2301,10 +2801,10 @@ export default function TeacherAnalytics() {
                   ))}
                 </div>
 
-                <p className="font-medium text-brand-dark/70 mb-4 min-h-[72px]">{student.recommendation}</p>
+                <p className="font-medium text-brand-dark/70 mb-4 min-h-[72px]">{t(student.recommendation)}</p>
 
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-black text-brand-purple">Open individual dashboard</span>
+                  <span className="text-sm font-black text-brand-purple">{t('Open individual dashboard')}</span>
                   <div className="w-10 h-10 rounded-full bg-brand-dark text-white border-2 border-brand-dark flex items-center justify-center">
                     <ArrowUpRight className="w-4 h-4" />
                   </div>
@@ -2318,9 +2818,78 @@ export default function TeacherAnalytics() {
   );
 }
 
+function WorkflowActionCard({
+  step,
+  label,
+  title,
+  body,
+  tone,
+  actionLabel,
+  onAction,
+}: {
+  step: string;
+  label: string;
+  title: string;
+  body: string;
+  tone: string;
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+  const isDarkTone = tone.includes('text-white');
+
+  return (
+    <div className={`rounded-[1.5rem] border-2 border-brand-dark p-4 flex h-full flex-col ${tone}`}>
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <p className={`text-[11px] font-black uppercase tracking-[0.18em] ${isDarkTone ? 'text-white/70' : 'text-brand-dark/55'}`}>{t(step)}</p>
+          <p className={`text-xs font-black uppercase tracking-[0.18em] mt-2 ${isDarkTone ? 'text-white/80' : 'text-brand-purple'}`}>{t(label)}</p>
+        </div>
+        <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center shrink-0 ${isDarkTone ? 'border-white/20 bg-white/10 text-white' : 'border-brand-dark bg-white text-brand-dark'}`}>
+          <CheckCircle2 className="w-5 h-5" />
+        </div>
+      </div>
+      <p className="text-2xl font-black leading-tight">{t(title)}</p>
+      <p className={`font-medium mt-3 flex-1 ${isDarkTone ? 'text-white/78' : 'text-brand-dark/72'}`}>{t(body)}</p>
+      <button
+        onClick={onAction}
+        className={`mt-4 w-full rounded-full border-2 px-4 py-3 font-black transition-transform hover:-translate-y-0.5 ${isDarkTone ? 'border-white bg-white text-brand-dark' : 'border-brand-dark bg-brand-dark text-white'}`}
+      >
+        {t(actionLabel)}
+      </button>
+    </div>
+  );
+}
+
+function QuickNavCard({
+  label,
+  body,
+  onClick,
+}: {
+  label: string;
+  body: string;
+  onClick: () => void;
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-[1.35rem] border-2 border-brand-dark bg-brand-bg p-4 text-left transition-colors hover:bg-white"
+    >
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-purple">{t(label)}</p>
+        <ArrowUpRight className="w-4 h-4 shrink-0" />
+      </div>
+      <p className="font-medium text-brand-dark/72 leading-relaxed">{t(body)}</p>
+    </button>
+  );
+}
+
 function ResearchLineChart({ rows }: { rows: any[] }) {
+  const { t } = useTeacherAnalyticsLanguage();
   if (!rows.length) {
-    return <p className="font-bold text-brand-dark/60">No sequence data available for this session.</p>;
+    return <p className="font-bold text-brand-dark/60">{t('No sequence data available for this session.')}</p>;
   }
 
   const width = 760;
@@ -2379,8 +2948,8 @@ function ResearchLineChart({ rows }: { rows: any[] }) {
           <div key={point.id} className="rounded-[1.25rem] border-2 border-brand-dark bg-white p-4">
             <div className="flex items-start justify-between gap-3 mb-2">
               <div>
-                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">{point.label}</p>
-                <p className="font-black leading-tight">{point.title}</p>
+                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">{t(point.label)}</p>
+                <p className="font-black leading-tight">{t(point.title)}</p>
               </div>
               <div
                 className={`w-10 h-10 shrink-0 rounded-full border-2 border-brand-dark flex items-center justify-center ${
@@ -2394,7 +2963,7 @@ function ResearchLineChart({ rows }: { rows: any[] }) {
                 {point.tone === 'good' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
               </div>
             </div>
-            <p className="font-medium text-sm text-brand-dark/68">{point.body}</p>
+            <p className="font-medium text-sm text-brand-dark/68">{t(point.body)}</p>
           </div>
         ))}
       </div>
@@ -2462,6 +3031,7 @@ function StudentScatterPlot({
   onSelect: (studentId: number) => void;
   onOpen: (studentId: number) => void;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   const width = 432;
   const height = 316;
   const padding = 34;
@@ -2534,8 +3104,8 @@ function StudentScatterPlot({
             <QuadrantLabel x={padding + 14} y={height / 2 + 14} title="Quiet underperformance" body="Low mastery without overt stress." />
             <QuadrantLabel x={width / 2 + 12} y={height / 2 + 14} title="Stable high performers" body="Strong and under control." />
 
-            <text x={width / 2} y={height - 2} textAnchor="middle" fontSize="12" fontWeight="900" fill="#1A1A1A">Accuracy</text>
-            <text x={18} y={height / 2} textAnchor="middle" fontSize="12" fontWeight="900" fill="#1A1A1A" transform={`rotate(-90 18 ${height / 2})`}>Stress</text>
+            <text x={width / 2} y={height - 2} textAnchor="middle" fontSize="12" fontWeight="900" fill="#1A1A1A">{t('Accuracy')}</text>
+            <text x={18} y={height / 2} textAnchor="middle" fontSize="12" fontWeight="900" fill="#1A1A1A" transform={`rotate(-90 18 ${height / 2})`}>{t('Stress')}</text>
 
             {participants.map((student) => {
               const x = padding + (Number(student.accuracy || 0) / 100) * (width - padding * 2);
@@ -2578,13 +3148,13 @@ function StudentScatterPlot({
         <div className="rounded-[1.35rem] border-2 border-brand-dark bg-white p-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
             <div>
-              <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-1">Selected student</p>
+              <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-1">{t('Selected student')}</p>
               <p className="text-xl font-black">{selectedStudent.nickname}</p>
             </div>
             <RiskBadge level={selectedStudent.risk_level} compact />
           </div>
           <p className="font-medium text-sm text-brand-dark/68">
-            {selectedStudent.accuracy.toFixed(0)}% accuracy at {selectedStudent.stress_index.toFixed(0)}% stress. Click the dot again to open the individual dashboard.
+            {t(`${selectedStudent.accuracy.toFixed(0)}% accuracy at ${selectedStudent.stress_index.toFixed(0)}% stress. Click the dot again to open the individual dashboard.`)}
           </p>
         </div>
       )}
@@ -2603,6 +3173,7 @@ function QuadrantLabel({
   title: string;
   body: string;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <foreignObject x={x} y={y} width="148" height="52">
       <div
@@ -2617,8 +3188,8 @@ function QuadrantLabel({
           gap: '2px',
         }}
       >
-        <div style={{ fontSize: '10px', fontWeight: 900, lineHeight: 1.1 }}>{title}</div>
-        <div style={{ fontSize: '9px', fontWeight: 700, lineHeight: 1.1, opacity: 0.72 }}>{body}</div>
+        <div style={{ fontSize: '10px', fontWeight: 900, lineHeight: 1.1 }}>{t(title)}</div>
+        <div style={{ fontSize: '9px', fontWeight: 700, lineHeight: 1.1, opacity: 0.72 }}>{t(body)}</div>
       </div>
     </foreignObject>
   );
@@ -2635,6 +3206,7 @@ function ScatterSummaryChip({
   body: string;
   tone: 'good' | 'mid' | 'bad' | 'neutral';
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   const toneClass =
     tone === 'good'
       ? 'bg-brand-purple text-white'
@@ -2647,10 +3219,10 @@ function ScatterSummaryChip({
   return (
     <div className="rounded-[1.25rem] border-2 border-brand-dark bg-white p-3">
       <div className="flex items-center justify-between gap-3 mb-2">
-        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45 leading-tight">{label}</p>
+        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45 leading-tight">{t(label)}</p>
         <span className={`rounded-full border-2 border-brand-dark px-3 py-1 text-xs font-black ${toneClass}`}>{value}</span>
       </div>
-      <p className="font-medium text-sm text-brand-dark/68 leading-snug">{body}</p>
+      <p className="font-medium text-sm text-brand-dark/68 leading-snug">{t(body)}</p>
     </div>
   );
 }
@@ -2664,11 +3236,12 @@ function SectionIntro({
   title: string;
   body: string;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="mb-5 max-w-4xl">
-      <p className="text-xs font-black uppercase tracking-[0.24em] text-brand-purple mb-2">{eyebrow}</p>
-      <h2 className="text-3xl lg:text-[2.35rem] font-black tracking-tight leading-tight">{title}</h2>
-      <p className="font-bold text-brand-dark/62 mt-2">{body}</p>
+      <p className="text-xs font-black uppercase tracking-[0.24em] text-brand-purple mb-2">{t(eyebrow)}</p>
+      <h2 className="text-3xl lg:text-[2.35rem] font-black tracking-tight leading-tight">{t(title)}</h2>
+      <p className="font-bold text-brand-dark/62 mt-2">{t(body)}</p>
     </div>
   );
 }
@@ -2684,11 +3257,12 @@ function SummaryStripCard({
   body: string;
   accent: string;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className={`${accent} rounded-[1.6rem] border-2 border-brand-dark p-4 shadow-[4px_4px_0px_0px_#1A1A1A]`}>
-      <p className="text-[11px] font-black uppercase tracking-[0.18em] opacity-70 mb-2">{label}</p>
-      <p className="text-lg font-black leading-tight">{title}</p>
-      <p className="font-medium text-sm opacity-80 mt-2">{body}</p>
+      <p className="text-[11px] font-black uppercase tracking-[0.18em] opacity-70 mb-2">{t(label)}</p>
+      <p className="text-lg font-black leading-tight">{t(title)}</p>
+      <p className="font-medium text-sm opacity-80 mt-2">{t(body)}</p>
     </div>
   );
 }
@@ -2702,6 +3276,7 @@ function ContextChip({
   value: string | number;
   tone?: 'good' | 'mid' | 'bad' | 'neutral';
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   const toneClass =
     tone === 'good'
       ? 'bg-emerald-100 text-brand-dark'
@@ -2713,8 +3288,8 @@ function ContextChip({
 
   return (
     <span className={`${toneClass} inline-flex items-center gap-2 rounded-full border-2 border-brand-dark px-3 py-2 text-xs font-black uppercase tracking-[0.16em]`}>
-      <span className="opacity-55">{label}</span>
-      <span>{value}</span>
+      <span className="opacity-55">{t(label)}</span>
+      <span>{typeof value === 'string' ? t(value) : value}</span>
     </span>
   );
 }
@@ -2730,6 +3305,7 @@ function VerdictCard({
   body: string;
   tone: 'good' | 'mid' | 'bad';
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   const toneClass =
     tone === 'good'
       ? 'bg-emerald-50'
@@ -2748,18 +3324,18 @@ function VerdictCard({
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <div className="flex items-center">
-            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/50 mr-1">{label}</p>
+            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/50 mr-1">{t(label)}</p>
             {label.toLowerCase().includes('quality') && <InfoTooltip metricId="decision-quality" />}
             {label.toLowerCase().includes('stability') && <InfoTooltip metricId="confidence-stability" />}
             {label.toLowerCase().includes('efficiency') && <InfoTooltip metricId="revision-efficiency" />}
           </div>
-          <p className="font-black leading-tight">{title}</p>
+          <p className="font-black leading-tight">{t(title)}</p>
         </div>
         <div className={`w-10 h-10 shrink-0 rounded-full border-2 border-brand-dark flex items-center justify-center ${badgeClass}`}>
           {tone === 'good' ? <CheckCircle2 className="w-4 h-4" /> : tone === 'mid' ? <TrendingUp className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
         </div>
       </div>
-      <p className="font-medium text-sm text-brand-dark/70">{body}</p>
+      <p className="font-medium text-sm text-brand-dark/70">{t(body)}</p>
     </div>
   );
 }
@@ -2775,6 +3351,7 @@ function FindingCallout({
   tone: 'good' | 'mid' | 'bad';
   metric: number;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   const toneClass =
     tone === 'good'
       ? 'bg-emerald-50'
@@ -2786,8 +3363,8 @@ function FindingCallout({
     <div className={`${toneClass} rounded-[1.25rem] border-2 border-brand-dark p-4`}>
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-3">
         <div className="min-w-0">
-          <p className="font-black leading-tight">{title}</p>
-          <p className="font-medium text-sm text-brand-dark/68 mt-1">{body}</p>
+          <p className="font-black leading-tight">{t(title)}</p>
+          <p className="font-medium text-sm text-brand-dark/68 mt-1">{t(body)}</p>
         </div>
         <span className="shrink-0 px-3 py-2 rounded-full bg-white border-2 border-brand-dark font-black">
           {metric.toFixed(0)}%
@@ -2809,6 +3386,7 @@ function FlowSummaryCard({
   rate: number;
   tone: 'good' | 'mid' | 'bad';
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   const toneClass =
     tone === 'good'
       ? 'bg-emerald-50'
@@ -2825,7 +3403,7 @@ function FlowSummaryCard({
     <div className={`${toneClass} rounded-[1.35rem] border-2 border-brand-dark p-4 shadow-[4px_4px_0px_0px_#1A1A1A]`}>
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-start">
-          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45 max-w-[11rem] leading-tight">{label}</p>
+          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45 max-w-[11rem] leading-tight">{t(label)}</p>
           {label.toLowerCase().includes('positive') && <InfoTooltip metricId="revision-efficiency" />}
           {label.toLowerCase().includes('harmful') && <InfoTooltip metricId="harmful-revisions" />}
         </div>
@@ -2834,7 +3412,7 @@ function FlowSummaryCard({
         </span>
       </div>
       <p className="text-[2rem] font-black leading-none">{compactNumber.format(count)}</p>
-      <p className="font-medium text-sm text-brand-dark/68 mt-2">of all response rows followed this path.</p>
+      <p className="font-medium text-sm text-brand-dark/68 mt-2">{t('of all response rows followed this path.')}</p>
     </div>
   );
 }
@@ -2856,18 +3434,19 @@ function MetricCard({
   color: string;
   textColor?: string;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className={`${color} ${textColor} rounded-[1.75rem] border-4 border-brand-dark p-5 shadow-[6px_6px_0px_0px_#1A1A1A]`}>
       <div className="flex items-center justify-between gap-3 mb-3">
         <div className="flex items-center">
-          <p className="text-sm font-black uppercase tracking-[0.15em] opacity-70">{title}</p>
+          <p className="text-sm font-black uppercase tracking-[0.15em] opacity-70">{t(title)}</p>
           <InfoTooltip metricId={title.toLowerCase().replace(/\s+/g, '-')} />
         </div>
         <div>{icon}</div>
       </div>
       <p className="text-4xl font-black leading-none">{value}</p>
-      <p className="font-black mt-3">{status}</p>
-      <p className="font-medium text-sm opacity-75 mt-2">{note}</p>
+      <p className="font-black mt-3">{t(status)}</p>
+      <p className="font-medium text-sm opacity-75 mt-2">{t(note)}</p>
     </div>
   );
 }
@@ -2879,8 +3458,9 @@ function ChoiceDistributionSparkline({
   choices: any[];
   highlightLabel?: string;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   if (!choices.length) {
-    return <p className="font-bold text-brand-dark/55">No choice-distribution data available.</p>;
+    return <p className="font-bold text-brand-dark/55">{t('No choice-distribution data available.')}</p>;
   }
 
   const maxRate = Math.max(...choices.map((choice) => Number(choice.rate) || 0), 1);
@@ -2897,7 +3477,7 @@ function ChoiceDistributionSparkline({
               <div
                 className={`${tone} w-8 rounded-t-xl border-2 border-brand-dark`}
                 style={{ height }}
-                title={`${choice.label}: ${choice.count} students`}
+                title={t(`${choice.label}: ${choice.count} students`)}
               />
             </div>
             <p className="text-xs font-black uppercase tracking-[0.2em]">{choice.label}</p>
@@ -2910,10 +3490,11 @@ function ChoiceDistributionSparkline({
 }
 
 function DecisionFlowStageBadge({ title, body }: { title: string; body: string }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="rounded-[1.15rem] border-2 border-brand-dark bg-white px-3 py-2">
-      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/42 mb-1">{title}</p>
-      <p className="font-black text-sm leading-tight">{body}</p>
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/42 mb-1">{t(title)}</p>
+      <p className="font-black text-sm leading-tight">{t(body)}</p>
     </div>
   );
 }
@@ -2927,20 +3508,22 @@ function DecisionFlowLegendPill({
   color: string;
   body: string;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="rounded-[1.15rem] border-2 border-brand-dark bg-white px-3 py-2">
       <div className="flex items-center gap-2 mb-1">
         <div className={`w-3.5 h-3.5 rounded-full border-2 border-brand-dark ${color}`} />
-        <p className="font-black text-sm">{label}</p>
+        <p className="font-black text-sm">{t(label)}</p>
       </div>
-      <p className="font-medium text-xs text-brand-dark/65 leading-snug">{body}</p>
+      <p className="font-medium text-xs text-brand-dark/65 leading-snug">{t(body)}</p>
     </div>
   );
 }
 
 function DecisionRevisionFlowChart({ flow }: { flow: any }) {
+  const { t } = useTeacherAnalyticsLanguage();
   if (!flow?.total) {
-    return <p className="font-bold text-brand-dark/60">No revision-flow data available yet.</p>;
+    return <p className="font-bold text-brand-dark/60">{t('No revision-flow data available yet.')}</p>;
   }
 
   const width = 1060;
@@ -3089,7 +3672,7 @@ function DecisionRevisionFlowChart({ flow }: { flow: any }) {
                 fontWeight="900"
                 fill="#1A1A1A"
               >
-                {columnIndex === 0 ? 'First Choice' : columnIndex === 1 ? 'Revision' : 'Final Answer'}
+                {t(columnIndex === 0 ? 'First Choice' : columnIndex === 1 ? 'Revision' : 'Final Answer')}
               </text>
             </g>
           ))}
@@ -3122,10 +3705,10 @@ function DecisionRevisionFlowChart({ flow }: { flow: any }) {
                 >
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <div style={{ fontSize: '11px', fontWeight: 900, letterSpacing: '0.18em', textTransform: 'uppercase', opacity: node.tone === 'bad' ? 0.74 : 0.5 }}>
-                      {node.tone === 'good' ? 'Strong path' : node.tone === 'mid' ? 'Watch path' : 'Risk path'}
+                      {t(node.tone === 'good' ? 'Strong path' : node.tone === 'mid' ? 'Watch path' : 'Risk path')}
                     </div>
                     <div style={{ fontSize: '18px', fontWeight: 900, lineHeight: 1.05, wordBreak: 'break-word' }}>
-                      {node.label}
+                      {t(node.label)}
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
@@ -3158,10 +3741,10 @@ function DecisionRevisionFlowChart({ flow }: { flow: any }) {
                     }}
                   >
                     {node.tone === 'good'
-                      ? 'A stronger instructional checkpoint.'
+                      ? t('A stronger instructional checkpoint.')
                       : node.tone === 'mid'
-                        ? 'Needs context to know whether the change helped.'
-                        : 'This path deserves the fastest teacher response.'}
+                        ? t('Needs context to know whether the change helped.')
+                        : t('This path deserves the fastest teacher response.')}
                   </div>
                 </div>
               </foreignObject>
@@ -3174,9 +3757,10 @@ function DecisionRevisionFlowChart({ flow }: { flow: any }) {
 }
 
 function RecoveryPatternsChart({ rows }: { rows: any[] }) {
+  const { t } = useTeacherAnalyticsLanguage();
   const total = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
   if (!total) {
-    return <p className="font-bold text-brand-dark/60">No recovery transitions were available for this session.</p>;
+    return <p className="font-bold text-brand-dark/60">{t('No recovery transitions were available for this session.')}</p>;
   }
 
   const tones = {
@@ -3202,7 +3786,7 @@ function RecoveryPatternsChart({ rows }: { rows: any[] }) {
             key={`stack-${row.id}`}
             className={`${tones[row.id] || 'bg-white'} h-full`}
             style={{ width: `${(Number(row.count || 0) / total) * 100}%` }}
-            title={`${row.label}: ${row.count}`}
+            title={t(`${row.label}: ${row.count}`)}
           />
         ))}
       </div>
@@ -3213,8 +3797,8 @@ function RecoveryPatternsChart({ rows }: { rows: any[] }) {
               <div className="flex items-center gap-3 min-w-0">
                 <div className={`w-5 h-5 rounded-full border-2 border-brand-dark ${tones[row.id] || 'bg-white'}`} />
                 <div className="min-w-0">
-                  <p className="font-black leading-tight">{row.label}</p>
-                  <p className="font-medium text-sm text-brand-dark/66 mt-1">{descriptions[row.id] || 'Follow-up behavior after an error.'}</p>
+                  <p className="font-black leading-tight">{t(row.label)}</p>
+                  <p className="font-medium text-sm text-brand-dark/66 mt-1">{t(descriptions[row.id] || 'Follow-up behavior after an error.')}</p>
                 </div>
               </div>
               <span className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark font-black shrink-0">
@@ -3222,7 +3806,7 @@ function RecoveryPatternsChart({ rows }: { rows: any[] }) {
               </span>
             </div>
             <Bar value={Number(row.rate || 0)} tone={row.id === 'error_to_correct' || row.id === 'hesitant_correct' ? 'good' : row.id === 'rushed_wrong' ? 'mid' : 'bad'} />
-            <p className="font-black text-xs uppercase tracking-[0.16em] text-brand-dark/45 mt-3">{row.count} follow-up transitions</p>
+            <p className="font-black text-xs uppercase tracking-[0.16em] text-brand-dark/45 mt-3">{t(`${row.count} follow-up transitions`)}</p>
           </div>
         ))}
       </div>
@@ -3231,8 +3815,9 @@ function RecoveryPatternsChart({ rows }: { rows: any[] }) {
 }
 
 function FatigueTimelineChart({ rows }: { rows: any[] }) {
+  const { t } = useTeacherAnalyticsLanguage();
   if (!rows.length) {
-    return <p className="font-bold text-brand-dark/60">No drift timeline is available yet.</p>;
+    return <p className="font-bold text-brand-dark/60">{t('No drift timeline is available yet.')}</p>;
   }
 
   const lastRow = rows[rows.length - 1] || {};
@@ -3282,10 +3867,12 @@ function FatigueTimelineChart({ rows }: { rows: any[] }) {
           <div key={metric.id} className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
             <div className="flex items-center justify-between gap-3 mb-3">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{metric.label}</p>
-                <p className="font-medium text-brand-dark/65">Q1 to Q{rows.length}</p>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{t(metric.label)}</p>
+                <p className="font-medium text-brand-dark/65">{t(`Q1 to Q${rows.length}`)}</p>
               </div>
-              <span className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark font-black">{metric.summary}</span>
+              <span className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark font-black">
+                {typeof metric.summary === 'string' ? t(metric.summary) : metric.summary}
+              </span>
             </div>
             <svg viewBox="0 0 750 120" className="w-full h-28">
               {[0, 50, 100].map((tick) => {
@@ -3313,8 +3900,9 @@ function FatigueTimelineChart({ rows }: { rows: any[] }) {
 }
 
 function DeadlineDependencyChart({ rows }: { rows: any[] }) {
+  const { t } = useTeacherAnalyticsLanguage();
   if (!rows.length) {
-    return <p className="font-bold text-brand-dark/60">No deadline dependency data is available.</p>;
+    return <p className="font-bold text-brand-dark/60">{t('No deadline dependency data is available.')}</p>;
   }
 
   const width = 760;
@@ -3348,7 +3936,7 @@ function DeadlineDependencyChart({ rows }: { rows: any[] }) {
               <g key={`deadline-group-${row.id}`}>
                 <rect x={baseX} y={height - padding - accuracyHeight} width={groupWidth * 0.24} height={accuracyHeight} rx="10" fill="#8B5CF6" stroke="#1A1A1A" strokeWidth="2" />
                 <rect x={baseX + groupWidth * 0.3} y={height - padding - changedHeight} width={groupWidth * 0.24} height={changedHeight} rx="10" fill="#F6CD3B" stroke="#1A1A1A" strokeWidth="2" />
-                <text x={baseX + groupWidth * 0.2} y={height - 8} textAnchor="middle" fontSize="10" fontWeight="900" fill="#1A1A1A">{row.label}</text>
+                <text x={baseX + groupWidth * 0.2} y={height - 8} textAnchor="middle" fontSize="10" fontWeight="900" fill="#1A1A1A">{t(row.label)}</text>
               </g>
             );
           })}
@@ -3357,9 +3945,9 @@ function DeadlineDependencyChart({ rows }: { rows: any[] }) {
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 mt-5">
         {rows.map((row) => (
           <div key={`deadline-card-${row.id}`} className="rounded-[1.2rem] border-2 border-brand-dark bg-white p-3">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-2">{row.label}</p>
-            <p className="font-black">{Number(row.accuracy || 0).toFixed(0)}% accurate</p>
-            <p className="font-medium text-brand-dark/65">{Number(row.changed_rate || 0).toFixed(0)}% revised · {row.count} rows</p>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-2">{t(row.label)}</p>
+            <p className="font-black">{t(`${Number(row.accuracy || 0).toFixed(0)}% accurate`)}</p>
+            <p className="font-medium text-brand-dark/65">{t(`${Number(row.changed_rate || 0).toFixed(0)}% revised · ${row.count} rows`)}</p>
           </div>
         ))}
       </div>
@@ -3368,9 +3956,10 @@ function DeadlineDependencyChart({ rows }: { rows: any[] }) {
 }
 
 function CommitmentDistributionChart({ rows }: { rows: any[] }) {
+  const { t } = useTeacherAnalyticsLanguage();
   const maxCount = Math.max(...rows.map((row) => Number(row.count || 0)), 1);
   if (!rows.some((row) => Number(row.count || 0) > 0)) {
-    return <p className="font-bold text-brand-dark/60">No commitment-latency distribution is available yet.</p>;
+    return <p className="font-bold text-brand-dark/60">{t('No commitment-latency distribution is available yet.')}</p>;
   }
 
   return (
@@ -3383,8 +3972,8 @@ function CommitmentDistributionChart({ rows }: { rows: any[] }) {
         return (
           <div key={row.id} className="rounded-[1.25rem] border-2 border-brand-dark bg-brand-bg p-4 flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
             <div className="w-full md:w-48 shrink-0 flex items-center justify-between md:flex-col md:items-start">
-              <p className="text-sm font-black uppercase tracking-[0.1em] text-brand-purple">{row.label}</p>
-              <p className="font-bold text-brand-dark/70 text-sm">{row.count} responses</p>
+              <p className="text-sm font-black uppercase tracking-[0.1em] text-brand-purple">{t(row.label)}</p>
+              <p className="font-bold text-brand-dark/70 text-sm">{t(`${row.count} responses`)}</p>
             </div>
             
             <div className="flex-1 w-full">
@@ -3398,7 +3987,7 @@ function CommitmentDistributionChart({ rows }: { rows: any[] }) {
 
             <div className="w-full md:w-32 shrink-0 flex flex-row items-center justify-between md:flex-col md:items-end gap-2">
               <span className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark font-black text-sm whitespace-nowrap">
-                {Number(row.accuracy || 0).toFixed(0)}% Accuracy
+                {t(`${Number(row.accuracy || 0).toFixed(0)}% Accuracy`)}
               </span>
               <div className="w-24 hidden md:block">
                 <Bar value={Number(row.accuracy || 0)} tone={tone} />
@@ -3412,8 +4001,9 @@ function CommitmentDistributionChart({ rows }: { rows: any[] }) {
 }
 
 function ReengagementOutcomeChart({ rows }: { rows: any[] }) {
+  const { t } = useTeacherAnalyticsLanguage();
   if (!rows.some((row) => Number(row.count || 0) > 0)) {
-    return <p className="font-bold text-brand-dark/60">No re-engagement pattern was detected in this session.</p>;
+    return <p className="font-bold text-brand-dark/60">{t('No re-engagement pattern was detected in this session.')}</p>;
   }
 
   const maxResponse = Math.max(...rows.map((row) => Number(row.avg_response_ms || 0)), 1);
@@ -3422,26 +4012,26 @@ function ReengagementOutcomeChart({ rows }: { rows: any[] }) {
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {rows.map((row) => (
         <div key={row.id} className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{row.label}</p>
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t(row.label)}</p>
           <p className="text-3xl font-black mb-4">{row.count}</p>
           <div className="space-y-3">
             <div>
               <div className="flex items-center justify-between gap-3 text-sm font-black mb-2">
-                <span>Accuracy</span>
+                <span>{t('Accuracy')}</span>
                 <span>{Number(row.accuracy || 0).toFixed(0)}%</span>
               </div>
               <Bar value={Number(row.accuracy || 0)} tone={accuracyTone(Number(row.accuracy || 0))} />
             </div>
             <div>
               <div className="flex items-center justify-between gap-3 text-sm font-black mb-2">
-                <span>Volatility</span>
-                <span>{Number(row.avg_volatility || 0).toFixed(0)} pts</span>
+                <span>{t('Volatility')}</span>
+                <span>{t(`${Number(row.avg_volatility || 0).toFixed(0)} pts`)}</span>
               </div>
               <Bar value={Number(row.avg_volatility || 0)} tone={Number(row.avg_volatility || 0) >= 60 ? 'bad' : Number(row.avg_volatility || 0) >= 35 ? 'mid' : 'good'} />
             </div>
           </div>
           <p className="font-medium text-brand-dark/65 mt-3">
-            Avg response {((Number(row.avg_response_ms || 0) / maxResponse) * 100).toFixed(0)}% of the slowest group
+            {t(`Avg response ${((Number(row.avg_response_ms || 0) / maxResponse) * 100).toFixed(0)}% of the slowest group`)}
             {' · '}
             {formatMs(Number(row.avg_response_ms || 0))}
           </p>
@@ -3452,8 +4042,9 @@ function ReengagementOutcomeChart({ rows }: { rows: any[] }) {
 }
 
 function DistractorHeatmapChart({ heatmap }: { heatmap: any }) {
+  const { t } = useTeacherAnalyticsLanguage();
   if (!heatmap?.questions?.length) {
-    return <p className="font-bold text-brand-dark/60">No distractor heatmap is available for this session.</p>;
+    return <p className="font-bold text-brand-dark/60">{t('No distractor heatmap is available for this session.')}</p>;
   }
 
   const columns = `110px repeat(${heatmap.questions.length}, minmax(76px, 1fr))`;
@@ -3473,7 +4064,7 @@ function DistractorHeatmapChart({ heatmap }: { heatmap: any }) {
         {heatmap.optionLabels.map((optionLabel: string) => (
           <div key={`heatmap-row-${optionLabel}`} className="grid gap-2" style={{ gridTemplateColumns: columns }}>
             <div className="rounded-xl border-2 border-brand-dark bg-white p-3 flex items-center justify-center">
-              <p className="font-black">Option {optionLabel}</p>
+              <p className="font-black">{t(`Option ${optionLabel}`)}</p>
             </div>
             {heatmap.questions.map((question: any) => {
               const cell = heatmap.cells.find((entry: any) => entry.questionId === question.question_id && entry.optionLabel === optionLabel);
@@ -3489,9 +4080,9 @@ function DistractorHeatmapChart({ heatmap }: { heatmap: any }) {
                   className="rounded-xl border-2 border-brand-dark p-3 min-h-[92px] flex flex-col justify-between"
                   style={{ backgroundColor: background }}
                 >
-                  <p className="text-[11px] font-black">{cell?.isCorrect ? 'Correct key' : `${Number(cell?.rate || 0).toFixed(0)}%`}</p>
-                  <p className="text-[11px] font-medium text-brand-dark/70 line-clamp-3">{cell?.text || 'No option'}</p>
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{cell?.count || 0} students</p>
+                  <p className="text-[11px] font-black">{cell?.isCorrect ? t('Correct key') : `${Number(cell?.rate || 0).toFixed(0)}%`}</p>
+                  <p className="text-[11px] font-medium text-brand-dark/70 line-clamp-3">{cell?.text || t('No option')}</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{t(`${cell?.count || 0} students`)}</p>
                 </div>
               );
             })}
@@ -3508,29 +4099,32 @@ function DistractorHeatmapChart({ heatmap }: { heatmap: any }) {
 }
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="bg-white/10 rounded-2xl border border-white/15 p-4">
-      <p className="text-xs font-black uppercase tracking-[0.2em] text-white/40 mb-2">{label}</p>
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-white/40 mb-2">{t(label)}</p>
       <p className="text-3xl font-black">{value}</p>
     </div>
   );
 }
 
 function PackMetric({ label, value }: { label: string; value: string | number }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4">
-      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{label}</p>
-      <p className="text-lg font-black break-words">{value}</p>
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{t(label)}</p>
+      <p className="text-lg font-black break-words">{typeof value === 'string' ? t(value) : value}</p>
     </div>
   );
 }
 
 function RiskBadge({ level, compact = false }: { level?: string; compact?: boolean }) {
+  const { t } = useTeacherAnalyticsLanguage();
   const label = level === 'high' ? 'High Risk' : level === 'medium' ? 'Watch' : 'Stable';
   const tone = level === 'high' ? 'bg-brand-orange text-white' : level === 'medium' ? 'bg-brand-yellow text-brand-dark' : 'bg-emerald-300 text-brand-dark';
   return (
     <span className={`${tone} ${compact ? 'px-3 py-1 text-xs' : 'px-4 py-2 text-sm'} rounded-full border-2 border-brand-dark font-black uppercase tracking-[0.15em]`}>
-      {label}
+      {t(label)}
     </span>
   );
 }
@@ -3546,6 +4140,7 @@ function SignalPill({
   tone?: 'good' | 'mid' | 'bad' | 'low' | 'medium' | 'high' | 'neutral';
   metricId?: string;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   const toneClass =
     tone === 'good'
       ? 'bg-emerald-100'
@@ -3560,20 +4155,21 @@ function SignalPill({
   return (
     <div className={`${toneClass} rounded-xl border-2 border-brand-dark p-3`}>
       <div className="flex items-center">
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/50 mb-1">{label}</p>
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/50 mb-1">{t(label)}</p>
         {metricId && <InfoTooltip metricId={metricId} />}
       </div>
-      <p className="text-lg font-black">{value}</p>
+      <p className="text-lg font-black">{typeof value === 'string' ? t(value) : value}</p>
     </div>
   );
 }
 
 function DistributionGroup({ title, items }: { title: string; items: any[] }) {
+  const { t } = useTeacherAnalyticsLanguage();
   if (!items.length) {
     return (
       <div className="mb-6 last:mb-0">
-        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-3">{title}</p>
-        <p className="font-bold text-brand-dark/50">No distribution data.</p>
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-3">{t(title)}</p>
+        <p className="font-bold text-brand-dark/50">{t('No distribution data.')}</p>
       </div>
     );
   }
@@ -3581,11 +4177,11 @@ function DistributionGroup({ title, items }: { title: string; items: any[] }) {
   const maxCount = Math.max(...items.map((item) => Number(item.count) || 0), 1);
   return (
     <div className="mb-6 last:mb-0">
-      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-3">{title}</p>
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-3">{t(title)}</p>
       <div className="space-y-3">
         {items.map((item) => (
           <div key={`${title}-${item.label}`} className="grid grid-cols-[90px_1fr_40px] items-center gap-3">
-            <span className="text-sm font-black capitalize">{item.label}</span>
+            <span className="text-sm font-black capitalize">{t(item.label)}</span>
             <div className="h-4 rounded-full border-2 border-brand-dark bg-brand-bg overflow-hidden">
               <div className="h-full bg-brand-purple" style={{ width: `${(Number(item.count) / maxCount) * 100}%` }} />
             </div>
@@ -3607,22 +4203,24 @@ function Bar({ value, tone }: { value: number; tone: 'good' | 'mid' | 'bad' }) {
 }
 
 function LegendSwatch({ label, color }: { label: string; color: string }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="flex items-center gap-2">
       <div className={`w-4 h-4 rounded-full border-2 border-brand-dark ${color}`} />
-      <span className="text-sm font-black">{label}</span>
+      <span className="text-sm font-black">{t(label)}</span>
     </div>
   );
 }
 
 function LegendRow({ label, tone, body }: { label: string; tone: string; body: string }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="rounded-[1.25rem] border-2 border-brand-dark bg-white p-3">
       <div className="flex items-center gap-2 mb-2">
         <div className={`w-4 h-4 rounded-full border-2 border-brand-dark ${tone}`} />
-        <p className="font-black">{label}</p>
+        <p className="font-black">{t(label)}</p>
       </div>
-      <p className="font-medium text-brand-dark/65 text-sm">{body}</p>
+      <p className="font-medium text-brand-dark/65 text-sm">{t(body)}</p>
     </div>
   );
 }
