@@ -19,7 +19,7 @@ export default {
         }
       },
       fontFamily: {
-        sans: ['Outfit', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-main)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
     },
   },

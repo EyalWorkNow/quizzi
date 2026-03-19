@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@100..900&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -15,11 +16,18 @@
 
     --glass-bg: rgba(255, 255, 255, 0.7);
     --glass-border: rgba(255, 255, 255, 0.2);
+
+    --font-main: 'Outfit';
+  }
+
+  html[lang="he"] {
+    --font-main: 'Heebo';
   }
 
   body {
-    @apply bg-brand-bg text-brand-dark font-sans antialiased;
+    @apply bg-brand-bg text-brand-dark antialiased;
     background-color: hsl(var(--brand-bg));
+    font-family: var(--font-main), ui-sans-serif, system-ui, sans-serif;
   }
 
   html,

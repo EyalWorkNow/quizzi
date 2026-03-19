@@ -1,6 +1,15 @@
 import React from 'react';
 
 /**
+ * Utility to strip [avatar_n.png] from nicknames
+ */
+export function extractNickname(nickname: string): string {
+  if (!nickname) return '';
+  const match = nickname.match(/^\[avatar_\d+\.png\]\s*(.*)$/);
+  return match ? match[1] : nickname;
+}
+
+/**
  * Avatar component that handles both legacy emoji-based avatars
  * and new image-based avatars stored as [avatar_n.png] prefixes.
  */
@@ -35,8 +44,6 @@ export default function Avatar({ nickname, className = '', imgClassName = '', te
     );
   }
 
-  // Fallback for legacy nicknames that started with emojis (e.g. "🦊 Nickname")
-  // Or just a plain nickname
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       <span className={textClassName}>{nickname}</span>
