@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Users, Play, CheckCircle, XCircle, BarChart3, ChevronRight, Sparkles, Clock, AlertTriangle, Copy, Check, BookOpen, Rocket, Link2, Trophy, Medal, Crown, Award } from 'lucide-react';
+import { Users, Play, CheckCircle, XCircle, BarChart3, ChevronRight, Sparkles, Clock, AlertTriangle, Copy, Check, BookOpen, Rocket, Link2, Trophy, Medal, Crown, Award, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { QRCodeSVG } from 'qrcode.react';
@@ -488,6 +488,13 @@ export default function TeacherHost() {
     });
   };
 
+  const handleEndSession = async () => {
+    if (window.confirm('Are you sure you want to end the game early? This will close the room for students and jump to analytics.')) {
+      await updateState('ENDED', questionIndex);
+      navigate(`/teacher/analytics/class/${sessionId}`);
+    }
+  };
+
   useEffect(() => {
     if (!isPeerMode || status !== 'QUESTION_ACTIVE' || participants.length === 0) {
       return;
@@ -587,13 +594,22 @@ export default function TeacherHost() {
               <span className="px-4 py-2 rounded-full bg-white border-2 border-brand-dark font-black text-sm">Live Host Lobby</span>
             </div>
 
-            <button
-              onClick={() => navigate('/teacher/dashboard')}
-              className="w-fit px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
-            >
-              <XCircle className="w-5 h-5" />
-              Exit Lobby
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigate('/teacher/dashboard')}
+                className="w-fit px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-slate-50 transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5" />
+                Back to Dashboard
+              </button>
+              <button
+                onClick={handleEndSession}
+                className="w-fit px-5 py-3 bg-rose-50 border-2 border-rose-500 text-rose-600 rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#F43F5E] hover:bg-rose-100 transition-colors"
+              >
+                <XCircle className="w-5 h-5" />
+                Close Session
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1.1fr)_360px] gap-8 mb-8">
@@ -909,12 +925,7 @@ export default function TeacherHost() {
         <div className="bg-white px-6 py-5 shadow-sm flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-slate-200 z-10">
           <div className="flex flex-wrap items-center gap-4">
             <button
-              onClick={() => {
-                if (window.confirm('Are you sure you want to end the game early?')) {
-                  updateState('ENDED', questionIndex);
-                  navigate(`/teacher/analytics/class/${sessionId}`);
-                }
-              }}
+              onClick={handleEndSession}
               className="flex items-center gap-2 text-slate-400 hover:text-rose-500 font-bold transition-colors"
             >
               <XCircle className="w-6 h-6" />
@@ -1081,12 +1092,7 @@ export default function TeacherHost() {
         <div className="bg-white px-8 py-6 shadow-sm flex justify-between items-center border-b border-slate-200 z-10">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => {
-                if (window.confirm('Are you sure you want to end the game early?')) {
-                  updateState('ENDED', questionIndex);
-                  navigate(`/teacher/analytics/class/${sessionId}`);
-                }
-              }}
+              onClick={handleEndSession}
               className="flex items-center gap-2 text-slate-400 hover:text-rose-500 font-bold transition-colors"
             >
               <XCircle className="w-6 h-6" />
@@ -1170,6 +1176,13 @@ export default function TeacherHost() {
       <div className="min-h-screen bg-slate-50 flex flex-col">
         <div className="bg-white px-8 py-6 shadow-sm flex justify-between items-center border-b border-slate-200 z-10">
           <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={handleEndSession}
+              className="flex items-center gap-2 text-slate-400 hover:text-rose-500 font-bold transition-colors"
+            >
+              <XCircle className="w-6 h-6" />
+              End Game Early
+            </button>
             <div className="text-slate-500 font-bold text-xl bg-slate-100 px-6 py-2 rounded-xl">
               {isLast ? 'Final Standings' : 'Current Standings'}
             </div>
