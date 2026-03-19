@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Users, Play, CheckCircle, XCircle, BarChart3, ChevronRight, Sparkles, Clock, AlertTriangle, Copy, Check, BookOpen, Rocket, Link2 } from 'lucide-react';
+import { Users, Play, CheckCircle, XCircle, BarChart3, ChevronRight, Sparkles, Clock, AlertTriangle, Copy, Check, BookOpen, Rocket, Link2, Trophy, Medal, Crown, Award } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { QRCodeSVG } from 'qrcode.react';
-import Avatar from '../components/Avatar.tsx';
+import Avatar, { extractNickname } from '../components/Avatar.tsx';
 import {
   subscribeToHostedSessionRealtime,
   syncHostedParticipants,
@@ -973,7 +973,7 @@ export default function TeacherHost() {
                   className="bg-brand-orange text-white px-6 py-3 rounded-2xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] flex items-center gap-3 font-black"
                 >
                   <AlertTriangle className="w-5 h-5" />
-                  {nickname} lost focus!
+                  {extractNickname(nickname as string)} lost focus!
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -1161,7 +1161,9 @@ export default function TeacherHost() {
       <div className="min-h-screen bg-slate-50 flex flex-col">
         <div className="bg-white px-8 py-6 shadow-sm flex justify-between items-center border-b border-slate-200 z-10">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="text-slate-500 font-bold text-xl bg-slate-100 px-6 py-2 rounded-xl">Leaderboard</div>
+            <div className="text-slate-500 font-bold text-xl bg-slate-100 px-6 py-2 rounded-xl">
+              {isLast ? 'Final Standings' : 'Current Standings'}
+            </div>
             <div className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
               {gameMode.label}
             </div>
@@ -1183,96 +1185,203 @@ export default function TeacherHost() {
           </motion.button>
         </div>
 
-        <div className="flex-1 flex flex-col items-center justify-center p-8">
+        <div className="flex-1 flex flex-col items-center justify-start p-8 max-w-[1400px] mx-auto w-full">
           <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
             transition={{ type: 'spring', bounce: 0.6 }}
-            className="bg-indigo-100 p-6 rounded-full mb-6"
+            className="mb-8"
           >
-            <BarChart3 className="w-16 h-16 text-indigo-600" />
+            <h2 className="text-6xl font-black text-slate-900 tracking-tight text-center">
+              {isLast ? 'Final Standings' : 'Current Standings'}
+            </h2>
           </motion.div>
-          <h2 className="text-5xl font-black text-slate-900 mb-12 tracking-tight">Current Standings</h2>
 
-          <div className="w-full max-w-3xl bg-white rounded-[3rem] shadow-2xl border border-slate-100 p-10 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-bl-full -z-10"></div>
-            {isTeamMode && teamBoard.length > 0 ? (
-              <div className="space-y-4">
-                {teamBoard.slice(0, 5).map((team: any, i: number) => (
-                  <motion.div
-                    initial={{ x: -50, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    transition={{ delay: i * 0.1, type: 'spring' }}
-                    key={team.team_id || team.team_name}
-                    className={`p-6 rounded-2xl border-2 ${i === 0 ? 'bg-yellow-50 border-yellow-200 shadow-md' : i === 1 ? 'bg-slate-50 border-slate-200' : i === 2 ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-100'}`}
-                  >
-                    <div className="flex items-center justify-between gap-6 mb-3">
-                      <div className="flex items-center gap-6">
-                        <div className={`w-14 h-14 rounded-full flex items-center justify-center font-black text-2xl ${i === 0 ? 'bg-yellow-400 text-yellow-900' : i === 1 ? 'bg-slate-300 text-slate-700' : i === 2 ? 'bg-orange-300 text-orange-900' : 'bg-indigo-100 text-indigo-600'}`}>
-                          {i + 1}
-                        </div>
-                        <div>
-                          <span className="text-3xl font-black text-slate-900">{team.team_name}</span>
-                          <p className="text-sm font-bold text-slate-500">{team.student_count} players · {team.accuracy?.toFixed?.(0) || team.accuracy}% accuracy</p>
-                        </div>
-                      </div>
-                      <div className="text-4xl font-black text-indigo-600">{team.total_score || 0}</div>
-                    </div>
-                    {(gameMode.id === 'mastery_matrix' || gameMode.id === 'peer_pods') && (
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        {typeof team.coverage_score !== 'undefined' && (
-                          <span className="px-3 py-2 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-sm font-black">
-                            Coverage {team.coverage_score}%
-                          </span>
-                        )}
-                        {typeof team.consensus_index !== 'undefined' && (
-                          <span className="px-3 py-2 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-sm font-black">
-                            Consensus {team.consensus_index}%
-                          </span>
-                        )}
-                        {typeof team.mode_bonus !== 'undefined' && (
-                          <span className="px-3 py-2 rounded-full bg-brand-yellow text-brand-dark border border-brand-dark text-sm font-black">
-                            Bonus {team.mode_bonus}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    <p className="text-sm font-medium text-slate-500">
-                      {(team.members || []).slice(0, 5).map((member: any) => member.nickname || member).join(', ')}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
-            ) : leaderboard.length > 0 ? (
-              <div className="space-y-4">
-                {leaderboard.slice(0, 5).map((p: any, i: number) => (
-                  <motion.div
-                    initial={{ x: -50, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    transition={{ delay: i * 0.1, type: 'spring' }}
-                    key={p.id}
-                    className={`flex items-center justify-between p-6 rounded-2xl border-2 ${i === 0 ? 'bg-yellow-50 border-yellow-200 shadow-md' : i === 1 ? 'bg-slate-50 border-slate-200' : i === 2 ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-100'}`}
-                  >
+          {isTeamMode && teamBoard.length > 0 ? (
+            <div className="w-full max-w-4xl space-y-6 mb-16">
+              {teamBoard.slice(0, 5).map((team: any, i: number) => (
+                <motion.div
+                  initial={{ x: -50, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  transition={{ delay: i * 0.1, type: 'spring' }}
+                  key={team.team_id || team.team_name}
+                  className={`p-8 rounded-[2.5rem] border-4 ${i === 0 ? 'bg-yellow-50 border-yellow-400 shadow-xl' : 'bg-white border-slate-200 shadow-sm'}`}
+                >
+                  <div className="flex items-center justify-between gap-6 mb-4">
                     <div className="flex items-center gap-6">
-                      <div className={`w-14 h-14 rounded-full flex items-center justify-center font-black text-2xl ${i === 0 ? 'bg-yellow-400 text-yellow-900' : i === 1 ? 'bg-slate-300 text-slate-700' : i === 2 ? 'bg-orange-300 text-orange-900' : 'bg-indigo-100 text-indigo-600'}`}>
+                      <div className={`w-16 h-16 rounded-full border-4 border-slate-900 flex items-center justify-center font-black text-3xl ${i === 0 ? 'bg-yellow-400 text-slate-900' : 'bg-slate-100 text-slate-500'}`}>
                         {i + 1}
                       </div>
-                      <span className="text-3xl font-black text-slate-900">{p.nickname}</span>
+                      <div>
+                        <span className="text-4xl font-black text-slate-900">{team.team_name}</span>
+                        <p className="text-lg font-bold text-slate-500">{team.student_count} players · {team.accuracy?.toFixed?.(0) || team.accuracy}% accuracy</p>
+                      </div>
                     </div>
-                    <div className="text-4xl font-black text-indigo-600">{p.total_score || 0}</div>
-                  </motion.div>
-                ))}
+                    <div className="text-5xl font-black text-indigo-600">{team.total_score || 0}</div>
+                  </div>
+                  <p className="text-lg font-medium text-slate-400 italic">
+                    {(team.members || []).slice(0, 8).map((member: any) => extractNickname(member.nickname || member)).join(', ')}
+                    {(team.members || []).length > 8 && '...'}
+                  </p>
+                </motion.div>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="w-full mb-16">
+                {leaderboard.length > 0 ? (
+                  <div className="flex flex-col md:flex-row items-end justify-center gap-4 md:gap-0 h-[450px]">
+                    {/* 2nd Place */}
+                    {leaderboard[1] && (
+                      <PodiumStep 
+                        participant={leaderboard[1]} 
+                        rank={2} 
+                        height="h-[70%]" 
+                        delay={0.2} 
+                        color="bg-slate-200"
+                        icon={<Medal className="w-10 h-10 text-slate-500" />}
+                      />
+                    )}
+                    
+                    {/* 1st Place */}
+                    {leaderboard[0] && (
+                      <PodiumStep 
+                        participant={leaderboard[0]} 
+                        rank={1} 
+                        height="h-[90%]" 
+                        delay={0.4} 
+                        color="bg-yellow-400"
+                        icon={<Crown className="w-14 h-14 text-yellow-800" />}
+                        isWinner
+                      />
+                    )}
+
+                    {/* 3rd Place */}
+                    {leaderboard[2] && (
+                      <PodiumStep 
+                        participant={leaderboard[2]} 
+                        rank={3} 
+                        height="h-[55%]" 
+                        delay={0.6} 
+                        color="bg-amber-600"
+                        icon={<Award className="w-8 h-8 text-amber-200" />}
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center text-slate-500 py-12 text-xl font-medium">Loading results...</div>
+                )}
               </div>
-            ) : (
-              <div className="text-center text-slate-500 py-12 text-xl font-medium">Loading leaderboard...</div>
-            )}
-          </div>
+
+              {leaderboard.length > 3 && (
+                <div className="w-full max-w-4xl space-y-4">
+                  <h3 className="text-2xl font-black text-slate-400 mb-6 flex items-center gap-3">
+                    <BarChart3 className="w-6 h-6" />
+                    Everyone Else
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {leaderboard.slice(3).map((p: any, i: number) => (
+                      <motion.div
+                        initial={{ y: 20, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        transition={{ delay: 1 + i * 0.05 }}
+                        key={p.id}
+                        className="flex items-center justify-between p-5 bg-white rounded-3xl border-2 border-slate-100 shadow-sm hover:border-indigo-200 transition-colors"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-black text-slate-500">
+                            {i + 4}
+                          </div>
+                          <Avatar 
+                            nickname={p.nickname} 
+                            imgClassName="w-10 h-10" 
+                            textClassName="text-xl font-black text-slate-900" 
+                          />
+                        </div>
+                        <div className="text-2xl font-black text-indigo-500">{p.total_score || 0}</div>
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     );
   }
 
   return null;
+}
+
+function PodiumStep({ 
+  participant, 
+  rank, 
+  height, 
+  delay, 
+  color, 
+  icon, 
+  isWinner 
+}: { 
+  participant: any; 
+  rank: number; 
+  height: string; 
+  delay: number; 
+  color: string; 
+  icon: React.ReactNode;
+  isWinner?: boolean;
+}) {
+  useEffect(() => {
+    if (isWinner) {
+      const timer = setTimeout(() => {
+        confetti({
+          particleCount: 150,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#FF5A36', '#B488FF', '#FFD233']
+        });
+      }, delay * 1000 + 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isWinner, delay]);
+
+  return (
+    <motion.div 
+      initial={{ y: 100, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ delay, duration: 0.8, type: 'spring' }}
+      className={`flex flex-col items-center justify-end w-full max-w-[280px] h-full relative group`}
+    >
+      <div className="mb-6 flex flex-col items-center">
+        <motion.div
+          animate={isWinner ? { y: [0, -10, 0] } : {}}
+          transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+        >
+          <Avatar 
+            nickname={participant.nickname} 
+            imgClassName="w-24 h-24 ring-4 ring-white shadow-2xl" 
+            textClassName="hidden"
+          />
+        </motion.div>
+        <div className="mt-4 bg-white px-6 py-2 rounded-full border-2 border-slate-200 shadow-sm">
+          <p className="text-2xl font-black text-slate-900 whitespace-nowrap">{extractNickname(participant.nickname)}</p>
+        </div>
+        <p className="text-3xl font-black text-indigo-600 mt-2">{participant.total_score || 0}</p>
+      </div>
+
+      <motion.div 
+        initial={{ height: 0 }}
+        animate={{ height: height.match(/\d+/) ? `${height.match(/\d+/)[0]}%` : '50%' }}
+        transition={{ delay: delay + 0.3, duration: 1, ease: 'circOut' }}
+        className={`w-full ${height} ${color} rounded-t-[3rem] border-x-4 border-t-4 border-slate-900 shadow-[12px_-4px_0px_0px_rgba(0,0,0,0.1)] flex flex-col items-center justify-start pt-8 relative`}
+      >
+        <div className="absolute -top-12 drop-shadow-lg scale-125">
+          {icon}
+        </div>
+        <div className="text-8xl font-black text-white/40 select-none">{rank}</div>
+      </motion.div>
+    </motion.div>
+  );
 }
 
 function LobbyMetric({
