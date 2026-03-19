@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import JSZip from 'jszip';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Activity,
@@ -62,19 +63,47 @@ function csvEscape(value: unknown) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
-function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
-  if (!rows.length) return;
+function generateCsv(rows: Array<Record<string, unknown>>) {
+  if (!rows.length) return '';
   const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
-  const csv = [
+  return [
     columns.map(csvEscape).join(','),
     ...rows.map((row) => columns.map((column) => csvEscape(row[column])).join(',')),
   ].join('\n');
+}
+
+function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
+  const csv = generateCsv(rows);
+  if (!csv) return;
 
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadAllCsvs(baseName: string, files: Array<{ name: string; rows: any[] }>) {
+  const zip = new JSZip();
+  let hasContent = false;
+
+  files.forEach((file) => {
+    if (file.rows && file.rows.length > 0) {
+      const csv = generateCsv(file.rows);
+      zip.file(file.name, csv);
+      hasContent = true;
+    }
+  });
+
+  if (!hasContent) return;
+
+  const content = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(content);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${baseName}-reports.zip`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -1241,45 +1270,21 @@ export default function TeacherAnalytics() {
                 {t('Refresh')}
               </button>
               {showExpandedHeader && showAdvancedPanels && (
-                <>
-                  <button
-                    onClick={() => downloadCsv(`${exportBaseName}-students.csv`, studentCsvRows)}
-                    className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
-                  >
-                    <Download className="w-4 h-4" />
-                    {t('Students CSV')}
-                  </button>
-                  <button
-                    onClick={() => downloadCsv(`${exportBaseName}-questions.csv`, questionCsvRows)}
-                    className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
-                  >
-                    <Download className="w-4 h-4" />
-                    {t('Questions CSV')}
-                  </button>
-                  <button
-                    onClick={() => downloadCsv(`${exportBaseName}-lms-gradebook.csv`, lmsCsvRows)}
-                    className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
-                  >
-                    <Download className="w-4 h-4" />
-                    {t('LMS Gradebook CSV')}
-                  </button>
-                  {teams.length > 0 && (
-                    <button
-                      onClick={() => downloadCsv(`${exportBaseName}-teams.csv`, teamCsvRows)}
-                      className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
-                    >
-                      <Download className="w-4 h-4" />
-                      {t('Teams CSV')}
-                    </button>
-                  )}
-                  <button
-                    onClick={() => downloadCsv(`${exportBaseName}-responses.csv`, researchRows)}
-                    className="px-5 py-3 bg-brand-yellow border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
-                  >
-                    <Download className="w-4 h-4" />
-                    {t('Response Rows CSV')}
-                  </button>
-                </>
+                <button
+                  onClick={() =>
+                    downloadAllCsvs(exportBaseName, [
+                      { name: 'students.csv', rows: studentCsvRows },
+                      { name: 'questions.csv', rows: questionCsvRows },
+                      { name: 'lms-gradebook.csv', rows: lmsCsvRows },
+                      { name: 'teams.csv', rows: teamCsvRows },
+                      { name: 'responses.csv', rows: researchRows },
+                    ])
+                  }
+                  className={`${showExpandedHeader ? 'px-5 py-3' : 'px-3 py-2 text-xs'} bg-brand-yellow border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A] transition-all`}
+                >
+                  <Download className={`${showExpandedHeader ? 'w-4 h-4' : 'w-3 h-3'}`} />
+                  {t('Download All (ZIP)')}
+                </button>
               )}
               {selectedStudent && (
                 <button
