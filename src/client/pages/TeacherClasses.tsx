@@ -1,37 +1,58 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ChevronLeft,
-  LogOut,
-  Plus,
-  Library,
-  Compass,
-  BarChart,
-  Users,
-  Settings,
-  HelpCircle,
-  Search,
-  MoreVertical,
-  UserPlus,
+  BookOpen,
   CheckCircle2,
-  XCircle,
   ClipboardList,
+  Clock3,
+  GraduationCap,
+  Layers3,
+  LoaderCircle,
+  Plus,
+  Search,
+  Users,
+  UserPlus,
+  XCircle,
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import TeacherSidebar from '../components/TeacherSidebar.tsx';
 import {
-  createTeacherClass,
-  loadTeacherClasses,
-  loadTeacherSettings,
-  saveTeacherClasses,
-  type TeacherClass,
+  clearStoredTeacherClasses,
+  loadStoredTeacherClassesSnapshot,
+  type TeacherClass as LegacyTeacherClass,
 } from '../lib/localData.ts';
-import { signOutTeacher } from '../lib/teacherAuth.ts';
 import { apiFetchJson } from '../lib/api.ts';
+import {
+  addTeacherClassStudent,
+  createClassSession,
+  createTeacherClass,
+  deleteTeacherClass,
+  listTeacherClasses,
+  removeTeacherClassStudent,
+  TEACHER_CLASS_COLOR_OPTIONS,
+  type TeacherClassBoard,
+  type TeacherClassColor,
+  type TeacherClassPayload,
+  updateTeacherClass,
+} from '../lib/teacherClasses.ts';
 
-const COLOR_OPTIONS = ['bg-brand-purple', 'bg-brand-orange', 'bg-brand-yellow', 'bg-brand-dark', 'bg-white'];
+type FeedbackState = {
+  tone: 'success' | 'error';
+  message: string;
+} | null;
 
-const EMPTY_FORM = {
-  id: '',
+type ClassFormState = {
+  id: number | null;
+  name: string;
+  subject: string;
+  grade: string;
+  color: TeacherClassColor;
+  packId: string;
+  notes: string;
+};
+
+const EMPTY_FORM: ClassFormState = {
+  id: null,
   name: '',
   subject: '',
   grade: '',
@@ -40,45 +61,158 @@ const EMPTY_FORM = {
   notes: '',
 };
 
+function formatRelativeTime(value?: string | null) {
+  if (!value) return 'Not run yet';
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return 'Recently';
+
+  const diffMs = Date.now() - timestamp;
+  const diffMinutes = Math.round(diffMs / 60000);
+  if (diffMinutes < 1) return 'Just now';
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.round(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+
+  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(new Date(timestamp));
+}
+
+function formatAccuracy(value: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return 'No answers yet';
+  }
+  return `${Math.round(value)}% accuracy`;
+}
+
+function buildFormState(classItem: TeacherClassBoard): ClassFormState {
+  return {
+    id: classItem.id,
+    name: classItem.name,
+    subject: classItem.subject,
+    grade: classItem.grade,
+    color: classItem.color,
+    packId: classItem.pack_id ? String(classItem.pack_id) : '',
+    notes: classItem.notes || '',
+  };
+}
+
+function normalizePayload(form: ClassFormState): TeacherClassPayload {
+  return {
+    name: form.name.trim(),
+    subject: form.subject.trim(),
+    grade: form.grade.trim(),
+    color: form.color,
+    notes: form.notes.trim(),
+    pack_id: form.packId ? Number(form.packId) : null,
+  };
+}
+
+function sortClassesByRecent(classes: TeacherClassBoard[]) {
+  return [...classes].sort((left, right) => {
+    const leftDate = new Date(left.updated_at || left.created_at || 0).getTime() || 0;
+    const rightDate = new Date(right.updated_at || right.created_at || 0).getTime() || 0;
+    return rightDate - leftDate || right.id - left.id;
+  });
+}
+
 export default function TeacherClasses() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [classes, setClasses] = useState<TeacherClass[]>([]);
+  const navigate = useNavigate();
+  const [classes, setClasses] = useState<TeacherClassBoard[]>([]);
   const [packs, setPacks] = useState<any[]>([]);
-  const [overview, setOverview] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [subjectFilter, setSubjectFilter] = useState('All');
-  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [selectedClassId, setSelectedClassId] = useState<number | 'new' | null>(null);
+  const [form, setForm] = useState<ClassFormState>(EMPTY_FORM);
   const [studentName, setStudentName] = useState('');
-  const [feedback, setFeedback] = useState('');
-  const navigate = useNavigate();
-  const teacherProfile = loadTeacherSettings().profile;
-  const handleLogout = async () => {
-    await signOutTeacher();
-    navigate('/');
-  };
 
   useEffect(() => {
-    setClasses(loadTeacherClasses());
-    apiFetchJson('/api/packs').then(setPacks);
-    apiFetchJson('/api/dashboard/teacher/overview').then(setOverview);
+    void bootstrapPage();
   }, []);
 
-  const subjects = useMemo(() => ['All', ...Array.from(new Set(classes.map((item) => item.subject))).filter(Boolean)], [classes]);
+  useEffect(() => {
+    if (!feedback) return;
+    const timeout = window.setTimeout(() => setFeedback(null), 4200);
+    return () => window.clearTimeout(timeout);
+  }, [feedback]);
 
-  const filteredClasses = useMemo(() => {
-    return classes.filter((item) => {
-      const matchesSearch =
-        !searchQuery ||
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.grade.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesSubject = subjectFilter === 'All' || item.subject === subjectFilter;
-      return matchesSearch && matchesSubject;
+  useEffect(() => {
+    if (selectedClassId === 'new' || selectedClassId === null) return;
+    if (classes.some((classItem) => classItem.id === selectedClassId)) return;
+    setSelectedClassId(null);
+    setForm(EMPTY_FORM);
+    setStudentName('');
+  }, [classes, selectedClassId]);
+
+  const bootstrapPage = async () => {
+    try {
+      setLoading(true);
+      const [packBoard, classBoard] = await Promise.all([
+        apiFetchJson('/api/teacher/packs'),
+        listTeacherClasses(),
+      ]);
+
+      let nextClasses = Array.isArray(classBoard) ? classBoard : [];
+      const nextPacks = Array.isArray(packBoard) ? packBoard : [];
+      const migrated = nextClasses.length === 0 ? await maybeMigrateLegacyClasses(nextPacks) : false;
+
+      if (migrated) {
+        nextClasses = await listTeacherClasses();
+        setFeedback({ tone: 'success', message: 'Imported your previous local classes into the live workspace.' });
+      }
+
+      setPacks(nextPacks);
+      setClasses(sortClassesByRecent(nextClasses));
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: error?.message || 'Failed to load classes.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const maybeMigrateLegacyClasses = async (availablePacks: any[]) => {
+    const legacyClasses = loadStoredTeacherClassesSnapshot();
+    if (!legacyClasses?.length) return false;
+
+    const packIds = new Set(availablePacks.map((pack) => Number(pack.id || 0)).filter((id) => id > 0));
+    for (const legacyClass of legacyClasses) {
+      await importLegacyClass(legacyClass, packIds);
+    }
+    clearStoredTeacherClasses();
+    return true;
+  };
+
+  const importLegacyClass = async (legacyClass: LegacyTeacherClass, validPackIds: Set<number>) => {
+    const color = TEACHER_CLASS_COLOR_OPTIONS.includes(legacyClass.color as TeacherClassColor)
+      ? (legacyClass.color as TeacherClassColor)
+      : 'bg-brand-purple';
+    const packId = Number(legacyClass.packId || 0);
+
+    await createTeacherClass({
+      name: legacyClass.name || 'Imported Class',
+      subject: legacyClass.subject || 'General',
+      grade: legacyClass.grade || 'Mixed',
+      color,
+      notes: legacyClass.notes || '',
+      pack_id: packId && validPackIds.has(packId) ? packId : null,
+      students: Array.isArray(legacyClass.students)
+        ? legacyClass.students
+            .map((student) => ({ name: String(student?.name || '').trim() }))
+            .filter((student) => student.name)
+        : [],
     });
-  }, [classes, searchQuery, subjectFilter]);
+  };
 
-  const selectedClass = classes.find((item) => item.id === selectedClassId) || null;
+  const upsertClass = (nextClass: TeacherClassBoard) => {
+    setClasses((current) => sortClassesByRecent([nextClass, ...current.filter((entry) => entry.id !== nextClass.id)]));
+  };
+
+  const removeClassFromState = (classId: number) => {
+    setClasses((current) => current.filter((entry) => entry.id !== classId));
+  };
 
   const resetForm = () => {
     setForm(EMPTY_FORM);
@@ -86,218 +220,264 @@ export default function TeacherClasses() {
     setStudentName('');
   };
 
-  const persistClasses = (next: TeacherClass[]) => {
-    setClasses(next);
-    saveTeacherClasses(next);
-  };
-
-  const handleCreateNew = () => {
-    resetForm();
+  const openNewClassBuilder = () => {
     setSelectedClassId('new');
+    setForm(EMPTY_FORM);
+    setStudentName('');
   };
 
-  const handleEdit = (classItem: TeacherClass) => {
+  const openClassEditor = (classItem: TeacherClassBoard) => {
     setSelectedClassId(classItem.id);
-    setForm({
-      id: classItem.id,
-      name: classItem.name,
-      subject: classItem.subject,
-      grade: classItem.grade,
-      color: classItem.color,
-      packId: classItem.packId ? String(classItem.packId) : '',
-      notes: classItem.notes,
-    });
+    setForm(buildFormState(classItem));
     setStudentName('');
   };
 
-  const handleSaveClass = () => {
-    if (!form.name.trim() || !form.subject.trim() || !form.grade.trim()) {
-      setFeedback('Fill class name, subject and grade before saving.');
+  const selectedClass =
+    selectedClassId && selectedClassId !== 'new'
+      ? classes.find((classItem) => classItem.id === selectedClassId) || null
+      : null;
+
+  const subjects = useMemo(
+    () => ['All', ...Array.from(new Set(classes.map((classItem) => classItem.subject))).filter(Boolean)],
+    [classes],
+  );
+
+  const filteredClasses = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    return classes.filter((classItem) => {
+      const searchFields = [
+        classItem.name,
+        classItem.subject,
+        classItem.grade,
+        classItem.notes,
+        classItem.pack?.title,
+        ...classItem.students.map((student) => student.name),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      const matchesSearch = !normalizedQuery || searchFields.includes(normalizedQuery);
+      const matchesSubject = subjectFilter === 'All' || classItem.subject === subjectFilter;
+      return matchesSearch && matchesSubject;
+    });
+  }, [classes, searchQuery, subjectFilter]);
+
+  const summaryStats = useMemo(() => {
+    const totalStudents = classes.reduce((sum, classItem) => sum + classItem.stats.student_count, 0);
+    const liveRooms = classes.reduce((sum, classItem) => sum + classItem.stats.active_session_count, 0);
+    const assignedPacks = classes.filter((classItem) => classItem.pack).length;
+
+    return [
+      {
+        id: 'classes',
+        label: 'Active classes',
+        value: classes.length,
+        body: 'Live rosters that persist across sessions and reports.',
+        tone: 'bg-white',
+        icon: <Layers3 className="w-5 h-5" />,
+      },
+      {
+        id: 'students',
+        label: 'Students tracked',
+        value: totalStudents,
+        body: 'Roster members tied to your current class structure.',
+        tone: 'bg-brand-yellow',
+        icon: <Users className="w-5 h-5" />,
+      },
+      {
+        id: 'packs',
+        label: 'Classes with pack',
+        value: assignedPacks,
+        body: 'Classes that can launch directly into a live session.',
+        tone: 'bg-brand-purple text-white',
+        icon: <BookOpen className="w-5 h-5" />,
+      },
+      {
+        id: 'live',
+        label: 'Open live rooms',
+        value: liveRooms,
+        body: 'Class sessions you can reopen without creating another room.',
+        tone: 'bg-brand-orange text-white',
+        icon: <Clock3 className="w-5 h-5" />,
+      },
+    ];
+  }, [classes]);
+
+  const handleSaveClass = async () => {
+    const payload = normalizePayload(form);
+    if (!payload.name || !payload.subject || !payload.grade) {
+      setFeedback({ tone: 'error', message: 'Fill class name, subject, and grade before saving.' });
       return;
     }
 
-    if (form.id) {
-      const next = classes.map((item) =>
-        item.id === form.id
-          ? {
-              ...item,
-              name: form.name.trim(),
-              subject: form.subject.trim(),
-              grade: form.grade.trim(),
-              color: form.color,
-              packId: form.packId ? Number(form.packId) : null,
-              notes: form.notes.trim(),
-            }
-          : item,
-      );
-      persistClasses(next);
-      setFeedback('Class updated.');
+    try {
+      setBusyKey('save-class');
+      const savedClass = form.id
+        ? await updateTeacherClass(form.id, payload)
+        : await createTeacherClass(payload);
+      upsertClass(savedClass);
+      openClassEditor(savedClass);
+      setFeedback({
+        tone: 'success',
+        message: form.id ? 'Class updated successfully.' : 'Class created successfully.',
+      });
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: error?.message || 'Failed to save class.' });
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleDeleteClass = async (classItem: TeacherClassBoard) => {
+    if (!window.confirm(`Remove ${classItem.name}? The roster will disappear from this board.`)) {
       return;
     }
 
-    const created = createTeacherClass({
-      name: form.name.trim(),
-      subject: form.subject.trim(),
-      grade: form.grade.trim(),
-      color: form.color,
-      packId: form.packId ? Number(form.packId) : null,
-      notes: form.notes.trim(),
-    });
-    persistClasses([created, ...classes]);
-    setSelectedClassId(created.id);
-    setForm({
-      id: created.id,
-      name: created.name,
-      subject: created.subject,
-      grade: created.grade,
-      color: created.color,
-      packId: created.packId ? String(created.packId) : '',
-      notes: created.notes,
-    });
-    setFeedback('Class created.');
+    try {
+      setBusyKey(`delete-${classItem.id}`);
+      await deleteTeacherClass(classItem.id);
+      removeClassFromState(classItem.id);
+      if (selectedClassId === classItem.id) {
+        resetForm();
+      }
+      setFeedback({ tone: 'success', message: 'Class removed from the active board.' });
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: error?.message || 'Failed to remove class.' });
+    } finally {
+      setBusyKey(null);
+    }
   };
 
-  const handleDeleteClass = (classId: string) => {
-    const next = classes.filter((item) => item.id !== classId);
-    persistClasses(next);
-    if (selectedClassId === classId) resetForm();
-    setFeedback('Class removed.');
-  };
-
-  const handleAddStudent = () => {
+  const handleAddStudent = async () => {
     if (!selectedClass || !studentName.trim()) return;
-    const next = classes.map((item) =>
-      item.id === selectedClass.id
-        ? {
-            ...item,
-            students: [
-              ...item.students,
-              {
-                id: `student-${Date.now()}`,
-                name: studentName.trim(),
-                joinedAt: new Date().toISOString(),
-              },
-            ],
-          }
-        : item,
-    );
-    persistClasses(next);
-    setStudentName('');
-    setFeedback('Student added to class.');
+
+    try {
+      setBusyKey(`student-add-${selectedClass.id}`);
+      const updatedClass = await addTeacherClassStudent(selectedClass.id, studentName.trim());
+      upsertClass(updatedClass);
+      setStudentName('');
+      setFeedback({ tone: 'success', message: 'Student added to class.' });
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: error?.message || 'Failed to add student.' });
+    } finally {
+      setBusyKey(null);
+    }
   };
 
-  const handleRemoveStudent = (classId: string, studentId: string) => {
-    const next = classes.map((item) =>
-      item.id === classId ? { ...item, students: item.students.filter((student) => student.id !== studentId) } : item,
-    );
-    persistClasses(next);
-    setFeedback('Student removed.');
+  const handleRemoveStudent = async (classId: number, studentId: number) => {
+    try {
+      setBusyKey(`student-remove-${studentId}`);
+      const updatedClass = await removeTeacherClassStudent(classId, studentId);
+      upsertClass(updatedClass);
+      setFeedback({ tone: 'success', message: 'Student removed from class.' });
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: error?.message || 'Failed to remove student.' });
+    } finally {
+      setBusyKey(null);
+    }
   };
 
-  const handleViewReports = (classItem: TeacherClass) => {
-    if (!classItem.packId || !overview?.recent_sessions?.length) {
-      navigate('/teacher/reports');
+  const handleHostClass = async (classItem: TeacherClassBoard) => {
+    if (classItem.latest_session && String(classItem.latest_session.status || '').toUpperCase() !== 'ENDED') {
+      navigate(`/teacher/session/${classItem.latest_session.pin}/host`, {
+        state: {
+          sessionId: classItem.latest_session.id,
+          packId: classItem.pack?.id,
+        },
+      });
       return;
     }
-    const match = overview.recent_sessions.find((session: any) => session.quiz_pack_id === classItem.packId);
-    if (match?.session_id) {
-      navigate(`/teacher/analytics/class/${match.session_id}`);
+
+    if (!classItem.pack?.id) {
+      setFeedback({ tone: 'error', message: 'Assign a pack to this class before hosting.' });
       return;
     }
-    navigate('/teacher/reports');
+
+    try {
+      setBusyKey(`host-${classItem.id}`);
+      const session = await createClassSession({
+        classId: classItem.id,
+        packId: classItem.pack.id,
+      });
+      navigate(`/teacher/session/${session.pin}/host`, {
+        state: {
+          sessionId: session.id,
+          packId: classItem.pack.id,
+        },
+      });
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: error?.message || 'Failed to start the live class.' });
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleViewReport = (classItem: TeacherClassBoard) => {
+    if (!classItem.latest_session?.id) {
+      setFeedback({ tone: 'error', message: 'This class does not have a report yet. Run a live session first.' });
+      return;
+    }
+    navigate(`/teacher/analytics/class/${classItem.latest_session.id}`);
   };
 
   return (
     <div className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white">
-      <motion.aside
-        animate={{ width: isSidebarOpen ? 256 : 80 }}
-        className="h-screen bg-white border-r-2 border-brand-dark flex flex-col flex-shrink-0 transition-all duration-300 relative z-20 shadow-[4px_0px_0px_0px_#1A1A1A]"
-      >
-        <div className="h-20 flex items-center px-6 border-b-2 border-brand-dark">
-          {isSidebarOpen ? (
-            <div className="text-2xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
-              <span className="text-brand-orange">Quiz</span>zi
-            </div>
-          ) : (
-            <div className="w-10 h-10 bg-brand-yellow border-2 border-brand-dark text-brand-dark rounded-full flex items-center justify-center text-xl font-black mx-auto cursor-pointer" onClick={() => navigate('/')}>
-              Q
-            </div>
-          )}
-        </div>
+      <TeacherSidebar />
 
-        <div className="p-4 border-b-2 border-brand-dark">
-          <button
-            onClick={() => navigate('/teacher/pack/create')}
-            className="w-full bg-brand-orange text-white border-2 border-brand-dark rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#e84d2a] transition-all shadow-[2px_2px_0px_0px_#1A1A1A] py-3"
-          >
-            <Plus className="w-5 h-5" />
-            {isSidebarOpen && <span className="text-base">Create Quiz</span>}
-          </button>
-        </div>
-
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto hide-scrollbar">
-          <NavItem icon={<Library />} label="My Quizzes" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/dashboard')} />
-          <NavItem icon={<Compass />} label="Discover" isOpen={isSidebarOpen} onClick={() => navigate('/explore')} />
-          <NavItem icon={<BarChart />} label="Reports" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/reports')} />
-          <NavItem icon={<Users />} label="Classes" isOpen={isSidebarOpen} active onClick={() => navigate('/teacher/classes')} />
-
-          <div className="my-4 border-t-2 border-brand-dark relative">
-            <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="absolute -right-6 top-1/2 -translate-y-1/2 w-6 h-6 bg-brand-yellow rounded-full flex items-center justify-center border-2 border-brand-dark hover:bg-yellow-300 transition-colors z-10 shadow-[2px_2px_0px_0px_#1A1A1A]"
-            >
-              <ChevronLeft className={`w-4 h-4 transition-transform ${!isSidebarOpen ? 'rotate-180' : ''}`} />
-            </button>
-          </div>
-
-          <NavItem icon={<Settings />} label="Settings" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/settings')} />
-          <NavItem icon={<HelpCircle />} label="Help Center" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/help')} />
-        </nav>
-
-        <div className="p-4 border-t-2 border-brand-dark bg-brand-purple/10">
-          <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} bg-white border-2 border-brand-dark p-2 rounded-xl shadow-[2px_2px_0px_0px_#1A1A1A]`}>
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-brand-yellow rounded-full flex items-center justify-center text-sm border-2 border-brand-dark overflow-hidden">
-                {teacherProfile.avatar}
-              </div>
-              {isSidebarOpen && (
-                <div>
-                  <p className="font-black text-xs">{teacherProfile.firstName} {teacherProfile.lastName}</p>
-                  <p className="text-[10px] font-bold text-brand-dark/60 truncate w-24">{teacherProfile.email}</p>
-                </div>
-              )}
-            </div>
-            {isSidebarOpen && (
-              <button onClick={handleLogout} className="w-8 h-8 bg-brand-bg border-2 border-brand-dark text-brand-dark rounded-lg flex items-center justify-center hover:bg-brand-orange hover:text-white transition-colors" title="Log out">
-                <LogOut className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
-      </motion.aside>
-
-      <main className="flex-1 h-screen overflow-y-auto p-6 lg:p-8 relative bg-brand-bg">
-        <div className="max-w-[1280px] mx-auto relative z-10">
-          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-8">
+      <main className="flex-1 h-screen overflow-y-auto p-6 lg:p-8 bg-brand-bg">
+        <div className="max-w-[1360px] mx-auto">
+          <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 mb-8">
             <div>
               <h1 className="text-3xl lg:text-4xl font-black tracking-tight">Classes</h1>
-              <p className="text-brand-dark/60 font-bold mt-2">Manage class rosters, assign packs and jump into the latest related reports.</p>
+              <p className="text-brand-dark/60 font-bold mt-2 max-w-3xl">
+                Real class rosters, real pack assignments, and direct links into the live sessions and reports each class actually generated.
+              </p>
             </div>
-            <button
-              onClick={handleCreateNew}
-              className="px-6 py-3 bg-brand-yellow text-brand-dark border-2 border-brand-dark rounded-full flex items-center gap-2 hover:bg-yellow-300 transition-colors font-black text-base shadow-[2px_2px_0px_0px_#1A1A1A] w-fit"
-            >
-              <Plus className="w-5 h-5" />
-              New Class
-            </button>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => void bootstrapPage()}
+                className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
+              >
+                Refresh Board
+              </button>
+              <button
+                onClick={openNewClassBuilder}
+                className="px-6 py-3 bg-brand-yellow text-brand-dark border-2 border-brand-dark rounded-full flex items-center gap-2 hover:bg-yellow-300 transition-colors font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
+              >
+                <Plus className="w-5 h-5" />
+                New Class
+              </button>
+            </div>
           </div>
 
           {feedback && (
-            <div className="mb-6 bg-white border-2 border-brand-dark rounded-2xl p-4 shadow-[2px_2px_0px_0px_#1A1A1A] flex items-center gap-3">
-              <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-              <span className="font-bold">{feedback}</span>
+            <div
+              className={`mb-6 border-2 border-brand-dark rounded-2xl p-4 shadow-[2px_2px_0px_0px_#1A1A1A] flex items-center gap-3 ${
+                feedback.tone === 'success' ? 'bg-white' : 'bg-rose-100'
+              }`}
+            >
+              <CheckCircle2 className={`w-5 h-5 ${feedback.tone === 'success' ? 'text-emerald-500' : 'text-rose-600'}`} />
+              <span className="font-bold">{feedback.message}</span>
             </div>
           )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+            {summaryStats.map((stat) => (
+              <div
+                key={stat.id}
+                className={`${stat.tone} border-2 border-brand-dark rounded-[1.8rem] p-5 shadow-[4px_4px_0px_0px_#1A1A1A]`}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-xs uppercase tracking-[0.2em] font-black opacity-70">{stat.label}</span>
+                  {stat.icon}
+                </div>
+                <div className="text-3xl font-black mb-2">{stat.value}</div>
+                <p className="font-bold opacity-80 text-sm">{stat.body}</p>
+              </div>
+            ))}
+          </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-[1.7fr_1fr] gap-8">
             <section>
@@ -307,7 +487,7 @@ export default function TeacherClasses() {
                   <input
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Search classes, subjects or grades..."
+                    placeholder="Search classes, students, subjects or assigned packs..."
                     className="w-full bg-brand-bg border-2 border-brand-dark rounded-full py-3 pl-12 pr-4 font-bold focus:outline-none focus:ring-2 focus:ring-brand-orange/20"
                   />
                 </div>
@@ -317,32 +497,44 @@ export default function TeacherClasses() {
                   className="bg-brand-bg border-2 border-brand-dark rounded-full py-3 px-4 font-bold focus:outline-none"
                 >
                   {subjects.map((subject) => (
-                    <option key={subject} value={subject}>{subject}</option>
+                    <option key={subject} value={subject}>
+                      {subject}
+                    </option>
                   ))}
                 </select>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {filteredClasses.map((classItem) => (
-                  <ClassCard
-                    key={classItem.id}
-                    classItem={classItem}
-                    packTitle={packs.find((pack) => pack.id === classItem.packId)?.title || 'No pack assigned'}
-                    onEdit={() => handleEdit(classItem)}
-                    onDelete={() => handleDeleteClass(classItem.id)}
-                    onAddStudent={() => {
-                      handleEdit(classItem);
-                      setSelectedClassId(classItem.id);
-                    }}
-                    onViewReports={() => handleViewReports(classItem)}
-                  />
-                ))}
-              </div>
-
-              {filteredClasses.length === 0 && (
-                <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-10 mt-6 shadow-[4px_4px_0px_0px_#1A1A1A] text-center">
-                  <p className="text-2xl font-black mb-2">No classes matched this filter.</p>
-                  <p className="font-bold text-brand-dark/60">Try another query or create a new class.</p>
+              {loading ? (
+                <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-10 shadow-[4px_4px_0px_0px_#1A1A1A] flex items-center justify-center gap-3 font-black">
+                  <LoaderCircle className="w-5 h-5 animate-spin" />
+                  Loading classes...
+                </div>
+              ) : filteredClasses.length === 0 ? (
+                <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-10 shadow-[4px_4px_0px_0px_#1A1A1A] text-center">
+                  <p className="text-2xl font-black mb-2">No classes matched this board.</p>
+                  <p className="font-bold text-brand-dark/60 mb-6">
+                    Create a class, assign a quiz pack, and it will start producing live sessions and report history here.
+                  </p>
+                  <button
+                    onClick={openNewClassBuilder}
+                    className="px-6 py-3 bg-brand-yellow border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
+                  >
+                    Create the first class
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {filteredClasses.map((classItem) => (
+                    <ClassCard
+                      key={classItem.id}
+                      classItem={classItem}
+                      isBusy={busyKey === `delete-${classItem.id}` || busyKey === `host-${classItem.id}`}
+                      onEdit={() => openClassEditor(classItem)}
+                      onDelete={() => void handleDeleteClass(classItem)}
+                      onHost={() => void handleHostClass(classItem)}
+                      onViewReport={() => handleViewReport(classItem)}
+                    />
+                  ))}
                 </div>
               )}
             </section>
@@ -350,7 +542,12 @@ export default function TeacherClasses() {
             <aside className="bg-white border-2 border-brand-dark rounded-[2rem] p-6 shadow-[4px_4px_0px_0px_#1A1A1A] h-fit sticky top-6">
               <div className="flex items-center gap-3 mb-6">
                 <ClipboardList className="w-6 h-6 text-brand-purple" />
-                <h2 className="text-2xl font-black">{form.id ? 'Edit Class' : 'Class Builder'}</h2>
+                <div>
+                  <h2 className="text-2xl font-black">{form.id ? 'Edit Class' : selectedClassId === 'new' ? 'Create Class' : 'Class Builder'}</h2>
+                  <p className="font-bold text-sm text-brand-dark/50">
+                    Update the live class record, roster, and assigned pack from one place.
+                  </p>
+                </div>
               </div>
 
               <div className="space-y-4">
@@ -365,21 +562,32 @@ export default function TeacherClasses() {
                     onChange={(event) => setForm((current) => ({ ...current, packId: event.target.value }))}
                     className="w-full bg-brand-bg border-2 border-brand-dark rounded-xl p-3 font-bold"
                   >
-                    <option value="">No pack yet</option>
+                    <option value="">No pack assigned yet</option>
                     {packs.map((pack) => (
-                      <option key={pack.id} value={pack.id}>{pack.title}</option>
+                      <option key={pack.id} value={pack.id}>
+                        {pack.title}
+                      </option>
                     ))}
                   </select>
+                  {packs.length === 0 && (
+                    <p className="text-xs font-bold text-brand-dark/50 mt-2">
+                      Create a quiz pack first if you want this class to launch directly into live sessions.
+                    </p>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50 mb-2">Color</label>
-                  <div className="flex gap-2">
-                    {COLOR_OPTIONS.map((color) => (
+                  <div className="flex gap-2 flex-wrap">
+                    {TEACHER_CLASS_COLOR_OPTIONS.map((color) => (
                       <button
                         key={color}
+                        type="button"
                         onClick={() => setForm((current) => ({ ...current, color }))}
-                        className={`w-10 h-10 rounded-xl border-2 border-brand-dark ${color} ${form.color === color ? 'ring-4 ring-brand-orange/30' : ''}`}
+                        className={`w-10 h-10 rounded-xl border-2 border-brand-dark ${color} ${
+                          form.color === color ? 'ring-4 ring-brand-orange/30' : ''
+                        }`}
+                        aria-label={`Pick ${color}`}
                       />
                     ))}
                   </div>
@@ -391,14 +599,18 @@ export default function TeacherClasses() {
                     value={form.notes}
                     onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
                     className="w-full bg-brand-bg border-2 border-brand-dark rounded-xl p-3 font-bold min-h-28"
-                    placeholder="Optional notes for this class..."
+                    placeholder="Optional notes for pacing, grouping, or roster context..."
                   />
                 </div>
               </div>
 
               <div className="flex gap-3 mt-6">
-                <button onClick={handleSaveClass} className="flex-1 bg-brand-orange text-white border-2 border-brand-dark rounded-xl py-3 font-black shadow-[2px_2px_0px_0px_#1A1A1A]">
-                  {form.id ? 'Update Class' : 'Create Class'}
+                <button
+                  onClick={() => void handleSaveClass()}
+                  disabled={busyKey === 'save-class'}
+                  className="flex-1 bg-brand-orange text-white border-2 border-brand-dark rounded-xl py-3 font-black shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-60"
+                >
+                  {busyKey === 'save-class' ? 'Saving...' : form.id ? 'Update Class' : 'Create Class'}
                 </button>
                 <button onClick={resetForm} className="px-4 border-2 border-brand-dark rounded-xl font-black bg-white">
                   Reset
@@ -406,32 +618,115 @@ export default function TeacherClasses() {
               </div>
 
               {selectedClass && (
-                <div className="mt-8 pt-6 border-t-2 border-brand-dark/10">
-                  <h3 className="text-lg font-black mb-3">Students in {selectedClass.name}</h3>
-                  <div className="flex gap-2 mb-3">
-                    <input
-                      value={studentName}
-                      onChange={(event) => setStudentName(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') handleAddStudent();
-                      }}
-                      placeholder="Add student name"
-                      className="flex-1 bg-brand-bg border-2 border-brand-dark rounded-xl p-3 font-bold"
-                    />
-                    <button onClick={handleAddStudent} className="px-4 bg-brand-yellow border-2 border-brand-dark rounded-xl font-black">
-                      Add
-                    </button>
-                  </div>
-                  <div className="space-y-2 max-h-56 overflow-y-auto">
-                    {selectedClass.students.map((student) => (
-                      <div key={student.id} className="flex items-center justify-between bg-brand-bg rounded-xl border-2 border-brand-dark/10 px-3 py-2">
-                        <span className="font-bold">{student.name}</span>
-                        <button onClick={() => handleRemoveStudent(selectedClass.id, student.id)} className="text-brand-orange">
-                          <XCircle className="w-4 h-4" />
-                        </button>
+                <>
+                  <div className="mt-8 pt-6 border-t-2 border-brand-dark/10">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <div>
+                        <h3 className="text-lg font-black">Roster</h3>
+                        <p className="text-sm font-bold text-brand-dark/50">
+                          Students persist for this class and stay attached to its report history.
+                        </p>
                       </div>
-                    ))}
-                    {selectedClass.students.length === 0 && <p className="text-sm font-bold text-brand-dark/50">No students added yet.</p>}
+                      <span className="px-3 py-2 rounded-full bg-brand-bg border-2 border-brand-dark text-xs font-black">
+                        {selectedClass.stats.student_count} students
+                      </span>
+                    </div>
+
+                    <div className="flex gap-2 mb-3">
+                      <input
+                        value={studentName}
+                        onChange={(event) => setStudentName(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            void handleAddStudent();
+                          }
+                        }}
+                        placeholder="Add student name"
+                        className="flex-1 bg-brand-bg border-2 border-brand-dark rounded-xl p-3 font-bold"
+                      />
+                      <button
+                        onClick={() => void handleAddStudent()}
+                        disabled={busyKey === `student-add-${selectedClass.id}`}
+                        className="px-4 bg-brand-yellow border-2 border-brand-dark rounded-xl font-black disabled:opacity-60"
+                      >
+                        Add
+                      </button>
+                    </div>
+
+                    <div className="space-y-2 max-h-56 overflow-y-auto">
+                      {selectedClass.students.map((student) => (
+                        <div
+                          key={student.id}
+                          className="flex items-center justify-between bg-brand-bg rounded-xl border-2 border-brand-dark/10 px-3 py-2"
+                        >
+                          <div>
+                            <span className="font-bold">{student.name}</span>
+                            <p className="text-xs font-bold text-brand-dark/45">Joined {formatRelativeTime(student.joined_at)}</p>
+                          </div>
+                          <button
+                            onClick={() => void handleRemoveStudent(selectedClass.id, student.id)}
+                            disabled={busyKey === `student-remove-${student.id}`}
+                            className="text-brand-orange disabled:opacity-50"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {selectedClass.students.length === 0 && (
+                        <p className="text-sm font-bold text-brand-dark/50">No students added yet.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-8 pt-6 border-t-2 border-brand-dark/10">
+                    <div className="flex items-center gap-2 mb-3">
+                      <GraduationCap className="w-5 h-5 text-brand-purple" />
+                      <h3 className="text-lg font-black">Recent Sessions</h3>
+                    </div>
+
+                    <div className="space-y-3">
+                      {selectedClass.recent_sessions.map((session) => (
+                        <button
+                          key={session.id}
+                          onClick={() => navigate(`/teacher/analytics/class/${session.id}`)}
+                          className="w-full text-left bg-brand-bg rounded-2xl border-2 border-brand-dark/10 p-4 hover:border-brand-dark transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-3 mb-2">
+                            <span className="font-black">Session #{session.id}</span>
+                            <span className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">
+                              {session.status}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 text-sm font-bold text-brand-dark/70">
+                            <span>{session.participant_count} players</span>
+                            <span>{formatAccuracy(session.accuracy_rate)}</span>
+                          </div>
+                          <p className="text-xs font-bold text-brand-dark/45 mt-2">
+                            {formatRelativeTime(session.ended_at || session.started_at)}
+                          </p>
+                        </button>
+                      ))}
+                      {selectedClass.recent_sessions.length === 0 && (
+                        <p className="text-sm font-bold text-brand-dark/50">
+                          No live sessions yet. Assign a pack and launch the first class run.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {!selectedClass && selectedClassId !== 'new' && (
+                <div className="mt-8 pt-6 border-t-2 border-brand-dark/10">
+                  <div className="bg-brand-bg rounded-[1.5rem] border-2 border-brand-dark/10 p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <UserPlus className="w-5 h-5 text-brand-orange" />
+                      <span className="font-black">How this board works</span>
+                    </div>
+                    <p className="font-bold text-sm text-brand-dark/65">
+                      Create a class, add its roster, assign one of your quiz packs, and every class-launched live session will start building report history here automatically.
+                    </p>
                   </div>
                 </div>
               )}
@@ -443,86 +738,129 @@ export default function TeacherClasses() {
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function Field({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <div>
       <label className="block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50 mb-2">{label}</label>
-      <input value={value} onChange={(event) => onChange(event.target.value)} className="w-full bg-brand-bg border-2 border-brand-dark rounded-xl p-3 font-bold" />
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full bg-brand-bg border-2 border-brand-dark rounded-xl p-3 font-bold"
+      />
     </div>
   );
 }
 
 function ClassCard({
   classItem,
-  packTitle,
+  isBusy,
   onEdit,
   onDelete,
-  onAddStudent,
-  onViewReports,
+  onHost,
+  onViewReport,
 }: {
   key?: React.Key;
-  classItem: TeacherClass;
-  packTitle: string;
+  classItem: TeacherClassBoard;
+  isBusy: boolean;
   onEdit: () => void;
   onDelete: () => void;
-  onAddStudent: () => void;
-  onViewReports: () => void;
+  onHost: () => void;
+  onViewReport: () => void;
 }) {
   const isLight = classItem.color === 'bg-white' || classItem.color === 'bg-brand-yellow';
   const textColor = isLight ? 'text-brand-dark' : 'text-white';
-  const secondaryButton = isLight ? 'bg-brand-dark text-white' : 'bg-white text-brand-dark';
+  const secondaryText = isLight ? 'text-brand-dark/70' : 'text-white/75';
+  const panelTone = isLight ? 'bg-white/50' : 'bg-white/10';
+  const buttonTone = isLight ? 'bg-brand-dark text-white' : 'bg-white text-brand-dark';
+  const hasReport = Boolean(classItem.latest_session?.id);
+  const hasAssignedPack = Boolean(classItem.pack?.id);
+  const sessionState =
+    classItem.latest_session && String(classItem.latest_session.status || '').toUpperCase() !== 'ENDED'
+      ? 'Live room open'
+      : classItem.latest_session
+        ? `Last run ${formatRelativeTime(classItem.latest_session.ended_at || classItem.latest_session.started_at)}`
+        : 'No live run yet';
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className={`${classItem.color} ${textColor} rounded-[2rem] p-6 border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] flex flex-col gap-4`}>
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      className={`${classItem.color} ${textColor} rounded-[2rem] p-6 border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] flex flex-col gap-4`}
+    >
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-2xl font-black">{classItem.name}</h3>
-          <p className={`font-bold ${isLight ? 'text-brand-dark/70' : 'text-white/70'}`}>{classItem.subject} · {classItem.grade}</p>
+          <p className={`font-bold ${secondaryText}`}>{classItem.subject} · {classItem.grade}</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={onEdit} className="p-2 rounded-full border-2 border-current/20">
-            <MoreVertical className="w-5 h-5" />
+          <button onClick={onEdit} className="px-3 py-2 rounded-full border-2 border-current/20 font-black text-xs">
+            Manage
           </button>
-          <button onClick={onDelete} className="p-2 rounded-full border-2 border-current/20">
+          <button onClick={onDelete} disabled={isBusy} className="p-2 rounded-full border-2 border-current/20 disabled:opacity-50">
             <XCircle className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      <div className="space-y-2 bg-white/10 rounded-2xl p-4 border border-current/10">
-        <div className="flex items-center justify-between">
-          <span className="font-bold">Students</span>
-          <span className="font-black">{classItem.students.length}</span>
+      <div className={`space-y-3 ${panelTone} rounded-2xl p-4 border border-current/10`}>
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-bold">Roster</span>
+          <span className="font-black">{classItem.stats.student_count} students</span>
         </div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <span className="font-bold">Assigned Pack</span>
-          <span className="font-black text-right line-clamp-1 max-w-[180px]">{packTitle}</span>
+          <span className="font-black text-right line-clamp-1 max-w-[190px]">
+            {classItem.pack?.title || 'No pack assigned'}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-bold">Report Status</span>
+          <span className="font-black text-right line-clamp-1 max-w-[190px]">{sessionState}</span>
         </div>
       </div>
 
-      <p className={`font-bold text-sm min-h-10 ${isLight ? 'text-brand-dark/70' : 'text-white/70'}`}>{classItem.notes || 'No notes yet.'}</p>
+      <div className="flex flex-wrap gap-2 text-xs font-black uppercase tracking-[0.16em]">
+        <span className="px-3 py-2 rounded-full border border-current/20">
+          {classItem.stats.session_count} total runs
+        </span>
+        <span className="px-3 py-2 rounded-full border border-current/20">
+          {formatAccuracy(classItem.stats.average_accuracy)}
+        </span>
+      </div>
 
-      <div className="flex gap-2 mt-auto">
-        <button onClick={onViewReports} className={`flex-1 py-2 rounded-xl font-bold text-sm border-2 border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A] ${secondaryButton}`}>
-          View Reports
+      <p className={`font-bold text-sm min-h-10 ${secondaryText}`}>
+        {classItem.notes || 'No notes yet.'}
+      </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-auto">
+        <button
+          onClick={onViewReport}
+          disabled={!hasReport || isBusy}
+          className={`py-3 rounded-xl font-bold text-sm border-2 border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-50 ${buttonTone}`}
+        >
+          Latest Report
         </button>
-        <button onClick={onAddStudent} className={`p-2 rounded-xl border-2 border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A] ${secondaryButton}`}>
-          <UserPlus className="w-5 h-5" />
+        <button
+          onClick={onHost}
+          disabled={!hasAssignedPack || isBusy}
+          className={`py-3 rounded-xl font-bold text-sm border-2 border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-50 ${
+            isLight ? 'bg-brand-yellow text-brand-dark' : 'bg-brand-orange text-white'
+          }`}
+        >
+          {classItem.latest_session && String(classItem.latest_session.status || '').toUpperCase() !== 'ENDED'
+            ? 'Open Live Room'
+            : 'Host Class'}
         </button>
       </div>
     </motion.div>
-  );
-}
-
-function NavItem({ icon, label, isOpen, active, onClick }: { icon: React.ReactNode; label: string; isOpen: boolean; active?: boolean; onClick?: () => void }) {
-  return (
-    <button onClick={onClick} className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${active ? 'bg-brand-dark text-white border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A]' : 'bg-transparent border-transparent text-brand-dark/70 hover:bg-white hover:border-brand-dark hover:text-brand-dark hover:shadow-[2px_2px_0px_0px_#1A1A1A]'}`}>
-      <div className="flex items-center gap-3">
-        <div className={`w-5 h-5 flex items-center justify-center ${active ? 'text-brand-yellow' : ''}`}>
-          {icon}
-        </div>
-        {isOpen && <span className="font-bold text-sm">{label}</span>}
-      </div>
-    </button>
   );
 }

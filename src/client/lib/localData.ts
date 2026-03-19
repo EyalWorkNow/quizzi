@@ -166,8 +166,25 @@ export function loadTeacherClasses(): TeacherClass[] {
   return readJson<TeacherClass[]>(CLASSES_KEY, DEFAULT_CLASSES);
 }
 
+export function loadStoredTeacherClassesSnapshot(): TeacherClass[] | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(CLASSES_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as TeacherClass[]) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function saveTeacherClasses(classes: TeacherClass[]) {
   writeJson(CLASSES_KEY, classes);
+}
+
+export function clearStoredTeacherClasses() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(CLASSES_KEY);
 }
 
 export function createTeacherClass(partial: Partial<TeacherClass>): TeacherClass {

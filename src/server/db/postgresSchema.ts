@@ -5,6 +5,8 @@ type PostgresQueryable = Pick<Pool, 'query'> | Pick<PoolClient, 'query'>;
 export const POSTGRES_TABLE_ORDER = [
   'users',
   'quiz_packs',
+  'teacher_classes',
+  'teacher_class_students',
   'questions',
   'quiz_pack_versions',
   'material_profiles',
@@ -126,9 +128,35 @@ const POSTGRES_SCHEMA_STATEMENTS = [
     )
   `,
   `
+    CREATE TABLE IF NOT EXISTS teacher_classes (
+      id SERIAL PRIMARY KEY,
+      teacher_id INTEGER NOT NULL,
+      name TEXT,
+      subject TEXT,
+      grade TEXT,
+      color TEXT DEFAULT 'bg-brand-purple',
+      notes TEXT DEFAULT '',
+      pack_id INTEGER,
+      archived INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS teacher_class_students (
+      id SERIAL PRIMARY KEY,
+      class_id INTEGER NOT NULL,
+      name TEXT,
+      joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `
     CREATE TABLE IF NOT EXISTS sessions (
       id SERIAL PRIMARY KEY,
       quiz_pack_id INTEGER,
+      teacher_class_id INTEGER,
       pin TEXT UNIQUE,
       game_type TEXT DEFAULT 'classic_quiz',
       team_count INTEGER DEFAULT 0,
@@ -205,8 +233,16 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS generation_model TEXT DEFAULT ''`,
   `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS lms_provider TEXT DEFAULT 'generic_csv'`,
   `ALTER TABLE quiz_packs ADD COLUMN IF NOT EXISTS lms_assignment_label TEXT DEFAULT ''`,
+  `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS color TEXT DEFAULT 'bg-brand-purple'`,
+  `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT ''`,
+  `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS pack_id INTEGER`,
+  `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS archived INTEGER DEFAULT 0`,
+  `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
+  `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
+  `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS learning_objective TEXT DEFAULT ''`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS bloom_level TEXT DEFAULT ''`,
+  `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS teacher_class_id INTEGER`,
   `ALTER TABLE mastery ALTER COLUMN score TYPE DOUBLE PRECISION USING score::double precision`,
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS option_hover_counts_json TEXT DEFAULT '{}'`,
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS outside_answer_pointer_moves INTEGER DEFAULT 0`,
@@ -245,9 +281,13 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'CREATE INDEX IF NOT EXISTS idx_quiz_packs_profile ON quiz_packs(material_profile_id)',
   'CREATE INDEX IF NOT EXISTS idx_quiz_packs_source_hash ON quiz_packs(source_hash)',
   'CREATE INDEX IF NOT EXISTS idx_quiz_packs_course_code ON quiz_packs(course_code)',
+  'CREATE INDEX IF NOT EXISTS idx_teacher_classes_teacher_archived ON teacher_classes(teacher_id, archived)',
+  'CREATE INDEX IF NOT EXISTS idx_teacher_classes_pack ON teacher_classes(pack_id)',
+  'CREATE INDEX IF NOT EXISTS idx_teacher_class_students_class ON teacher_class_students(class_id)',
   'CREATE INDEX IF NOT EXISTS idx_questions_pack_question_order ON questions(quiz_pack_id, question_order, id)',
   'CREATE INDEX IF NOT EXISTS idx_questions_learning_objective ON questions(learning_objective)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_game_type ON sessions(game_type)',
+  'CREATE INDEX IF NOT EXISTS idx_sessions_teacher_class ON sessions(teacher_class_id, status)',
   'CREATE INDEX IF NOT EXISTS idx_participants_session_team ON participants(session_id, team_id)',
   'CREATE INDEX IF NOT EXISTS idx_pack_versions_pack ON quiz_pack_versions(pack_id, version_number DESC)',
 ] as const;
@@ -290,6 +330,17 @@ const POSTGRES_DATA_REPAIR_STATEMENTS = [
     UPDATE users
     SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
     WHERE updated_at IS NULL
+  `,
+  `
+    UPDATE teacher_classes
+    SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+    WHERE updated_at IS NULL
+  `,
+  `
+    UPDATE teacher_class_students
+    SET joined_at = COALESCE(joined_at, created_at, CURRENT_TIMESTAMP),
+        updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+    WHERE joined_at IS NULL OR updated_at IS NULL
   `,
 ] as const;
 
