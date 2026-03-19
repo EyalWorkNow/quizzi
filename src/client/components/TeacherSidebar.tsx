@@ -62,19 +62,22 @@ export default function TeacherSidebar() {
         <NavItem icon={<Compass />} label={copy.nav.discover} isOpen={isSidebarOpen} active={path === '/explore'} onClick={() => navigate('/explore')} />
         <NavItem icon={<BarChart />} label={copy.nav.reports} isOpen={isSidebarOpen} active={path === '/teacher/reports'} onClick={() => navigate('/teacher/reports')} />
         <NavItem icon={<Users />} label={copy.nav.classes} isOpen={isSidebarOpen} active={path === '/teacher/classes'} onClick={() => navigate('/teacher/classes')} />
+      </nav>
 
-        <div className="my-4 border-t-2 border-brand-dark relative">
-          <button
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="absolute -right-6 top-1/2 -translate-y-1/2 w-6 h-6 bg-brand-yellow rounded-full flex items-center justify-center border-2 border-brand-dark hover:bg-yellow-300 transition-colors z-10 shadow-[2px_2px_0px_0px_#1A1A1A]"
-          >
-            <ChevronLeft className={`w-4 h-4 transition-transform ${!isSidebarOpen ? 'rotate-180' : ''}`} />
-          </button>
-        </div>
+      {/* Toggle Button - Outside of nav to avoid overflow:hidden clipping */}
+      <div className="absolute top-1/2 -translate-y-1/2 z-30" style={{ [direction === 'rtl' ? 'left' : 'right']: '-12px' }}>
+        <button
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="w-6 h-6 bg-brand-yellow rounded-full flex items-center justify-center border-2 border-brand-dark hover:bg-yellow-300 transition-colors shadow-[2px_2px_0px_0px_#1A1A1A]"
+        >
+          <ChevronLeft className={`w-4 h-4 transition-transform ${(!isSidebarOpen && direction === 'ltr') || (isSidebarOpen && direction === 'rtl') ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
 
+      <div className="px-3 pb-3 space-y-1">
         <NavItem icon={<Settings />} label={copy.nav.settings} isOpen={isSidebarOpen} active={path === '/teacher/settings'} onClick={() => navigate('/teacher/settings')} />
         <NavItem icon={<HelpCircle />} label={copy.nav.helpCenter} isOpen={isSidebarOpen} active={path === '/help'} onClick={() => navigate('/help')} />
-      </nav>
+      </div>
 
       <div className="p-4 border-t-2 border-brand-dark bg-brand-purple/10">
         <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} bg-white border-2 border-brand-dark p-2 rounded-xl shadow-[2px_2px_0px_0px_#1A1A1A]`}>

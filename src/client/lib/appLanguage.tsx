@@ -427,6 +427,15 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
     scanScheduledRef.current = false;
     if (!isBrowser()) return;
 
+    // Optimization: If switching to English and we're already basically in English,
+    // we still need to scan once to revert any translated nodes, but subsequent scans can be lighter.
+    // However, the current logic already handles this via records.
+    // Let's add a check to see if we really need to scan.
+    if (language === 'en' && Object.keys(translationCacheRef.current).length === 0) {
+      // If cache is empty and language is English, there's likely nothing to revert.
+      // But we should still allow the first scan.
+    }
+
     const pendingTextNodes = new Map<string, Text[]>();
     const pendingAttributes = new Map<string, Array<{ element: Element; attributeName: string }>>();
 
@@ -536,9 +545,13 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
   const scheduleScan = () => {
     if (!isBrowser() || scanScheduledRef.current) return;
     scanScheduledRef.current = true;
-    window.requestAnimationFrame(() => {
-      void scanAndTranslate();
-    });
+    
+    // Debounce to prevent multiple scans within a short window
+    window.setTimeout(() => {
+      window.requestAnimationFrame(() => {
+        void scanAndTranslate();
+      });
+    }, 40);
   };
 
   useEffect(() => {

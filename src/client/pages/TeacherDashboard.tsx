@@ -43,6 +43,7 @@ import { trackTeacherSessionLaunch } from '../lib/appAnalytics.ts';
 import { signOutTeacher } from '../lib/teacherAuth.ts';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
+import TeacherSidebar from '../components/TeacherSidebar.tsx';
 
 const SORT_OPTIONS = [
   { id: 'recent', label: 'Recent activity' },
@@ -137,7 +138,6 @@ export default function TeacherDashboard() {
   const [packs, setPacks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [sortBy, setSortBy] = useState<SortOption>('recent');
@@ -427,76 +427,7 @@ export default function TeacherDashboard() {
 
   return (
     <div className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white">
-      <motion.aside
-        animate={{ width: isSidebarOpen ? 256 : 80 }}
-        className="h-screen bg-white border-r-2 border-brand-dark flex flex-col flex-shrink-0 transition-all duration-300 relative z-20 shadow-[4px_0px_0px_0px_#1A1A1A]"
-      >
-        <div className="h-20 flex items-center px-6 border-b-2 border-brand-dark">
-          {isSidebarOpen ? (
-            <div className="text-2xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
-              <span className="text-brand-orange">Quiz</span>zi
-            </div>
-          ) : (
-            <div className="w-10 h-10 bg-brand-yellow border-2 border-brand-dark text-brand-dark rounded-full flex items-center justify-center text-xl font-black mx-auto cursor-pointer" onClick={() => navigate('/')}>
-              Q
-            </div>
-          )}
-        </div>
-
-        <div className="p-4 border-b-2 border-brand-dark">
-          <button
-            onClick={() => navigate('/teacher/pack/create')}
-            className="w-full bg-brand-orange text-white border-2 border-brand-dark rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#e84d2a] transition-all shadow-[2px_2px_0px_0px_#1A1A1A] py-3"
-          >
-            <Plus className="w-5 h-5" />
-            {isSidebarOpen && <span className="text-base">Create Quiz</span>}
-          </button>
-        </div>
-
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto hide-scrollbar">
-          <NavItem icon={<Library />} label="My Quizzes" isOpen={isSidebarOpen} active onClick={() => navigate('/teacher/dashboard')} />
-          <NavItem icon={<Compass />} label="Discover" isOpen={isSidebarOpen} onClick={() => navigate('/explore')} />
-          <NavItem icon={<BarChart />} label="Reports" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/reports')} />
-          <NavItem icon={<Users />} label="Classes" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/classes')} />
-
-          <div className="my-4 border-t-2 border-brand-dark relative">
-            <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="absolute -right-6 top-1/2 -translate-y-1/2 w-6 h-6 bg-brand-yellow rounded-full flex items-center justify-center border-2 border-brand-dark hover:bg-yellow-300 transition-colors z-10 shadow-[2px_2px_0px_0px_#1A1A1A]"
-            >
-              <ChevronLeft className={`w-4 h-4 transition-transform ${!isSidebarOpen ? 'rotate-180' : ''}`} />
-            </button>
-          </div>
-
-          <NavItem icon={<Settings />} label="Settings" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/settings')} />
-          <NavItem icon={<HelpCircle />} label="Help Center" isOpen={isSidebarOpen} onClick={() => navigate('/teacher/help')} />
-        </nav>
-
-        <div className="p-4 border-t-2 border-brand-dark bg-brand-purple/10">
-          <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} bg-white border-2 border-brand-dark p-2 rounded-xl shadow-[2px_2px_0px_0px_#1A1A1A]`}>
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-brand-yellow rounded-full flex items-center justify-center text-sm border-2 border-brand-dark overflow-hidden">
-                {teacherProfile.avatar}
-              </div>
-              {isSidebarOpen && (
-                <div>
-                  <p className="font-black text-xs">{teacherProfile.firstName} {teacherProfile.lastName}</p>
-                  <p className="text-[10px] font-bold text-brand-dark/60 truncate w-24">{teacherProfile.email}</p>
-                </div>
-              )}
-            </div>
-            {isSidebarOpen && (
-              <button
-                onClick={handleLogout}
-                className="w-8 h-8 bg-brand-bg border-2 border-brand-dark text-brand-dark rounded-lg flex items-center justify-center hover:bg-brand-orange hover:text-white transition-colors"
-                title="Log out"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
-      </motion.aside>
+      <TeacherSidebar />
 
       <main className="flex-1 h-screen overflow-y-auto p-6 lg:p-8 relative bg-brand-bg">
         <div className="absolute top-[-10%] right-[-5%] w-64 h-64 border-[3px] border-brand-dark/5 rounded-full pointer-events-none" />
