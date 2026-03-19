@@ -110,6 +110,10 @@ function getPackState(pack: any) {
   };
 }
 
+function isPackPublic(pack: any) {
+  return Number(pack?.is_public || 0) === 1;
+}
+
 async function readApiError(response: Response) {
   try {
     const payload = await response.json();
@@ -333,6 +337,44 @@ export default function TeacherDashboard() {
     }
   };
 
+  const syncPackState = (updatedPack: any) => {
+    setPacks((current) =>
+      current.map((pack) => (Number(pack.id) === Number(updatedPack.id) ? { ...pack, ...updatedPack } : pack)),
+    );
+    setSelectedPack((current: any) =>
+      Number(current?.id) === Number(updatedPack.id) ? { ...current, ...updatedPack } : current,
+    );
+    setHostingPack((current: any) =>
+      Number(current?.id) === Number(updatedPack.id) ? { ...current, ...updatedPack } : current,
+    );
+  };
+
+  const handleVisibilityChange = async (pack: any, nextIsPublic: boolean) => {
+    try {
+      setBusyAction({ packId: Number(pack.id), action: 'visibility' });
+      const response = await apiFetch(`/api/teacher/packs/${pack.id}/visibility`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_public: nextIsPublic }),
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      const updatedPack = await response.json();
+      syncPackState(updatedPack);
+      setNotice({
+        tone: 'success',
+        message: nextIsPublic
+          ? `${pack.title} can now appear in Discover for other teachers.`
+          : `${pack.title} is now private and hidden from Discover.`,
+      });
+    } catch (visibilityError: any) {
+      setNotice({ tone: 'error', message: visibilityError?.message || 'Failed to update Discover visibility.' });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const handleSnapshotPack = async (pack: any) => {
     try {
       setBusyAction({ packId: Number(pack.id), action: 'snapshot' });
@@ -424,6 +466,12 @@ export default function TeacherDashboard() {
       setBusyAction(null);
     }
   };
+
+  const selectedPackDiscoverVisible = isPackPublic(selectedPack);
+  const selectedPackVisibilityBusy =
+    !!selectedPack &&
+    Number(busyAction?.packId) === Number(selectedPack.id) &&
+    busyAction?.action === 'visibility';
 
   return (
     <div className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white">
@@ -606,6 +654,7 @@ export default function TeacherDashboard() {
               {filteredPacks.map((pack, index) => {
                 const state = getPackState(pack);
                 const isBusy = Number(busyAction?.packId) === Number(pack.id);
+                const discoverVisible = isPackPublic(pack);
                 return (
                   <motion.div
                     key={pack.id}
@@ -625,6 +674,12 @@ export default function TeacherDashboard() {
                             {[pack.course_code, pack.section_name, pack.academic_term].filter(Boolean).join(' • ')}
                           </p>
                         )}
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          <span className={`inline-flex items-center gap-2 rounded-full border-2 border-brand-dark px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em] ${discoverVisible ? 'bg-emerald-100 text-brand-dark' : 'bg-brand-bg text-brand-dark/70'}`}>
+                            <Globe className="w-3.5 h-3.5" />
+                            {discoverVisible ? 'Discover On' : 'Private'}
+                          </span>
+                        </div>
                       </div>
                       <span className={`${state.tone} shrink-0 rounded-full border-2 border-brand-dark px-3 py-2 text-[11px] font-black uppercase tracking-[0.16em]`}>
                         {state.label}
@@ -750,6 +805,26 @@ export default function TeacherDashboard() {
               <PackMetric label="Players" value={selectedPack.last_session_players || 0} />
               <PackMetric label="Language" value={selectedPack.source_language || 'N/A'} />
               <PackMetric label="Versions" value={selectedPack.version_count || selectedPack.versions?.length || 0} />
+            </div>
+
+            <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5 mb-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Discover visibility</p>
+                  <p className="font-black">{selectedPackDiscoverVisible ? 'Visible to all teachers in Discover' : 'Private to your account'}</p>
+                  <p className="font-medium text-brand-dark/62 mt-2">
+                    Keep this off unless you want the pack to appear in Discover for everyone.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleVisibilityChange(selectedPack, !selectedPackDiscoverVisible)}
+                  disabled={selectedPackVisibilityBusy}
+                  className={`shrink-0 min-w-[148px] px-4 py-3 rounded-2xl border-2 border-brand-dark font-black shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-60 ${selectedPackDiscoverVisible ? 'bg-emerald-100 text-brand-dark' : 'bg-white text-brand-dark'}`}
+                >
+                  {selectedPackVisibilityBusy ? 'Saving...' : selectedPackDiscoverVisible ? 'Hide from Discover' : 'Share to Discover'}
+                </button>
+              </div>
             </div>
 
             <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-5 mb-6">

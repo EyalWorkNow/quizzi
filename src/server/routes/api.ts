@@ -212,6 +212,20 @@ function clampNumber(value: unknown, minimum: number, maximum: number, fallback 
   return Math.max(minimum, Math.min(maximum, Math.floor(parsed)));
 }
 
+function sanitizeBooleanFlag(value: unknown, fallback = false) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) return fallback;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
 function sanitizeSessionPin(value: unknown) {
   return String(value || '')
     .replace(/\D/g, '')
@@ -1460,6 +1474,11 @@ router.get('/packs', async (req, res) => {
   res.json(packs);
 });
 
+router.get('/discover/packs', async (_req, res) => {
+  const packs = (await listHydratedPacks({ publicOnly: true }));
+  res.json(packs);
+});
+
 router.get('/teacher/packs', requireTeacherSession, async (req, res) => {
   try {
     const teacherUserId = (await getTeacherUserIdFromRequest(req));
@@ -1480,6 +1499,38 @@ router.get('/teacher/packs', requireTeacherSession, async (req, res) => {
   } catch (error: any) {
     console.error('[ERROR] Teacher pack board failed:', error);
     respondWithServerError(res, 'Failed to load teacher packs');
+  }
+});
+
+router.put('/teacher/packs/:id/visibility', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-pack-visibility', 60, 10 * 60 * 1000, teacherUserId, req.params.id)) return;
+
+    const packId = parsePositiveInt(req.params.id);
+    const pack = (await getTeacherOwnedPack(packId, teacherUserId));
+    if (!pack) {
+      return res.status(404).json({ error: 'Pack not found' });
+    }
+
+    const isPublic = sanitizeBooleanFlag(req.body?.is_public, false);
+    (await db
+        .prepare(`
+        UPDATE quiz_packs
+        SET is_public = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND teacher_id = ?
+      `)
+        .run(isPublic ? 1 : 0, packId, teacherUserId));
+
+    const updatedPack = (await getTeacherPackBoard(teacherUserId)).find((entry: any) => Number(entry.id) === packId);
+    res.json(updatedPack || { id: packId, is_public: isPublic ? 1 : 0 });
+  } catch (error: any) {
+    console.error('[ERROR] Pack visibility update failed:', error);
+    respondWithServerError(res, 'Failed to update pack visibility');
   }
 });
 
@@ -2364,6 +2415,7 @@ router.post('/packs', requireTeacherSession, async (req, res) => {
   const questions = Array.isArray(req.body?.questions) ? req.body.questions : [];
   const language = sanitizeLine(req.body?.language || 'English', 24);
   const academicMeta = sanitizeAcademicMeta(req.body?.academic_meta || req.body);
+  const isPublic = sanitizeBooleanFlag(req.body?.is_public, false);
   if (!title) {
     return res.status(400).json({ error: 'Pack title is required' });
   }
@@ -2390,12 +2442,13 @@ router.post('/packs', requireTeacherSession, async (req, res) => {
       learning_objectives_json,
       bloom_levels_json,
       pack_notes,
+      is_public,
       source_hash,
       source_excerpt,
       source_language,
       source_word_count,
       material_profile_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const info = insertPack.run(
     teacherUserId,
@@ -2409,6 +2462,7 @@ router.post('/packs', requireTeacherSession, async (req, res) => {
     JSON.stringify(academicMeta.learning_objectives),
     JSON.stringify(academicMeta.bloom_levels),
     academicMeta.pack_notes,
+    isPublic ? 1 : 0,
     materialProfile.source_hash,
     materialProfile.source_excerpt,
     language || materialProfile.source_language,
@@ -2456,7 +2510,7 @@ router.post('/packs', requireTeacherSession, async (req, res) => {
   (await syncPackDerivedData(Number(packId), source_text || '', normalizedQuestions, language));
   (await createPackVersionSnapshot(Number(packId), teacherUserId, 'Initial version', 'create'));
 
-  res.json({ id: packId, title, question_count: normalizedQuestions.length });
+  res.json({ id: packId, title, question_count: normalizedQuestions.length, is_public: isPublic ? 1 : 0 });
 });
 
 // Host a session

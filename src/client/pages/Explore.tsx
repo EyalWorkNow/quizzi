@@ -211,7 +211,7 @@ export default function Explore() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    apiFetchJson('/api/packs')
+    apiFetchJson('/api/discover/packs')
       .then((data) => setPacks(Array.isArray(data) ? data : []))
       .catch((loadError: any) => setError(loadError?.message || 'Failed to load packs'))
       .finally(() => setLoading(false));

@@ -39,20 +39,31 @@ async function run() {
       INSERT INTO quiz_packs (teacher_id, is_public, title, source_text, source_excerpt, source_language, source_word_count)
       VALUES (?, 0, ?, 'private source', 'private excerpt', 'English', 2)
     `).run(Number(teacherOne.lastInsertRowid), `${marker}-private-pack`);
+    const implicitPrivatePack = db.prepare(`
+      INSERT INTO quiz_packs (teacher_id, title, source_text, source_excerpt, source_language, source_word_count)
+      VALUES (?, ?, 'implicit private source', 'implicit private excerpt', 'English', 3)
+    `).run(Number(teacherOne.lastInsertRowid), `${marker}-implicit-private-pack`);
     const publicPack = db.prepare(`
       INSERT INTO quiz_packs (teacher_id, is_public, title, source_text, source_excerpt, source_language, source_word_count)
       VALUES (?, 1, ?, 'public source', 'public excerpt', 'English', 2)
     `).run(Number(teacherTwo.lastInsertRowid), `${marker}-public-pack`);
-    createdPackIds.push(Number(privatePack.lastInsertRowid), Number(publicPack.lastInsertRowid));
+    createdPackIds.push(
+      Number(privatePack.lastInsertRowid),
+      Number(implicitPrivatePack.lastInsertRowid),
+      Number(publicPack.lastInsertRowid),
+    );
 
     const ownerVisiblePacks = await listHydratedPacks({ teacherUserId: Number(teacherOne.lastInsertRowid) });
-    assert.equal(ownerVisiblePacks.length, 1, 'owner pack listing should only return the owner pack');
-    assert.equal(Number(ownerVisiblePacks[0]?.id || 0), Number(privatePack.lastInsertRowid));
+    const ownerVisibleIds = new Set(ownerVisiblePacks.map((pack: any) => Number(pack.id)));
+    assert.equal(ownerVisiblePacks.length, 2, 'owner pack listing should only return the owner packs');
+    assert(ownerVisibleIds.has(Number(privatePack.lastInsertRowid)), 'explicit private pack must remain visible to its owner');
+    assert(ownerVisibleIds.has(Number(implicitPrivatePack.lastInsertRowid)), 'packs should default to private for their owner');
 
     const publicVisiblePacks = await listHydratedPacks({ publicOnly: true });
     const publicVisibleIds = new Set(publicVisiblePacks.map((pack: any) => Number(pack.id)));
     assert(publicVisibleIds.has(Number(publicPack.lastInsertRowid)), 'public pack must be visible anonymously');
     assert(!publicVisibleIds.has(Number(privatePack.lastInsertRowid)), 'private pack must not be visible anonymously');
+    assert(!publicVisibleIds.has(Number(implicitPrivatePack.lastInsertRowid)), 'packs must stay private unless explicitly shared');
 
     const deniedPack = await getHydratedPackWithQuestions(Number(privatePack.lastInsertRowid), {
       teacherUserId: Number(teacherTwo.lastInsertRowid),

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Library, Search, Layout, Rocket, Play, PlusCircle, ChevronDown, ChevronUp, Monitor, Brain, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Library, Search, Layout, Rocket, Play, PlusCircle, ChevronDown, ChevronUp, Monitor, Brain, MessageSquare, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
@@ -79,6 +79,7 @@ export default function TeacherCreatePack() {
   const [questionBankQuery, setQuestionBankQuery] = useState('');
   const [questionBankItems, setQuestionBankItems] = useState<any[]>([]);
   const [isQuestionBankLoading, setIsQuestionBankLoading] = useState(false);
+  const [isPublic, setIsPublic] = useState(false);
 
   // Advanced Generation Settings
   const [questionCount, setQuestionCount] = useState(5);
@@ -261,7 +262,14 @@ export default function TeacherCreatePack() {
     const res = await apiFetch('/api/packs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, source_text: sourceText, questions: preparedQuestions, language, academic_meta: academicMeta })
+      body: JSON.stringify({
+        title,
+        source_text: sourceText,
+        questions: preparedQuestions,
+        language,
+        academic_meta: academicMeta,
+        is_public: isPublic,
+      })
     });
     if (!res.ok) {
       const payload = await res.json().catch(() => null);
@@ -873,6 +881,28 @@ export default function TeacherCreatePack() {
                    </div>
 
                    <div className="space-y-8">
+                     <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
+                       <div className="flex items-start gap-3">
+                         <div className={`w-12 h-12 rounded-2xl border-2 border-brand-dark flex items-center justify-center shrink-0 ${isPublic ? 'bg-emerald-100' : 'bg-white'}`}>
+                           <Globe className="w-5 h-5 text-brand-dark" />
+                         </div>
+                         <div className="min-w-0 flex-1">
+                           <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">Discover visibility</p>
+                           <p className="font-black leading-tight">{isPublic ? 'This pack can appear in Discover' : 'This pack stays private by default'}</p>
+                           <p className="text-sm font-medium text-brand-dark/62 mt-2">
+                             Turn this on only if you want other teachers to be able to find it in Discover.
+                           </p>
+                         </div>
+                       </div>
+                       <button
+                         type="button"
+                         onClick={() => setIsPublic((current) => !current)}
+                         className={`mt-4 w-full py-3 rounded-2xl border-2 border-brand-dark font-black shadow-[2px_2px_0px_0px_#1A1A1A] transition-colors ${isPublic ? 'bg-emerald-100 text-brand-dark' : 'bg-white text-brand-dark'}`}
+                       >
+                         {isPublic ? 'Visible in Discover' : 'Keep Private'}
+                       </button>
+                     </div>
+
                      <div>
                        <label className="text-xs font-black uppercase tracking-widest text-brand-dark/40 mb-3 block">Selected Format</label>
                        <div className="grid grid-cols-1 gap-3">
