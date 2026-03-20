@@ -2746,7 +2746,7 @@ router.put('/sessions/:id/state', requireTeacherSession, async (req, res) => {
       }
     }
 
-    broadcastToSession(sessionId, 'STATE_CHANGE', {
+    const stateChangePayload = {
       status,
       current_question_index,
       state_started_at: Date.now(), // Client-server drift is less critical than internal consistency
@@ -2754,10 +2754,19 @@ router.put('/sessions/:id/state', requireTeacherSession, async (req, res) => {
       game_type: hydratedSession?.game_type || updatedSession.game_type,
       team_count: Number(updatedSession.team_count || 0),
       mode_config: hydratedSession?.mode_config || getSessionModeConfig(updatedSession),
+    };
+
+    broadcastToSession(sessionId, 'STATE_CHANGE', stateChangePayload);
+
+    res.json({
+      success: true,
+      session: hydratedSession,
+      state: stateChangePayload,
     });
+    return;
   }
 
-  res.json({ success: true });
+  res.status(500).json({ error: 'Failed to update session state' });
 });
 
 // --- Student Routes ---

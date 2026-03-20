@@ -37,10 +37,13 @@ export default function TeacherHost() {
   const [isPinCopied, setIsPinCopied] = useState(false);
   const [isJoinLinkCopied, setIsJoinLinkCopied] = useState(false);
   const [phaseTimeLeft, setPhaseTimeLeft] = useState(0);
+  const [hostMessage, setHostMessage] = useState<{ tone: 'error' | 'info'; text: string } | null>(null);
+  const [pendingStateKey, setPendingStateKey] = useState('');
   const participantCountRef = useRef(0);
   const questionIndexRef = useRef(0);
   const statusRef = useRef(status);
   const focusAlertTimeoutsRef = useRef<Record<string, number>>({});
+  const pendingStateKeyRef = useRef('');
   const gameTypeRef = useRef('classic_quiz');
   const modeConfigRef = useRef<Record<string, unknown>>({});
   const autoAdvanceKeyRef = useRef('');
@@ -101,6 +104,19 @@ export default function TeacherHost() {
     status === 'QUESTION_ACTIVE' && isPeerMode
       ? `${Object.keys(studentSelections).length} / ${participants.length} Votes`
       : `${totalAnswers} / ${participants.length} Answers`;
+  const answerSelectionSummary = currentAnswers.map((_, index) => {
+    const count = Object.values(studentSelections).filter((value) => Number(value) === index).length;
+    return {
+      index,
+      count,
+      pct: participants.length > 0 ? Math.round((count / participants.length) * 100) : 0,
+    };
+  });
+  const correctSelectionCount =
+    currentQuestion && Number.isFinite(Number(currentQuestion.correct_index))
+      ? Number(answerSelectionSummary[Number(currentQuestion.correct_index)]?.count || 0)
+      : 0;
+  const phaseTransitionPending = Boolean(pendingStateKey);
 
   useEffect(() => {
     participantCountRef.current = participants.length;
@@ -118,6 +134,12 @@ export default function TeacherHost() {
     gameTypeRef.current = String(sessionMeta?.game_type || 'classic_quiz');
     modeConfigRef.current = modeConfig;
   }, [modeConfig, sessionMeta?.game_type]);
+
+  useEffect(() => {
+    if (!hostMessage) return;
+    const timeoutId = window.setTimeout(() => setHostMessage(null), 4200);
+    return () => window.clearTimeout(timeoutId);
+  }, [hostMessage]);
 
   useEffect(() => {
     // Force targetTime calculation to be stable
@@ -340,6 +362,16 @@ export default function TeacherHost() {
     return payload;
   };
 
+  const buildHostedStatePayload = (nextStatus: string, index: number, questionPayload?: Record<string, unknown> | null) => ({
+    status: nextStatus,
+    current_question_index: index,
+    state_started_at: Date.now(),
+    question: questionPayload === undefined ? buildRealtimeQuestionPayload(nextStatus, index) : questionPayload,
+    game_type: sessionMeta?.game_type || gameTypeRef.current || 'classic_quiz',
+    team_count: Number(sessionMeta?.team_count || 0),
+    mode_config: sessionMeta?.mode_config || sessionMeta?.modeConfig || modeConfigRef.current || {},
+  });
+
   useEffect(() => {
     if (packId) {
       apiFetchJson(`/api/teacher/packs/${packId}`)
@@ -500,33 +532,57 @@ export default function TeacherHost() {
   }, [modeConfig, pin, sessionId, packId, pack, sessionMeta, questionIndex, status]);
 
   const updateState = async (newStatus: string, index: number) => {
-    const response = await apiFetch(`/api/sessions/${sessionId}/state`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus, current_question_index: index })
-    });
-    if (!response.ok) {
-      return;
+    const normalizedSessionId = Number(sessionId || 0);
+    if (!normalizedSessionId) {
+      setHostMessage({ tone: 'error', text: 'The live session is not ready yet. Refresh the room and try again.' });
+      return false;
     }
 
-    void writeHostedSessionMeta(String(pin || ''), {
-      sessionId: Number(sessionId || 0),
-      quizPackId: Number(packId || sessionMeta?.quiz_pack_id || 0),
-      packTitle: pack?.title || sessionMeta?.pack_title || '',
-      gameType: sessionMeta?.game_type || 'classic_quiz',
-      teamCount: Number(sessionMeta?.team_count || 0),
-      modeConfig,
-      status: newStatus,
-      currentQuestionIndex: index,
-      question: buildRealtimeQuestionPayload(newStatus, index),
-      expectedParticipants: participantCountRef.current,
-    });
+    const requestKey = `${normalizedSessionId}:${newStatus}:${index}`;
+    if (pendingStateKeyRef.current === requestKey) {
+      return false;
+    }
+
+    pendingStateKeyRef.current = requestKey;
+    setPendingStateKey(requestKey);
+    setHostMessage({ tone: 'info', text: `Updating room to ${newStatus.replace(/_/g, ' ').toLowerCase()}...` });
+
+    try {
+      const response = await apiFetch(`/api/sessions/${normalizedSessionId}/state`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus, current_question_index: index })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to update session state');
+      }
+
+      const nextStatePayload = payload?.state || buildHostedStatePayload(newStatus, index);
+      handleLiveStateChange(nextStatePayload);
+      setHostMessage(null);
+      return true;
+    } catch (error: any) {
+      console.error('[TeacherHost] Failed to update session state:', error);
+      setHostMessage({
+        tone: 'error',
+        text: error?.message || 'Could not move the game to the next phase. Try again.',
+      });
+      return false;
+    } finally {
+      if (pendingStateKeyRef.current === requestKey) {
+        pendingStateKeyRef.current = '';
+      }
+      setPendingStateKey((current) => (current === requestKey ? '' : current));
+    }
   };
 
   const handleEndSession = async () => {
     if (window.confirm('Are you sure you want to end the game early? This will close the room for students and jump to analytics.')) {
-      await updateState('ENDED', questionIndex);
-      navigate(`/teacher/analytics/class/${sessionId}`);
+      const ended = await updateState('ENDED', questionIndex);
+      if (ended) {
+        navigate(`/teacher/analytics/class/${sessionId}`);
+      }
     }
   };
 
@@ -783,16 +839,22 @@ export default function TeacherHost() {
                       </p>
                     </div>
                     <motion.button
-                      whileHover={{ scale: participants.length > 0 ? 1.03 : 1 }}
-                      whileTap={{ scale: participants.length > 0 ? 0.98 : 1 }}
+                      whileHover={{ scale: participants.length > 0 && !phaseTransitionPending ? 1.03 : 1 }}
+                      whileTap={{ scale: participants.length > 0 && !phaseTransitionPending ? 0.98 : 1 }}
                       onClick={() => updateState('QUESTION_ACTIVE', 0)}
-                      disabled={participants.length === 0}
+                      disabled={participants.length === 0 || phaseTransitionPending}
                       className="px-8 py-5 bg-brand-orange text-white border-4 border-brand-dark rounded-[1.75rem] font-black text-2xl flex items-center justify-center gap-3 shadow-[8px_8px_0px_0px_#1A1A1A] disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Play className="w-6 h-6 fill-current" />
-                      Start Game
+                      {phaseTransitionPending ? 'Opening question...' : 'Start Game'}
                     </motion.button>
                   </div>
+
+                  {hostMessage && (
+                    <div className="mt-5">
+                      <HostPhaseNotice message={hostMessage} />
+                    </div>
+                  )}
                 </div>
               </motion.div>
             </section>
@@ -1032,14 +1094,21 @@ export default function TeacherHost() {
           </div>
 
           <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: phaseTransitionPending ? 1 : 1.05 }}
+            whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
             onClick={() => updateState(nextStatus, questionIndex)}
+            disabled={phaseTransitionPending}
             className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold text-lg hover:bg-slate-800 transition-colors shadow-[0_4px_0_0_rgba(15,23,42,1)] active:shadow-none active:translate-y-1"
           >
-            {nextButtonLabel}
+            {phaseTransitionPending ? 'Working...' : nextButtonLabel}
           </motion.button>
         </div>
+
+        {hostMessage && (
+          <div className="px-6 pt-4">
+            <HostPhaseNotice message={hostMessage} />
+          </div>
+        )}
 
         <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-6xl mx-auto w-full relative">
           <div className="absolute top-0 right-0 p-4 space-y-2 pointer-events-none z-50">
@@ -1182,16 +1251,33 @@ export default function TeacherHost() {
             </div>
           </div>
           <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: phaseTransitionPending ? 1 : 1.05 }}
+            whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
             onClick={() => updateState('LEADERBOARD', questionIndex)}
+            disabled={phaseTransitionPending}
             className="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold text-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-[0_4px_0_0_#4338ca] active:shadow-none active:translate-y-1"
           >
-            Next <ChevronRight className="w-6 h-6" />
+            {phaseTransitionPending ? 'Working...' : 'Next'} <ChevronRight className="w-6 h-6" />
           </motion.button>
         </div>
 
+        {hostMessage && (
+          <div className="px-8 pt-4">
+            <HostPhaseNotice message={hostMessage} />
+          </div>
+        )}
+
         <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-6xl mx-auto w-full">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full mb-8">
+            <HostStageMetric label="Answered" value={`${totalAnswers}/${participants.length || 0}`} tone="light" />
+            <HostStageMetric label="Correct" value={correctSelectionCount} tone="warm" />
+            <HostStageMetric
+              label="Accuracy"
+              value={participants.length > 0 ? `${Math.round((correctSelectionCount / participants.length) * 100)}%` : 'N/A'}
+              tone="dark"
+            />
+          </div>
+
           <QuestionImageCard
             imageUrl={currentQuestion?.image_url}
             alt={currentQuestion?.prompt || 'Question image'}
@@ -1212,16 +1298,27 @@ export default function TeacherHost() {
           >
             {currentAnswers.map((ans: string, i: number) => {
               const isCorrect = i === currentQuestion.correct_index;
+              const selectionStats = answerSelectionSummary[i] || { count: 0, pct: 0 };
               return (
                 <motion.div
                   initial={{ scale: 0.9, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   transition={{ delay: i * 0.1 }}
                   key={i}
-                  className={`rounded-[2rem] p-10 text-3xl font-bold text-center shadow-sm flex items-center justify-center gap-4 min-h-[160px] ${isCorrect ? 'bg-emerald-100 border-4 border-emerald-500 text-emerald-900 shadow-emerald-500/20 shadow-xl' : 'bg-white border-4 border-slate-200 text-slate-400 opacity-50 grayscale'}`}
+                  className={`rounded-[2rem] p-10 text-3xl font-bold text-center shadow-sm flex flex-col items-center justify-center gap-4 min-h-[160px] ${isCorrect ? 'bg-emerald-100 border-4 border-emerald-500 text-emerald-900 shadow-emerald-500/20 shadow-xl' : 'bg-white border-4 border-slate-200 text-slate-500'}`}
                 >
-                  {isCorrect && <CheckCircle className="w-10 h-10 text-emerald-500 flex-shrink-0" />}
-                  {ans}
+                  <div className="flex items-center justify-center gap-4">
+                    {isCorrect && <CheckCircle className="w-10 h-10 text-emerald-500 flex-shrink-0" />}
+                    <span>{ans}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-3 text-sm">
+                    <span className={`px-4 py-2 rounded-full border-2 font-black ${isCorrect ? 'bg-white border-emerald-300 text-emerald-800' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
+                      {selectionStats.count} {selectionStats.count === 1 ? 'student' : 'students'}
+                    </span>
+                    <span className={`px-4 py-2 rounded-full border-2 font-black ${isCorrect ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-white border-slate-200 text-slate-700'}`}>
+                      {selectionStats.pct}%
+                    </span>
+                  </div>
                 </motion.div>
               );
             })}
@@ -1269,21 +1366,30 @@ export default function TeacherHost() {
             </div>
           </div>
           <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => {
+            whileHover={{ scale: phaseTransitionPending ? 1 : 1.05 }}
+            whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
+            onClick={async () => {
               if (isLast) {
-                updateState('ENDED', questionIndex);
-                navigate(`/teacher/analytics/class/${sessionId}`);
+                const ended = await updateState('ENDED', questionIndex);
+                if (ended) {
+                  navigate(`/teacher/analytics/class/${sessionId}`);
+                }
               } else {
-                updateState('QUESTION_ACTIVE', questionIndex + 1);
+                await updateState('QUESTION_ACTIVE', questionIndex + 1);
               }
             }}
+            disabled={phaseTransitionPending}
             className={`${isLast ? 'bg-emerald-500 hover:bg-emerald-600 shadow-[0_4px_0_0_#047857]' : 'bg-indigo-600 hover:bg-indigo-700 shadow-[0_4px_0_0_#4338ca]'} text-white px-8 py-3 rounded-xl font-bold text-lg transition-colors flex items-center gap-2 active:shadow-none active:translate-y-1`}
           >
-            {isLast ? 'End Game & View Analytics' : 'Next Question'} <ChevronRight className="w-6 h-6" />
+            {phaseTransitionPending ? 'Working...' : isLast ? 'End Game & View Analytics' : 'Next Question'} <ChevronRight className="w-6 h-6" />
           </motion.button>
         </div>
+
+        {hostMessage && (
+          <div className="px-8 pt-4">
+            <HostPhaseNotice message={hostMessage} />
+          </div>
+        )}
 
         <div className="flex-1 flex flex-col items-center justify-start p-8 max-w-[1400px] mx-auto w-full">
           <motion.div
@@ -1558,6 +1664,26 @@ function HostStageMetric({
     <div className={`rounded-[1.4rem] border-2 p-4 min-h-[94px] ${toneClass}`}>
       <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-2">{label}</p>
       <p className="text-2xl font-black break-words leading-tight">{value}</p>
+    </div>
+  );
+}
+
+function HostPhaseNotice({
+  message,
+}: {
+  message: { tone: 'error' | 'info'; text: string };
+}) {
+  const isError = message.tone === 'error';
+  return (
+    <div
+      className={`rounded-[1.4rem] border-2 px-4 py-3 font-black flex items-center gap-3 ${
+        isError
+          ? 'bg-rose-50 border-rose-400 text-rose-700'
+          : 'bg-indigo-50 border-indigo-200 text-indigo-700'
+      }`}
+    >
+      {isError ? <AlertTriangle className="w-5 h-5 flex-shrink-0" /> : <Clock className="w-5 h-5 flex-shrink-0" />}
+      <span>{message.text}</span>
     </div>
   );
 }

@@ -62,6 +62,7 @@ async function createRegressionServer() {
 async function run() {
   const createdPackIds: number[] = [];
   const createdTeacherIds: number[] = [];
+  const createdQuestionIds: number[] = [];
   const createdSessionIds: number[] = [];
   const createdParticipantIds: number[] = [];
   const createdMasteryIds: number[] = [];
@@ -115,6 +116,17 @@ async function run() {
     });
     assert.equal(deniedPack, null, 'another teacher must not be able to fetch a private pack');
 
+    const hostedQuestion = db.prepare(`
+      INSERT INTO questions (quiz_pack_id, prompt, answers_json, correct_index, explanation, tags_json, time_limit_seconds, question_order)
+      VALUES (?, ?, ?, 1, ?, '[]', 20, 1)
+    `).run(
+      Number(privatePack.lastInsertRowid),
+      `${marker} prompt`,
+      JSON.stringify(['Answer A', 'Answer B', 'Answer C']),
+      `${marker} explanation`,
+    );
+    createdQuestionIds.push(Number(hostedQuestion.lastInsertRowid));
+
     const hostedSession = db.prepare(`
       INSERT INTO sessions (quiz_pack_id, pin, status, game_type, team_count, mode_config_json)
       VALUES (?, ?, 'LOBBY', 'classic_quiz', 0, '{}')
@@ -157,6 +169,24 @@ async function run() {
     const teacherParticipantsPayload = await teacherParticipantsResponse.json();
     assert.equal(Array.isArray(teacherParticipantsPayload.participants), true);
     assert.equal(teacherParticipantsPayload.participants.length, 1);
+
+    const teacherStateResponse = await fetch(`${regressionServer.baseUrl}/api/sessions/${Number(hostedSession.lastInsertRowid)}/state`, {
+      method: 'PUT',
+      headers: {
+        ...teacherHeaders,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        status: 'QUESTION_REVEAL',
+        current_question_index: 0,
+      }),
+    });
+    assert.equal(teacherStateResponse.status, 200, 'teacher session state update must succeed');
+    const teacherStatePayload = await teacherStateResponse.json();
+    assert.equal(teacherStatePayload?.state?.status, 'QUESTION_REVEAL', 'state update response must include the new status');
+    assert.equal(Number(teacherStatePayload?.state?.current_question_index ?? -1), 0, 'state update response must include the question index');
+    assert.equal(Number(teacherStatePayload?.state?.question?.correct_index ?? -1), 1, 'reveal payload must include the correct answer index');
+    assert.equal(String(teacherStatePayload?.state?.question?.explanation || ''), `${marker} explanation`, 'reveal payload must include the explanation');
 
     const nickname = `[avatar_1.png] Shared Name ${marker}`;
     const identityOne = `${buildLegacyStudentIdentityKey(nickname)}-one`;
@@ -236,6 +266,9 @@ async function run() {
     }
     if (createdParticipantIds.length) {
       db.prepare(`DELETE FROM participants WHERE id IN (${createdParticipantIds.map(() => '?').join(', ')})`).run(...createdParticipantIds);
+    }
+    if (createdQuestionIds.length) {
+      db.prepare(`DELETE FROM questions WHERE id IN (${createdQuestionIds.map(() => '?').join(', ')})`).run(...createdQuestionIds);
     }
     if (createdSessionIds.length) {
       db.prepare(`DELETE FROM sessions WHERE id IN (${createdSessionIds.map(() => '?').join(', ')})`).run(...createdSessionIds);
