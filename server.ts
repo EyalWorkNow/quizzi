@@ -100,6 +100,12 @@ async function startServer() {
 
   // API Routes
   app.use('/api', apiRouter);
+
+  // Debug logger for unhandled /api requests
+  app.use('/api', (req, res) => {
+    console.warn(`[server] UNHANDLED API REQUEST: ${req.method} ${req.originalUrl}`);
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+  });
   app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (res.headersSent) {
       next(error);

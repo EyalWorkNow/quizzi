@@ -1475,8 +1475,15 @@ router.get('/packs', async (req, res) => {
 });
 
 router.get('/discover/packs', async (_req, res) => {
-  const packs = (await listHydratedPacks({ publicOnly: true }));
-  res.json(packs);
+  console.log('[DEBUG] GET /api/discover/packs request received');
+  try {
+    const packs = (await listHydratedPacks({ publicOnly: true }));
+    console.log(`[DEBUG] Found ${packs.length} public packs`);
+    res.json(packs);
+  } catch (error) {
+    console.error('[ERROR] Discover packs failed:', error);
+    res.status(500).json({ error: 'Failed to load discover packs' });
+  }
 });
 
 router.get('/teacher/packs', requireTeacherSession, async (req, res) => {
