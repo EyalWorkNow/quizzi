@@ -15,6 +15,7 @@ import type { GameModeConfig } from '../../shared/gameModes.ts';
 const SESSION_ROOT = 'quizziSessions';
 const FOCUS_ALERT_WINDOW_MS = 5000;
 const loggedRealtimeErrors = new Set<string>();
+let realtimeDisabledForSession = false;
 
 export interface RealtimeSessionMeta {
   sessionId?: number;
@@ -54,13 +55,21 @@ function getSessionPath(pin: string) {
 }
 
 function logRealtimeError(scope: string, error: any) {
+  const isPermissionDenied =
+    error?.message?.includes('PERMISSION_DENIED') ||
+    error?.message?.includes('permission_denied') ||
+    error?.code === 'PERMISSION_DENIED';
+
+  if (isPermissionDenied) {
+    realtimeDisabledForSession = true;
+  }
+
   if (loggedRealtimeErrors.has(scope)) {
     return;
   }
 
   loggedRealtimeErrors.add(scope);
-  const isPermissionDenied = error?.message?.includes('PERMISSION_DENIED') || error?.code === 'PERMISSION_DENIED';
-  
+
   if (isPermissionDenied) {
     console.error(`[firebase-rtdb] ${scope} FAILED: Permission Denied. This is almost certainly because Anonymous Authentication is disabled in your Firebase Console. Please enable it to allow students to see live updates.`);
   } else {
@@ -72,6 +81,7 @@ export async function writeHostedSessionMeta(
   pin: string,
   payload: RealtimeSessionMeta & { expectedParticipants?: number },
 ) {
+  if (realtimeDisabledForSession) return false;
   const db = await ensureFirebaseRealtimeReady();
   if (!db) return false;
 
@@ -111,6 +121,7 @@ export async function writeHostedSessionMeta(
 }
 
 export async function syncHostedParticipants(pin: string, participants: RealtimeParticipant[]) {
+  if (realtimeDisabledForSession) return false;
   const db = await ensureFirebaseRealtimeReady();
   if (!db) return false;
 
@@ -144,6 +155,7 @@ export async function syncHostedParticipants(pin: string, participants: Realtime
 }
 
 export async function announceParticipantJoin(pin: string, participant: RealtimeParticipant) {
+  if (realtimeDisabledForSession) return false;
   const db = await ensureFirebaseRealtimeReady();
   if (!db) return false;
 
@@ -166,6 +178,7 @@ export async function announceParticipantJoin(pin: string, participant: Realtime
 }
 
 export async function attachParticipantPresence(pin: string, participant: RealtimeParticipant) {
+  if (realtimeDisabledForSession) return null;
   const db = await ensureFirebaseRealtimeReady();
   if (!db) return null;
 
@@ -225,6 +238,7 @@ export async function publishLiveSelection(
   pin: string,
   payload: { participantId: number; nickname?: string; chosenIndex: number },
 ) {
+  if (realtimeDisabledForSession) return false;
   const db = await ensureFirebaseRealtimeReady();
   if (!db) return false;
 
@@ -246,6 +260,7 @@ export async function publishFocusAlert(
   pin: string,
   payload: { participantId: number; nickname?: string },
 ) {
+  if (realtimeDisabledForSession) return false;
   const db = await ensureFirebaseRealtimeReady();
   if (!db) return false;
 
@@ -267,6 +282,7 @@ export async function publishAnswerProgress(
   pin: string,
   payload: { participantId: number; totalAnswers?: number; expected?: number },
 ) {
+  if (realtimeDisabledForSession) return false;
   const db = await ensureFirebaseRealtimeReady();
   if (!db) return false;
 
@@ -347,6 +363,7 @@ export async function subscribeToHostedSessionRealtime(
   pin: string,
   handlers: HostedSessionRealtimeHandlers,
 ) {
+  if (realtimeDisabledForSession) return null;
   const db = await ensureFirebaseRealtimeReady();
   if (!db) return null;
 
@@ -420,6 +437,7 @@ export async function subscribeToStudentSessionRealtime(
     onError?: (error: unknown) => void;
   },
 ) {
+  if (realtimeDisabledForSession) return null;
   const db = await ensureFirebaseRealtimeReady();
   if (!db) return null;
 

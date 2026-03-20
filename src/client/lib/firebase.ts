@@ -20,6 +20,7 @@ const firebaseConfig = {
 
 let analyticsPromise: Promise<Analytics | null> | null = null;
 let realtimeAuthPromise: Promise<Database | null> | null = null;
+let realtimeUnavailable = false;
 
 function hasFirebaseConfig() {
   return Boolean(
@@ -57,6 +58,10 @@ export function getFirebaseDatabase(): Database | null {
 }
 
 export function ensureFirebaseRealtimeReady(): Promise<Database | null> {
+  if (realtimeUnavailable) {
+    return Promise.resolve(null);
+  }
+
   if (!hasRealtimeConfig()) {
     return Promise.resolve(null);
   }
@@ -80,6 +85,8 @@ export function ensureFirebaseRealtimeReady(): Promise<Database | null> {
             
           if (isOperationNotAllowed) {
             console.error('[Firebase] CRITICAL: Anonymous Authentication is NOT enabled in your Firebase Console. Realtime features (Lobby, Live View) will FAIL until you enable it under Build > Authentication > Sign-in method.');
+            realtimeUnavailable = true;
+            return null;
           } else {
             console.warn('[Firebase] Anonymous sign-in failed. Realtime features might be limited:', error);
           }
