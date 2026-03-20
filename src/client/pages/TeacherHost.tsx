@@ -169,11 +169,15 @@ export default function TeacherHost() {
         setStatus(data.status);
         setQuestionIndex(data.current_question_index);
       })
-      .catch(err => {
+      .catch((err: any) => {
         console.error('[TeacherHost] Failed to fetch session metadata:', err);
-        // If we get a 404, the session might be gone
+        if (err.message?.includes('401')) {
+          navigate('/auth', { state: { error: 'Your teacher session has expired. Please sign in again.' } });
+          return;
+        }
         if (err.message?.includes('404')) {
           navigate('/teacher/dashboard', { state: { error: 'Session not found or expired.' } });
+          return;
         }
       });
   }, [pin, navigate]);
@@ -344,8 +348,11 @@ export default function TeacherHost() {
     if (packId) {
       apiFetchJson(`/api/packs/${packId}`)
         .then(data => setPack(data))
-        .catch(err => {
+        .catch((err: any) => {
           console.error('[TeacherHost] Failed to fetch pack data:', err);
+          if (err.message?.includes('401')) {
+            navigate('/auth', { state: { error: 'Authentication required to view this pack.' } });
+          }
         });
     }
   }, [packId]);
