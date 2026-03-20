@@ -8,6 +8,8 @@
 import { getParticipantToken } from './studentSession.ts';
 
 const API_BASE = import.meta.env.VITE_API_PROXY_TARGET || (import.meta.env.PROD ? 'https://quizzi-mqru.onrender.com' : '');
+const TEACHER_AUTH_KEY = 'quizzi.teacher.auth';
+const TEACHER_TOKEN_KEY = 'quizzi.teacher.token';
 
 /**
  * Normalizes an API path to include the base URL if needed.
@@ -35,13 +37,26 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   // Also check for Teacher Token in localStorage for cross-origin Bearer Auth
   let teacherToken = '';
   if (typeof window !== 'undefined') {
-    const rawAuth = window.localStorage.getItem('quizzi.teacher.auth');
-    if (rawAuth) {
+    teacherToken = window.localStorage.getItem(TEACHER_TOKEN_KEY) || '';
+    if (!teacherToken) {
+      const rawAuth = window.localStorage.getItem(TEACHER_AUTH_KEY);
+      if (rawAuth) {
+        try {
+          const session = JSON.parse(rawAuth);
+          teacherToken = session?.token || '';
+        } catch {
+          // Ignore parse error
+        }
+      }
+    }
+    if (teacherToken) {
+      teacherToken = String(teacherToken).trim();
+    }
+    if (!teacherToken) {
       try {
-        const session = JSON.parse(rawAuth);
-        teacherToken = session?.token || '';
+        window.localStorage.removeItem(TEACHER_TOKEN_KEY);
       } catch {
-        // Ignore parse error
+        // Ignore storage error
       }
     }
   }

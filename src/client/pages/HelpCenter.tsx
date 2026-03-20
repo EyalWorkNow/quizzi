@@ -103,6 +103,12 @@ export default function HelpCenter() {
 
   React.useEffect(() => {
     let cancelled = false;
+    if (!isTeacherAuthenticated()) {
+      setTeacherSignedIn(false);
+      return () => {
+        cancelled = true;
+      };
+    }
     refreshTeacherSession()
       .then((session) => {
         if (!cancelled) setTeacherSignedIn(!!session);

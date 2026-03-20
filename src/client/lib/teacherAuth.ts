@@ -6,6 +6,7 @@ export const DEMO_TEACHER_EMAIL = DEMO_AUTH_ENABLED ? 'mail@mail.com' : '';
 export const DEMO_TEACHER_PASSWORD = DEMO_AUTH_ENABLED ? '123123' : '';
 
 const AUTH_KEY = 'quizzi.teacher.auth';
+const AUTH_TOKEN_KEY = 'quizzi.teacher.token';
 const AUTH_REQUEST_TIMEOUT_MS = 30000;
 
 export interface TeacherAuthSession {
@@ -33,13 +34,50 @@ function readAuth(): TeacherAuthSession | null {
   }
 }
 
+function readAuthSnapshot() {
+  if (typeof window === 'undefined') {
+    return {
+      rawAuth: '',
+      token: '',
+    };
+  }
+
+  return {
+    rawAuth: window.localStorage.getItem(AUTH_KEY) || '',
+    token: window.localStorage.getItem(AUTH_TOKEN_KEY) || '',
+  };
+}
+
 function writeAuth(session: TeacherAuthSession | null) {
   if (typeof window === 'undefined') return;
   if (!session) {
     window.localStorage.removeItem(AUTH_KEY);
+    window.localStorage.removeItem(AUTH_TOKEN_KEY);
     return;
   }
   window.localStorage.setItem(AUTH_KEY, JSON.stringify(session));
+  if (session.token) {
+    window.localStorage.setItem(AUTH_TOKEN_KEY, session.token);
+  } else {
+    window.localStorage.removeItem(AUTH_TOKEN_KEY);
+  }
+}
+
+function ensureTeacherSessionPayload(payload: any): TeacherAuthSession {
+  const provider = payload?.provider;
+  const token = String(payload?.token || '').trim();
+  const email = String(payload?.email || '').trim().toLowerCase();
+
+  if (!email || !token || !['password', 'google', 'facebook'].includes(provider)) {
+    throw new Error('Teacher session could not be established. Please sign in again.');
+  }
+
+  return {
+    ...payload,
+    email,
+    provider,
+    token,
+  } as TeacherAuthSession;
 }
 
 function syncTeacherProfile(email: string, name?: string, school?: string) {
@@ -104,6 +142,7 @@ export function getTeacherEntryRoute() {
 }
 
 export async function refreshTeacherSession() {
+  const authSnapshot = readAuthSnapshot();
   const response = await fetchWithTimeout('/api/auth/session', {
     method: 'GET',
     headers: { Accept: 'application/json' },
@@ -112,11 +151,17 @@ export async function refreshTeacherSession() {
   });
 
   if (!response.ok) {
-    writeAuth(null);
+    const currentSnapshot = readAuthSnapshot();
+    if (
+      currentSnapshot.rawAuth === authSnapshot.rawAuth &&
+      currentSnapshot.token === authSnapshot.token
+    ) {
+      writeAuth(null);
+    }
     return null;
   }
 
-  const payload = (await response.json()) as TeacherAuthSession;
+  const payload = ensureTeacherSessionPayload(await response.json());
   writeAuth(payload);
   return payload;
 }
@@ -141,9 +186,13 @@ export async function signInTeacherWithPassword({
       password,
     }),
   });
-  const payload = (await readJsonOrThrow(response)) as TeacherAuthSession;
-  syncTeacherProfile(payload.email, name, school);
+  const payload = ensureTeacherSessionPayload(await readJsonOrThrow(response));
   writeAuth(payload);
+  try {
+    syncTeacherProfile(payload.email, name, school);
+  } catch (error) {
+    console.warn('[teacherAuth] Failed to sync teacher profile after password sign-in:', error);
+  }
   return payload;
 }
 
@@ -169,9 +218,13 @@ export async function registerTeacherWithPassword({
       school: String(school || '').trim(),
     }),
   });
-  const payload = (await readJsonOrThrow(response)) as TeacherAuthSession;
-  syncTeacherProfile(payload.email, name, school);
+  const payload = ensureTeacherSessionPayload(await readJsonOrThrow(response));
   writeAuth(payload);
+  try {
+    syncTeacherProfile(payload.email, name, school);
+  } catch (error) {
+    console.warn('[teacherAuth] Failed to sync teacher profile after registration:', error);
+  }
   return payload;
 }
 
@@ -205,9 +258,13 @@ export async function signInTeacherWithProvider({
       }),
     });
 
-    const payload = (await readJsonOrThrow(response)) as TeacherAuthSession;
-    syncTeacherProfile(payload.email, result.user.displayName || undefined);
+    const payload = ensureTeacherSessionPayload(await readJsonOrThrow(response));
     writeAuth(payload);
+    try {
+      syncTeacherProfile(payload.email, result.user.displayName || undefined);
+    } catch (error) {
+      console.warn('[teacherAuth] Failed to sync teacher profile after social sign-in:', error);
+    }
     return payload;
   } catch (error: any) {
     if (error?.code === 'auth/popup-closed-by-user') {

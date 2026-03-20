@@ -220,6 +220,13 @@ export default function Explore() {
   useEffect(() => {
     let cancelled = false;
 
+    if (!isTeacherAuthenticated()) {
+      setTeacherSignedIn(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     refreshTeacherSession()
       .then((session) => {
         if (!cancelled) {

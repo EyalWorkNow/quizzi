@@ -66,6 +66,18 @@ export default function Auth() {
           return;
         }
 
+        const cachedSession = loadTeacherAuth();
+        if (!cachedSession) {
+          if (!cancelled) {
+            setExistingSession(null);
+          }
+          return;
+        }
+
+        if (!cancelled) {
+          setExistingSession(cachedSession);
+        }
+
         const session = await refreshTeacherSession();
         if (!cancelled) {
           setExistingSession(session);
