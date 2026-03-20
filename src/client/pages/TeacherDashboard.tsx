@@ -44,14 +44,17 @@ import { signOutTeacher } from '../lib/teacherAuth.ts';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
+import { useTeacherLanguage } from '../lib/teacherLanguage.ts';
 
 const SORT_OPTIONS = [
-  { id: 'recent', label: 'Recent activity' },
-  { id: 'newest', label: 'Newest first' },
-  { id: 'questions', label: 'Most questions' },
-  { id: 'usage', label: 'Most used' },
-  { id: 'az', label: 'A to Z' },
+  { id: 'recent', label: 'פעילות אחרונה' },
+  { id: 'newest', label: 'חדש ביותר' },
+  { id: 'questions', label: 'מספר שאלות' },
+  { id: 'usage', label: 'הכי בשימוש' },
+  { id: 'az', label: 'א-ת' },
 ] as const;
+
+const ALL_CATEGORY_ID = '__all__';
 
 type SortOption = (typeof SORT_OPTIONS)[number]['id'];
 
@@ -72,40 +75,40 @@ function getCategoryIcon(category: string) {
 }
 
 function formatRelativeTime(value?: string | null) {
-  if (!value) return 'Not run yet';
+  if (!value) return 'טרם הופעל';
   const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return 'Recently';
+  if (!Number.isFinite(timestamp)) return 'לאחרונה';
 
   const diffMs = Date.now() - timestamp;
   const diffMinutes = Math.round(diffMs / 60000);
-  if (diffMinutes < 1) return 'Just now';
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  if (diffMinutes < 1) return 'ממש עכשיו';
+  if (diffMinutes < 60) return `${diffMinutes} דק׳ לפני`;
   const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffHours < 24) return `${diffHours} שע׳ לפני`;
   const diffDays = Math.round(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 7) return `${diffDays} ימים לפני`;
 
-  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(new Date(timestamp));
+  return new Intl.DateTimeFormat('he-IL', { month: 'short', day: 'numeric' }).format(new Date(timestamp));
 }
 
 function getPackState(pack: any) {
   if (Number(pack.active_session_count || 0) > 0) {
     return {
-      label: 'Live now',
-      body: `PIN ${pack.last_session_pin || 'ready'} is still open for students.`,
-      tone: 'bg-brand-orange text-white',
+      label: 'שיעור פעיל',
+      body: `קוד גישה ${pack.last_session_pin || 'מוכן'} עדיין פתוח לתלמידים.`,
+      tone: 'bg-brand-orange text-white shadow-[0_0_20px_rgba(255,90,54,0.3)]',
     };
   }
   if (Number(pack.session_count || 0) > 0) {
     return {
-      label: 'Re-run ready',
-      body: `Last live run ${formatRelativeTime(pack.last_session_at)} with ${pack.last_session_players || 0} students.`,
+      label: 'מוכן להפעלה חוזרת',
+      body: `סיבוב אחרון: ${formatRelativeTime(pack.last_session_at)} עם ${pack.last_session_players || 0} תלמידים.`,
       tone: 'bg-brand-yellow text-brand-dark',
     };
   }
   return {
-    label: 'Ready to host',
-    body: `${pack.question_count || 0} questions are ready for the first live run.`,
+    label: 'מוכן להנחיה',
+    body: `${pack.question_count || 0} שאלות מחכות להפעלה הראשונה שלך.`,
     tone: 'bg-emerald-200 text-brand-dark',
   };
 }
@@ -143,7 +146,7 @@ export default function TeacherDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState('All');
+  const [activeCategory, setActiveCategory] = useState(ALL_CATEGORY_ID);
   const [sortBy, setSortBy] = useState<SortOption>('recent');
   const [selectedPack, setSelectedPack] = useState<any>(null);
   const [hostingPack, setHostingPack] = useState<any>(null);
@@ -152,7 +155,9 @@ export default function TeacherDashboard() {
   const [selectedTeamCount, setSelectedTeamCount] = useState<number>(4);
   const [busyAction, setBusyAction] = useState<{ packId: number; action: string } | null>(null);
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [hasLoadedPackBoard, setHasLoadedPackBoard] = useState(false);
   const navigate = useNavigate();
+  const { direction } = useTeacherLanguage();
   const teacherProfile = loadTeacherSettings().profile;
 
   const loadPacks = async () => {
@@ -161,6 +166,7 @@ export default function TeacherDashboard() {
       setError('');
       const payload = await apiFetchJson('/api/teacher/packs');
       setPacks(Array.isArray(payload) ? payload : []);
+      setHasLoadedPackBoard(true);
     } catch (loadError: any) {
       setError(loadError?.message || 'Failed to load your packs');
     } finally {
@@ -201,7 +207,7 @@ export default function TeacherDashboard() {
 
   const categories = useMemo(() => {
     const tags = Array.from(new Set(packs.flatMap((pack) => pack.top_tags || []))).filter(Boolean);
-    return ['All', ...tags];
+    return [ALL_CATEGORY_ID, ...tags];
   }, [packs]);
 
   const filteredPacks = useMemo(() => {
@@ -221,7 +227,7 @@ export default function TeacherDashboard() {
 
       const matchesSearch = !normalizedQuery || searchFields.includes(normalizedQuery);
       const matchesCategory =
-        activeCategory === 'All' ||
+        activeCategory === ALL_CATEGORY_ID ||
         (pack.top_tags || []).includes(activeCategory) ||
         (pack.topic_fingerprint || []).includes(activeCategory);
       return matchesSearch && matchesCategory;
@@ -251,30 +257,30 @@ export default function TeacherDashboard() {
     return [
       {
         id: 'packs',
-        label: 'My packs',
+        label: 'החידונים שלי',
         value: packs.length,
-        body: 'Everything you can host, copy, or retire from one board.',
+        body: 'כל חומרי הלימוד שלך מרוכזים בלוח אחד.',
         tone: 'bg-white',
       },
       {
         id: 'questions',
-        label: 'Questions',
+        label: 'שאלות',
         value: totalQuestions,
-        body: 'Total question inventory across your teaching library.',
+        body: 'מאגר השאלות הכולל בספרייה שלך.',
         tone: 'bg-brand-yellow',
       },
       {
         id: 'live',
-        label: 'Live rooms',
+        label: 'שיעורים פעילים',
         value: packs.filter((pack) => Number(pack.active_session_count || 0) > 0).length,
-        body: 'Reopen these rooms instantly without creating another session.',
+        body: 'חדרים פתוחים שניתן לחזור אליהם מיידית.',
         tone: 'bg-brand-orange text-white',
       },
       {
         id: 'history',
-        label: 'Re-run ready',
+        label: 'מוכנים להפעלה',
         value: packs.filter((pack) => Number(pack.session_count || 0) > 0).length,
-        body: 'Packs with prior session history and reports attached.',
+        body: 'חבילות עם היסטוריית הרצות ודוחות שמורים.',
         tone: 'bg-brand-purple text-white',
       },
     ];
@@ -472,9 +478,13 @@ export default function TeacherDashboard() {
     !!selectedPack &&
     Number(busyAction?.packId) === Number(selectedPack.id) &&
     busyAction?.action === 'visibility';
+  const hasBlockingLoadError = !loading && !hasLoadedPackBoard && packs.length === 0 && !!error;
 
   return (
-    <div className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white">
+    <div
+      dir={direction}
+      className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white"
+    >
       <TeacherSidebar />
 
       <main className="flex-1 h-screen overflow-y-auto p-6 lg:p-8 relative bg-brand-bg">
@@ -484,26 +494,26 @@ export default function TeacherDashboard() {
         <div className="max-w-[1280px] mx-auto relative z-10">
           <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 mb-6">
             <div className="max-w-3xl">
-              <p className="text-xs font-black uppercase tracking-[0.22em] text-brand-purple mb-2">My Quizzes</p>
-              <h1 className="text-4xl lg:text-5xl font-black tracking-tight leading-tight">Run, reuse, and clean up your pack library</h1>
-              <p className="font-bold text-brand-dark/62 mt-3">
-                This board is now tuned for fast pack management: reopen live rooms, duplicate strong material, and delete retired packs without hunting through other screens.
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-brand-purple mb-2">סקירת חומרים</p>
+              <h1 className="text-4xl lg:text-5xl font-black tracking-tight leading-tight">נהל, שכפל והפעל את החידונים שלך</h1>
+              <p className="font-bold text-brand-dark/62 mt-3 text-lg">
+                לוח הבקרה המותאם שלך לניהול ספריית התוכן: פתח שיעורים פעילים, שכפל חומרים מוצלחים ונהל את הגרסאות בצורה חכמה.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => void loadPacks()}
-                className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
+                className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-brand-bg transition-all"
               >
                 <RefreshCw className="w-4 h-4" />
-                Refresh
+                רענון
               </button>
               <button
                 onClick={() => navigate('/teacher/pack/create')}
-                className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
+                className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all"
               >
                 <Plus className="w-4 h-4" />
-                Create Pack
+                יצירת חידון
               </button>
             </div>
           </div>
@@ -522,17 +532,20 @@ export default function TeacherDashboard() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-            {dashboardStats.map((stat) => (
-              <div key={stat.id} className={`${stat.tone} rounded-[1.7rem] border-4 border-brand-dark p-5 shadow-[6px_6px_0px_0px_#1A1A1A]`}>
-                <p className="text-xs font-black uppercase tracking-[0.2em] opacity-70 mb-3">{stat.label}</p>
-                <p className="text-4xl font-black leading-none">{stat.value}</p>
-                <p className="font-medium text-sm opacity-80 mt-3">{stat.body}</p>
-              </div>
-            ))}
-          </div>
+          {!hasBlockingLoadError && (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+              {dashboardStats.map((stat) => (
+                <div key={stat.id} className={`${stat.tone} rounded-[1.7rem] border-4 border-brand-dark p-5 shadow-[6px_6px_0px_0px_#1A1A1A]`}>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] opacity-70 mb-3">{stat.label}</p>
+                  <p className="text-4xl font-black leading-none">{stat.value}</p>
+                  <p className="font-medium text-sm opacity-80 mt-3">{stat.body}</p>
+                </div>
+              ))}
+            </div>
+          )}
 
-          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-5 lg:p-6 mb-6">
+          {!hasBlockingLoadError && (
+            <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-5 lg:p-6 mb-6">
             <div className="flex flex-col lg:flex-row gap-3 lg:items-center justify-between mb-4">
               <div className="flex-1 flex flex-col md:flex-row gap-3">
                 <div className="flex-1 relative">
@@ -542,9 +555,9 @@ export default function TeacherDashboard() {
                     type="text"
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Search packs, concepts, tags, or teaching briefs..."
+                    placeholder="חיפוש חידונים, קונספטים או תגיות..."
                     aria-label="Search your quizzes"
-                    className="w-full bg-brand-bg border-2 border-brand-dark rounded-full py-3 pl-12 pr-4 text-base font-bold placeholder:text-brand-dark/40 focus:outline-none focus:ring-2 focus:ring-brand-orange/20"
+                    className="w-full bg-brand-bg border-2 border-brand-dark rounded-full py-3.5 pl-12 pr-4 text-base font-black placeholder:text-brand-dark/40 focus:outline-none focus:ring-4 focus:ring-brand-orange/10"
                   />
                 </div>
                 <div className="flex items-center gap-3">
@@ -566,12 +579,12 @@ export default function TeacherDashboard() {
                     aria-label="Reset quiz filters"
                     onClick={() => {
                       setSearchQuery('');
-                      setActiveCategory('All');
+                      setActiveCategory(ALL_CATEGORY_ID);
                       setSortBy('recent');
                     }}
                     className="px-5 py-3 bg-brand-bg border-2 border-brand-dark rounded-full flex items-center gap-2 hover:bg-brand-yellow transition-colors font-black"
                   >
-                    Reset
+                    איפוס
                   </button>
                 </div>
               </div>
@@ -587,17 +600,18 @@ export default function TeacherDashboard() {
                     className={`flex items-center gap-2 shrink-0 px-4 py-2 rounded-full whitespace-nowrap text-sm font-black border-2 border-brand-dark transition-all ${activeCategory === category ? 'bg-brand-purple text-white shadow-[2px_2px_0px_0px_#1A1A1A]' : 'bg-white text-brand-dark hover:bg-brand-yellow'}`}
                   >
                     {getCategoryIcon(category)}
-                    <span>{category}</span>
+                    <span>{category === ALL_CATEGORY_ID ? 'All' : category}</span>
                   </button>
                 ))}
               </div>
               <div className="flex items-center gap-3 text-sm font-black text-brand-dark/60">
-                <span>{filteredPacks.length} of {packs.length} packs visible</span>
+                <span>מציג {filteredPacks.length} מתוך {packs.length} חידונים</span>
                 <span className="hidden md:inline">•</span>
-                <span>{packs.filter((pack) => Number(pack.active_session_count || 0) > 0).length} live now</span>
+                <span>{packs.filter((pack) => Number(pack.active_session_count || 0) > 0).length} פעילים כעת</span>
               </div>
             </div>
-          </div>
+            </div>
+          )}
 
           {error && !loading && (
             <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-8 mb-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
@@ -612,167 +626,198 @@ export default function TeacherDashboard() {
             </div>
           )}
 
-          {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {Array.from({ length: 6 }).map((_, index) => (
-                <div key={`skeleton-${index}`} className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[6px_6px_0px_0px_#1A1A1A] min-h-[320px] animate-pulse">
-                  <div className="h-6 w-24 rounded-full bg-brand-bg mb-4" />
-                  <div className="h-12 rounded-2xl bg-brand-bg mb-5" />
-                  <div className="grid grid-cols-2 gap-3 mb-5">
-                    <div className="h-16 rounded-2xl bg-brand-bg" />
-                    <div className="h-16 rounded-2xl bg-brand-bg" />
-                    <div className="h-16 rounded-2xl bg-brand-bg" />
-                    <div className="h-16 rounded-2xl bg-brand-bg" />
+          {!hasBlockingLoadError && (
+            loading ? (
+              <div data-no-translate="true" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div key={`skeleton-${index}`} className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[6px_6px_0px_0px_#1A1A1A] min-h-[320px] animate-pulse">
+                    <div className="h-6 w-24 rounded-full bg-brand-bg mb-4" />
+                    <div className="h-12 rounded-2xl bg-brand-bg mb-5" />
+                    <div className="grid grid-cols-2 gap-3 mb-5">
+                      <div className="h-16 rounded-2xl bg-brand-bg" />
+                      <div className="h-16 rounded-2xl bg-brand-bg" />
+                      <div className="h-16 rounded-2xl bg-brand-bg" />
+                      <div className="h-16 rounded-2xl bg-brand-bg" />
+                    </div>
+                    <div className="h-20 rounded-2xl bg-brand-bg mb-5" />
+                    <div className="grid grid-cols-2 gap-3 mt-auto">
+                      <div className="h-12 rounded-2xl bg-brand-bg" />
+                      <div className="h-12 rounded-2xl bg-brand-bg" />
+                      <div className="h-12 rounded-2xl bg-brand-bg" />
+                      <div className="h-12 rounded-2xl bg-brand-bg" />
+                    </div>
                   </div>
-                  <div className="h-20 rounded-2xl bg-brand-bg mb-5" />
-                  <div className="grid grid-cols-2 gap-3 mt-auto">
-                    <div className="h-12 rounded-2xl bg-brand-bg" />
-                    <div className="h-12 rounded-2xl bg-brand-bg" />
-                    <div className="h-12 rounded-2xl bg-brand-bg" />
-                    <div className="h-12 rounded-2xl bg-brand-bg" />
+                ))}
+              </div>
+            ) : (
+              <div data-no-translate="true" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                <motion.button
+                  whileHover={{ scale: 1.02, rotate: 1 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => navigate('/teacher/pack/create')}
+                  className="rounded-[2rem] border-4 border-dashed border-brand-dark bg-brand-yellow/10 min-h-[320px] p-8 flex flex-col items-center justify-center text-center shadow-[6px_6px_0px_0px_#1A1A1A]"
+                >
+                  <div className="w-24 h-24 bg-brand-yellow border-4 border-brand-dark rounded-[2rem] flex items-center justify-center shadow-[6px_6px_0px_0px_#1A1A1A] mb-6">
+                    <Plus className="w-12 h-12 text-brand-dark" />
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              <motion.button
-                whileHover={{ scale: 1.02, rotate: 1 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => navigate('/teacher/pack/create')}
-                className="rounded-[2rem] border-4 border-dashed border-brand-dark bg-brand-yellow/10 min-h-[320px] p-8 flex flex-col items-center justify-center text-center shadow-[6px_6px_0px_0px_#1A1A1A]"
-              >
-                <div className="w-24 h-24 bg-brand-yellow border-4 border-brand-dark rounded-[2rem] flex items-center justify-center shadow-[6px_6px_0px_0px_#1A1A1A] mb-6">
-                  <Plus className="w-12 h-12 text-brand-dark" />
-                </div>
-                <h3 className="text-2xl font-black uppercase tracking-tight">Create New Pack</h3>
-                <p className="font-bold text-brand-dark/60 mt-3 max-w-xs">
-                  Start from source material, generate a fresh set of questions, or draft one manually from scratch.
-                </p>
-              </motion.button>
+                  <h3 className="text-2xl font-black uppercase tracking-tight">Create New Pack</h3>
+                  <p className="font-bold text-brand-dark/60 mt-3 max-w-xs">
+                    Start from source material, generate a fresh set of questions, or draft one manually from scratch.
+                  </p>
+                </motion.button>
 
-              {filteredPacks.map((pack, index) => {
-                const state = getPackState(pack);
-                const isBusy = Number(busyAction?.packId) === Number(pack.id);
-                const discoverVisible = isPackPublic(pack);
-                return (
-                  <motion.div
-                    key={pack.id}
-                    initial={{ opacity: 0, y: 24 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.03 }}
-                    className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A] flex flex-col min-h-[320px]"
-                  >
-                    <div className="flex items-start justify-between gap-4 mb-4">
-                      <div className="min-w-0">
-                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">
-                          Created {formatRelativeTime(pack.created_at)}
+                {filteredPacks.map((pack, index) => {
+                  const state = getPackState(pack);
+                  const isBusy = Number(busyAction?.packId) === Number(pack.id);
+                  const discoverVisible = isPackPublic(pack);
+                  const isLive = Number(pack.active_session_count || 0) > 0;
+
+                  return (
+                    <motion.div
+                      key={pack.id}
+                      initial={{ opacity: 0, y: 24 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.03 }}
+                      className="premium-card magic-glow group flex flex-col min-h-[420px] overflow-hidden bg-white"
+                    >
+                    {/* Card Header with Visual Accent */}
+                    <div className="relative h-32 w-full overflow-hidden bg-brand-bg border-b-2 border-brand-dark">
+                      <div className="absolute inset-0 opacity-20 pointer-events-none" 
+                        style={{ 
+                          backgroundImage: `radial-gradient(var(--brand-dark) 1px, transparent 1px)`, 
+                          backgroundSize: '16px 16px' 
+                        }} 
+                      />
+                      <div className="absolute top-4 left-4 z-10">
+                        <span className={`${state.tone} rounded-full border-2 border-brand-dark px-3 py-1.5 text-[10px] font-black uppercase tracking-widest flex items-center gap-2`}>
+                          {isLive ? <Sparkles className="w-3.5 h-3.5 animate-pulse" /> : <CalendarDays className="w-3.5 h-3.5" />}
+                          {state.label}
+                        </span>
+                      </div>
+                      
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-16 h-16 rounded-2xl bg-white border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] flex items-center justify-center transform group-hover:rotate-6 transition-transform">
+                          <Library className="w-8 h-8 text-brand-purple" />
+                        </div>
+                      </div>
+
+                      <div className="absolute top-4 right-4">
+                        <span className={`px-3 py-1 rounded-full border-2 border-brand-dark text-[10px] font-black uppercase tracking-widest ${discoverVisible ? 'bg-emerald-100 text-emerald-800' : 'bg-white text-brand-dark/40'}`}>
+                          {discoverVisible ? 'ציבורי' : 'פרטי'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-6 flex flex-col flex-1">
+                      <div className="mb-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-1">
+                          נוצר {formatRelativeTime(pack.created_at)}
                         </p>
-                        <h3 className="text-2xl font-black leading-tight line-clamp-2">{pack.title}</h3>
+                        <h3 className="text-2xl font-black leading-tight line-clamp-1 group-hover:text-brand-orange transition-colors">
+                          {pack.title}
+                        </h3>
                         {(pack.course_code || pack.academic_term) && (
-                          <p className="font-bold text-brand-dark/55 mt-2">
+                          <p className="font-bold text-xs text-brand-dark/50 mt-1 uppercase tracking-wider">
                             {[pack.course_code, pack.section_name, pack.academic_term].filter(Boolean).join(' • ')}
                           </p>
                         )}
-                        <div className="flex flex-wrap gap-2 mt-3">
-                          <span className={`inline-flex items-center gap-2 rounded-full border-2 border-brand-dark px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em] ${discoverVisible ? 'bg-emerald-100 text-brand-dark' : 'bg-brand-bg text-brand-dark/70'}`}>
-                            <Globe className="w-3.5 h-3.5" />
-                            {discoverVisible ? 'Discover On' : 'Private'}
-                          </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 mb-4">
+                        <div className="bg-brand-bg rounded-xl border-2 border-brand-dark p-3 flex items-center gap-3">
+                          <BookOpen className="w-5 h-5 text-brand-orange" />
+                          <div>
+                            <p className="text-[10px] font-black opacity-40 leading-none mb-1">שאלות</p>
+                            <p className="font-black leading-none">{pack.question_count || 0}</p>
+                          </div>
+                        </div>
+                        <div className="bg-brand-bg rounded-xl border-2 border-brand-dark p-3 flex items-center gap-3">
+                          <Users className="w-5 h-5 text-brand-purple" />
+                          <div>
+                            <p className="text-[10px] font-black opacity-40 leading-none mb-1">הרצות</p>
+                            <p className="font-black leading-none">{pack.session_count || 0}</p>
+                          </div>
                         </div>
                       </div>
-                      <span className={`${state.tone} shrink-0 rounded-full border-2 border-brand-dark px-3 py-2 text-[11px] font-black uppercase tracking-[0.16em]`}>
-                        {state.label}
-                      </span>
-                    </div>
 
-                    <div className="grid grid-cols-2 gap-3 mb-4">
-                      <PackMetric label="Questions" value={pack.question_count || 0} />
-                      <PackMetric label="Sessions" value={pack.session_count || 0} />
-                      <PackMetric label="Last live" value={formatRelativeTime(pack.last_session_at)} />
-                      <PackMetric label="Versions" value={pack.version_count || 0} />
-                    </div>
+                      <div className="relative mb-4">
+                        <p className="text-sm font-medium text-brand-dark/70 line-clamp-2 leading-relaxed h-10">
+                          {pack.teaching_brief || pack.source_excerpt || pack.source_text || 'אין תקציר זמין לחבילה זו.'}
+                        </p>
+                        <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-white to-transparent" />
+                      </div>
 
-                    <p className="font-medium text-brand-dark/72 mb-4 line-clamp-3">
-                      {pack.teaching_brief || pack.source_excerpt || pack.source_text || 'No teaching summary is available for this pack yet.'}
-                    </p>
+                      <div className="bg-brand-bg/50 rounded-2xl border-2 border-brand-dark p-4 mb-6">
+                        <p className="font-black text-sm leading-tight text-brand-dark">
+                          {state.body}
+                        </p>
+                        <p className="text-[10px] font-bold text-brand-dark/40 mt-1.5 uppercase tracking-wide">
+                          {Number(pack.session_count || 0) > 0
+                            ? `${pack.session_count} הרצות קודמות שמורות במערכת.`
+                            : 'טרם בוצעו הרצות חיות לחבילה זו.'}
+                        </p>
+                      </div>
 
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {(pack.top_tags?.length ? pack.top_tags : ['General']).slice(0, 4).map((tag: string) => (
-                        <span key={`${pack.id}-${tag}`} className="px-3 py-1 rounded-full bg-brand-bg border-2 border-brand-dark text-[11px] font-black uppercase tracking-[0.14em]">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-
-                    <div className="rounded-[1.3rem] border-2 border-brand-dark bg-brand-bg p-4 mb-4">
-                      <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-full bg-white border-2 border-brand-dark flex items-center justify-center shrink-0">
-                          {Number(pack.active_session_count || 0) > 0 ? <Sparkles className="w-5 h-5 text-brand-orange" /> : <CalendarDays className="w-5 h-5 text-brand-purple" />}
-                        </div>
-                        <div>
-                          <p className="font-black leading-tight">{state.body}</p>
-                          <p className="font-medium text-sm text-brand-dark/62 mt-1">
-                            {Number(pack.session_count || 0) > 0
-                              ? `${pack.session_count} prior session${Number(pack.session_count) === 1 ? '' : 's'} remain attached to this pack.`
-                              : 'This pack has not been used live yet.'}
-                          </p>
+                      {/* Action Grid */}
+                      <div className="grid grid-cols-2 gap-3 mt-auto">
+                        <button
+                          onClick={() => (isLive ? openLiveRoom(pack) : openHostModal(pack))}
+                          disabled={isBusy}
+                          className="col-span-2 bg-brand-orange text-white py-4 rounded-[1.2rem] font-black shadow-[4px_4px_0px_0px_#1A1A1A] border-2 border-brand-dark transition-all flex items-center justify-center gap-3 hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none active:scale-[0.98] disabled:opacity-60"
+                        >
+                          {isLive ? <ArrowUpRight className="w-5 h-5" /> : <Play className="w-5 h-5 fill-current" />}
+                          <span className="text-lg">{isLive ? 'פתח שיעור חי' : 'הפעלת משחק'}</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => void handlePreview(pack)}
+                          disabled={isBusy}
+                          className="bg-white border-2 border-brand-dark rounded-xl py-2.5 font-black text-sm shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-brand-bg hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                        >
+                          <Search className="w-4 h-4" />
+                          תצוגה מקדימה
+                        </button>
+                        
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => void handleDuplicate(pack)}
+                            disabled={isBusy}
+                            title="שכפול"
+                            className="bg-white border-2 border-brand-dark rounded-xl py-2.5 font-black text-sm shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-brand-yellow hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all flex items-center justify-center disabled:opacity-60"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setDeletingPack(pack)}
+                            disabled={isBusy}
+                            title="מחיקה"
+                            className="bg-white border-2 border-brand-dark rounded-xl py-2.5 font-black text-sm shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-rose-500 hover:text-white hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all flex items-center justify-center disabled:opacity-60"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-3 mt-auto">
-                      <button
-                        onClick={() => (Number(pack.active_session_count || 0) > 0 ? openLiveRoom(pack) : openHostModal(pack))}
-                        disabled={isBusy}
-                        className="bg-brand-orange text-white py-3 rounded-2xl font-black shadow-[3px_3px_0px_0px_#1A1A1A] border-2 border-brand-dark transition-all flex items-center justify-center gap-2 disabled:opacity-60"
-                      >
-                        {Number(pack.active_session_count || 0) > 0 ? <ArrowUpRight className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
-                        {Number(pack.active_session_count || 0) > 0 ? 'Open Live' : 'Host'}
-                      </button>
-                      <button
-                        onClick={() => void handlePreview(pack)}
-                        disabled={isBusy}
-                        className="bg-white border-2 border-brand-dark rounded-2xl py-3 font-black shadow-[3px_3px_0px_0px_#1A1A1A] hover:bg-brand-bg transition-colors disabled:opacity-60"
-                      >
-                        Preview
-                      </button>
-                      <button
-                        onClick={() => void handleDuplicate(pack)}
-                        disabled={isBusy}
-                        className="bg-brand-bg border-2 border-brand-dark rounded-2xl py-3 font-black shadow-[3px_3px_0px_0px_#1A1A1A] hover:bg-white transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
-                      >
-                        <Copy className="w-4 h-4" />
-                        Duplicate
-                      </button>
-                      <button
-                        onClick={() => setDeletingPack(pack)}
-                        disabled={isBusy}
-                        className="bg-white border-2 border-brand-dark rounded-2xl py-3 font-black shadow-[3px_3px_0px_0px_#1A1A1A] hover:bg-brand-orange hover:text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Delete
-                      </button>
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )
           )}
 
-          {!loading && filteredPacks.length === 0 && (
+          {!loading && !hasBlockingLoadError && filteredPacks.length === 0 && (
             <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-10 mt-6 shadow-[4px_4px_0px_0px_#1A1A1A] text-center">
-              <p className="text-2xl font-black mb-2">No packs matched this view.</p>
-              <p className="font-bold text-brand-dark/60 mb-4">Try another term, clear filters, or build a new pack.</p>
+              <p className="text-2xl font-black mb-2">לא נמצאו חידונים התואמים לחיפוש.</p>
+              <p className="font-bold text-brand-dark/60 mb-4">נסה לשנות את מילות החיפוש או לאפס את המסננים.</p>
               <button
                 onClick={() => {
                   setSearchQuery('');
-                  setActiveCategory('All');
+                  setActiveCategory(ALL_CATEGORY_ID);
                   setSortBy('recent');
                 }}
-                className="px-5 py-3 bg-brand-yellow border-2 border-brand-dark rounded-full font-black"
+                className="px-5 py-3 bg-brand-yellow border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-brand-yellow/80"
               >
-                Clear filters
+                נקה מסננים
               </button>
             </div>
           )}
@@ -781,7 +826,7 @@ export default function TeacherDashboard() {
 
       {selectedPack && (
         <div className="fixed inset-0 bg-black/25 z-40 flex justify-end">
-          <div className="w-full max-w-xl h-full bg-white border-l-4 border-brand-dark p-6 overflow-y-auto shadow-[-8px_0_0_0_#1A1A1A]">
+          <div data-no-translate="true" className="w-full max-w-xl h-full bg-white border-l-4 border-brand-dark p-6 overflow-y-auto shadow-[-8px_0_0_0_#1A1A1A]">
             <div className="flex items-start justify-between gap-4 mb-6">
               <div className="min-w-0">
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Pack Preview</p>
@@ -801,19 +846,19 @@ export default function TeacherDashboard() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-6">
-              <PackMetric label="Last live" value={formatRelativeTime(selectedPack.last_session_at)} />
-              <PackMetric label="Players" value={selectedPack.last_session_players || 0} />
-              <PackMetric label="Language" value={selectedPack.source_language || 'N/A'} />
-              <PackMetric label="Versions" value={selectedPack.version_count || selectedPack.versions?.length || 0} />
+              <PackMetric label="ריצה אחרונה" value={formatRelativeTime(selectedPack.last_session_at)} />
+              <PackMetric label="תלמידים" value={selectedPack.last_session_players || 0} />
+              <PackMetric label="שפה" value={selectedPack.source_language || 'לא צוין'} />
+              <PackMetric label="גרסאות" value={selectedPack.version_count || selectedPack.versions?.length || 0} />
             </div>
 
             <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5 mb-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Discover visibility</p>
-                  <p className="font-black">{selectedPackDiscoverVisible ? 'Visible to all teachers in Discover' : 'Private to your account'}</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">פרטיות וגילוי</p>
+                  <p className="font-black">{selectedPackDiscoverVisible ? 'ניתן לגילוי ע"י כל המורים ב-Discover' : 'פרטי לחשבון שלך בלבד'}</p>
                   <p className="font-medium text-brand-dark/62 mt-2">
-                    Keep this off unless you want the pack to appear in Discover for everyone.
+                    השאר זאת כבוי אלא אם ברצונך שהחבילה תופיע בתוצאות החיפוש הציבוריות.
                   </p>
                 </div>
                 <button
@@ -822,22 +867,22 @@ export default function TeacherDashboard() {
                   disabled={selectedPackVisibilityBusy}
                   className={`shrink-0 min-w-[148px] px-4 py-3 rounded-2xl border-2 border-brand-dark font-black shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-60 ${selectedPackDiscoverVisible ? 'bg-emerald-100 text-brand-dark' : 'bg-white text-brand-dark'}`}
                 >
-                  {selectedPackVisibilityBusy ? 'Saving...' : selectedPackDiscoverVisible ? 'Hide from Discover' : 'Share to Discover'}
+                  {selectedPackVisibilityBusy ? 'שומר...' : selectedPackDiscoverVisible ? 'הסתר מחיפוש' : 'שתף בחיפוש'}
                 </button>
               </div>
             </div>
 
             <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-5 mb-6">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Academic mapping</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">פרטים אקדמיים</p>
               <div className="grid grid-cols-2 gap-3 mb-4">
-                <PackMetric label="Course" value={selectedPack.course_code || 'Not set'} />
-                <PackMetric label="Week" value={selectedPack.week_label || 'Not set'} />
-                <PackMetric label="Section" value={selectedPack.section_name || 'Not set'} />
-                <PackMetric label="Term" value={selectedPack.academic_term || 'Not set'} />
+                <PackMetric label="קורס" value={selectedPack.course_code || 'לא הוגדר'} />
+                <PackMetric label="שבוע" value={selectedPack.week_label || 'לא הוגדר'} />
+                <PackMetric label="מדור/מחלקה" value={selectedPack.section_name || 'לא הוגדר'} />
+                <PackMetric label="סמסטר" value={selectedPack.academic_term || 'לא הוגדר'} />
               </div>
               {(selectedPack.learning_objectives || []).length > 0 && (
                 <div className="mb-4">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Learning outcomes</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">מטרות למידה</p>
                   <div className="flex flex-wrap gap-2">
                     {(selectedPack.learning_objectives || []).map((objective: string) => (
                       <span key={objective} className="px-3 py-2 rounded-full bg-emerald-100 border-2 border-brand-dark text-xs font-black">
@@ -849,7 +894,7 @@ export default function TeacherDashboard() {
               )}
               {(selectedPack.bloom_levels || []).length > 0 && (
                 <div className="mb-4">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Bloom coverage</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">רמות Bloom</p>
                   <div className="flex flex-wrap gap-2">
                     {(selectedPack.bloom_levels || []).map((level: string) => (
                       <span key={level} className="px-3 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark text-xs font-black">
@@ -861,31 +906,31 @@ export default function TeacherDashboard() {
               )}
               {selectedPack.pack_notes && (
                 <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Lecturer notes</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">הערות מרצה</p>
                   <p className="font-medium text-brand-dark/72 whitespace-pre-line">{selectedPack.pack_notes}</p>
                 </div>
               )}
             </div>
 
             <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5 mb-6">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Teaching brief</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">תקציר הוראה</p>
               <p className="font-medium text-brand-dark/72 leading-relaxed">
-                {selectedPack.teaching_brief || selectedPack.source_excerpt || selectedPack.source_text || 'No source summary is available.'}
+                {selectedPack.teaching_brief || selectedPack.source_excerpt || selectedPack.source_text || 'אין תקציר מקור זמין.'}
               </p>
             </div>
 
             <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5 mb-6">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Version history</p>
-                  <p className="font-bold text-brand-dark/65">Snapshot now or restore an older version as a fresh copy.</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">היסטוריית גרסאות</p>
+                  <p className="font-bold text-brand-dark/65">שמור מצב נוכחי או שחזר גרסה קודמת כעותק חדש.</p>
                 </div>
                 <button
                   onClick={() => void handleSnapshotPack(selectedPack)}
                   disabled={Number(busyAction?.packId) === Number(selectedPack.id) && busyAction?.action === 'snapshot'}
                   className="px-4 py-3 rounded-full bg-brand-yellow border-2 border-brand-dark font-black text-sm shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-60"
                 >
-                  Save snapshot
+                  שמור Snapshot
                 </button>
               </div>
               <div className="space-y-3">
@@ -988,7 +1033,7 @@ export default function TeacherDashboard() {
 
       {deletingPack && (
         <div className="fixed inset-0 bg-black/35 z-50 flex items-center justify-center p-6">
-          <div className="w-full max-w-xl bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#1A1A1A] p-6 lg:p-7">
+          <div data-no-translate="true" className="w-full max-w-xl bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#1A1A1A] p-6 lg:p-7">
             <div className="flex items-start justify-between gap-4 mb-5">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Delete pack</p>
@@ -1018,10 +1063,10 @@ export default function TeacherDashboard() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-6">
-              <PackMetric label="Questions" value={deletingPack.question_count || 0} />
-              <PackMetric label="Sessions" value={deletingPack.session_count || 0} />
-              <PackMetric label="Players" value={deletingPack.last_session_players || 0} />
-              <PackMetric label="Last live" value={formatRelativeTime(deletingPack.last_session_at)} />
+              <PackMetric label="שאלות" value={deletingPack.question_count || 0} />
+              <PackMetric label="הרצות" value={deletingPack.session_count || 0} />
+              <PackMetric label="תלמידים" value={deletingPack.last_session_players || 0} />
+              <PackMetric label="ריצה אחרונה" value={formatRelativeTime(deletingPack.last_session_at)} />
             </div>
 
             <div className="flex gap-3">
@@ -1048,6 +1093,7 @@ export default function TeacherDashboard() {
           <motion.div
             initial={{ scale: 0.9, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
+            data-no-translate="true"
             className="w-full max-w-6xl bg-white rounded-[2.5rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] overflow-hidden flex flex-col max-h-[90vh]"
           >
             {/* Modal Header */}
@@ -1274,9 +1320,9 @@ function NavItem({
 
 function PackMetric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-[1.1rem] border-2 border-brand-dark bg-brand-bg p-3">
-      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-1">{label}</p>
-      <p className="font-black">{value}</p>
+    <div className="rounded-[1.1rem] border-2 border-brand-dark bg-white p-3 shadow-[2px_2px_0px_0px_#1A1A1A]">
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-purple mb-1 truncate">{label}</p>
+      <p className="font-black text-sm sm:text-base break-words">{value}</p>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowUpLeft,
@@ -16,6 +16,9 @@ const REPORTS_COPY = {
     subtitle: 'Deterministic summaries built from answers, timing, and behavior telemetry across your live sessions.',
     refresh: 'Refresh',
     loading: 'Loading live reports...',
+    retry: 'Try Again',
+    loadFailedTitle: 'Reports did not load cleanly.',
+    loadFailedBody: 'We could not reach your report data right now. Try again in a moment.',
     insightLabel: 'Engine Insight',
     sessionsTitle: 'Recent Sessions',
     sessionsSubtitle: 'Each row is derived from stored answers, timings, and focus events.',
@@ -41,6 +44,9 @@ const REPORTS_COPY = {
     subtitle: 'סיכומים דטרמיניסטיים המבוססים על תשובות, תזמון וטלמטריית התנהגות מכל הסשנים החיים שלך.',
     refresh: 'רענון',
     loading: 'טוען דוחות חיים...',
+    retry: 'נסה שוב',
+    loadFailedTitle: 'הדוחות לא נטענו כראוי.',
+    loadFailedBody: 'לא הצלחנו להגיע לנתוני הדוחות כרגע. נסה שוב בעוד רגע.',
     insightLabel: 'תובנת מנוע',
     sessionsTitle: 'סשנים אחרונים',
     sessionsSubtitle: 'כל שורה נגזרת מתשובות שמורות, זמני תגובה ואירועי פוקוס.',
@@ -67,18 +73,28 @@ export default function TeacherReports() {
   const navigate = useNavigate();
   const { language, direction } = useTeacherLanguage();
   const [report, setReport] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const copy = REPORTS_COPY[language];
   const isRtl = direction === 'rtl';
 
-  const loadReport = () => {
-    apiFetchJson('/api/dashboard/teacher/overview')
-      .then(setReport)
-      .catch((error) => console.error('Failed to load teacher overview:', error));
-  };
+  const loadReport = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const payload = await apiFetchJson('/api/dashboard/teacher/overview');
+      setReport(payload);
+    } catch (loadError: any) {
+      console.error('Failed to load teacher overview:', loadError);
+      setError(loadError?.message || copy.loadFailedBody);
+    } finally {
+      setLoading(false);
+    }
+  }, [copy.loadFailedBody]);
 
   useEffect(() => {
-    loadReport();
-  }, []);
+    void loadReport();
+  }, [loadReport]);
 
   const stats = useMemo(
     () => [
@@ -140,9 +156,21 @@ export default function TeacherReports() {
             </button>
           </div>
 
-          {!report ? (
+          {loading ? (
             <div className={`bg-white border-2 border-brand-dark rounded-[2rem] p-12 shadow-[4px_4px_0px_0px_#1A1A1A] text-center ${isRtl ? 'text-right' : ''}`}>
               <p className="text-2xl font-black">{copy.loading}</p>
+            </div>
+          ) : error ? (
+            <div className={`bg-white border-2 border-brand-dark rounded-[2rem] p-8 shadow-[4px_4px_0px_0px_#1A1A1A] ${isRtl ? 'text-right' : ''}`}>
+              <h2 className="text-2xl font-black mb-2">{copy.loadFailedTitle}</h2>
+              <p className="font-bold text-brand-dark/60 mb-5">{error}</p>
+              <button
+                onClick={() => void loadReport()}
+                className={`px-6 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full inline-flex items-center gap-2 font-black shadow-[2px_2px_0px_0px_#1A1A1A] ${isRtl ? 'flex-row-reverse' : ''}`}
+              >
+                <RefreshCw className="w-5 h-5" />
+                {copy.retry}
+              </button>
             </div>
           ) : (
             <>

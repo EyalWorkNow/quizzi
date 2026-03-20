@@ -10,6 +10,7 @@ import { getParticipantToken } from './studentSession.ts';
 const API_BASE = import.meta.env.VITE_API_PROXY_TARGET || (import.meta.env.PROD ? 'https://quizzi-mqru.onrender.com' : '');
 const TEACHER_AUTH_KEY = 'quizzi.teacher.auth';
 const TEACHER_TOKEN_KEY = 'quizzi.teacher.token';
+const TEACHER_AUTH_RETRY_HEADER = 'X-Quizzi-Teacher-Auth-Retry';
 
 /**
  * Normalizes an API path to include the base URL if needed.
@@ -23,6 +24,52 @@ export function getApiUrl(path: string): string {
   // In development, API_BASE is empty (Vite proxy handles it)
   // In production, API_BASE is the Render URL (e.g. https://quizzi.onrender.com)
   return `${API_BASE}${cleanPath}`;
+}
+
+function isTeacherProtectedPath(pathname: string) {
+  return pathname.startsWith('/api/teacher/') || pathname.startsWith('/api/dashboard/teacher/');
+}
+
+function shouldRetryTeacherAuth(url: string, headers: Headers, response: Response) {
+  if (typeof window === 'undefined') return false;
+  if (response.status !== 401) return false;
+  if (headers.has(TEACHER_AUTH_RETRY_HEADER)) return false;
+
+  const pathname = (() => {
+    try {
+      return new URL(url, window.location.origin).pathname;
+    } catch {
+      return '';
+    }
+  })();
+
+  if (!isTeacherProtectedPath(pathname) || pathname.startsWith('/api/auth/')) {
+    return false;
+  }
+
+  return !!(window.localStorage.getItem(TEACHER_TOKEN_KEY) || window.localStorage.getItem(TEACHER_AUTH_KEY));
+}
+
+async function refreshTeacherSessionForRetry() {
+  const teacherAuth = await import('./teacherAuth.ts');
+  return teacherAuth.refreshTeacherSession().catch(() => null);
+}
+
+function shouldSetJsonContentType(init?: RequestInit) {
+  const method = String(init?.method || 'GET').toUpperCase();
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return false;
+  if (init?.body == null) return false;
+  if (typeof FormData !== 'undefined' && init.body instanceof FormData) return false;
+  if (typeof URLSearchParams !== 'undefined' && init.body instanceof URLSearchParams) return false;
+  return true;
+}
+
+async function executeApiFetch(url: RequestInfo | URL, init: RequestInit | undefined, headers: Headers) {
+  return fetch(url, {
+    ...init,
+    headers,
+    credentials: 'include',
+  });
 }
 
 /**
@@ -69,25 +116,37 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   if (teacherToken && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${teacherToken}`);
   }
-    
-  return fetch(url, {
-    ...init,
-    headers,
-    // credentials: 'include' is still good for local/same-origin cases
-    credentials: 'include',
-  });
+
+  let response = await executeApiFetch(url, init, headers);
+
+  if (typeof url === 'string' && shouldRetryTeacherAuth(url, headers, response)) {
+    const refreshedSession = await refreshTeacherSessionForRetry();
+    if (refreshedSession?.token) {
+      const retryHeaders = new Headers(headers);
+      retryHeaders.set(TEACHER_AUTH_RETRY_HEADER, '1');
+      retryHeaders.set('Authorization', `Bearer ${refreshedSession.token}`);
+      response = await executeApiFetch(url, init, retryHeaders);
+    }
+  }
+
+  return response;
 }
 
 /**
  * Helper for JSON requests
  */
 export async function apiFetchJson<T = any>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers || undefined);
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json');
+  }
+  if (shouldSetJsonContentType(init) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
   const response = await apiFetch(input, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    }
+    headers,
   });
   
   if (!response.ok) {
