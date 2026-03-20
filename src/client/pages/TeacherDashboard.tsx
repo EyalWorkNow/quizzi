@@ -185,7 +185,7 @@ export default function TeacherDashboard() {
 
   const loadPackPreview = async (packId: number) => {
     const [packResponse, versionsResponse] = await Promise.all([
-      apiFetch(`/api/packs/${packId}`),
+      apiFetch(`/api/teacher/packs/${packId}`),
       apiFetch(`/api/teacher/packs/${packId}/versions`),
     ]);
     if (!packResponse.ok) {

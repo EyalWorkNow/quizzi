@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import type { Server } from 'node:http';
+import express from 'express';
 import db from '../src/server/db/index.js';
+import apiRouter from '../src/server/routes/api.js';
 import { getHydratedPackWithQuestions, listHydratedPacks } from '../src/server/services/materialIntel.js';
 import { createTeacherSession, readTeacherSession } from '../src/server/services/demoAuth.js';
 import { isAllowedBrowserOrigin } from '../src/server/services/requestGuards.js';
@@ -27,12 +30,43 @@ function makeTeacherRequest(token: string) {
   } as any;
 }
 
+async function createRegressionServer() {
+  const app = express();
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: false }));
+  app.use('/api', apiRouter);
+
+  const server = await new Promise<Server>((resolve) => {
+    const listener = app.listen(0, () => resolve(listener));
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Failed to bind regression server');
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      }),
+  };
+}
+
 async function run() {
   const createdPackIds: number[] = [];
   const createdTeacherIds: number[] = [];
+  const createdSessionIds: number[] = [];
   const createdParticipantIds: number[] = [];
   const createdMasteryIds: number[] = [];
   const createdPracticeIds: number[] = [];
+  let regressionServer: Awaited<ReturnType<typeof createRegressionServer>> | null = null;
 
   try {
     const teacherOne = db.prepare(`
@@ -80,6 +114,49 @@ async function run() {
       allowPublic: true,
     });
     assert.equal(deniedPack, null, 'another teacher must not be able to fetch a private pack');
+
+    const hostedSession = db.prepare(`
+      INSERT INTO sessions (quiz_pack_id, pin, status, game_type, team_count, mode_config_json)
+      VALUES (?, ?, 'LOBBY', 'classic_quiz', 0, '{}')
+    `).run(Number(privatePack.lastInsertRowid), '812345');
+    createdSessionIds.push(Number(hostedSession.lastInsertRowid));
+
+    const hostedParticipant = db.prepare(`
+      INSERT INTO participants (session_id, identity_key, nickname, seat_index)
+      VALUES (?, ?, ?, 1)
+    `).run(Number(hostedSession.lastInsertRowid), `${marker}-hosted-student`, `${marker} Student`);
+    createdParticipantIds.push(Number(hostedParticipant.lastInsertRowid));
+
+    regressionServer = await createRegressionServer();
+    const ownerTeacherSession = createTeacherSession({
+      email: `${marker}-teacher-1@example.com`,
+      provider: 'password',
+    });
+    const teacherHeaders = {
+      authorization: `Bearer ${ownerTeacherSession.token}`,
+    };
+
+    const teacherPackResponse = await fetch(`${regressionServer.baseUrl}/api/teacher/packs/${Number(privatePack.lastInsertRowid)}`, {
+      headers: teacherHeaders,
+    });
+    assert.equal(teacherPackResponse.status, 200, 'teacher-owned pack detail route must return private pack');
+    const teacherPackPayload = await teacherPackResponse.json();
+    assert.equal(Number(teacherPackPayload.id), Number(privatePack.lastInsertRowid));
+
+    const teacherSessionResponse = await fetch(`${regressionServer.baseUrl}/api/teacher/sessions/pin/812345`, {
+      headers: teacherHeaders,
+    });
+    assert.equal(teacherSessionResponse.status, 200, 'teacher-owned session by PIN route must return the teacher session');
+    const teacherSessionPayload = await teacherSessionResponse.json();
+    assert.equal(Number(teacherSessionPayload.id), Number(hostedSession.lastInsertRowid));
+
+    const teacherParticipantsResponse = await fetch(`${regressionServer.baseUrl}/api/teacher/sessions/pin/812345/participants`, {
+      headers: teacherHeaders,
+    });
+    assert.equal(teacherParticipantsResponse.status, 200, 'teacher-owned session roster route must return participants');
+    const teacherParticipantsPayload = await teacherParticipantsResponse.json();
+    assert.equal(Array.isArray(teacherParticipantsPayload.participants), true);
+    assert.equal(teacherParticipantsPayload.participants.length, 1);
 
     const nickname = `[avatar_1.png] Shared Name ${marker}`;
     const identityOne = `${buildLegacyStudentIdentityKey(nickname)}-one`;
@@ -150,6 +227,7 @@ async function run() {
 
     console.log('security regression checks passed');
   } finally {
+    await regressionServer?.close().catch(() => {});
     if (createdPracticeIds.length) {
       db.prepare(`DELETE FROM practice_attempts WHERE id IN (${createdPracticeIds.map(() => '?').join(', ')})`).run(...createdPracticeIds);
     }
@@ -158,6 +236,9 @@ async function run() {
     }
     if (createdParticipantIds.length) {
       db.prepare(`DELETE FROM participants WHERE id IN (${createdParticipantIds.map(() => '?').join(', ')})`).run(...createdParticipantIds);
+    }
+    if (createdSessionIds.length) {
+      db.prepare(`DELETE FROM sessions WHERE id IN (${createdSessionIds.map(() => '?').join(', ')})`).run(...createdSessionIds);
     }
     if (createdPackIds.length) {
       db.prepare(`DELETE FROM quiz_packs WHERE id IN (${createdPackIds.map(() => '?').join(', ')})`).run(...createdPackIds);

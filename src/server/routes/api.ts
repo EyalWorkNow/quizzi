@@ -1511,6 +1511,30 @@ router.get('/teacher/packs', requireTeacherSession, async (req, res) => {
   }
 });
 
+router.get('/teacher/packs/:id', requireTeacherSession, async (req, res) => {
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-pack-detail', 180, 5 * 60 * 1000, teacherUserId, req.params.id)) return;
+
+    const packId = parsePositiveInt(req.params.id);
+    const pack = (await getHydratedPackWithQuestions(packId, {
+      teacherUserId,
+      allowPublic: false,
+    }));
+    if (!pack) {
+      return res.status(404).json({ error: 'Pack not found' });
+    }
+
+    res.json(pack);
+  } catch (error: any) {
+    console.error('[ERROR] Teacher pack detail failed:', error);
+    respondWithServerError(res, 'Failed to load teacher pack');
+  }
+});
+
 router.put('/teacher/packs/:id/visibility', requireTeacherSession, async (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
   try {
@@ -2576,6 +2600,55 @@ router.post('/sessions', requireTeacherSession, async (req, res) => {
     team_count: normalizedTeamCount,
     mode_config: normalizedModeConfig,
   });
+});
+
+router.get('/teacher/sessions/pin/:pin', requireTeacherSession, async (req, res) => {
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    const pin = sanitizeSessionPin(req.params.pin);
+    if (!enforceRateLimit(req, res, 'teacher-session-by-pin', 240, 5 * 60 * 1000, teacherUserId, pin)) return;
+
+    const session = (await getTeacherOwnedSessionByPin(pin, teacherUserId));
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    res.json(hydrateSessionRow(session));
+  } catch (error: any) {
+    console.error('[ERROR] Teacher session by pin failed:', error);
+    respondWithServerError(res, 'Failed to load session');
+  }
+});
+
+router.get('/teacher/sessions/pin/:pin/participants', requireTeacherSession, async (req, res) => {
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    const pin = sanitizeSessionPin(req.params.pin);
+    if (!enforceRateLimit(req, res, 'teacher-session-participants-by-pin', 240, 60 * 1000, teacherUserId, pin)) return;
+
+    const session = (await getTeacherOwnedSessionByPin(pin, teacherUserId));
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const participants = (await db
+        .prepare('SELECT id, nickname, team_id, team_name, seat_index, created_at FROM participants WHERE session_id = ? ORDER BY created_at ASC, id ASC')
+        .all(session.id));
+
+    res.json({
+      session_id: Number(session.id),
+      participants,
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Teacher session participants by pin failed:', error);
+    respondWithServerError(res, 'Failed to load participants');
+  }
 });
 
 // Get session by PIN

@@ -56,10 +56,6 @@ export default function TeacherHost() {
   const isTeamMode = gameMode.teamBased;
   const modeConfig = sessionMeta?.mode_config || sessionMeta?.modeConfig || {};
   const isPeerMode = isPeerInstructionMode(sessionMeta?.game_type, modeConfig);
-
-  console.log('[TeacherHost] Status:', status);
-  console.log('[TeacherHost] SessionMeta:', sessionMeta);
-  console.log('[TeacherHost] Pack:', pack);
   const discussionSeconds = Math.max(10, Number(modeConfig?.discussion_seconds || 30));
   const revoteSeconds = Math.max(8, Number(modeConfig?.revote_seconds || 22));
   const joinUrl = pin && typeof window !== 'undefined' ? buildSessionJoinUrl(pin, window.location.origin) : '';
@@ -161,7 +157,7 @@ export default function TeacherHost() {
 
   useEffect(() => {
     if (!pin) return;
-    apiFetchJson(`/api/sessions/${pin}`)
+    apiFetchJson(`/api/teacher/sessions/pin/${pin}`)
       .then(data => {
         setSessionMeta(data);
         setSessionId(data.id);
@@ -184,7 +180,7 @@ export default function TeacherHost() {
 
   useEffect(() => {
     if (!pin || !sessionId) return;
-    apiFetchJson(`/api/sessions/${pin}/participants`)
+    apiFetchJson(`/api/teacher/sessions/pin/${pin}/participants`)
       .then((data) => {
         const nextParticipants = data.participants || [];
         setParticipants(nextParticipants);
@@ -346,16 +342,20 @@ export default function TeacherHost() {
 
   useEffect(() => {
     if (packId) {
-      apiFetchJson(`/api/packs/${packId}`)
+      apiFetchJson(`/api/teacher/packs/${packId}`)
         .then(data => setPack(data))
         .catch((err: any) => {
           console.error('[TeacherHost] Failed to fetch pack data:', err);
           if (err.message?.includes('401')) {
             navigate('/auth', { state: { error: 'Authentication required to view this pack.' } });
+            return;
+          }
+          if (err.message?.includes('404')) {
+            navigate('/teacher/dashboard', { state: { error: 'This pack is no longer available.' } });
           }
         });
     }
-  }, [packId]);
+  }, [packId, navigate]);
 
   useEffect(() => {
     if (!pin || !sessionId) return;
