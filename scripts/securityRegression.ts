@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import db from '../src/server/db/index.js';
 import { getHydratedPackWithQuestions, listHydratedPacks } from '../src/server/services/materialIntel.js';
+import { createTeacherSession, readTeacherSession } from '../src/server/services/demoAuth.js';
+import { isAllowedBrowserOrigin } from '../src/server/services/requestGuards.js';
 import {
   buildLegacyStudentIdentityKey,
   createParticipantAccessToken,
@@ -13,6 +15,14 @@ function makeMockRequest(token: string) {
   return {
     headers: {
       'x-quizzi-participant-token': token,
+    },
+  } as any;
+}
+
+function makeTeacherRequest(token: string) {
+  return {
+    headers: {
+      authorization: `Bearer ${token}`,
     },
   } as any;
 }
@@ -124,6 +134,19 @@ async function run() {
 
     const tampered = `${token.slice(0, -1)}${token.slice(-1) === 'a' ? 'b' : 'a'}`;
     assert.equal(readParticipantAccessToken(makeMockRequest(tampered)), null, 'tampered participant token must fail verification');
+
+    const teacherSession = createTeacherSession({
+      email: `${marker}-google@example.com`,
+      provider: 'google',
+    });
+    const parsedTeacherSession = readTeacherSession(makeTeacherRequest(teacherSession.token));
+    assert(parsedTeacherSession, 'teacher bearer session should round-trip');
+    assert.equal(parsedTeacherSession?.email, `${marker}-google@example.com`);
+    assert.equal(parsedTeacherSession?.provider, 'google');
+
+    assert.equal(isAllowedBrowserOrigin('https://quizzi-ivory.vercel.app'), true, 'primary Vercel origin must be trusted');
+    assert.equal(isAllowedBrowserOrigin('https://quizzi-staging-123.vercel.app'), true, 'Quizzi Vercel preview origins must be trusted');
+    assert.equal(isAllowedBrowserOrigin('https://attacker.example.com'), false, 'untrusted origins must remain blocked');
 
     console.log('security regression checks passed');
   } finally {
