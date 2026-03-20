@@ -53,13 +53,19 @@ function getSessionPath(pin: string) {
   return `${SESSION_ROOT}/${String(pin || '').trim()}`;
 }
 
-function logRealtimeError(scope: string, error: unknown) {
+function logRealtimeError(scope: string, error: any) {
   if (loggedRealtimeErrors.has(scope)) {
     return;
   }
 
   loggedRealtimeErrors.add(scope);
-  console.warn(`[firebase-rtdb] ${scope} failed. Falling back to the built-in live channel.`, error);
+  const isPermissionDenied = error?.message?.includes('PERMISSION_DENIED') || error?.code === 'PERMISSION_DENIED';
+  
+  if (isPermissionDenied) {
+    console.error(`[firebase-rtdb] ${scope} FAILED: Permission Denied. This is almost certainly because Anonymous Authentication is disabled in your Firebase Console. Please enable it to allow students to see live updates.`);
+  } else {
+    console.warn(`[firebase-rtdb] ${scope} failed. Falling back to the built-in live channel.`, error);
+  }
 }
 
 export async function writeHostedSessionMeta(
