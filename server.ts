@@ -1,13 +1,12 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
-import cors from 'cors';
 import { randomUUID } from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { seedAnalyticsShowcase, seedDemoData } from './src/server/db/seeding.js';
 import { checkPostgresHealth, closePostgresPool } from './src/server/db/postgres.js';
 import { checkSupabaseRestHealth } from './src/server/services/supabaseAdmin.js';
-import { getTrustedOrigins } from './src/server/services/requestGuards.js';
+import { isAllowedBrowserOrigin, normalizeOrigin } from './src/server/services/requestGuards.js';
 import { assertSecureAuthConfig } from './src/server/services/authSecrets.js';
 import apiRouter from './src/server/routes/api.js';
 
@@ -17,22 +16,39 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
   const distDir = path.resolve(process.cwd(), 'dist');
-  const allowedOrigins = getTrustedOrigins();
+  const allowedMethods = ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'];
+  const allowedHeaders = ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'X-Quizzi-Participant-Token'];
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
-  app.use(cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin.replace(/\/+$/, ''))) return callback(null, origin);
-      if (process.env.NODE_ENV !== 'production') return callback(null, origin);
+  app.use((req, res, next) => {
+    const origin = normalizeOrigin(String(req.headers.origin || ''));
+    const originAllowed = !origin || isAllowedBrowserOrigin(origin) || process.env.NODE_ENV !== 'production';
+
+    if (origin && originAllowed) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', allowedMethods.join(', '));
+      res.setHeader('Access-Control-Allow-Headers', allowedHeaders.join(', '));
+      res.vary('Origin');
+    }
+
+    if (req.method === 'OPTIONS') {
+      if (!origin || originAllowed) {
+        res.status(204).end();
+        return;
+      }
+      console.warn(`[cors] Blocked preflight origin: ${origin}`);
+      res.status(403).end();
+      return;
+    }
+
+    if (origin && !originAllowed) {
       console.warn(`[cors] Blocked origin: ${origin}`);
-      callback(null, false);
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'X-Quizzi-Participant-Token'],
-  }));
+    }
+
+    next();
+  });
 
   // Initialize DB
   seedDemoData();
@@ -61,8 +77,8 @@ async function startServer() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
-    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
-    res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+    res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.setHeader('Origin-Agent-Cluster', '?1');
     res.setHeader('X-DNS-Prefetch-Control', 'off');
     if (process.env.NODE_ENV === 'production') {

@@ -3,7 +3,36 @@ import path from 'path';
 import fs from 'fs';
 import { buildLegacyStudentIdentityKey } from '../services/studentIdentity.js';
 
-const dbPath = path.resolve(process.cwd(), 'quizzi.db');
+function resolveSqliteDbPath() {
+  const cwdDbPath = path.resolve(process.cwd(), 'quizzi.db');
+  const explicitPath = String(process.env.SQLITE_DB_PATH || process.env.QUIZZI_SQLITE_PATH || '').trim();
+  const renderDiskPath = String(process.env.RENDER_DISK_PATH || '').trim();
+  const varDataPath = fs.existsSync('/var/data') ? '/var/data/quizzi.db' : '';
+  const candidate = explicitPath
+    ? path.resolve(explicitPath)
+    : renderDiskPath
+      ? path.resolve(renderDiskPath, 'quizzi.db')
+      : varDataPath || cwdDbPath;
+
+  const targetDirectory = path.dirname(candidate);
+  if (targetDirectory && !fs.existsSync(targetDirectory)) {
+    fs.mkdirSync(targetDirectory, { recursive: true });
+  }
+
+  if (candidate !== cwdDbPath && !fs.existsSync(candidate) && fs.existsSync(cwdDbPath)) {
+    try {
+      fs.copyFileSync(cwdDbPath, candidate);
+      console.log(`[db] Seeded SQLite database at ${candidate} from ${cwdDbPath}`);
+    } catch (error) {
+      console.warn(`[db] Failed to seed SQLite database at ${candidate}:`, error);
+    }
+  }
+
+  return candidate;
+}
+
+const dbPath = resolveSqliteDbPath();
+const defaultCwdDbPath = path.resolve(process.cwd(), 'quizzi.db');
 let db: Database.Database;
 
 try {
@@ -21,6 +50,10 @@ try {
     db.pragma('journal_mode = WAL');
   }
   db.pragma('foreign_keys = ON');
+  console.log(`[db] SQLite path: ${dbPath}`);
+  if (process.env.NODE_ENV === 'production' && dbPath === defaultCwdDbPath) {
+    console.warn('[db] SQLite is using the app working directory in production. Configure SQLITE_DB_PATH or mount a persistent disk to avoid data loss on redeploy.');
+  }
 } catch (error) {
   console.warn('SQLite init failed (e.g., read-only filesystem). Falling back to in-memory DB.', error);
   db = new Database(':memory:');

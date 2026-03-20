@@ -17,6 +17,9 @@ const DEFAULT_TRUSTED_ORIGINS = [
   'http://localhost:3000',
   'http://localhost:5173',
 ];
+const DEFAULT_TRUSTED_ORIGIN_PATTERNS = [
+  /^https:\/\/quizzi(?:-[a-z0-9-]+)?\.vercel\.app$/i,
+];
 
 const RATE_LIMIT_BUCKETS_MAX = parsePositiveInt(process.env.QUIZZI_RATE_LIMIT_BUCKETS_MAX, 50_000);
 const RATE_LIMIT_IDLE_TTL_MS = parsePositiveInt(process.env.QUIZZI_RATE_LIMIT_IDLE_TTL_MS, 15 * 60 * 1000);
@@ -36,6 +39,20 @@ const trustedOrigins = Array.from(
     ].map((origin) => origin.replace(/\/+$/, '')),
   ),
 );
+const trustedOriginPatterns = [
+  ...DEFAULT_TRUSTED_ORIGIN_PATTERNS,
+  ...String(process.env.QUIZZI_ALLOWED_ORIGIN_PATTERNS || '')
+    .split(',')
+    .map((pattern) => pattern.trim())
+    .filter(Boolean)
+    .flatMap((pattern) => {
+      try {
+        return [new RegExp(pattern, 'i')];
+      } catch {
+        return [];
+      }
+    }),
+];
 
 const rateLimitBuckets = new Map<string, RateLimitBucket>();
 let lastCleanupAt = 0;
@@ -45,8 +62,15 @@ function parsePositiveInt(value: string | undefined, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
-function normalizeOrigin(value: string) {
+export function normalizeOrigin(value: string) {
   return value.trim().replace(/\/+$/, '');
+}
+
+export function isAllowedBrowserOrigin(value: string) {
+  const origin = normalizeOrigin(value);
+  if (!origin) return true;
+  if (trustedOrigins.includes(origin)) return true;
+  return trustedOriginPatterns.some((pattern) => pattern.test(origin));
 }
 
 function cleanupRateLimitBuckets(now: number) {
@@ -137,8 +161,7 @@ export function checkRateLimit(bucketKey: string, limit: number, windowMs: numbe
 
 export function isTrustedOrigin(req: Request) {
   const origin = normalizeOrigin(String(req.headers.origin || ''));
-  if (!origin) return true;
-  if (trustedOrigins.includes(origin)) return true;
+  if (isAllowedBrowserOrigin(origin)) return true;
 
   const forwardedProto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http')
     .split(',')[0]

@@ -10,11 +10,8 @@ export default function ProtectedTeacherRoute({ children }: { children: React.Re
     let cancelled = false;
 
     const verify = async () => {
-      if (loadTeacherAuth()) {
-        setStatus('allowed');
-      }
-
-      const session = await refreshTeacherSession().catch(() => null);
+      const cachedSession = loadTeacherAuth();
+      const session = await refreshTeacherSession().catch(() => cachedSession);
       if (cancelled) return;
       setStatus(session ? 'allowed' : 'blocked');
     };
