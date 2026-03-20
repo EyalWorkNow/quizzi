@@ -28,11 +28,11 @@ export type ShowcaseStudentProfile = {
   weaknesses: string[];
 };
 
-export async function showcaseTeacherId() {
-  const existing = (await db.prepare('SELECT id FROM users WHERE email = ?').get('demo@quizzi.app')) as any;
+export function showcaseTeacherId() {
+  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@quizzi.app') as any;
   if (existing?.id) return Number(existing.id);
 
-  const inserted = (await db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)').run('demo@quizzi.app', 'hashed_demo_pw'));
+  const inserted = db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)').run('demo@quizzi.app', 'hashed_demo_pw');
   return Number(inserted.lastInsertRowid);
 }
 
@@ -129,10 +129,10 @@ export function buildShowcaseOptionDwell({
   );
 }
 
-export async function seedDemoDataForTeacher(teacherId: number, email: string, { isPublic = false }: { isPublic?: boolean } = {}) {
-  const existingPack = (await db
+export function seedDemoDataForTeacher(teacherId: number, email: string, { isPublic = false }: { isPublic?: boolean } = {}) {
+  const existingPack = db
       .prepare('SELECT id FROM quiz_packs WHERE title = ? AND teacher_id = ?')
-      .get('Demo: Biology 101', teacherId)) as any;
+      .get('Demo: Biology 101', teacherId) as any;
   let packId = Number(existingPack?.id || 0);
 
   if (!packId) {
@@ -194,16 +194,16 @@ export async function seedDemoDataForTeacher(teacherId: number, email: string, {
     );
   }
 
-  (await db
+  db
       .prepare('UPDATE quiz_packs SET is_public = ? WHERE id = ? AND teacher_id = ?')
-      .run(isPublic ? 1 : 0, packId, teacherId));
+      .run(isPublic ? 1 : 0, packId, teacherId);
 
-  const existingClass = (await db
+  const existingClass = db
       .prepare('SELECT id FROM teacher_classes WHERE teacher_id = ? AND name = ? AND archived = 0')
-      .get(teacherId, 'Biology 101 - Section A')) as any;
+      .get(teacherId, 'Biology 101 - Section A') as any;
   if (existingClass?.id) return;
 
-  const classResult = (await db
+  const classResult = db
       .prepare(`
       INSERT INTO teacher_classes (teacher_id, name, subject, grade, color, notes, pack_id, archived, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -216,7 +216,7 @@ export async function seedDemoDataForTeacher(teacherId: number, email: string, {
         'bg-brand-purple',
         'Demo roster linked to your biology starter pack.',
         packId || null,
-      ));
+      );
 
   const classId = Number(classResult.lastInsertRowid);
   const insertStudent = db.prepare(`
@@ -228,23 +228,23 @@ export async function seedDemoDataForTeacher(teacherId: number, email: string, {
   });
 }
 
-export async function seedDemoData() {
-  const defaultDemo = (await db.prepare('SELECT id, email FROM users WHERE email = ?').get('demo@quizzi.app')) as any;
+export function seedDemoData() {
+  const defaultDemo = db.prepare('SELECT id, email FROM users WHERE email = ?').get('demo@quizzi.app') as any;
   if (defaultDemo?.id) {
-    (await seedDemoDataForTeacher(Number(defaultDemo.id), String(defaultDemo.email || 'demo@quizzi.app'), { isPublic: true }));
+    seedDemoDataForTeacher(Number(defaultDemo.id), String(defaultDemo.email || 'demo@quizzi.app'), { isPublic: true });
     return;
   }
 
   const insertTeacher = db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)');
   const resTeacher = insertTeacher.run('demo@quizzi.app', 'hashed_demo_pw');
-  (await seedDemoDataForTeacher(Number(resTeacher.lastInsertRowid), 'demo@quizzi.app', { isPublic: true }));
+  seedDemoDataForTeacher(Number(resTeacher.lastInsertRowid), 'demo@quizzi.app', { isPublic: true });
 }
 
-export async function seedAnalyticsShowcase() {
+export function seedAnalyticsShowcase() {
   const packTitle = 'spain pain';
-  const existingPack = (await db.prepare('SELECT id FROM quiz_packs WHERE title = ?').get(packTitle)) as any;
+  const existingPack = db.prepare('SELECT id FROM quiz_packs WHERE title = ?').get(packTitle) as any;
   if (existingPack?.id) {
-    const existingSession = (await db
+    const existingSession = db
           .prepare(`
         SELECT id, pin
         FROM sessions
@@ -253,7 +253,7 @@ export async function seedAnalyticsShowcase() {
         ORDER BY ended_at DESC, id DESC
         LIMIT 1
       `)
-          .get(existingPack.id)) as any;
+          .get(existingPack.id) as any;
 
     return {
       packId: Number(existingPack.id),
@@ -263,7 +263,7 @@ export async function seedAnalyticsShowcase() {
     };
   }
 
-  const teacherId = (await showcaseTeacherId());
+  const teacherId = showcaseTeacherId();
   const sourceText = [
     'Spain sits on the Iberian Peninsula and combines layered geography, strong regional identities, and a twentieth-century political history that students often confuse under pressure.',
     'Common confusions include mixing up Madrid and Barcelona, reversing the Mediterranean and Atlantic coastlines, blending Catalonia with the Basque Country, and mistiming the Spanish Civil War.',
@@ -459,9 +459,9 @@ export async function seedAnalyticsShowcase() {
     );
   });
 
-  const questionRows = (await db
+  const questionRows = db
       .prepare('SELECT * FROM questions WHERE quiz_pack_id = ? ORDER BY question_order ASC, id ASC')
-      .all(packId)) as any[];
+      .all(packId) as any[];
   const showcaseQuestionMetaById = new Map<number, ShowcaseQuestion>();
   questionRows.forEach((row, index) => {
     const metadata = questions[index];
@@ -542,7 +542,7 @@ export async function seedAnalyticsShowcase() {
     'language-culture': 59,
   };
 
-  const createSessionRun = db.transaction(async (config: {
+  const createSessionRun = db.transaction((config: {
     pin: string;
     startedAt: string;
     endedAt: string;
