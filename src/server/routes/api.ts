@@ -75,7 +75,7 @@ const ALLOWED_UPLOAD_TYPES = new Set([
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 8 * 1024 * 1024,
+    fileSize: 20 * 1024 * 1024,
     files: 1,
   },
   fileFilter: (_req: any, file: any, callback: any) => {
@@ -481,7 +481,7 @@ const upsertMastery = db.prepare(`
       updated_at = CURRENT_TIMESTAMP
 `);
 
-const applyMasteryUpdates = db.transaction(async (
+const applyMasteryUpdates = db.transaction((
   identityKey: string,
   nickname: string,
   updates: Array<{ tag: string; score: number }>,
@@ -1292,7 +1292,7 @@ async function createFollowUpPack({
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const insertQuestions = db.transaction(async (draftQuestions: any[]) => {
+  const insertQuestions = db.transaction((draftQuestions: any[]) => {
     draftQuestions.forEach((question, index) => {
       insertQuestion.run(
         packId,
@@ -2008,8 +2008,8 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, async (req, r
       .all(packId)) as any[];
   const copyTitle = (await buildPackCopyTitle(teacherUserId, pack.title));
 
-  const duplicatePack = db.transaction(async () => {
-    const packResult = (await db.prepare(`
+  const duplicatePackInternal = db.transaction(() => {
+    const packResult = db.prepare(`
       INSERT INTO quiz_packs (
         teacher_id,
         title,
@@ -2045,7 +2045,7 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, async (req, r
           pack.source_language,
           pack.source_word_count,
           pack.material_profile_id,
-        ));
+        );
 
     const newPackId = Number(packResult.lastInsertRowid);
     const insertQuestion = db.prepare(`
@@ -2084,24 +2084,25 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, async (req, r
       );
     });
 
-    (await syncPackDerivedData(newPackId, pack.source_text || '', questions.map((question: any, index: number) => ({
-            prompt: question.prompt,
-            image_url: question.image_url || '',
-            answers: parseJsonArray(question.answers_json),
-            correct_index: Number(question.correct_index || 0),
-            explanation: question.explanation,
-            tags: parseJsonArray(question.tags_json),
-            time_limit_seconds: Number(question.time_limit_seconds || 20),
-            question_order: Number(question.question_order || index),
-            learning_objective: question.learning_objective || '',
-            bloom_level: question.bloom_level || '',
-          }))));
-    (await createPackVersionSnapshot(newPackId, teacherUserId, 'Initial version', 'duplicate'));
-
-    return (await getTeacherPackBoard(teacherUserId)).find((entry: any) => Number(entry.id) === newPackId);
+    return newPackId;
   });
 
-  const duplicatedPack = duplicatePack();
+  const newPackId = duplicatePackInternal();
+  await syncPackDerivedData(newPackId, pack.source_text || '', questions.map((question: any, index: number) => ({
+    prompt: question.prompt,
+    image_url: question.image_url || '',
+    answers: parseJsonArray(question.answers_json),
+    correct_index: Number(question.correct_index || 0),
+    explanation: question.explanation,
+    tags: parseJsonArray(question.tags_json),
+    time_limit_seconds: Number(question.time_limit_seconds || 20),
+    question_order: Number(question.question_order || index),
+    learning_objective: question.learning_objective || '',
+    bloom_level: question.bloom_level || '',
+  })));
+  await createPackVersionSnapshot(newPackId, teacherUserId, 'Initial version', 'duplicate');
+
+  const duplicatedPack = (await getTeacherPackBoard(teacherUserId)).find((entry: any) => Number(entry.id) === newPackId);
   res.status(201).json(duplicatedPack);
 });
 
@@ -2165,34 +2166,34 @@ router.delete('/teacher/packs/:id', requireTeacherSession, async (req, res) => {
       : 0,
   };
 
-  const deletePackCascade = db.transaction(async () => {
-    (await db.prepare('DELETE FROM quiz_pack_versions WHERE pack_id = ?').run(packId));
-    (await db
+  const deletePackCascadeResult = db.transaction(() => {
+    db.prepare('DELETE FROM quiz_pack_versions WHERE pack_id = ?').run(packId);
+    db
         .prepare(`
         UPDATE teacher_classes
         SET pack_id = NULL, updated_at = CURRENT_TIMESTAMP
         WHERE teacher_id = ? AND pack_id = ?
       `)
-        .run(teacherUserId, packId));
+        .run(teacherUserId, packId);
 
     if (sessionIds.length) {
       const sessionPlaceholders = sessionIds.map(() => '?').join(', ');
-      (await db.prepare(`DELETE FROM student_behavior_logs WHERE session_id IN (${sessionPlaceholders})`).run(...sessionIds));
-      (await db.prepare(`DELETE FROM answers WHERE session_id IN (${sessionPlaceholders})`).run(...sessionIds));
-      (await db.prepare(`DELETE FROM participants WHERE session_id IN (${sessionPlaceholders})`).run(...sessionIds));
-      (await db.prepare(`DELETE FROM sessions WHERE id IN (${sessionPlaceholders})`).run(...sessionIds));
+      db.prepare(`DELETE FROM student_behavior_logs WHERE session_id IN (${sessionPlaceholders})`).run(...sessionIds);
+      db.prepare(`DELETE FROM answers WHERE session_id IN (${sessionPlaceholders})`).run(...sessionIds);
+      db.prepare(`DELETE FROM participants WHERE session_id IN (${sessionPlaceholders})`).run(...sessionIds);
+      db.prepare(`DELETE FROM sessions WHERE id IN (${sessionPlaceholders})`).run(...sessionIds);
     }
 
     if (questionIds.length) {
       const questionPlaceholders = questionIds.map(() => '?').join(', ');
-      (await db.prepare(`DELETE FROM practice_attempts WHERE question_id IN (${questionPlaceholders})`).run(...questionIds));
-      (await db.prepare(`DELETE FROM questions WHERE id IN (${questionPlaceholders})`).run(...questionIds));
+      db.prepare(`DELETE FROM practice_attempts WHERE question_id IN (${questionPlaceholders})`).run(...questionIds);
+      db.prepare(`DELETE FROM questions WHERE id IN (${questionPlaceholders})`).run(...questionIds);
     }
 
-    (await db.prepare('DELETE FROM quiz_packs WHERE id = ?').run(packId));
+    db.prepare('DELETE FROM quiz_packs WHERE id = ?').run(packId);
   });
 
-  deletePackCascade();
+  deletePackCascadeResult();
   res.json({
     deleted: true,
     pack_id: packId,
@@ -2497,7 +2498,7 @@ router.post('/packs', requireTeacherSession, async (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const insertMany = db.transaction(async (qs: any[]) => {
+  const insertMany = db.transaction((qs: any[]) => {
     for (const q of qs) {
       insertQuestion.run(
         packId,
@@ -2696,28 +2697,28 @@ router.post('/sessions/:pin/join', async (req, res) => {
   const identityKey = resolveStudentIdentityKey(req.body?.identity_key, nickname);
   if (!enforceRateLimit(req, res, 'student-join', 20, 5 * 60 * 1000, pin, nickname.toLowerCase())) return;
 
-  const session = hydrateSessionRow((await db.prepare('SELECT * FROM sessions WHERE pin = ?').get(pin)));
+  const session = hydrateSessionRow(await db.prepare('SELECT * FROM sessions WHERE pin = ?').get(pin));
 
   if (!session) return res.status(404).json({ error: 'Session not found' });
   if (session.status !== 'LOBBY') return res.status(400).json({ error: 'Session already started' });
   if (nickname.length < 2) return res.status(400).json({ error: 'Nickname must be at least 2 characters' });
 
   try {
-    const joinResult = db.transaction(async () => {
-      const latestSession = hydrateSessionRow((await db.prepare('SELECT * FROM sessions WHERE id = ?').get(session.id)));
+    const joinResult = db.transaction(() => {
+      const latestSession = hydrateSessionRow(db.prepare('SELECT * FROM sessions WHERE id = ?').get(session.id));
       if (!latestSession || latestSession.status !== 'LOBBY') {
         throw new Error('Session already started');
       }
 
-      const existing = (await db
+      const existing = db
               .prepare('SELECT id FROM participants WHERE session_id = ? AND LOWER(nickname) = LOWER(?)')
-              .get(session.id, nickname));
+              .get(session.id, nickname);
       if (existing) {
         throw new Error('Nickname taken');
       }
 
       const currentCount = Number(
-        (await db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id)).count || 0,
+        db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id).count || 0,
       );
       if (currentCount >= MAX_SESSION_PARTICIPANTS) {
         throw new Error('Session capacity reached');
@@ -2730,24 +2731,24 @@ router.post('/sessions/:pin/join', async (req, res) => {
       const seatIndex =
         assignedTeamId > 0
           ? Number(
-              (await db
+              db
                               .prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ? AND team_id = ?')
-                              .get(session.id, assignedTeamId)).count || 0,
+                              .get(session.id, assignedTeamId).count || 0,
             ) + 1
           : currentCount + 1;
 
-      const info = (await db
+      const info = db
               .prepare(`
           INSERT OR IGNORE INTO participants (session_id, identity_key, nickname, team_id, team_name, seat_index)
           VALUES (?, ?, ?, ?, ?, ?)
         `)
-              .run(session.id, identityKey, nickname, assignedTeamId, assignedTeamName, seatIndex));
+              .run(session.id, identityKey, nickname, assignedTeamId, assignedTeamName, seatIndex);
       if (!Number(info.changes || 0)) {
         throw new Error('Nickname taken');
       }
 
       const total = Number(
-        (await db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id)).count || 0,
+        db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id).count || 0,
       );
 
       return {
@@ -2897,10 +2898,10 @@ router.post('/sessions/:pin/answer', async (req, res) => {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    const writeResult = db.transaction(async () => {
-      const concurrentAnswer = (await db
+    const writeResult = db.transaction(() => {
+      const concurrentAnswer = db
               .prepare('SELECT score_awarded FROM answers WHERE session_id = ? AND question_id = ? AND participant_id = ?')
-              .get(session.id, question_id, participant_id)) as any;
+              .get(session.id, question_id, participant_id) as any;
       if (concurrentAnswer) {
         return {
           duplicate: true,
@@ -2908,7 +2909,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
         };
       }
 
-      const insertAnswerResult = (await db.prepare(`
+      const insertAnswerResult = db.prepare(`
         INSERT OR IGNORE INTO answers (session_id, question_id, participant_id, chosen_index, is_correct, response_ms, score_awarded)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
@@ -2919,11 +2920,11 @@ router.post('/sessions/:pin/answer', async (req, res) => {
         isCorrect ? 1 : 0,
         response_ms,
         adjustedScoreAwarded,
-      ));
+      );
       if (!Number(insertAnswerResult.changes || 0)) {
-        const persistedAnswer = (await db
+        const persistedAnswer = db
             .prepare('SELECT score_awarded FROM answers WHERE session_id = ? AND question_id = ? AND participant_id = ?')
-            .get(session.id, question_id, participant_id)) as any;
+            .get(session.id, question_id, participant_id) as any;
         return {
           duplicate: true,
           score_awarded: Number(persistedAnswer?.score_awarded || 0),
@@ -2959,7 +2960,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
     })();
 
     if (!writeResult.duplicate && outcome.mastery_updates.length > 0) {
-      applyMasteryUpdates(getParticipantIdentityKey(participant), participant.nickname, outcome.mastery_updates);
+      applyMasteryUpdates(getParticipantIdentityKey(authorized.participant), authorized.participant.nickname, outcome.mastery_updates);
     }
 
     const totalAnswers = Number(
@@ -3363,7 +3364,7 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    const insertQuestions = db.transaction(async (questions: any[]) => {
+    const insertQuestions = db.transaction((questions: any[]) => {
       questions.forEach((question, index) => {
         insertQuestion.run(
           adaptivePackId,
@@ -3381,12 +3382,12 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
       });
     });
     insertQuestions(adaptiveGame.questions);
-    (await syncPackDerivedData(adaptivePackId, context.classPayload.pack?.source_text || '', adaptiveGame.questions));
+    await syncPackDerivedData(adaptivePackId, context.classPayload.pack?.source_text || '', adaptiveGame.questions);
 
     const pin = (await createSessionPin());
-    const sessionInfo = (await db
+    const sessionInfo = db
           .prepare('INSERT INTO sessions (quiz_pack_id, pin, status) VALUES (?, ?, ?)')
-          .run(adaptivePackId, pin, 'LOBBY'));
+          .run(adaptivePackId, pin, 'LOBBY');
 
     res.json({
       adaptive_pack_id: adaptivePackId,
