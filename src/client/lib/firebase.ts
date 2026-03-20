@@ -72,9 +72,12 @@ export function ensureFirebaseRealtimeReady(): Promise<Database | null> {
       if (!auth?.currentUser) {
         try {
           await signInAnonymously(auth);
-        } catch (error) {
-          console.warn('[Firebase] Anonymous sign-in failed. Realtime features might be limited until domain is authorized:', error);
-          // Keep realtime optional. Public rules can still allow reads and writes.
+        } catch (error: any) {
+          if (error?.code === 'auth/operation-not-allowed' || error?.message?.includes('400')) {
+            console.error('[Firebase] Anonymous Authentication is NOT enabled in your Firebase Console. Please enable it under Build > Authentication > Sign-in method.');
+          } else {
+            console.warn('[Firebase] Anonymous sign-in failed. Realtime features might be limited:', error);
+          }
         }
       }
 

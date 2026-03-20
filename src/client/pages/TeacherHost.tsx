@@ -66,9 +66,20 @@ export default function TeacherHost() {
     return groups;
   }, {});
   const currentQuestion = pack?.questions?.[questionIndex];
-  const currentAnswers = Array.isArray(currentQuestion?.answers)
-    ? currentQuestion.answers
-    : JSON.parse(currentQuestion?.answers_json || '[]');
+  const currentAnswers = React.useMemo(() => {
+    if (!currentQuestion) return [];
+    try {
+      if (Array.isArray(currentQuestion.answers)) return currentQuestion.answers;
+      if (typeof currentQuestion.answers_json === 'string') {
+        return JSON.parse(currentQuestion.answers_json || '[]');
+      }
+      return [];
+    } catch (err) {
+      console.error('[TeacherHost] Failed to parse answers_json:', err, currentQuestion);
+      return [];
+    }
+  }, [currentQuestion]);
+
   const activeQuestionSeconds = currentQuestion
     ? resolveSessionQuestionTimeLimit(currentQuestion, modeConfig)
     : 20;
@@ -153,8 +164,15 @@ export default function TeacherHost() {
         setPackId(data.quiz_pack_id);
         setStatus(data.status);
         setQuestionIndex(data.current_question_index);
+      })
+      .catch(err => {
+        console.error('[TeacherHost] Failed to fetch session metadata:', err);
+        // If we get a 404, the session might be gone
+        if (err.message?.includes('404')) {
+          navigate('/teacher/dashboard', { state: { error: 'Session not found or expired.' } });
+        }
       });
-  }, [pin]);
+  }, [pin, navigate]);
 
   useEffect(() => {
     if (!pin || !sessionId) return;
@@ -174,6 +192,9 @@ export default function TeacherHost() {
             online: true,
           })),
         );
+      })
+      .catch(err => {
+        console.error('[TeacherHost] Failed to fetch participants:', err);
       });
   }, [pin, sessionId]);
 
@@ -318,7 +339,10 @@ export default function TeacherHost() {
   useEffect(() => {
     if (packId) {
       apiFetchJson(`/api/packs/${packId}`)
-        .then(data => setPack(data));
+        .then(data => setPack(data))
+        .catch(err => {
+          console.error('[TeacherHost] Failed to fetch pack data:', err);
+        });
     }
   }, [packId]);
 
@@ -579,6 +603,49 @@ export default function TeacherHost() {
       setIsJoinLinkCopied(false);
     }
   };
+
+  // NEW: Critical Loading Guard to prevent crashes during race conditions
+  // If we have a pin but haven't loaded the session metadata OR the pack itself,
+  // we show a loading view to prevent the game-state UI from rendering with nulls.
+  if (pin && (!sessionMeta || !pack)) {
+    return (
+      <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-8">
+        <motion.div
+          animate={{ 
+            rotate: 360,
+            scale: [1, 1.1, 1]
+          }}
+          transition={{ 
+            rotate: { duration: 2, repeat: Infinity, ease: 'linear' },
+            scale: { duration: 1, repeat: Infinity, ease: 'easeInOut' }
+          }}
+          className="mb-8"
+        >
+          <div className="w-20 h-20 rounded-3xl bg-white border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A] flex items-center justify-center">
+            <Sparkles className="w-10 h-10 text-brand-orange" />
+          </div>
+        </motion.div>
+        
+        <div className="text-center space-y-3 max-w-md">
+          <h2 className="text-4xl font-black text-brand-dark tracking-tight">Syncing Session...</h2>
+          <p className="text-brand-dark/60 font-bold text-lg leading-relaxed">
+            Connecting to real-time room data and preparing your questions.
+          </p>
+        </div>
+
+        <motion.button 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 3 }}
+          onClick={() => navigate('/teacher/dashboard')}
+          className="mt-12 group flex items-center gap-2 text-brand-purple font-black hover:text-brand-orange transition-colors"
+        >
+          <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+          Back to Dashboard
+        </motion.button>
+      </div>
+    );
+  }
 
   if (status === 'LOBBY') {
     return (
