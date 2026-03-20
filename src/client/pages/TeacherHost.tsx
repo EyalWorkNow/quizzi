@@ -56,6 +56,10 @@ export default function TeacherHost() {
   const isTeamMode = gameMode.teamBased;
   const modeConfig = sessionMeta?.mode_config || sessionMeta?.modeConfig || {};
   const isPeerMode = isPeerInstructionMode(sessionMeta?.game_type, modeConfig);
+
+  console.log('[TeacherHost] Status:', status);
+  console.log('[TeacherHost] SessionMeta:', sessionMeta);
+  console.log('[TeacherHost] Pack:', pack);
   const discussionSeconds = Math.max(10, Number(modeConfig?.discussion_seconds || 30));
   const revoteSeconds = Math.max(8, Number(modeConfig?.revote_seconds || 22));
   const joinUrl = pin && typeof window !== 'undefined' ? buildSessionJoinUrl(pin, window.location.origin) : '';
@@ -1400,7 +1404,32 @@ export default function TeacherHost() {
     );
   }
 
-  return null;
+  console.warn('[TeacherHost] Unhandled game status or state reached. Rendering fallback.', { status, pin, sessionId, packId });
+  return (
+    <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-8">
+      <div className="bg-white rounded-[2rem] border-4 border-brand-dark p-8 shadow-[8px_8px_0px_0px_#1A1A1A] max-w-md text-center">
+        <h2 className="text-3xl font-black mb-4">Something went wrong</h2>
+        <p className="font-medium text-brand-dark/70 mb-6">
+          The game reached an unexpected state ({status}). 
+          Try refreshing the page or going back to the dashboard.
+        </p>
+        <div className="flex flex-col gap-3">
+          <button 
+            onClick={() => window.location.reload()}
+            className="w-full px-6 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
+          >
+            Refresh Page
+          </button>
+          <button 
+            onClick={() => navigate('/teacher/dashboard')}
+            className="w-full px-6 py-3 bg-white border-2 border-brand-dark rounded-full font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
+          >
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function PodiumStep({ 

@@ -1465,15 +1465,6 @@ router.post('/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
-// Get all packs
-router.get('/packs', async (req, res) => {
-  const teacherUserId = (await getTeacherUserIdFromRequest(req));
-  const packs = teacherUserId
-    ? (await listHydratedPacks({ teacherUserId }))
-    : (await listHydratedPacks({ publicOnly: true }));
-  res.json(packs);
-});
-
 router.get('/discover/packs', async (_req, res) => {
   console.log('[DEBUG] GET /api/discover/packs request received');
   try {
@@ -1484,6 +1475,15 @@ router.get('/discover/packs', async (_req, res) => {
     console.error('[ERROR] Discover packs failed:', error);
     res.status(500).json({ error: 'Failed to load discover packs' });
   }
+});
+
+// Get all packs
+router.get('/packs', async (req, res) => {
+  const teacherUserId = (await getTeacherUserIdFromRequest(req));
+  const packs = teacherUserId
+    ? (await listHydratedPacks({ teacherUserId }))
+    : (await listHydratedPacks({ publicOnly: true }));
+  res.json(packs);
 });
 
 router.get('/teacher/packs', requireTeacherSession, async (req, res) => {
