@@ -31,16 +31,34 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     ? getApiUrl(input) 
     : input;
   const participantToken = typeof window !== 'undefined' ? getParticipantToken() : '';
+  
+  // Also check for Teacher Token in localStorage for cross-origin Bearer Auth
+  let teacherToken = '';
+  if (typeof window !== 'undefined') {
+    const rawAuth = window.localStorage.getItem('quizzi.teacher.auth');
+    if (rawAuth) {
+      try {
+        const session = JSON.parse(rawAuth);
+        teacherToken = session?.token || '';
+      } catch {
+        // Ignore parse error
+      }
+    }
+  }
+
   const headers = new Headers(init?.headers || undefined);
   if (participantToken && !headers.has('X-Quizzi-Participant-Token')) {
     headers.set('X-Quizzi-Participant-Token', participantToken);
+  }
+  
+  if (teacherToken && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${teacherToken}`);
   }
     
   return fetch(url, {
     ...init,
     headers,
-    // CRITICAL: credentials: 'include' is required for cross-origin cookie sending
-    // Without this, the browser won't send the session cookie from Vercel to Render
+    // credentials: 'include' is still good for local/same-origin cases
     credentials: 'include',
   });
 }

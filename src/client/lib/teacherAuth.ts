@@ -12,6 +12,7 @@ export interface TeacherAuthSession {
   email: string;
   provider: 'password' | 'google' | 'facebook';
   signedInAt: string;
+  token?: string;
   expiresAt?: string;
 }
 

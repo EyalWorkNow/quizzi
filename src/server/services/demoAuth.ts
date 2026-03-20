@@ -108,7 +108,15 @@ export function createTeacherSession({
 }
 
 export function readTeacherSession(req: Request): TeacherServerSession | null {
-  const token = parseCookies(req.headers.cookie)[AUTH_COOKIE];
+  let token = parseCookies(req.headers.cookie)[AUTH_COOKIE];
+  
+  if (!token) {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    }
+  }
+
   if (!token || !token.includes('.')) return null;
 
   const [encodedPayload, signature] = token.split('.', 2);

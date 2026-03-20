@@ -1386,16 +1386,18 @@ router.post('/auth/register', async (req, res) => {
     }));
   const { session, token } = createTeacherSession({ email: createdUser.email, provider: 'password' });
   issueTeacherSession(req, res, token);
-  res.status(201).json(session);
+  res.status(201).json({ ...session, token });
 });
 
 router.get('/auth/session', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  const session = readTeacherSession(req);
-  if (!session) {
+  const sessionData = readTeacherSession(req);
+  if (!sessionData) {
     return res.status(401).json({ error: 'Not signed in' });
   }
-  res.json(session);
+  // Re-create the token for the verified session to keep it fresh on the client
+  const { token } = createTeacherSession({ email: sessionData.email, provider: sessionData.provider });
+  res.json({ ...sessionData, token });
 });
 
 router.post('/auth/login', async (req, res) => {
@@ -1409,7 +1411,7 @@ router.post('/auth/login', async (req, res) => {
   if (teacherUser?.password_hash && verifyTeacherPassword(password, teacherUser.password_hash)) {
     const { session, token } = createTeacherSession({ email: teacherUser.email, provider: 'password' });
     issueTeacherSession(req, res, token);
-    return res.json(session);
+    return res.json({ ...session, token });
   }
 
   if (!isDemoTeacherEmail(email) || !verifyDemoPassword(password)) {
@@ -1418,7 +1420,7 @@ router.post('/auth/login', async (req, res) => {
 
   const { session, token } = createTeacherSession({ email, provider: 'password' });
   issueTeacherSession(req, res, token);
-  res.json(session);
+  res.json({ ...session, token });
 });
 
 router.post('/auth/social', async (req, res) => {
@@ -1452,7 +1454,7 @@ router.post('/auth/social', async (req, res) => {
 
     const { session, token } = createTeacherSession({ email: teacherUser.email, provider: 'google' });
     issueTeacherSession(req, res, token);
-    res.json(session);
+    res.json({ ...session, token });
   } catch (error: any) {
     console.error('[ERROR] Failed to verify Google ID token:', error);
     res.status(401).json({ error: 'Failed to verify Google sign-in. Please try again.' });
