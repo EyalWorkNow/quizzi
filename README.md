@@ -59,7 +59,7 @@ The loop is closed via **Automated Remastery Suggestions**:
 npm install
 
 # 2. Environment Configuration
-cp .env.example .env # Configure GEMINI_API_KEY & EMAIL_PASS
+cp .env.example .env # Configure GEMINI_API_KEY and QUIZZI_AUTH_SECRET
 
 # 3. Development Execution
 npm run dev
@@ -67,6 +67,12 @@ npm run dev
 
 ### Production Readiness
 The platform is designed for horizontal scaling. The backend handles session orchestration via **SSE (Server-Sent Events)** for low-latency host-to-student synchronization, while the persistence layer supports a phased migration from SQLite to hardened Cloud Postgres.
+
+Before any production deploy, set a strong `QUIZZI_AUTH_SECRET` in the server environment. This secret signs teacher session cookies and scoped HMAC auth tokens, and it must be identical across all running instances. Example generation command:
+
+```bash
+openssl rand -base64 32
+```
 
 ---
 

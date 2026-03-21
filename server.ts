@@ -18,20 +18,33 @@ async function startServer() {
   const PORT = Number(process.env.PORT || 3000);
   const distDir = path.resolve(process.cwd(), 'dist');
   const allowedMethods = ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'];
-  const allowedHeaders = ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'X-Quizzi-Participant-Token'];
+  const allowedHeaders = [
+    'Content-Type',
+    'Authorization',
+    'Accept',
+    'X-Requested-With',
+    'X-Quizzi-Participant-Token',
+    'X-Quizzi-Teacher-Auth-Retry',
+  ];
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
   app.use((req, res, next) => {
     const origin = normalizeOrigin(String(req.headers.origin || ''));
     const originAllowed = !origin || isAllowedBrowserOrigin(origin) || process.env.NODE_ENV !== 'production';
+    const requestedHeaders = String(req.headers['access-control-request-headers'] || '')
+      .split(',')
+      .map((header) => header.trim())
+      .filter(Boolean);
+    const responseAllowedHeaders = Array.from(new Set([...allowedHeaders, ...requestedHeaders]));
 
     if (origin && originAllowed) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', allowedMethods.join(', '));
-      res.setHeader('Access-Control-Allow-Headers', allowedHeaders.join(', '));
+      res.setHeader('Access-Control-Allow-Headers', responseAllowedHeaders.join(', '));
       res.vary('Origin');
+      res.vary('Access-Control-Request-Headers');
     }
 
     if (req.method === 'OPTIONS') {
