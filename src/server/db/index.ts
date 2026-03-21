@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { buildLegacyStudentIdentityKey } from '../services/studentIdentity.js';
+import { createPostgresMirror } from './postgresMirror.js';
 
 function resolveSqliteDbPath() {
   const cwdDbPath = path.resolve(process.cwd(), 'quizzi.db');
@@ -66,6 +67,10 @@ try {
 } catch (err) {
   console.error('[db] CRITICAL initialization error:', err);
 }
+
+const postgresMirror = createPostgresMirror(db, { sqlitePath: dbPath });
+await postgresMirror.setup();
+postgresMirror.wrapDatabase();
 
 async function columnExists(table: string, column: string) {
   return (await db
@@ -494,6 +499,10 @@ export async function initDb() {
         updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
     WHERE joined_at IS NULL OR updated_at IS NULL;
   `);
+}
+
+export function getPostgresMirrorStatus() {
+  return postgresMirror.getStatus();
 }
 
 export default db;

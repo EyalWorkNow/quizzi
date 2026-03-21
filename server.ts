@@ -4,6 +4,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { seedAnalyticsShowcase, seedDemoData } from './src/server/db/seeding.js';
+import { getPostgresMirrorStatus } from './src/server/db/index.js';
 import { checkPostgresHealth, closePostgresPool } from './src/server/db/postgres.js';
 import { checkSupabaseRestHealth } from './src/server/services/supabaseAdmin.js';
 import { isAllowedBrowserOrigin, normalizeOrigin } from './src/server/services/requestGuards.js';
@@ -104,11 +105,13 @@ async function startServer() {
     res.setHeader('Cache-Control', 'no-store');
     const latestPostgresHealth = await checkPostgresHealth();
     const latestSupabaseRestHealth = await checkSupabaseRestHealth();
+    const postgresMirror = getPostgresMirrorStatus();
     res.json({
       status: 'ok',
       app: 'quizzi',
-      primary_db: 'sqlite',
+      primary_db: postgresMirror.active ? 'sqlite_with_supabase_mirror' : 'sqlite',
       sqlite_seeded: true,
+      postgres_mirror: postgresMirror,
       supabase_postgres: latestPostgresHealth,
       supabase_rest: latestSupabaseRestHealth,
     });

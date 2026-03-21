@@ -249,7 +249,26 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS image_url TEXT DEFAULT ''`,
   `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS teacher_class_id INTEGER`,
   `ALTER TABLE participants ADD COLUMN IF NOT EXISTS identity_key TEXT`,
-  `ALTER TABLE mastery ALTER COLUMN score TYPE DOUBLE PRECISION USING score::double precision`,
+  `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS identity_key TEXT`,
+  `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS nickname TEXT`,
+  `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS tag TEXT`,
+  `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS score DOUBLE PRECISION DEFAULT 0`,
+  `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
+  `
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'mastery'
+          AND column_name = 'score'
+          AND data_type <> 'double precision'
+      ) THEN
+        ALTER TABLE mastery ALTER COLUMN score TYPE DOUBLE PRECISION USING score::double precision;
+      END IF;
+    END $$;
+  `,
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS option_hover_counts_json TEXT DEFAULT '{}'`,
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS outside_answer_pointer_moves INTEGER DEFAULT 0`,
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS rapid_pointer_jumps INTEGER DEFAULT 0`,
