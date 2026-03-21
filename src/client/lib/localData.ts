@@ -13,7 +13,7 @@ export interface TeacherNotifications {
   marketingEmails: boolean;
 }
 
-export type TeacherLanguage = 'en' | 'he';
+export type TeacherLanguage = 'en' | 'he' | 'ar';
 
 export interface TeacherAppearance {
   theme: 'light' | 'dark';
@@ -127,6 +127,14 @@ const DEFAULT_CLASSES: TeacherClass[] = [
   },
 ];
 
+function normalizeTeacherLanguage(value: unknown, fallback: TeacherLanguage = 'en'): TeacherLanguage {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'he' || normalized === 'ar' || normalized === 'en') {
+    return normalized;
+  }
+  return fallback;
+}
+
 function readJson<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
   const raw = window.localStorage.getItem(key);
@@ -146,14 +154,16 @@ function writeJson<T>(key: string, value: T) {
 export function loadTeacherSettings(): TeacherSettingsState {
   const value = readJson<TeacherSettingsState>(SETTINGS_KEY, DEFAULT_SETTINGS);
   const appLanguage =
-    typeof window !== 'undefined' && window.localStorage.getItem(APP_LANGUAGE_KEY) === 'he' ? 'he' : 'en';
+    typeof window !== 'undefined'
+      ? normalizeTeacherLanguage(window.localStorage.getItem(APP_LANGUAGE_KEY), 'en')
+      : 'en';
   return {
     profile: { ...DEFAULT_SETTINGS.profile, ...(value.profile || {}) },
     notifications: { ...DEFAULT_SETTINGS.notifications, ...(value.notifications || {}) },
     appearance: {
       ...DEFAULT_SETTINGS.appearance,
       ...(value.appearance || {}),
-      language: value.appearance?.language === 'he' ? 'he' : appLanguage,
+      language: normalizeTeacherLanguage(value.appearance?.language, appLanguage),
     },
   };
 }

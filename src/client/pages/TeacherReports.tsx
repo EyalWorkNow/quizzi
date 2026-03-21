@@ -67,6 +67,34 @@ const REPORTS_COPY = {
       action: 'פעולה',
     },
   },
+  ar: {
+    title: 'التقارير',
+    subtitle: 'ملخصات حتمية مبنية على الإجابات والتوقيت وقياسات السلوك عبر الجلسات الحية.',
+    refresh: 'تحديث',
+    loading: 'جار تحميل التقارير الحية...',
+    retry: 'حاول مرة أخرى',
+    loadFailedTitle: 'لم يتم تحميل التقارير بشكل سليم.',
+    loadFailedBody: 'تعذر الوصول إلى بيانات التقارير الآن. حاول مرة أخرى بعد قليل.',
+    insightLabel: 'رؤية المحرك',
+    sessionsTitle: 'الجلسات الأخيرة',
+    sessionsSubtitle: 'كل صف مشتق من الإجابات المخزنة وأزمنة الاستجابة وأحداث التركيز.',
+    noSessions: 'لا توجد جلسات مكتملة بعد.',
+    view: 'عرض',
+    stats: {
+      players: { title: 'إجمالي اللاعبين', caption: 'عبر الجلسات المستضافة' },
+      accuracy: { title: 'متوسط الدقة', caption: 'عبر الإجابات المتعقبة' },
+      quizzes: { title: 'الاختبارات المستضافة', caption: 'جلسات فيها نشاط' },
+      stress: { title: 'متوسط الضغط', caption: 'مؤشر الضغط السلوكي' },
+    },
+    table: {
+      quizName: 'اسم الاختبار',
+      date: 'التاريخ',
+      players: 'اللاعبون',
+      accuracy: 'الدقة',
+      stress: 'الضغط',
+      action: 'إجراء',
+    },
+  },
 } as const;
 
 export default function TeacherReports() {
@@ -75,7 +103,7 @@ export default function TeacherReports() {
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const copy = REPORTS_COPY[language];
+  const copy = REPORTS_COPY[language as keyof typeof REPORTS_COPY] || REPORTS_COPY.en;
   const isRtl = direction === 'rtl';
 
   const loadReport = useCallback(async () => {

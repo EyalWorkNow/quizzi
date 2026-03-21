@@ -110,7 +110,7 @@ const TEAM_NAME_BANK = [
   'Echo',
 ];
 
-const SUPPORTED_UI_LANGUAGES = new Set(['en', 'he']);
+const SUPPORTED_UI_LANGUAGES = new Set(['en', 'he', 'ar']);
 const MAX_SESSION_PARTICIPANTS = envTaskConcurrency('QUIZZI_MAX_SESSION_PARTICIPANTS', 500);
 const MAX_QUESTION_ANSWERS = 8;
 const SESSION_STATE_SET = new Set([
@@ -1340,7 +1340,7 @@ router.post('/translate', async (req, res) => {
   }
 
   try {
-    const translations = await translateUiTexts(texts, targetLanguage as 'en' | 'he');
+    const translations = await translateUiTexts(texts, targetLanguage as 'en' | 'he' | 'ar');
     res.json({ translations });
   } catch (error: any) {
     console.error('[translate] Failed to translate UI texts:', error);

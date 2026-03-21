@@ -192,6 +192,80 @@ const EXPLORE_COPY = {
       notAvailable: 'לא זמין',
     },
   },
+  ar: {
+    nav: {
+      explore: 'استكشاف',
+      forTeachers: 'للمعلمين',
+      contact: 'اتصل بنا',
+      home: 'الرئيسية',
+    },
+    heroBadge: 'اكتشف الحزم عالية الإشارة',
+    heroTitleBefore: 'تصفح الحزم المبنية من',
+    heroTitleAccent: 'استخلاص معرفي مضغوط للمقرر',
+    heroTitleAfter: '، لا من الضجيج الخام.',
+    heroBody:
+      'تحمل كل حزمة الآن ملخصًا تدريسيًا حتميًا وبصمة موضوعية وملف توجيه موفرًا للرموز، لتكتشف مواد أقوى وتولّد باستهلاك أقل للنموذج.',
+    searchPlaceholder: 'ابحث في الحزم أو المفاهيم أو الوسوم أو الملخصات...',
+    searchAria: 'البحث في المجموعات',
+    resetFilters: 'إعادة ضبط الفلاتر',
+    buildNewPack: 'إنشاء حزمة جديدة',
+    statLabels: {
+      livePacks: 'حزم نشطة',
+      questions: 'أسئلة',
+      avgTokenSave: 'متوسط توفير الرموز',
+      languages: 'لغات',
+    },
+    featured: {
+      label: 'حزمة مميزة',
+      questions: 'أسئلة',
+      tokenSave: 'توفير الرموز',
+      words: 'كلمات',
+      language: 'اللغة',
+      openIntel: 'افتح معلومات الحزمة',
+    },
+    filters: {
+      title: 'فلاتر التصفح',
+      sortBy: 'الترتيب حسب',
+      conceptClusters: 'عناقيد المفاهيم',
+      all: 'الكل',
+      sortLabels: {
+        newest: 'الأحدث',
+        questions: 'الأكثر أسئلة',
+        lean: 'موجّه رشيق',
+      },
+    },
+    atlas: {
+      title: 'أطلس الحزم',
+      results: 'نتائج',
+      allConcepts: 'كل المفاهيم',
+      openStudio: 'افتح الاستوديو',
+      teacherAccess: 'دخول المعلم',
+      unavailable: 'صفحة الاستكشاف غير متاحة حاليًا.',
+      noMatches: 'لم نعثر على حزم بهذا الفلتر.',
+      noMatchesBody: 'جرّب مفهومًا آخر أو بحثًا أوسع أو أعد ضبط الفلاتر.',
+    },
+    drawer: {
+      label: 'معلومات الحزمة',
+      questions: 'أسئلة',
+      tokenSave: 'توفير الرموز',
+      words: 'كلمات',
+      language: 'اللغة',
+      teachingBrief: 'ملخص تدريسي',
+      keyPoints: 'نقاط أساسية',
+      conceptFingerprint: 'بصمة مفاهيمية',
+      openInStudio: 'افتح في الاستوديو',
+      teacherAccess: 'دخول المعلم',
+      createSimilar: 'أنشئ شبيهًا',
+    },
+    packCard: {
+      tokenSave: 'توفير الرموز',
+      words: 'كلمات',
+      prompt: 'الموجّه',
+      openIntel: 'افتح معلومات الحزمة',
+      questionShort: 'س',
+      notAvailable: 'غير متاح',
+    },
+  },
 } as const;
 
 // Replaced by central apiFetchJson
@@ -199,7 +273,7 @@ const EXPLORE_COPY = {
 export default function Explore() {
   const navigate = useNavigate();
   const { language, direction } = useAppLanguage();
-  const copy = EXPLORE_COPY[language];
+  const copy = EXPLORE_COPY[language as keyof typeof EXPLORE_COPY] || EXPLORE_COPY.en;
   const isRtl = direction === 'rtl';
   const [teacherSignedIn, setTeacherSignedIn] = useState(() => isTeacherAuthenticated());
   const [packs, setPacks] = useState<any[]>([]);
@@ -658,7 +732,7 @@ function CategoryChip({
 
 function PackCard({ pack, index, onOpen }: { pack: any; index: number; onOpen: () => void }) {
   const { language, direction } = useAppLanguage();
-  const copy = EXPLORE_COPY[language];
+  const copy = EXPLORE_COPY[language as keyof typeof EXPLORE_COPY] || EXPLORE_COPY.en;
   const isRtl = direction === 'rtl';
   const accent = index % 3 === 0 ? 'bg-brand-yellow' : index % 3 === 1 ? 'bg-brand-orange' : 'bg-brand-purple';
 

@@ -628,7 +628,7 @@ export default function TeacherDashboard() {
 
           {!hasBlockingLoadError && (
             loading ? (
-              <div data-no-translate="true" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {Array.from({ length: 6 }).map((_, index) => (
                   <div key={`skeleton-${index}`} className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[6px_6px_0px_0px_#1A1A1A] min-h-[320px] animate-pulse">
                     <div className="h-6 w-24 rounded-full bg-brand-bg mb-4" />
@@ -650,7 +650,7 @@ export default function TeacherDashboard() {
                 ))}
               </div>
             ) : (
-              <div data-no-translate="true" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 <motion.button
                   whileHover={{ scale: 1.02, rotate: 1 }}
                   whileTap={{ scale: 0.98 }}
@@ -713,11 +713,11 @@ export default function TeacherDashboard() {
                         <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-1">
                           נוצר {formatRelativeTime(pack.created_at)}
                         </p>
-                        <h3 className="text-2xl font-black leading-tight line-clamp-1 group-hover:text-brand-orange transition-colors">
+                        <h3 data-no-translate="true" className="text-2xl font-black leading-tight line-clamp-1 group-hover:text-brand-orange transition-colors">
                           {pack.title}
                         </h3>
                         {(pack.course_code || pack.academic_term) && (
-                          <p className="font-bold text-xs text-brand-dark/50 mt-1 uppercase tracking-wider">
+                          <p data-no-translate="true" className="font-bold text-xs text-brand-dark/50 mt-1 uppercase tracking-wider">
                             {[pack.course_code, pack.section_name, pack.academic_term].filter(Boolean).join(' • ')}
                           </p>
                         )}
@@ -741,7 +741,7 @@ export default function TeacherDashboard() {
                       </div>
 
                       <div className="relative mb-4">
-                        <p className="text-sm font-medium text-brand-dark/70 line-clamp-2 leading-relaxed h-10">
+                        <p data-no-translate="true" className="text-sm font-medium text-brand-dark/70 line-clamp-2 leading-relaxed h-10">
                           {pack.teaching_brief || pack.source_excerpt || pack.source_text || 'אין תקציר זמין לחבילה זו.'}
                         </p>
                         <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-white to-transparent" />
@@ -826,16 +826,16 @@ export default function TeacherDashboard() {
 
       {selectedPack && (
         <div className="fixed inset-0 bg-black/25 z-40 flex justify-end">
-          <div data-no-translate="true" className="w-full max-w-xl h-full bg-white border-l-4 border-brand-dark p-6 overflow-y-auto shadow-[-8px_0_0_0_#1A1A1A]">
+          <div className="w-full max-w-xl h-full bg-white border-l-4 border-brand-dark p-6 overflow-y-auto shadow-[-8px_0_0_0_#1A1A1A]">
             <div className="flex items-start justify-between gap-4 mb-6">
               <div className="min-w-0">
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Pack Preview</p>
-                <h2 className="text-3xl font-black break-words">{selectedPack.title}</h2>
+                <h2 data-no-translate="true" className="text-3xl font-black break-words">{selectedPack.title}</h2>
                 <p className="font-bold text-brand-dark/60 mt-2">
                   {selectedPack.question_count || selectedPack.questions?.length || 0} questions • {selectedPack.session_count || 0} session{Number(selectedPack.session_count || 0) === 1 ? '' : 's'}
                 </p>
                 {(selectedPack.course_code || selectedPack.section_name || selectedPack.academic_term) && (
-                  <p className="font-bold text-brand-dark/50 mt-2">
+                  <p data-no-translate="true" className="font-bold text-brand-dark/50 mt-2">
                     {[selectedPack.course_code, selectedPack.section_name, selectedPack.academic_term].filter(Boolean).join(' • ')}
                   </p>
                 )}
@@ -886,7 +886,7 @@ export default function TeacherDashboard() {
                   <div className="flex flex-wrap gap-2">
                     {(selectedPack.learning_objectives || []).map((objective: string) => (
                       <span key={objective} className="px-3 py-2 rounded-full bg-emerald-100 border-2 border-brand-dark text-xs font-black">
-                        {objective}
+                        <span data-no-translate="true">{objective}</span>
                       </span>
                     ))}
                   </div>
@@ -898,7 +898,7 @@ export default function TeacherDashboard() {
                   <div className="flex flex-wrap gap-2">
                     {(selectedPack.bloom_levels || []).map((level: string) => (
                       <span key={level} className="px-3 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark text-xs font-black">
-                        {level}
+                        <span data-no-translate="true">{level}</span>
                       </span>
                     ))}
                   </div>
@@ -907,14 +907,14 @@ export default function TeacherDashboard() {
               {selectedPack.pack_notes && (
                 <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4">
                   <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">הערות מרצה</p>
-                  <p className="font-medium text-brand-dark/72 whitespace-pre-line">{selectedPack.pack_notes}</p>
+                  <p data-no-translate="true" className="font-medium text-brand-dark/72 whitespace-pre-line">{selectedPack.pack_notes}</p>
                 </div>
               )}
             </div>
 
             <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5 mb-6">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">תקציר הוראה</p>
-              <p className="font-medium text-brand-dark/72 leading-relaxed">
+              <p data-no-translate="true" className="font-medium text-brand-dark/72 leading-relaxed">
                 {selectedPack.teaching_brief || selectedPack.source_excerpt || selectedPack.source_text || 'אין תקציר מקור זמין.'}
               </p>
             </div>
@@ -974,21 +974,21 @@ export default function TeacherDashboard() {
                     })();
                 return (
                   <div key={question.id || `question-${index}`} className="bg-white rounded-2xl border-2 border-brand-dark p-4 shadow-[3px_3px_0px_0px_#1A1A1A]">
-                    <p className="font-black mb-3">Q{index + 1}. {question.prompt}</p>
+                    <p data-no-translate="true" className="font-black mb-3">Q{index + 1}. {question.prompt}</p>
                     <div className="flex flex-wrap gap-2 mb-3">
                       {tags.map((tag: string) => (
                         <span key={`${question.id}-${tag}`} className="px-3 py-1 rounded-full bg-brand-bg border-2 border-brand-dark text-[11px] font-black uppercase tracking-[0.14em]">
-                          {tag}
+                          <span data-no-translate="true">{tag}</span>
                         </span>
                       ))}
                       {question.learning_objective && (
                         <span className="px-3 py-1 rounded-full bg-emerald-100 border-2 border-brand-dark text-[11px] font-black">
-                          {question.learning_objective}
+                          <span data-no-translate="true">{question.learning_objective}</span>
                         </span>
                       )}
                       {question.bloom_level && (
                         <span className="px-3 py-1 rounded-full bg-brand-yellow border-2 border-brand-dark text-[11px] font-black">
-                          {question.bloom_level}
+                          <span data-no-translate="true">{question.bloom_level}</span>
                         </span>
                       )}
                     </div>
@@ -1033,11 +1033,11 @@ export default function TeacherDashboard() {
 
       {deletingPack && (
         <div className="fixed inset-0 bg-black/35 z-50 flex items-center justify-center p-6">
-          <div data-no-translate="true" className="w-full max-w-xl bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#1A1A1A] p-6 lg:p-7">
+          <div className="w-full max-w-xl bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#1A1A1A] p-6 lg:p-7">
             <div className="flex items-start justify-between gap-4 mb-5">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Delete pack</p>
-                <h2 className="text-3xl font-black">{deletingPack.title}</h2>
+                <h2 data-no-translate="true" className="text-3xl font-black">{deletingPack.title}</h2>
               </div>
               <button
                 onClick={() => setDeletingPack(null)}
@@ -1093,7 +1093,6 @@ export default function TeacherDashboard() {
           <motion.div
             initial={{ scale: 0.9, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
-            data-no-translate="true"
             className="w-full max-w-6xl bg-white rounded-[2.5rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] overflow-hidden flex flex-col max-h-[90vh]"
           >
             {/* Modal Header */}
@@ -1106,7 +1105,7 @@ export default function TeacherDashboard() {
                   <div className="h-1 w-8 bg-brand-dark/20 rounded-full" />
                   <span className="text-xs font-bold text-brand-dark/40 uppercase tracking-widest">Setup Phase</span>
                 </div>
-                <h2 className="text-4xl font-black text-brand-dark leading-tight">{hostingPack.title}</h2>
+                <h2 data-no-translate="true" className="text-4xl font-black text-brand-dark leading-tight">{hostingPack.title}</h2>
               </div>
               <button
                 onClick={() => setHostingPack(null)}

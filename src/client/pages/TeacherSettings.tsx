@@ -106,7 +106,7 @@ export default function TeacherSettings() {
   };
 
   return (
-    <div lang={currentLanguage === 'he' ? 'he' : 'en'} className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white">
+    <div lang={currentLanguage} className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white">
       <motion.aside
         animate={{ width: isSidebarOpen ? 256 : 80 }}
         dir={direction}
@@ -281,10 +281,11 @@ export default function TeacherSettings() {
                   <div>
                     <h3 className="text-xl font-black">{settingsCopy.appearance.languageTitle}</h3>
                     <p className="text-brand-dark/60 font-bold mt-2 mb-4">{settingsCopy.appearance.languageDescription}</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       {([
                         { id: 'en', label: settingsCopy.appearance.english },
                         { id: 'he', label: settingsCopy.appearance.hebrew },
+                        { id: 'ar', label: settingsCopy.appearance.arabic },
                       ] as const).map((option) => (
                         <button
                           key={option.id}

@@ -1,4 +1,4 @@
-type SupportedLanguage = 'en' | 'he';
+type SupportedLanguage = 'en' | 'he' | 'ar';
 
 const TRANSLATION_SEPARATOR = '[[QZ_SEP_42]]';
 const translationCache = new Map<string, string>();
@@ -65,4 +65,3 @@ export async function translateUiTexts(texts: string[], targetLanguage: Supporte
 
   return results;
 }
-

@@ -222,7 +222,8 @@ const METRIC_EXPLANATIONS = {
 
 function InfoTooltip({ metricId }: { metricId: string }) {
   const { language } = useTeacherAnalyticsLanguage();
-  const explanation = METRIC_EXPLANATIONS[language][metricId as keyof typeof METRIC_EXPLANATIONS.en];
+  const explanationSet = METRIC_EXPLANATIONS[language as keyof typeof METRIC_EXPLANATIONS] || METRIC_EXPLANATIONS.en;
+  const explanation = explanationSet[metricId as keyof typeof METRIC_EXPLANATIONS.en];
   if (!explanation) return null;
 
   return (

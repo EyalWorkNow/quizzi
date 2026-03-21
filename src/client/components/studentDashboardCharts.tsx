@@ -98,7 +98,7 @@ export function QuestionFlowChart({
   volatilityKey?: string;
 }) {
   const { language, direction } = useAppLanguage();
-  const copy = STUDENT_CHART_COPY[language];
+  const copy = STUDENT_CHART_COPY[language as keyof typeof STUDENT_CHART_COPY] || STUDENT_CHART_COPY.en;
   if (!rows.length) {
     return <p className="font-bold text-brand-dark/60">{copy.empty.perQuestion}</p>;
   }
@@ -210,7 +210,7 @@ export function QuestionFlowChart({
 
 export function SessionHistoryTrendChart({ rows }: { rows: any[] }) {
   const { language, direction } = useAppLanguage();
-  const copy = STUDENT_CHART_COPY[language];
+  const copy = STUDENT_CHART_COPY[language as keyof typeof STUDENT_CHART_COPY] || STUDENT_CHART_COPY.en;
   if (!rows.length) {
     return <p className="font-bold text-brand-dark/60">{copy.empty.sessionHistory}</p>;
   }
@@ -286,7 +286,7 @@ export function SessionHistoryTrendChart({ rows }: { rows: any[] }) {
 
 export function RevisionCategoryChart({ categories }: { categories: any[] }) {
   const { language, direction } = useAppLanguage();
-  const copy = STUDENT_CHART_COPY[language];
+  const copy = STUDENT_CHART_COPY[language as keyof typeof STUDENT_CHART_COPY] || STUDENT_CHART_COPY.en;
   const rows = Array.isArray(categories) ? categories.filter((row) => Number(row.count || 0) > 0) : [];
   if (!rows.length) {
     return <p className="font-bold text-brand-dark/60">{copy.empty.revisionCategory}</p>;
@@ -333,7 +333,7 @@ export function RevisionCategoryChart({ categories }: { categories: any[] }) {
 
 export function QuestionStatusStripChart({ rows }: { rows: any[] }) {
   const { language, direction } = useAppLanguage();
-  const copy = STUDENT_CHART_COPY[language];
+  const copy = STUDENT_CHART_COPY[language as keyof typeof STUDENT_CHART_COPY] || STUDENT_CHART_COPY.en;
   const counts = rows.reduce(
     (acc, row) => {
       const key = row.status === 'missed' ? 'missed' : row.status === 'shaky' ? 'shaky' : 'stable';
@@ -390,7 +390,7 @@ export function MasteryBarChart({
   limit?: number;
 }) {
   const { language, direction } = useAppLanguage();
-  const copy = STUDENT_CHART_COPY[language];
+  const copy = STUDENT_CHART_COPY[language as keyof typeof STUDENT_CHART_COPY] || STUDENT_CHART_COPY.en;
   const items = [...(Array.isArray(rows) ? rows : [])]
     .sort((left, right) => Number(right.score || right.accuracy || 0) - Number(left.score || left.accuracy || 0))
     .slice(0, limit);

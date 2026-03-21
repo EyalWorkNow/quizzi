@@ -2,13 +2,14 @@ import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, 
 import { useLocation } from 'react-router-dom';
 import { apiFetchJson } from './api.ts';
 
-export type AppLanguage = 'en' | 'he';
+export type AppLanguage = 'en' | 'he' | 'ar';
 
 const APP_LANGUAGE_KEY = 'quizzi.app.language';
 const TEACHER_SETTINGS_KEY = 'quizzi.teacher.settings';
 const TRANSLATION_CACHE_PREFIX = 'quizzi.translation.v3.cache';
 
 const HEBREW_CHARACTERS = /[\u0590-\u05FF]/;
+const ARABIC_CHARACTERS = /[\u0600-\u06FF]/;
 const BRAND_EXACT_VALUES = new Set(['Quiz', 'zi', 'Quizzi']);
 const ATTRIBUTE_NAMES = ['placeholder', 'title', 'aria-label', 'alt'] as const;
 const TRANSLATION_SEPARATOR = '[[QZ_SEP_42]]';
@@ -69,9 +70,36 @@ const RUNTIME_TRANSLATIONS: Record<AppLanguage, Record<string, string>> = {
     'כהה': 'Dark',
     'שפת ממשק': 'Interface Language',
     'בחר אם מסך ההגדרות של המורה יוצג באנגלית או בעברית.': 'Choose whether this teacher settings interface is shown in English or Hebrew.',
+    'בחר אם מסך ההגדרות של המורה יוצג באנגלית, בעברית או בערבית.': 'Choose whether this teacher settings interface is shown in English, Hebrew, or Arabic.',
     'אנגלית': 'English',
     'עברית': 'Hebrew',
+    'ערבית': 'Arabic',
     'בודק גישת מורה...': 'Checking teacher access...',
+  },
+  ar: {
+    'יצירת חידון': 'إنشاء اختبار',
+    'החידונים שלי': 'اختباراتي',
+    'גילוי': 'استكشاف',
+    'דוחות': 'التقارير',
+    'כיתות': 'الصفوف',
+    'הגדרות': 'الإعدادات',
+    'מרכז עזרה': 'مركز المساعدة',
+    'התנתקות': 'تسجيل الخروج',
+    'שמור שינויים': 'حفظ التغييرات',
+    'פרופיל': 'الملف الشخصي',
+    'התראות': 'الإشعارات',
+    'אבטחה': 'الأمان',
+    'מראה': 'المظهر',
+    'אנגלית': 'الإنجليزية',
+    'עברית': 'العبرية',
+    'ערבית': 'العربية',
+    'בודק גישת מורה...': 'جار التحقق من وصول المعلّم...',
+    'Are you sure you want to leave the game?': 'هل أنت متأكد أنك تريد مغادرة اللعبة؟',
+    'Are you sure you want to end the game early?': 'هل أنت متأكد أنك تريد إنهاء اللعبة مبكرًا؟',
+    'Are you sure you want to end practice early?': 'هل أنت متأكد أنك تريد إنهاء التدريب مبكرًا؟',
+    'Failed to extract text from file': 'تعذر استخراج النص من الملف',
+    'Failed to create adaptive game': 'تعذر إنشاء لعبة تكيفية',
+    'Failed to join': 'فشل الانضمام',
   },
   he: {
     'Are you sure you want to leave the game?': 'האם אתה בטוח שברצונך לצאת מהמשחק?',
@@ -262,6 +290,7 @@ function readStoredLanguage(): AppLanguage {
   if (!isBrowser()) return 'en';
 
   const direct = window.localStorage.getItem(APP_LANGUAGE_KEY);
+  if (direct === 'ar') return 'ar';
   if (direct === 'he') return 'he';
   if (direct === 'en') return 'en';
 
@@ -269,6 +298,7 @@ function readStoredLanguage(): AppLanguage {
     const raw = window.localStorage.getItem(TEACHER_SETTINGS_KEY);
     if (!raw) return 'en';
     const parsed = JSON.parse(raw) as { appearance?: { language?: string } };
+    if (parsed?.appearance?.language === 'ar') return 'ar';
     return parsed?.appearance?.language === 'he' ? 'he' : 'en';
   } catch {
     return 'en';
@@ -316,10 +346,11 @@ function shouldIgnoreValue(value: string, language: AppLanguage) {
   if (!text) return true;
   if (BRAND_EXACT_VALUES.has(text)) return true;
   if (/^[\d\s.,:%/()+\-–—#]+$/.test(text)) return true;
-  if (/^(EN|HE)$/.test(text)) return true;
+  if (/^(EN|HE|AR)$/.test(text)) return true;
   if (/^(https?:\/\/|www\.)/i.test(text)) return true;
   if (language === 'he' && HEBREW_CHARACTERS.test(text)) return true;
-  if (language === 'en' && !HEBREW_CHARACTERS.test(text)) return true;
+  if (language === 'ar' && ARABIC_CHARACTERS.test(text)) return true;
+  if (language === 'en' && !HEBREW_CHARACTERS.test(text) && !ARABIC_CHARACTERS.test(text)) return true;
   return false;
 }
 
@@ -376,7 +407,7 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
   const isApplyingTranslationsRef = useRef(false);
   const observerRef = useRef<MutationObserver | null>(null);
 
-  const direction = language === 'he' ? 'rtl' : 'ltr';
+  const direction = language === 'en' ? 'ltr' : 'rtl';
 
   const setLanguage = (nextLanguage: AppLanguage) => {
     writeStoredLanguage(nextLanguage);
