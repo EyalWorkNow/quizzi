@@ -1,3 +1,5 @@
+import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from './sessionSoundtracks.ts';
+
 export type GameModeId =
   | 'classic_quiz'
   | 'speed_sprint'
@@ -17,6 +19,8 @@ export type GameModeConfig = {
   discussion_seconds?: number;
   revote_seconds?: number;
   scoring_profile?: 'standard' | 'speed' | 'confidence' | 'coverage';
+  lobby_track_id?: SessionSoundtrackChoice;
+  gameplay_track_id?: SessionSoundtrackChoice;
 };
 
 export type GameModeDefinition = {
@@ -38,6 +42,10 @@ export type GameModeDefinition = {
   visualVibe: string; // Used for CSS background patterns or imagery
 };
 
+const DEFAULT_AUDIO_MODE_CONFIG: Pick<GameModeConfig, 'lobby_track_id' | 'gameplay_track_id'> = {
+  ...DEFAULT_SESSION_SOUNDTRACKS,
+};
+
 export const GAME_MODES: readonly GameModeDefinition[] = [
   {
     id: 'classic_quiz',
@@ -54,6 +62,7 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     objectives: ['Rapid retrieval', 'Low setup overhead', 'Clear individual ranking'],
     bestFor: ['Daily review', 'Whole-class checks', 'Fast formative assessment'],
     defaultModeConfig: {
+      ...DEFAULT_AUDIO_MODE_CONFIG,
       scoring_profile: 'standard',
     },
     hexColor: '#6366f1', // Indigo
@@ -75,6 +84,7 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     objectives: ['Fast recall', 'High tempo', 'Short attention cycles'],
     bestFor: ['Warm-ups', 'Exit tickets', 'Rapid spaced review'],
     defaultModeConfig: {
+      ...DEFAULT_AUDIO_MODE_CONFIG,
       timer_multiplier: 0.65,
       min_time_limit_seconds: 8,
       max_time_limit_seconds: 18,
@@ -99,6 +109,7 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     objectives: ['Confidence calibration', 'Reflective retrieval', 'More deliberate lock-in'],
     bestFor: ['Exam prep', 'Misconception checks', 'Confidence rebuilding'],
     defaultModeConfig: {
+      ...DEFAULT_AUDIO_MODE_CONFIG,
       requires_confidence: true,
       scoring_profile: 'confidence',
     },
@@ -121,6 +132,7 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     objectives: ['Peer instruction', 'Explanation-rich rounds', 'Revision after discussion'],
     bestFor: ['Conceptual questions', 'Common misconceptions', 'Reasoning-heavy lessons'],
     defaultModeConfig: {
+      ...DEFAULT_AUDIO_MODE_CONFIG,
       peer_instruction_enabled: true,
       discussion_seconds: 30,
       revote_seconds: 22,
@@ -145,6 +157,7 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     objectives: ['Peer accountability', 'Collective momentum', 'Low-friction group play'],
     bestFor: ['Mixed-attainment rooms', 'Energy boosts', 'Team competition'],
     defaultModeConfig: {
+      ...DEFAULT_AUDIO_MODE_CONFIG,
       scoring_profile: 'standard',
     },
     hexColor: '#10b981', // Emerald
@@ -166,6 +179,7 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     objectives: ['Concept coverage', 'Balanced mastery', 'Tag-level competition'],
     bestFor: ['Cumulative review', 'Mixed-topic packs', 'Reinforcement across tags'],
     defaultModeConfig: {
+      ...DEFAULT_AUDIO_MODE_CONFIG,
       scoring_profile: 'coverage',
     },
     hexColor: '#06b6d4', // Cyan
@@ -181,4 +195,3 @@ export function getGameMode(gameModeId?: string | null) {
 export function getTeamGameModeIds() {
   return GAME_MODES.filter((mode) => mode.teamBased).map((mode) => mode.id);
 }
-

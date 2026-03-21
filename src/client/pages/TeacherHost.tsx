@@ -6,6 +6,7 @@ import confetti from 'canvas-confetti';
 import { QRCodeSVG } from 'qrcode.react';
 import Avatar, { extractNickname } from '../components/Avatar.tsx';
 import QuestionImageCard from '../components/QuestionImageCard.tsx';
+import SessionSoundtrackPlayer from '../components/SessionSoundtrackPlayer.tsx';
 import {
   subscribeToHostedSessionRealtime,
   syncHostedParticipants,
@@ -677,6 +678,7 @@ export default function TeacherHost() {
   if (pin && (!sessionMeta || !pack)) {
     return (
       <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-8">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         <motion.div
           animate={{ 
             rotate: 360,
@@ -717,6 +719,7 @@ export default function TeacherHost() {
   if (status === 'LOBBY') {
     return (
       <div className="min-h-screen bg-brand-bg text-brand-dark font-sans selection:bg-brand-orange selection:text-white relative overflow-hidden">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         <div className="absolute top-[-8%] left-[-4%] w-96 h-96 border-[4px] border-brand-dark/5 rounded-full" />
         <div className="absolute bottom-[-10%] right-[-6%] w-[460px] h-[460px] border-[4px] border-brand-dark/5 rounded-full" />
         <div className="max-w-[1380px] mx-auto px-6 lg:px-10 py-8 relative z-10">
@@ -1062,6 +1065,7 @@ export default function TeacherHost() {
       : responseCountLabel;
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         <div className="bg-white px-6 py-5 shadow-sm flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-slate-200 z-10">
           <div className="flex flex-wrap items-center gap-4">
             <button
@@ -1236,6 +1240,7 @@ export default function TeacherHost() {
   if (status === 'QUESTION_REVEAL') {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         <div className="bg-white px-8 py-6 shadow-sm flex justify-between items-center border-b border-slate-200 z-10">
           <div className="flex items-center gap-4">
             <button
@@ -1349,6 +1354,7 @@ export default function TeacherHost() {
 
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         <div className="bg-white px-8 py-6 shadow-sm flex justify-between items-center border-b border-slate-200 z-10">
           <div className="flex flex-wrap items-center gap-3">
             <button

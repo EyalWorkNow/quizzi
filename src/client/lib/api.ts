@@ -12,6 +12,16 @@ const TEACHER_AUTH_KEY = 'quizzi.teacher.auth';
 const TEACHER_TOKEN_KEY = 'quizzi.teacher.token';
 const TEACHER_AUTH_RETRY_HEADER = 'X-Quizzi-Teacher-Auth-Retry';
 
+function clearTeacherAuthCache() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(TEACHER_AUTH_KEY);
+    window.localStorage.removeItem(TEACHER_TOKEN_KEY);
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
 /**
  * Normalizes an API path to include the base URL if needed.
  */
@@ -27,7 +37,18 @@ export function getApiUrl(path: string): string {
 }
 
 function isTeacherProtectedPath(pathname: string) {
-  return pathname.startsWith('/api/teacher/') || pathname.startsWith('/api/dashboard/teacher/');
+  return (
+    pathname.startsWith('/api/teacher/') ||
+    pathname.startsWith('/api/dashboard/teacher/') ||
+    pathname.startsWith('/api/packs') ||
+    pathname.startsWith('/api/sessions') ||
+    pathname.startsWith('/api/extract-text') ||
+    pathname.startsWith('/api/analytics/') ||
+    pathname.startsWith('/api/reports/') ||
+    pathname.startsWith('/api/follow-up/') ||
+    pathname.startsWith('/api/adaptive-game/') ||
+    pathname.startsWith('/api/report/')
+  );
 }
 
 function shouldRetryTeacherAuth(url: string, headers: Headers, response: Response) {
@@ -126,6 +147,20 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       retryHeaders.set(TEACHER_AUTH_RETRY_HEADER, '1');
       retryHeaders.set('Authorization', `Bearer ${refreshedSession.token}`);
       response = await executeApiFetch(url, init, retryHeaders);
+    }
+  }
+
+  if (typeof url === 'string') {
+    const pathname = (() => {
+      try {
+        return new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost').pathname;
+      } catch {
+        return '';
+      }
+    })();
+
+    if (response.status === 401 && isTeacherProtectedPath(pathname)) {
+      clearTeacherAuthCache();
     }
   }
 

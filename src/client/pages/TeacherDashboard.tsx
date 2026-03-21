@@ -44,7 +44,9 @@ import { signOutTeacher } from '../lib/teacherAuth.ts';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
+import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
 import { useTeacherLanguage } from '../lib/teacherLanguage.ts';
+import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from '../../shared/sessionSoundtracks.ts';
 
 const SORT_OPTIONS = [
   { id: 'recent', label: 'פעילות אחרונה' },
@@ -153,6 +155,12 @@ export default function TeacherDashboard() {
   const [deletingPack, setDeletingPack] = useState<any>(null);
   const [selectedGameMode, setSelectedGameMode] = useState<string>('classic_quiz');
   const [selectedTeamCount, setSelectedTeamCount] = useState<number>(4);
+  const [selectedLobbyTrackId, setSelectedLobbyTrackId] = useState<SessionSoundtrackChoice>(
+    DEFAULT_SESSION_SOUNDTRACKS.lobby_track_id,
+  );
+  const [selectedGameplayTrackId, setSelectedGameplayTrackId] = useState<SessionSoundtrackChoice>(
+    DEFAULT_SESSION_SOUNDTRACKS.gameplay_track_id,
+  );
   const [busyAction, setBusyAction] = useState<{ packId: number; action: string } | null>(null);
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [hasLoadedPackBoard, setHasLoadedPackBoard] = useState(false);
@@ -297,7 +305,11 @@ export default function TeacherDashboard() {
           quiz_pack_id: packId,
           game_type: gameType,
           team_count: mode.teamBased ? teamCount : 0,
-          mode_config: mode.defaultModeConfig,
+          mode_config: {
+            ...mode.defaultModeConfig,
+            lobby_track_id: selectedLobbyTrackId,
+            gameplay_track_id: selectedGameplayTrackId,
+          },
         }),
       });
       if (!res.ok) {
@@ -322,6 +334,12 @@ export default function TeacherDashboard() {
     setHostingPack(pack);
     setSelectedGameMode(defaultMode.id);
     setSelectedTeamCount(defaultMode.defaultTeamCount || 4);
+    setSelectedLobbyTrackId(
+      (defaultMode.defaultModeConfig.lobby_track_id as SessionSoundtrackChoice) || DEFAULT_SESSION_SOUNDTRACKS.lobby_track_id,
+    );
+    setSelectedGameplayTrackId(
+      (defaultMode.defaultModeConfig.gameplay_track_id as SessionSoundtrackChoice) || DEFAULT_SESSION_SOUNDTRACKS.gameplay_track_id,
+    );
   };
 
   const openLiveRoom = (pack: any) => {
@@ -1230,6 +1248,13 @@ export default function TeacherDashboard() {
                       </motion.div>
                     )}
                   </AnimatePresence>
+
+                  <SessionSoundtrackFields
+                    lobbyTrackId={selectedLobbyTrackId}
+                    gameplayTrackId={selectedGameplayTrackId}
+                    onLobbyTrackChange={setSelectedLobbyTrackId}
+                    onGameplayTrackChange={setSelectedGameplayTrackId}
+                  />
                 </div>
 
                 {/* Sidebar Preview */}

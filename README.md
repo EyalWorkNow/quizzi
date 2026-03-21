@@ -59,7 +59,7 @@ The loop is closed via **Automated Remastery Suggestions**:
 npm install
 
 # 2. Environment Configuration
-cp .env.example .env # Configure GEMINI_API_KEY and QUIZZI_AUTH_SECRET
+cp .env.example .env # Configure GEMINI_API_KEY, QUIZZI_AUTH_SECRET, and Firebase keys
 
 # 3. Development Execution
 npm run dev
@@ -73,6 +73,16 @@ Before any production deploy, set a strong `QUIZZI_AUTH_SECRET` in the server en
 ```bash
 openssl rand -base64 32
 ```
+
+For Google teacher sign-in in production, also make sure:
+
+```bash
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-...@your-project-id.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+```
+
+And in Firebase Console, add your deployed frontend domains (for example `quizzi-ivory.vercel.app`) to `Authentication -> Settings -> Authorized domains`.
 
 ---
 

@@ -1,10 +1,25 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';
 import { getAnalytics, isSupported, logEvent, type Analytics } from 'firebase/analytics';
-import { getAuth, signInAnonymously, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, type Auth } from 'firebase/auth';
+import {
+  browserLocalPersistence,
+  getAuth,
+  getRedirectResult,
+  GoogleAuthProvider,
+  setPersistence,
+  signInAnonymously,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  type Auth,
+} from 'firebase/auth';
 import { getDatabase, type Database } from 'firebase/database';
 
 export const googleProvider = new GoogleAuthProvider();
-export { signInWithPopup, signInWithRedirect, getRedirectResult, signOut };
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+googleProvider.addScope('email');
+googleProvider.addScope('profile');
+
+export { signInWithPopup, signInWithRedirect, getRedirectResult, signOut as signOutFirebase };
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyAh6g2xKQgJBwZSzvFyD5gw2mtAMBVcstw',
@@ -19,6 +34,7 @@ const firebaseConfig = {
 };
 
 let analyticsPromise: Promise<Analytics | null> | null = null;
+let authReadyPromise: Promise<Auth | null> | null = null;
 let realtimeAuthPromise: Promise<Database | null> | null = null;
 let realtimeUnavailable = false;
 
@@ -48,6 +64,27 @@ export function getFirebaseAuth(): Auth | null {
   return app ? getAuth(app) : null;
 }
 
+export function ensureFirebaseAuthReady(): Promise<Auth | null> {
+  if (!authReadyPromise) {
+    authReadyPromise = (async () => {
+      const auth = getFirebaseAuth();
+      if (!auth) return null;
+      await setPersistence(auth, browserLocalPersistence).catch((error) => {
+        console.warn('[firebase] Failed to set auth persistence:', error);
+      });
+      return auth;
+    })().catch(() => null);
+  }
+
+  return authReadyPromise;
+}
+
+export function shouldPreferRedirectSignIn() {
+  if (typeof window === 'undefined') return false;
+  const userAgent = window.navigator.userAgent.toLowerCase();
+  return /iphone|ipad|ipod|android/.test(userAgent);
+}
+
 export function getFirebaseDatabase(): Database | null {
   if (typeof window === 'undefined' || !hasRealtimeConfig()) {
     return null;
@@ -73,7 +110,7 @@ export function ensureFirebaseRealtimeReady(): Promise<Database | null> {
         return null;
       }
 
-      const auth = getFirebaseAuth();
+      const auth = await ensureFirebaseAuthReady();
       if (!auth?.currentUser) {
         try {
           await signInAnonymously(auth);

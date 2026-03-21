@@ -1,5 +1,13 @@
 import { loadTeacherSettings, saveTeacherSettings } from './localData.ts';
-import { getFirebaseAuth, googleProvider, signInWithPopup } from './firebase.ts';
+import {
+  ensureFirebaseAuthReady,
+  getRedirectResult,
+  googleProvider,
+  shouldPreferRedirectSignIn,
+  signInWithPopup,
+  signInWithRedirect,
+  signOutFirebase,
+} from './firebase.ts';
 
 export const DEMO_AUTH_ENABLED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_AUTH === 'true';
 export const DEMO_TEACHER_EMAIL = DEMO_AUTH_ENABLED ? 'mail@mail.com' : '';
@@ -61,6 +69,10 @@ function writeAuth(session: TeacherAuthSession | null) {
   } else {
     window.localStorage.removeItem(AUTH_TOKEN_KEY);
   }
+}
+
+export function clearTeacherAuthCache() {
+  writeAuth(null);
 }
 
 function ensureTeacherSessionPayload(payload: any): TeacherAuthSession {
@@ -232,22 +244,17 @@ export async function signInTeacherWithProvider({
   provider,
 }: {
   provider: 'google' | 'facebook';
-}): Promise<TeacherAuthSession> {
+}): Promise<TeacherAuthSession | null> {
   if (provider === 'facebook') {
     throw new Error('Facebook sign-in is not configured yet. Use Google or email registration for now.');
   }
 
-  const auth = getFirebaseAuth();
+  const auth = await ensureFirebaseAuthReady();
   if (!auth) {
     throw new Error('Firebase Authentication is not available. Please check your configuration.');
   }
 
-  try {
-    // Use signInWithPopup — signInWithRedirect requires Firebase Hosting (/__/auth/handler)
-    // which doesn't exist when hosted on Vercel. Popup works with COOP: unsafe-none header.
-    const result = await signInWithPopup(auth, googleProvider);
-    const idToken = await result.user.getIdToken();
-
+  const completeGoogleServerSession = async (idToken: string, displayName?: string | null) => {
     const response = await fetchWithTimeout('/api/auth/social', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -261,33 +268,74 @@ export async function signInTeacherWithProvider({
     const payload = ensureTeacherSessionPayload(await readJsonOrThrow(response));
     writeAuth(payload);
     try {
-      syncTeacherProfile(payload.email, result.user.displayName || undefined);
+      syncTeacherProfile(payload.email, displayName || undefined);
     } catch (error) {
       console.warn('[teacherAuth] Failed to sync teacher profile after social sign-in:', error);
     }
     return payload;
+  };
+
+  try {
+    if (shouldPreferRedirectSignIn()) {
+      await signInWithRedirect(auth, googleProvider);
+      return null;
+    }
+
+    const result = await signInWithPopup(auth, googleProvider);
+    const idToken = await result.user.getIdToken();
+    return completeGoogleServerSession(idToken, result.user.displayName);
   } catch (error: any) {
     if (error?.code === 'auth/popup-closed-by-user') {
       throw new Error('Google sign-in was cancelled.');
     }
     if (error?.code === 'auth/popup-blocked') {
-      throw new Error('Popup was blocked by your browser. Please allow popups for this site.');
+      await signInWithRedirect(auth, googleProvider);
+      return null;
     }
     throw error;
   }
 }
 
-/**
- * No-op: redirect flow is not used when hosted on Vercel.
- * Kept for backward compatibility with Auth.tsx.
- */
 export async function handleTeacherAuthRedirect() {
-  return null;
+  const auth = await ensureFirebaseAuthReady();
+  if (!auth) return null;
+
+  const redirectResult = await getRedirectResult(auth).catch((error: any) => {
+    console.error('[teacherAuth] Failed to restore Google redirect:', error);
+    throw new Error('Google sign-in could not be completed. Please try again.');
+  });
+
+  if (!redirectResult?.user) {
+    return null;
+  }
+
+  const idToken = await redirectResult.user.getIdToken();
+  const response = await fetchWithTimeout('/api/auth/social', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      provider: 'google',
+      idToken,
+    }),
+  });
+  const payload = ensureTeacherSessionPayload(await readJsonOrThrow(response));
+  writeAuth(payload);
+  try {
+    syncTeacherProfile(payload.email, redirectResult.user.displayName || undefined);
+  } catch (error) {
+    console.warn('[teacherAuth] Failed to sync teacher profile after redirect sign-in:', error);
+  }
+  return payload;
 }
 
 
 export async function signOutTeacher() {
-  writeAuth(null);
+  clearTeacherAuthCache();
+  const auth = await ensureFirebaseAuthReady().catch(() => null);
+  if (auth) {
+    await signOutFirebase(auth).catch(() => undefined);
+  }
   try {
     await fetchWithTimeout('/api/auth/logout', {
       method: 'POST',

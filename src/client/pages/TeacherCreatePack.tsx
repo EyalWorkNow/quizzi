@@ -4,6 +4,8 @@ import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Setti
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
+import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
+import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from '../../shared/sessionSoundtracks.ts';
 
 function recommendModesForDraft(questionCount: number, topicCount: number) {
   if (questionCount <= 5) {
@@ -92,6 +94,12 @@ export default function TeacherCreatePack() {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedLaunchMode, setSelectedLaunchMode] = useState<GameModeId>('classic_quiz');
   const [selectedTeamCount, setSelectedTeamCount] = useState<number>(4);
+  const [selectedLobbyTrackId, setSelectedLobbyTrackId] = useState<SessionSoundtrackChoice>(
+    DEFAULT_SESSION_SOUNDTRACKS.lobby_track_id,
+  );
+  const [selectedGameplayTrackId, setSelectedGameplayTrackId] = useState<SessionSoundtrackChoice>(
+    DEFAULT_SESSION_SOUNDTRACKS.gameplay_track_id,
+  );
   const [creationStep, setCreationStep] = useState<'CONTENT' | 'QUESTIONS'>('CONTENT');
   const recommendedLaunchModes = useMemo(
     () => recommendModesForDraft(questions.length || questionCount, materialProfile?.topic_fingerprint?.length || 0),
@@ -305,7 +313,11 @@ export default function TeacherCreatePack() {
           quiz_pack_id: savedPack.id,
           game_type: mode.id,
           team_count: mode.teamBased ? selectedTeamCount : 0,
-          mode_config: mode.defaultModeConfig,
+          mode_config: {
+            ...mode.defaultModeConfig,
+            lobby_track_id: selectedLobbyTrackId,
+            gameplay_track_id: selectedGameplayTrackId,
+          },
         }),
       });
       if (!response.ok) {
@@ -938,6 +950,14 @@ export default function TeacherCreatePack() {
                          })}
                        </div>
                      </div>
+
+                     <SessionSoundtrackFields
+                       lobbyTrackId={selectedLobbyTrackId}
+                       gameplayTrackId={selectedGameplayTrackId}
+                       onLobbyTrackChange={setSelectedLobbyTrackId}
+                       onGameplayTrackChange={setSelectedGameplayTrackId}
+                       compact
+                     />
 
                      <button
                        onClick={handleSaveAndHost}

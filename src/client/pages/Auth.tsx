@@ -43,7 +43,7 @@ export default function Auth() {
   const [email, setEmail] = useState(DEMO_AUTH_ENABLED ? DEMO_TEACHER_EMAIL : teacherSettings.profile.email || '');
   const [password, setPassword] = useState(DEMO_AUTH_ENABLED ? DEMO_TEACHER_PASSWORD : '');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(typeof location.state?.error === 'string' ? location.state.error : '');
   const [feedback, setFeedback] = useState('');
   const [existingSession, setExistingSession] = useState<TeacherAuthSession | null>(() => loadTeacherAuth());
   const [restoringSession, setRestoringSession] = useState(true);
@@ -72,10 +72,6 @@ export default function Auth() {
             setExistingSession(null);
           }
           return;
-        }
-
-        if (!cancelled) {
-          setExistingSession(cachedSession);
         }
 
         const session = await refreshTeacherSession();
@@ -266,6 +262,11 @@ export default function Auth() {
       const session = await signInTeacherWithProvider({
         provider,
       });
+      if (!session) {
+        setFeedback('Redirecting to Google sign-in...');
+        setError('');
+        return;
+      }
       completeAccess({
         session,
         successMessage: `${mode === 'login' ? 'Signed in' : 'Account created'} with ${provider === 'google' ? 'Google' : 'Facebook'}.`,

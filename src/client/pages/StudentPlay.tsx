@@ -5,6 +5,7 @@ import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'motion/react';
 import Avatar, { extractNickname } from '../components/Avatar.tsx';
 import QuestionImageCard from '../components/QuestionImageCard.tsx';
+import SessionSoundtrackPlayer from '../components/SessionSoundtrackPlayer.tsx';
 import {
   attachParticipantPresence,
   publishAnswerProgress,
@@ -500,6 +501,7 @@ export default function StudentPlay() {
   if (status === 'LOBBY') {
     return (
       <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-brand-dark text-center overflow-x-clip relative selection:bg-brand-orange selection:text-white">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         {/* Exit Button */}
         <button
           onClick={() => navigate(`/student/dashboard/${nickname}`)}
@@ -548,6 +550,7 @@ export default function StudentPlay() {
   if (status === 'QUESTION_DISCUSSION') {
     return (
       <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
 
         <motion.div
@@ -640,6 +643,7 @@ export default function StudentPlay() {
     if (showWaitCard) {
       return (
         <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
+          <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
           <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
 
           <motion.div
@@ -674,6 +678,7 @@ export default function StudentPlay() {
 
     return (
       <div className="min-h-screen bg-brand-bg flex flex-col p-4 sm:p-6 md:p-10 selection:bg-brand-orange selection:text-white relative overflow-hidden">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         {/* Dynamic Background Pattern */}
         <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03]">
           <motion.div 
@@ -899,6 +904,7 @@ export default function StudentPlay() {
   if (status === 'QUESTION_REVEAL') {
     return (
       <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         {/* Animated background patterns */}
         <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
 
@@ -927,6 +933,7 @@ export default function StudentPlay() {
   if (status === 'LEADERBOARD') {
     return (
       <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         {/* Animated background patterns */}
         <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
 

@@ -7,25 +7,20 @@ import { GoogleGenAI } from '@google/genai';
 import multer from 'multer';
 import mammoth from 'mammoth';
 import { createRequire } from 'module';
-import admin from 'firebase-admin';
 import { runPythonEngine } from '../services/pythonEngine.js';
 import { translateUiTexts } from '../services/uiTranslation.js';
 import { broadcastToSession, registerSseClient } from '../services/sseHub.js';
 import { buildRateLimitKey, checkRateLimit, isTrustedOrigin } from '../services/requestGuards.js';
 import { createBoundedTaskGate, defaultTaskConcurrency, envTaskConcurrency } from '../services/taskGate.js';
+import { getFirebaseAdminAuth } from '../services/firebaseAdmin.js';
 import { GAME_MODES, getGameMode, getTeamGameModeIds, type GameModeConfig } from '../../shared/gameModes.js';
 import { buildFollowUpEnginePreview, type FollowUpPlan } from '../../shared/followUpEngine.js';
+import { sanitizeSessionSoundtrackChoice } from '../../shared/sessionSoundtracks.js';
 import {
   createParticipantAccessToken,
   readParticipantAccessToken,
   resolveStudentIdentityKey,
 } from '../services/studentIdentity.js';
-
-if (!admin.apps.length) {
-  admin.initializeApp({
-    projectId: process.env.VITE_FIREBASE_PROJECT_ID || 'quizzi-4dece',
-  });
-}
 
 import {
   clearTeacherSession,
@@ -404,6 +399,17 @@ function sanitizeModeConfig(gameType: string, value: unknown): GameModeConfig {
     raw.scoring_profile === 'coverage'
   ) {
     modeConfig.scoring_profile = raw.scoring_profile;
+  }
+
+  if (raw.lobby_track_id !== undefined) {
+    modeConfig.lobby_track_id = sanitizeSessionSoundtrackChoice(raw.lobby_track_id, base.lobby_track_id || 'none');
+  }
+
+  if (raw.gameplay_track_id !== undefined) {
+    modeConfig.gameplay_track_id = sanitizeSessionSoundtrackChoice(
+      raw.gameplay_track_id,
+      base.gameplay_track_id || 'none',
+    );
   }
 
   return modeConfig;
@@ -1391,13 +1397,29 @@ router.post('/auth/register', async (req, res) => {
 
 router.get('/auth/session', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  const sessionData = readTeacherSession(req);
-  if (!sessionData) {
-    return res.status(401).json({ error: 'Not signed in' });
-  }
-  // Re-create the token for the verified session to keep it fresh on the client
-  const { token } = createTeacherSession({ email: sessionData.email, provider: sessionData.provider });
-  res.json({ ...sessionData, token });
+  void (async () => {
+    const sessionData = readTeacherSession(req);
+    if (!sessionData) {
+      clearTeacherSession(req, res);
+      res.status(401).json({ error: 'Not signed in' });
+      return;
+    }
+
+    const teacherUser = await getTeacherUserByEmail(sessionData.email);
+    if (!teacherUser?.id) {
+      clearTeacherSession(req, res);
+      res.status(401).json({ error: 'Teacher account no longer exists. Please sign in again.' });
+      return;
+    }
+
+    // Re-create the token for the verified session to keep it fresh on the client.
+    const { token } = createTeacherSession({ email: sessionData.email, provider: sessionData.provider });
+    res.json({ ...sessionData, token });
+  })().catch((error) => {
+    console.error('[auth/session] Failed to restore teacher session:', error);
+    clearTeacherSession(req, res);
+    res.status(500).json({ error: 'Failed to restore teacher session.' });
+  });
 });
 
 router.post('/auth/login', async (req, res) => {
@@ -1406,7 +1428,7 @@ router.post('/auth/login', async (req, res) => {
 
   const email = normalizeTeacherEmail(String(req.body?.email || ''));
   const password = String(req.body?.password || '');
-  const teacherUser = (await getTeacherUserByEmail(email));
+  let teacherUser = (await getTeacherUserByEmail(email));
 
   if (teacherUser?.password_hash && verifyTeacherPassword(password, teacherUser.password_hash)) {
     const { session, token } = createTeacherSession({ email: teacherUser.email, provider: 'password' });
@@ -1418,7 +1440,17 @@ router.post('/auth/login', async (req, res) => {
     return res.status(401).json({ error: 'Invalid email or password.' });
   }
 
-  const { session, token } = createTeacherSession({ email, provider: 'password' });
+  if (!teacherUser) {
+    teacherUser = (await createTeacherUser({
+      email,
+      password,
+      name: 'Demo Teacher',
+      school: 'Quizzi Academy',
+      authProvider: 'password',
+    }));
+  }
+
+  const { session, token } = createTeacherSession({ email: teacherUser.email, provider: 'password' });
   issueTeacherSession(req, res, token);
   res.json({ ...session, token });
 });
@@ -1433,10 +1465,13 @@ router.post('/auth/social', async (req, res) => {
   }
 
   try {
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const decodedToken = await getFirebaseAdminAuth().verifyIdToken(idToken);
     const email = normalizeTeacherEmail(decodedToken.email || '');
     if (!email) {
       return res.status(400).json({ error: 'Google account has no valid email address.' });
+    }
+    if (decodedToken.email_verified === false) {
+      return res.status(400).json({ error: 'Google account email must be verified before signing in.' });
     }
 
     const name = sanitizeLine(decodedToken.name || '', 120);
@@ -1457,6 +1492,11 @@ router.post('/auth/social', async (req, res) => {
     res.json({ ...session, token });
   } catch (error: any) {
     console.error('[ERROR] Failed to verify Google ID token:', error);
+    const message = String(error?.message || '');
+    if (message.toLowerCase().includes('project id')) {
+      res.status(500).json({ error: 'Google sign-in is not configured correctly on the server.' });
+      return;
+    }
     res.status(401).json({ error: 'Failed to verify Google sign-in. Please try again.' });
   }
 });
