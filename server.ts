@@ -11,6 +11,16 @@ import { isAllowedBrowserOrigin, normalizeOrigin } from './src/server/services/r
 import { assertSecureAuthConfig, getAuthSecretStatus } from './src/server/services/authSecrets.js';
 import apiRouter from './src/server/routes/api.js';
 
+function resolveConfiguredEnvKey(keys: readonly string[]) {
+  for (const key of keys) {
+    if (String(process.env[key] || '').trim()) {
+      return key;
+    }
+  }
+
+  return null;
+}
+
 function shouldRequireSupabaseMirrorInProduction() {
   const configuredValue = String(process.env.QUIZZI_REQUIRE_SUPABASE_MIRROR || '').trim().toLowerCase();
   if (!configuredValue) return process.env.NODE_ENV === 'production';
@@ -20,6 +30,45 @@ function shouldRequireSupabaseMirrorInProduction() {
 function isUnsafePersistenceExplicitlyAllowed() {
   const configuredValue = String(process.env.QUIZZI_ALLOW_UNSAFE_PERSISTENCE || '').trim().toLowerCase();
   return ['1', 'true', 'yes', 'on'].includes(configuredValue);
+}
+
+function getStartupConfigSummary() {
+  const sqliteStorage = getSqliteStorageStatus();
+
+  return {
+    node_env: process.env.NODE_ENV || 'development',
+    app_url_configured: Boolean(String(process.env.APP_URL || '').trim()),
+    render_external_url_configured: Boolean(String(process.env.RENDER_EXTERNAL_URL || '').trim()),
+    render_disk_path_configured: Boolean(String(process.env.RENDER_DISK_PATH || '').trim()),
+    sqlite_storage: sqliteStorage,
+    auth_signing: getAuthSecretStatus(),
+    postgres: {
+      require_mirror: shouldRequireSupabaseMirrorInProduction(),
+      pooled_source: resolveConfiguredEnvKey([
+        'DATABASE_URL',
+        'POSTGRES_URL',
+        'SUPABASE_DATABASE_URL',
+        'SUPABASE_DB_URL',
+      ]),
+      direct_source: resolveConfiguredEnvKey([
+        'DIRECT_URL',
+        'POSTGRES_URL_NON_POOLING',
+        'POSTGRES_DIRECT_URL',
+        'SUPABASE_DIRECT_URL',
+      ]),
+    },
+    supabase_rest: {
+      url_source: resolveConfiguredEnvKey([
+        'SUPABASE_URL',
+        'VITE_SUPABASE_URL',
+        'NEXT_PUBLIC_SUPABASE_URL',
+      ]),
+      key_source: resolveConfiguredEnvKey([
+        'SUPABASE_SECRET_KEY',
+        'SUPABASE_SERVICE_ROLE_KEY',
+      ]),
+    },
+  };
 }
 
 function assertSafePersistenceConfig() {
@@ -46,6 +95,7 @@ function assertSafePersistenceConfig() {
 }
 
 async function startServer() {
+  console.log('[startup] Config summary:', JSON.stringify(getStartupConfigSummary()));
   assertSecureAuthConfig();
   assertSafePersistenceConfig();
 
@@ -265,4 +315,7 @@ async function startServer() {
   process.once('SIGINT', () => void shutdown('SIGINT'));
 }
 
-startServer();
+startServer().catch((error) => {
+  console.error('[startup] Fatal boot error:', error);
+  process.exit(1);
+});
