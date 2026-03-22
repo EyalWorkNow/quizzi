@@ -18,6 +18,7 @@ import { getGameModeTone } from '../lib/gameModePresentation.ts';
 import { isPeerInstructionMode, requiresConfidenceLock } from '../lib/sessionModeRules.ts';
 import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
 import { getParticipantToken } from '../lib/studentSession.ts';
+import { useAppLanguage } from '../lib/appLanguage.tsx';
 
 const COLORS = [
   { bg: 'bg-brand-purple', text: 'text-white', border: 'border-brand-dark', shadow: 'shadow-[8px_8px_0px_0px_#1A1A1A]' },
@@ -139,6 +140,7 @@ function shouldQueueAnswerRetry(message: string) {
 export default function StudentPlay() {
   const { pin } = useParams();
   const navigate = useNavigate();
+  const { t } = useAppLanguage();
 
   const [status, setStatus] = useState('LOBBY');
   const [question, setQuestion] = useState<any>(null);
@@ -204,10 +206,10 @@ export default function StudentPlay() {
       : '';
   const connectionLabel =
     connectionState === 'live'
-      ? 'Live sync'
+      ? t('game.student.liveSync')
       : connectionState === 'fallback'
-        ? 'Backup sync'
-        : 'Connecting';
+        ? t('game.student.backupSync')
+        : t('game.student.connectingLabel');
 
   useEffect(() => {
     firstRoundChoiceRef.current = firstRoundChoice;
@@ -346,7 +348,7 @@ export default function StudentPlay() {
             : message || 'The queued answer could not be synced.',
         );
       } else {
-        setActionError('Your answer is saved on this device. We will keep retrying until the connection stabilizes.');
+        setActionError(t('game.student.savedDeviceRetry'));
       }
     } finally {
       setIsRetryingPendingSubmission(false);
@@ -1138,22 +1140,10 @@ export default function StudentPlay() {
             {(teamName || isTeamGameLabel(sessionMeta?.game_type || savedGameType)) && (
               <div className="flex items-center gap-3 bg-brand-yellow px-6 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
                 <Sparkles className="w-6 h-6 text-brand-dark" />
-                <span className="font-black text-lg">{teamName || 'Team mode'}</span>
+                <span className="font-black text-lg">{teamName || t('game.status.lobby')}</span>
               </div>
             )}
           </div>
-
-          <motion.div 
-            animate={timeLeft < 5 ? {
-              rotate: [0, -2, 2, -2, 2, 0],
-              scale: [1, 1.1, 1]
-            } : {}}
-            transition={timeLeft < 5 ? { duration: 0.4, repeat: Infinity } : {}}
-            className={`flex items-center gap-4 bg-brand-dark text-white px-8 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[6px_6px_0px_0px_#FF5A36] transition-transform`}
-          >
-            <Clock className={`w-8 h-8 ${timeLeft < 5 ? 'text-brand-orange' : 'text-brand-yellow'}`} />
-            <span className={`font-black text-3xl w-10 text-center ${timeLeft < 5 ? 'text-brand-orange' : ''}`}>{timeLeft}</span>
-          </motion.div>
 
           <div className="flex items-center gap-4 bg-white px-8 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A]">
             <Trophy className="w-8 h-8 text-brand-yellow fill-current" />
@@ -1164,156 +1154,144 @@ export default function StudentPlay() {
             {connectionState === 'live' ? <Wifi className="w-6 h-6 text-emerald-600" /> : connectionState === 'fallback' ? <WifiOff className="w-6 h-6 text-brand-dark" /> : <LoaderCircle className="w-6 h-6 animate-spin text-brand-dark" />}
             <span className="font-black text-lg">{connectionLabel}</span>
           </div>
-
-          {/* NEW: Streak Indicator */}
-          {streak >= 2 && (
-            <motion.div 
-              initial={{ x: 50, opacity: 0, scale: 0.5 }}
-              animate={{ x: 0, opacity: 1, scale: 1 }}
-              className="flex items-center gap-3 bg-brand-orange text-white px-6 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A]"
-            >
-              <Flame className="w-8 h-8 animate-pulse text-brand-yellow fill-current" />
-              <div className="flex flex-col leading-none">
-                <span className="text-[10px] font-black uppercase tracking-tighter opacity-70">On Fire</span>
-                <span className="font-black text-2xl">{streak} Streak!</span>
-              </div>
-            </motion.div>
-          )}
         </div>
 
-        {/* Question Area */}
-        <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="relative z-10 bg-white rounded-[2.5rem] p-8 sm:p-12 lg:p-14 border-4 border-brand-dark mb-8 text-center shadow-[16px_16px_0px_0px_#1A1A1A] max-w-6xl mx-auto w-full overflow-hidden"
-        >
-          {/* Progress Bar */}
-          <div className="absolute top-0 left-0 w-full h-3 bg-brand-dark/5">
-            <motion.div
-              className={`h-full ${timeLeft < 5 ? 'bg-brand-orange' : 'bg-brand-purple'}`}
-              initial={{ width: '100%' }}
-              animate={{ width: `${(timeLeft / Math.max(1, Number(question?.time_limit_seconds || 30))) * 100}%` }}
-              transition={{ duration: 1, ease: 'linear' }}
+        {/* Main Interactive Container - Scrollable internal Area */}
+        <div className="flex-1 overflow-y-auto pr-2 -mr-2 scrollbar-thin scrollbar-thumb-brand-dark/20 hover:scrollbar-thumb-brand-dark/40 pb-32">
+          {/* Question Area */}
+          <motion.div
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="relative z-10 bg-white rounded-[2.5rem] p-8 sm:p-12 lg:p-14 border-4 border-brand-dark mb-8 text-center shadow-[16px_16px_0px_0px_#1A1A1A] max-w-6xl mx-auto w-full overflow-hidden shrink-0"
+          >
+            {/* Progress Bar */}
+            <div className="absolute top-0 left-0 w-full h-3 bg-brand-dark/5">
+              <motion.div
+                className={`h-full ${timeLeft < 5 ? 'bg-brand-orange' : 'bg-brand-purple'}`}
+                initial={{ width: '100%' }}
+                animate={{ width: `${(timeLeft / Math.max(1, Number(question?.time_limit_seconds || 30))) * 100}%` }}
+                transition={{ duration: 1, ease: 'linear' }}
+              />
+            </div>
+
+            <div className="flex flex-wrap justify-center gap-3 mb-6">
+              <div className={`px-4 py-1.5 rounded-full border-2 border-brand-dark text-xs font-black uppercase tracking-widest ${gameTone.pill}`}>
+                {gameMode.shortLabel}
+              </div>
+              <div className="px-4 py-1.5 rounded-full bg-brand-bg border-2 border-brand-dark text-xs font-black uppercase tracking-widest text-brand-dark/60">
+                {stageTitle}
+              </div>
+            </div>
+            
+            <QuestionImageCard
+              imageUrl={question?.image_url}
+              alt={question?.prompt || t('game.question.imageAlt')}
+              className="relative z-10 max-w-4xl mx-auto w-full mb-6"
+              imgClassName="max-h-[340px]"
             />
-          </div>
+            <h2 className="text-3xl sm:text-4xl md:text-6xl font-black text-brand-dark leading-tight mb-4 tracking-tight">
+              {question?.prompt}
+            </h2>
+            <p className="text-lg sm:text-xl font-bold text-brand-dark/40 max-w-3xl mx-auto">{stageBody}</p>
+          </motion.div>
 
-          <div className="flex flex-wrap justify-center gap-3 mb-6">
-            <div className={`px-4 py-1.5 rounded-full border-2 border-brand-dark text-xs font-black uppercase tracking-widest ${gameTone.pill}`}>
-              {gameMode.shortLabel}
-            </div>
-            <div className="px-4 py-1.5 rounded-full bg-brand-bg border-2 border-brand-dark text-xs font-black uppercase tracking-widest text-brand-dark/60">
-              {stageTitle}
-            </div>
-          </div>
-          
-          <QuestionImageCard
-            imageUrl={question?.image_url}
-            alt={question?.prompt || 'Question image'}
-            className="relative z-10 max-w-4xl mx-auto w-full mb-6"
-            imgClassName="max-h-[340px]"
+          <SelectedAnswerSummaryCard
+            selectedAnswerText={selectedAnswerText}
+            currentSelectedAnswer={currentSelectedAnswer}
+            selectedConfidence={selectedConfidence}
+            needsConfidence={needsConfidence}
+            lockLabel={lockLabel}
+            isRevote={isRevote}
           />
-          <h2 className="text-3xl sm:text-4xl md:text-6xl font-black text-brand-dark leading-tight mb-4 tracking-tight">
-            {question?.prompt}
-          </h2>
-          <p className="text-lg sm:text-xl font-bold text-brand-dark/40 max-w-3xl mx-auto">{stageBody}</p>
-        </motion.div>
 
-        <SelectedAnswerSummaryCard
-          selectedAnswerText={selectedAnswerText}
-          currentSelectedAnswer={currentSelectedAnswer}
-          selectedConfidence={selectedConfidence}
-          needsConfidence={needsConfidence}
-          lockLabel={lockLabel}
-          isRevote={isRevote}
-        />
-
-        {/* Confidence Check */}
-        {needsConfidence && (
-          <div className="relative z-10 max-w-6xl mx-auto w-full mb-8">
-            <div className="bg-brand-bg/50 backdrop-blur-md rounded-[2.5rem] border-4 border-brand-dark/10 p-6 flex flex-col md:flex-row items-center gap-6">
-              <div className="shrink-0 flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-brand-purple border-4 border-brand-dark flex items-center justify-center">
-                  <Flame className="w-6 h-6 text-white" />
+          {/* Confidence Check */}
+          {needsConfidence && (
+            <div className="relative z-10 max-w-6xl mx-auto w-full mb-8">
+              <div className="bg-brand-bg/50 backdrop-blur-md rounded-[2.5rem] border-4 border-brand-dark/10 p-6 flex flex-col md:flex-row items-center gap-6">
+                <div className="shrink-0 flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-brand-purple border-4 border-brand-dark flex items-center justify-center">
+                    <Flame className="w-6 h-6 text-white" />
+                  </div>
+                  <span className="font-black text-sm uppercase tracking-widest">{t('game.student.confidence')}</span>
                 </div>
-                <span className="font-black text-sm uppercase tracking-widest">Confidence</span>
-              </div>
-              <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
-                {[
-                  { id: 1, label: 'GUESS', icon: '🤔' },
-                  { id: 2, label: 'SURE', icon: '👍' },
-                  { id: 3, label: 'EXPERT', icon: '🧠' },
-                ].map((option) => (
-                  <button
-                    key={option.id}
-                    onClick={() => setSelectedConfidence(option.id)}
-                    className={`px-6 py-4 rounded-2xl border-4 font-black flex items-center justify-center gap-3 transition-all ${
-                      selectedConfidence === option.id
-                        ? 'bg-brand-purple text-white border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] scale-105'
-                        : 'bg-white text-brand-dark border-brand-dark/10 hover:border-brand-dark'
-                    }`}
-                  >
-                    <span>{option.icon}</span>
-                    {option.label}
-                  </button>
-                ))}
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
+                  {[
+                    { id: 1, label: t('game.student.guess'), icon: '🤔' },
+                    { id: 2, label: t('game.student.sure'), icon: '👍' },
+                    { id: 3, label: t('game.student.expert'), icon: '🧠' },
+                  ].map((option) => (
+                    <button
+                      key={option.id}
+                      onClick={() => setSelectedConfidence(option.id)}
+                      className={`px-6 py-4 rounded-2xl border-4 font-black flex items-center justify-center gap-3 transition-all ${
+                        selectedConfidence === option.id
+                          ? 'bg-brand-purple text-white border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] scale-105'
+                          : 'bg-white text-brand-dark border-brand-dark/10 hover:border-brand-dark'
+                      }`}
+                    >
+                      <span>{option.icon}</span>
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Answers Grid */}
-        <div
-          className="relative z-10 flex-1 grid gap-6 max-w-6xl mx-auto w-full mb-12"
-          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
-        >
-          <AnimatePresence mode="popLayout">
-            {question?.answers?.map((ans: string, i: number) => {
-              const isSelected = currentSelectedAnswer === i;
-              return (
-                <motion.button
-                  key={`ans-${i}`}
-                  initial={{ scale: 0.9, opacity: 0 }}
-                  animate={{ 
-                    scale: isSelected ? 1.02 : 1, 
-                    opacity: 1,
-                    y: isSelected ? -4 : 0
-                  }}
-                  transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                  onClick={() => handleAnswerSelect(i)}
-                  onMouseEnter={() => beginHoverDwell(i)}
-                  onMouseLeave={() => flushHoverDwell()}
-                  className={`
-                    student-answer-button group relative flex min-h-[140px] md:min-h-[180px] items-center justify-center p-8 text-2xl md:text-4xl font-black rounded-[2.5rem] border-4 transition-all
-                    ${isSelected 
-                      ? 'bg-brand-dark text-white border-brand-dark shadow-[12px_12px_0px_0px_#FF5A36]' 
-                      : `${COLORS[i % 4].bg} ${COLORS[i % 4].text} border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] hover:translate-x-1 hover:translate-y-1 hover:shadow-none`
-                    }
-                  `}
-                >
-                  <div className="absolute top-6 left-8 text-sm opacity-20 font-black tracking-widest">0{i + 1}</div>
-                  <span className="relative z-10">{ans}</span>
-                  
-                  {/* Selection Indicator */}
-                  {isSelected && (
-                    <motion.div 
-                      layoutId="choice-spark"
-                      className="absolute inset-0 border-8 border-brand-orange/30 rounded-[2.5rem] pointer-events-none"
-                    />
-                  )}
-                </motion.button>
-              );
-            })}
-          </AnimatePresence>
+          {/* Answers Grid */}
+          <div
+            className="relative z-10 grid gap-6 max-w-6xl mx-auto w-full mb-12"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
+          >
+            <AnimatePresence mode="popLayout">
+              {question?.answers?.map((ans: string, i: number) => {
+                const isSelected = currentSelectedAnswer === i;
+                return (
+                  <motion.button
+                    key={`ans-${i}`}
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ 
+                      scale: isSelected ? 1.02 : 1, 
+                      opacity: 1,
+                      y: isSelected ? -4 : 0
+                    }}
+                    transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                    onClick={() => handleAnswerSelect(i)}
+                    onMouseEnter={() => beginHoverDwell(i)}
+                    onMouseLeave={() => flushHoverDwell()}
+                    className={`
+                      student-answer-button group relative flex min-h-[140px] md:min-h-[180px] items-center justify-center p-8 text-2xl md:text-4xl font-black rounded-[2.5rem] border-4 transition-all
+                      ${isSelected 
+                        ? 'bg-brand-dark text-white border-brand-dark shadow-[12px_12px_0px_0px_#FF5A36]' 
+                        : `${COLORS[i % 4].bg} ${COLORS[i % 4].text} border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] hover:translate-x-1 hover:translate-y-1 hover:shadow-none`
+                      }
+                    `}
+                  >
+                    <div className="absolute top-6 left-8 text-sm opacity-20 font-black tracking-widest">0{i + 1}</div>
+                    <span className="relative z-10">{ans}</span>
+                    
+                    {/* Selection Indicator */}
+                    {isSelected && (
+                      <motion.div 
+                        layoutId="choice-spark"
+                        className="absolute inset-0 border-8 border-brand-orange/30 rounded-[2.5rem] pointer-events-none"
+                      />
+                    )}
+                  </motion.button>
+                );
+              })}
+            </AnimatePresence>
+          </div>
         </div>
 
-        {/* Final Lock-in Action */}
+        {/* Final Lock-in Action - Stays fixed but accounted for in internal scroll padding */}
         <AnimatePresence>
           {currentSelectedAnswer !== null && !hasAnswered && (
             <motion.div
               initial={{ y: 100, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 100, opacity: 0 }}
-              className="fixed bottom-6 left-0 right-0 flex justify-center z-50 px-6 sm:bottom-10"
+              className="fixed bottom-6 left-0 right-0 flex justify-center z-[100] px-6 sm:bottom-10"
             >
               <motion.button
                 whileHover={{ scale: 1.02 }}
@@ -1328,9 +1306,6 @@ export default function StudentPlay() {
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* Scroll Spacer to prevent fixed button overlap */}
-        <div className="h-40 sm:h-48 md:h-56 w-full shrink-0" />
       </div>
     );
   }
@@ -1346,7 +1321,7 @@ export default function StudentPlay() {
         ? String(question.answers[Number(question.correct_index)] || '')
         : '';
     return (
-      <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
+      <div className="h-screen max-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-hidden">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         <div className="relative z-20 w-full max-w-4xl mb-4">
           <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
@@ -1368,35 +1343,35 @@ export default function StudentPlay() {
             {answeredCorrectly ? <CheckCircle className="w-12 h-12 sm:w-16 sm:h-16 text-emerald-600" /> : <Flame className="w-12 h-12 sm:w-16 sm:h-16 text-brand-orange" />}
           </div>
           <h2 className="text-4xl xs:text-5xl md:text-6xl font-black text-brand-dark mb-4 tracking-tight">
-            {answeredCorrectly ? 'Nice call!' : chosenAnswer ? 'Review the answer' : "Time's Up!"}
+            {answeredCorrectly ? t('game.feedback.correct') : chosenAnswer ? t('game.feedback.incorrect') : t('game.feedback.timesUp')}
           </h2>
           <p className="text-lg sm:text-2xl font-bold text-brand-dark/60 mb-8">
             {answeredCorrectly
-              ? 'You matched the correct answer for this round.'
+              ? t('game.student.matchedCorrect')
               : chosenAnswer
-                ? 'Here is how your answer compared to the correct one.'
-                : 'The round closed before you submitted. Use the reveal to calibrate for the next question.'}
+                ? t('game.student.reviewCompared')
+                : t('game.student.roundClosedNoSync')}
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left mb-8">
-            <RevealAnswerCard label="Your answer" value={chosenAnswer || 'No answer submitted'} tone={answeredCorrectly ? 'success' : chosenAnswer ? 'warning' : 'neutral'} />
-            <RevealAnswerCard label="Correct answer" value={correctAnswer || 'Watch the host screen'} tone="success" />
+            <RevealAnswerCard label={t('game.student.yourAnswer')} value={chosenAnswer || t('game.student.noAnswer')} tone={answeredCorrectly ? 'success' : chosenAnswer ? 'warning' : 'neutral'} />
+            <RevealAnswerCard label={t('game.student.correctAnswer')} value={correctAnswer || t('game.student.watchHostScreen')} tone="success" />
           </div>
 
           <div className="grid grid-cols-2 gap-4 mb-8">
-            <PlayerMetricCard label="Score" value={score} tone="dark" />
-            <PlayerMetricCard label="Streak" value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
+            <PlayerMetricCard label={t('game.metrics.score')} value={score} tone="dark" />
+            <PlayerMetricCard label={t('game.metrics.streak')} value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
           </div>
 
           {question?.explanation && (
             <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-bg p-6 text-left mb-6">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Why this answer works</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('game.feedback.explanation')}</p>
               <p className="text-lg font-bold text-brand-dark/75">{question.explanation}</p>
             </div>
           )}
 
           <div className="bg-brand-purple p-6 rounded-2xl border-2 border-brand-dark text-white">
-            <p className="text-xl sm:text-2xl font-bold">Watch the main screen for the full class result and the next transition.</p>
+            <p className="text-xl sm:text-2xl font-bold">{t('game.feedback.watchScreen')}</p>
           </div>
         </motion.div>
       </div>
@@ -1405,7 +1380,7 @@ export default function StudentPlay() {
 
   if (status === 'LEADERBOARD') {
     return (
-      <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
+      <div className="h-screen max-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-hidden">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         <div className="relative z-20 w-full max-w-4xl mb-4">
           <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
@@ -1427,14 +1402,14 @@ export default function StudentPlay() {
           <div className="inline-flex items-center justify-center w-24 h-24 sm:w-32 sm:h-32 bg-brand-yellow border-4 border-brand-dark rounded-full mb-8 sm:mb-10 shadow-[8px_8px_0px_0px_#1A1A1A]">
             <Trophy className="w-12 h-12 sm:w-16 sm:h-16 text-brand-dark" />
           </div>
-          <h2 className="text-4xl xs:text-5xl md:text-7xl font-black mb-8 tracking-tight text-brand-dark">Leaderboard</h2>
+          <h2 className="text-4xl xs:text-5xl md:text-7xl font-black mb-8 tracking-tight text-brand-dark">{t('game.leaderboard.title')}</h2>
           <div className="grid grid-cols-2 gap-4 mb-8">
-            <PlayerMetricCard label="Current score" value={score} tone="dark" />
-            <PlayerMetricCard label="Best streak" value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
+            <PlayerMetricCard label={t('game.metrics.currentScore')} value={score} tone="dark" />
+            <PlayerMetricCard label={t('game.metrics.bestStreak')} value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
           </div>
           <div className="bg-brand-bg p-5 sm:p-8 rounded-[2rem] border-4 border-brand-dark/10">
-            <p className="text-2xl sm:text-3xl text-brand-dark/80 font-bold mb-4">Check the main screen!</p>
-            <p className="text-lg sm:text-xl text-brand-dark/50 font-medium">Your score is locked in. Watch to see how the room reshuffled.</p>
+            <p className="text-2xl sm:text-3xl text-brand-dark/80 font-bold mb-4">{t('game.leaderboard.checkMainScreen')}</p>
+            <p className="text-lg sm:text-xl text-brand-dark/50 font-medium">{t('game.leaderboard.scoreLocked')}</p>
           </div>
         </motion.div>
       </div>
@@ -1443,8 +1418,8 @@ export default function StudentPlay() {
 
   return (
     <StudentShellFallback
-      title="This game state looks unfamiliar"
-      body={`The session reached "${status}" and the student screen did not know how to render it yet.`}
+      title={t('game.fallback.unfamiliarState')}
+      body={t('game.fallback.unknownStatus', { status })}
       onRetry={() => window.location.reload()}
       onExit={() => navigate(`/student/dashboard/${nickname}`)}
     />
@@ -1475,16 +1450,17 @@ function StudentRealtimeBanner({
   onRetryPending?: () => void;
   isRetryingPendingSubmission?: boolean;
 }) {
+  const { t } = useAppLanguage();
   const bannerMessage =
     pendingSubmission
-      ? 'Your answer is saved on this device. We will keep retrying until the connection stabilizes.'
+      ? t('game.student.savedDeviceRetry')
       : actionError || sessionError
         ? actionError || sessionError
         : connectionState === 'live'
-          ? 'Live updates are stable.'
+          ? t('game.student.liveStable')
           : connectionState === 'fallback'
-            ? 'Running on backup live sync.'
-            : 'Connecting to the room...';
+            ? t('game.student.fallbackActive')
+            : t('game.student.connecting');
   const toneClass =
     pendingSubmission || actionError || sessionError
       ? 'bg-brand-orange/15 border-brand-dark text-brand-dark'
@@ -1520,11 +1496,11 @@ function StudentRealtimeBanner({
             disabled={isRetryingPendingSubmission}
             className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-xs font-black uppercase tracking-[0.2em] shadow-[2px_2px_0px_0px_#1A1A1A] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isRetryingPendingSubmission ? 'Retrying' : 'Retry now'}
+            {isRetryingPendingSubmission ? t('game.student.retrying') : t('game.student.retryNow')}
           </button>
         ) : !actionError && !sessionError && (
           <span className="text-xs font-black uppercase tracking-[0.2em] opacity-60">
-            {connectionState === 'live' ? 'Realtime active' : connectionState === 'fallback' ? 'Fallback active' : 'Booting'}
+            {connectionState === 'live' ? t('game.student.realtimeActive') : connectionState === 'fallback' ? t('game.student.fallbackActiveLabel') : t('game.student.booting')}
           </span>
         )}
       </div>
@@ -1547,16 +1523,17 @@ function SelectedAnswerSummaryCard({
   lockLabel: string;
   isRevote: boolean;
 }) {
+  const { t } = useAppLanguage();
   return (
     <div className="relative z-10 max-w-6xl mx-auto w-full mb-8">
       <div className="rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 md:p-6 shadow-[6px_6px_0px_0px_#1A1A1A]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">
-              {currentSelectedAnswer !== null ? (isRevote ? 'Current final choice' : 'Current choice') : 'Choose one answer'}
+              {currentSelectedAnswer !== null ? (isRevote ? t('game.student.currentFinalChoice') : t('game.student.currentChoice')) : t('game.student.chooseOne')}
             </p>
             <p className="text-2xl font-black text-brand-dark break-words">
-              {selectedAnswerText || 'Tap any answer card below to preview your selection before locking it in.'}
+              {selectedAnswerText || t('game.student.tapToPreview')}
             </p>
           </div>
           <div className="flex flex-wrap gap-3 shrink-0">
@@ -1565,7 +1542,7 @@ function SelectedAnswerSummaryCard({
             </span>
             {needsConfidence && (
               <span className="px-4 py-3 rounded-full border-2 border-brand-dark bg-brand-yellow font-black">
-                Confidence {selectedConfidence}/3
+                {t('game.student.confidence')} {selectedConfidence}/3
               </span>
             )}
           </div>
@@ -1636,6 +1613,7 @@ function StudentShellFallback({
   onRetry?: () => void;
   onExit?: () => void;
 }) {
+  const { t } = useAppLanguage();
   return (
     <div className="min-h-screen bg-brand-bg flex items-center justify-center p-6 text-center selection:bg-brand-orange selection:text-white">
       <div className="w-full max-w-2xl rounded-[2.6rem] border-4 border-brand-dark bg-white p-8 shadow-[12px_12px_0px_0px_#1A1A1A]">
@@ -1650,7 +1628,7 @@ function StudentShellFallback({
               onClick={onRetry}
               className="px-6 py-4 rounded-2xl border-2 border-brand-dark bg-brand-dark text-white font-black shadow-[4px_4px_0px_0px_#FF5A36]"
             >
-              Retry
+              {t('dash.action.tryAgain')}
             </button>
           )}
           {onExit && (
@@ -1658,7 +1636,7 @@ function StudentShellFallback({
               onClick={onExit}
               className="px-6 py-4 rounded-2xl border-2 border-brand-dark bg-white font-black"
             >
-              Leave Screen
+              {t('game.action.next')}
             </button>
           )}
         </div>

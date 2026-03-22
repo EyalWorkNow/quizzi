@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { apiFetchJson } from './api.ts';
+import { UI_STRINGS } from './translations.ts';
 
 export type AppLanguage = 'en' | 'he' | 'ar';
 
@@ -23,6 +24,7 @@ type AppLanguageContextValue = {
   language: AppLanguage;
   direction: 'ltr' | 'rtl';
   setLanguage: (language: AppLanguage) => void;
+  t: (key: string, params?: Record<string, string>) => string;
 };
 
 const AppLanguageContext = createContext<AppLanguageContextValue | null>(null);
@@ -703,10 +705,23 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
     };
   }, [language]);
 
+  const t = (key: string, params?: Record<string, string>) => {
+    const bundle = UI_STRINGS[language] || UI_STRINGS.en;
+    let text = bundle[key] || UI_STRINGS.en[key] || key;
+    
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        text = text.replace(`{${k}}`, v);
+      });
+    }
+    return text;
+  };
+
   const value = useMemo<AppLanguageContextValue>(() => ({
     language,
     direction,
     setLanguage,
+    t,
   }), [direction, language]);
 
   return <AppLanguageContext.Provider value={value}>{children}</AppLanguageContext.Provider>;

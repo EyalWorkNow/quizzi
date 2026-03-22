@@ -17,6 +17,7 @@ import { getGameModeTone } from '../lib/gameModePresentation.ts';
 import { buildSessionJoinUrl } from '../lib/joinCodes.ts';
 import { isPeerInstructionMode, resolveSessionQuestionTimeLimit } from '../lib/sessionModeRules.ts';
 import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
+import { useAppLanguage } from '../lib/appLanguage.tsx';
 
 function formatAnswerSlotLabel(index: number) {
   return String.fromCharCode(65 + (index % 26));
@@ -123,6 +124,7 @@ export default function TeacherHost() {
   const { pin } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useAppLanguage();
   const [sessionId, setSessionId] = useState(location.state?.sessionId);
   const [packId, setPackId] = useState(location.state?.packId);
   const [sessionMeta, setSessionMeta] = useState<any>(null);
@@ -793,7 +795,7 @@ export default function TeacherHost() {
   // we show a loading view to prevent the game-state UI from rendering with nulls.
   if (pin && (!sessionMeta || !pack)) {
     return (
-      <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-8">
+      <div className="h-screen max-h-screen bg-brand-bg overflow-hidden flex flex-col items-center justify-center p-8">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         <motion.div
           animate={{ 
@@ -1617,25 +1619,24 @@ export default function TeacherHost() {
 
   console.warn('[TeacherHost] Unhandled game status or state reached. Rendering fallback.', { status, pin, sessionId, packId });
   return (
-    <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-8">
+    <div className="h-screen max-h-screen bg-brand-bg overflow-hidden flex flex-col items-center justify-center p-8">
       <div className="bg-white rounded-[2rem] border-4 border-brand-dark p-8 shadow-[8px_8px_0px_0px_#1A1A1A] max-w-md text-center">
-        <h2 className="text-3xl font-black mb-4">Something went wrong</h2>
+        <h2 className="text-3xl font-black mb-4">{t('dash.error.requestFailed')}</h2>
         <p className="font-medium text-brand-dark/70 mb-6">
-          The game reached an unexpected state ({status}). 
-          Try refreshing the page or going back to the dashboard.
+          {t('game.fallback.unfamiliarState')}
         </p>
         <div className="flex flex-col gap-3">
           <button 
             onClick={() => window.location.reload()}
             className="w-full px-6 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
           >
-            Refresh Page
+            {t('dash.action.refresh')}
           </button>
           <button 
             onClick={() => navigate('/teacher/dashboard')}
             className="w-full px-6 py-3 bg-white border-2 border-brand-dark rounded-full font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
           >
-            Back to Dashboard
+            {t('nav.dashboard')}
           </button>
         </div>
       </div>

@@ -21,6 +21,7 @@ import {
   refreshTeacherSession,
   signOutTeacher,
 } from '../lib/teacherAuth.ts';
+import { useAppLanguage } from '../lib/appLanguage.tsx';
 
 const AVATARS = [
   'avatar_1.png',
@@ -70,6 +71,7 @@ export default function Home() {
   const [joinAssistMessage, setJoinAssistMessage] = useState('');
   const [teacherSignedIn, setTeacherSignedIn] = useState(() => isTeacherAuthenticated());
   const [savedSeat, setSavedSeat] = useState(() => readSavedSeat());
+  const { t, language, direction } = useAppLanguage();
   const nicknameInputRef = useRef<HTMLInputElement | null>(null);
   const autoResolvedPinRef = useRef('');
   const navigate = useNavigate();
@@ -127,11 +129,11 @@ export default function Home() {
 
     setError('');
     if (!isValidSessionPin(sessionPin)) {
-      setError('Enter a 6-digit game PIN before joining.');
+      setError(t('home.error.pinSixDigits'));
       return;
     }
     if (trimmedNickname.length < 2) {
-      setError('Nickname must be at least 2 characters.');
+      setError(t('home.error.nicknameMinLength'));
       return;
     }
 
@@ -156,7 +158,7 @@ export default function Home() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to join');
+      if (!res.ok) throw new Error(data.error || t('home.error.failedToJoin'));
 
       storeJoinedParticipantSession({
         participantId: Number(data.participant_id),
@@ -206,7 +208,7 @@ export default function Home() {
   const handleClearSavedSession = () => {
     clearJoinedParticipantSession();
     setSavedSeat(null);
-    setJoinAssistMessage('Saved seat cleared from this device.');
+    setJoinAssistMessage(t('home.status.savedCleared'));
   };
 
   useEffect(() => {
@@ -220,12 +222,12 @@ export default function Home() {
     setError('');
 
     if (nickname.trim().length >= 2) {
-      setJoinAssistMessage(`Session ${routePin} detected from scan. Joining now...`);
+      setJoinAssistMessage(t('home.assist.detectedJoining', { pin: routePin }));
       void joinSession(routePin);
       return;
     }
 
-    setJoinAssistMessage(`Session ${routePin} detected from scan. Add your nickname and join.`);
+    setJoinAssistMessage(t('home.assist.detectedAddNick', { pin: routePin }));
     window.setTimeout(() => {
       nicknameInputRef.current?.focus();
     }, 40);
@@ -247,12 +249,12 @@ export default function Home() {
     setError('');
 
     if (nickname.trim().length >= 2) {
-      setJoinAssistMessage(`Session ${sessionPin} scanned. Joining now...`);
+      setJoinAssistMessage(t('home.assist.scannedJoining', { pin: sessionPin }));
       void joinSession(sessionPin);
       return;
     }
 
-    setJoinAssistMessage(`Session ${sessionPin} scanned. Add your nickname to jump in.`);
+    setJoinAssistMessage(t('home.assist.scannedAddNick', { pin: sessionPin }));
     window.setTimeout(() => {
       nicknameInputRef.current?.focus();
     }, 40);
@@ -272,44 +274,46 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-brand-bg font-sans text-brand-dark overflow-x-clip flex flex-col selection:bg-brand-orange selection:text-white">
-      {/* Navbar */}
-      <nav className="page-shell relative z-20 flex flex-wrap items-center justify-between gap-4 py-5">
+    <div 
+      className="h-screen max-h-screen overflow-hidden bg-brand-bg font-sans text-brand-dark flex flex-col selection:bg-brand-orange selection:text-white"
+      data-no-translate="true"
+    >
+      <nav className="page-shell relative z-20 flex flex-wrap items-center justify-between gap-4 py-5 shrink-0">
         <div className="text-3xl font-black tracking-tight flex items-center gap-1">
           <span className="text-brand-orange">Quiz</span>zi
         </div>
         <div className="hidden md:flex items-center gap-10 font-bold text-lg">
-          <button onClick={() => navigate('/explore')} className="hover:text-brand-orange transition-colors flex items-center gap-1">Explore</button>
-          <button onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')} className="hover:text-brand-orange transition-colors">{teacherSignedIn ? 'Teacher Studio' : 'For Teachers'}</button>
-          <button onClick={() => navigate('/contact')} className="hover:text-brand-orange transition-colors">Contact Us</button>
+          <button onClick={() => navigate('/explore')} className="hover:text-brand-orange transition-colors flex items-center gap-1">{t('nav.explore')}</button>
+          <button onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')} className="hover:text-brand-orange transition-colors">{teacherSignedIn ? t('nav.teacherStudio') : t('nav.forTeachers')}</button>
+          <button onClick={() => navigate('/contact')} className="hover:text-brand-orange transition-colors">{t('nav.contact')}</button>
         </div>
         <div className="action-row w-full md:w-auto md:justify-end">
           {teacherSignedIn ? (
             <>
-              <button onClick={() => navigate('/teacher/dashboard')} className="action-pill font-bold px-6 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">Dashboard</button>
-              <button onClick={handleLogout} className="action-pill font-bold px-6 py-3 rounded-full bg-brand-orange text-white border-2 border-brand-orange hover:bg-orange-600 transition-colors">Log out</button>
+              <button onClick={() => navigate('/teacher/dashboard')} className="action-pill font-bold px-6 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">{t('nav.dashboard')}</button>
+              <button onClick={handleLogout} className="action-pill font-bold px-6 py-3 rounded-full bg-brand-orange text-white border-2 border-brand-orange hover:bg-orange-600 transition-colors">{t('nav.logout')}</button>
             </>
           ) : (
             <>
-              <button onClick={() => navigate('/auth')} className="action-pill font-bold px-6 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">Log in</button>
-              <button onClick={() => navigate('/auth')} className="action-pill font-bold px-6 py-3 rounded-full bg-brand-orange text-white border-2 border-brand-orange hover:bg-orange-600 transition-colors">Create account</button>
+              <button onClick={() => navigate('/auth')} className="action-pill font-bold px-6 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">{t('nav.login')}</button>
+              <button onClick={() => navigate('/auth')} className="action-pill font-bold px-6 py-3 rounded-full bg-brand-orange text-white border-2 border-brand-orange hover:bg-orange-600 transition-colors">{t('nav.createAccount')}</button>
             </>
           )}
         </div>
       </nav>
 
       {/* Hero Section */}
-      <main className="page-shell relative z-10 flex flex-1 flex-col items-center justify-center gap-10 py-4 pb-12 lg:flex-row lg:gap-12 lg:py-8">
+      <main className="page-shell relative z-10 flex flex-1 flex-col items-center justify-center gap-6 py-4 pb-8 lg:flex-row lg:gap-10 lg:py-6 overflow-y-auto thin-scrollbar">
 
         {/* Left Content */}
         <div className="z-10 w-full flex-1 min-w-0">
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-5 text-[2.9rem] font-black leading-[1.02] tracking-tight xs:text-[3.4rem] sm:text-[4.8rem] lg:text-[6.5rem]"
+            className="mb-4 text-[2.5rem] font-black leading-[1.05] tracking-tight xs:text-[3rem] sm:text-[4rem] lg:text-[5.5rem]"
           >
-            Find the right <br />
-            <span className="text-brand-orange">quiz</span> for you
+            {t('home.hero.title1')} <br />
+            <span className="text-brand-orange">{t('home.hero.title2')}</span>
           </motion.h1>
 
           <motion.p
@@ -318,7 +322,7 @@ export default function Home() {
             transition={{ delay: 0.1 }}
             className="mb-8 max-w-xl text-lg font-medium leading-relaxed text-brand-dark/80 sm:text-2xl"
           >
-            See your personalised recommendations based on your interests and goals
+            {t('home.hero.subtitle')}
           </motion.p>
 
           {/* Join Form */}
@@ -333,7 +337,7 @@ export default function Home() {
               <input
                 id="game-pin"
                 type="text"
-                placeholder="Game PIN"
+                placeholder={t('home.form.pin')}
                 aria-label="Enter Game PIN"
                 value={pin}
                 onChange={(e) => setPin(sanitizeSessionPin(e.target.value))}
@@ -346,7 +350,7 @@ export default function Home() {
                 id="nickname"
                 ref={nicknameInputRef}
                 type="text"
-                placeholder="Nickname"
+                placeholder={t('home.form.nickname')}
                 aria-label="Enter your nickname"
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value)}
@@ -359,19 +363,19 @@ export default function Home() {
                 disabled={!canJoin}
                 className="w-full rounded-full border-2 border-brand-dark bg-brand-orange px-8 py-4 text-lg font-bold text-white shadow-[4px_4px_0px_0px_#1A1A1A] transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:bg-[#e84d2a] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-[4px_4px_0px_0px_#1A1A1A] md:w-auto md:px-10 md:py-5 md:text-xl"
               >
-                {joining ? 'Joining...' : 'Join'}
+                {joining ? t('home.form.joining') : t('home.form.join')}
               </button>
             </div>
 
             <div className="grid grid-cols-1 gap-3 text-sm font-bold text-brand-dark/60 md:grid-cols-3">
               <div className={`rounded-[1.3rem] border-2 px-4 py-3 ${sessionPinReady ? 'border-emerald-300 bg-emerald-50 text-brand-dark' : 'border-brand-dark/10 bg-white/70'}`}>
-                {sessionPinReady ? `PIN ${pin} is ready.` : 'Enter a 6-digit game PIN.'}
+                {sessionPinReady ? t('home.status.pinReady', { pin }) : t('home.status.pinWait')}
               </div>
               <div className={`rounded-[1.3rem] border-2 px-4 py-3 ${nicknameReady ? 'border-emerald-300 bg-emerald-50 text-brand-dark' : 'border-brand-dark/10 bg-white/70'}`}>
-                {nicknameReady ? `Joining as ${nickname.trim()}.` : 'Choose a nickname with 2+ characters.'}
+                {nicknameReady ? t('home.status.nicknameReady', { nickname: nickname.trim() }) : t('home.status.nicknameWait')}
               </div>
               <div className="rounded-[1.3rem] border-2 border-brand-dark/10 bg-white/70 px-4 py-3">
-                We keep your avatar on this device so rejoining is faster next time.
+                {t('home.status.avatarNotice')}
               </div>
             </div>
 
@@ -385,7 +389,7 @@ export default function Home() {
                 className="action-pill rounded-[1.4rem] border-2 border-brand-dark bg-white px-5 py-4 text-base font-black shadow-[4px_4px_0px_0px_#1A1A1A] sm:text-lg flex items-center justify-center gap-3"
               >
                 <ScanLine className="w-5 h-5 text-brand-orange" />
-                Scan QR / barcode
+                {t('home.action.scan')}
               </button>
 
               <div className={`min-w-0 flex-1 rounded-[1.4rem] border-2 border-brand-dark p-4 ${joinAssistMessage ? 'bg-brand-yellow' : 'bg-white/75'}`}>
@@ -395,15 +399,15 @@ export default function Home() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-1">
-                      {joinAssistMessage ? 'Session detected' : 'Fast lane'}
+                      {joinAssistMessage ? t('home.assist.detected') : t('home.assist.fastLane')}
                     </p>
                     <p className="font-black leading-snug">
-                      {joinAssistMessage || 'Skip typing the PIN. Scan the host code and we will pull the session automatically.'}
+                      {joinAssistMessage || t('home.assist.skipTyping')}
                     </p>
                     <p className="text-sm text-brand-dark/65 font-medium mt-1">
                       {scannerSupported
-                        ? 'If a nickname is already saved on this device, the join can complete immediately after the scan.'
-                        : 'If in-app scanning is not available on this browser, use your device camera on the host QR and the session link will open automatically.'}
+                        ? t('home.assist.scanNotice')
+                        : t('home.assist.cameraNotice')}
                     </p>
                   </div>
                 </div>
@@ -414,7 +418,7 @@ export default function Home() {
               <div className="premium-card border-brand-dark bg-white/80 p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="min-w-0">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Saved seat on this device</p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('home.saved.title')}</p>
                     <p className="text-2xl font-black text-brand-dark mb-1">{savedSeat.nickname}</p>
                     <p className="font-bold text-brand-dark/60">
                       Session {savedSeat.sessionPin}
@@ -428,7 +432,7 @@ export default function Home() {
                       className="action-pill rounded-full border-2 border-brand-dark bg-brand-dark px-5 py-3 font-black text-white shadow-[4px_4px_0px_0px_#FF5A36] flex items-center gap-2"
                     >
                       <Play className="w-4 h-4 fill-current" />
-                      Continue Live Game
+                      {t('home.saved.continue')}
                     </button>
                     <button
                       type="button"
@@ -436,7 +440,7 @@ export default function Home() {
                       className="action-pill rounded-full border-2 border-brand-dark bg-white px-5 py-3 font-black flex items-center gap-2"
                     >
                       <RotateCcw className="w-4 h-4" />
-                      Clear Saved Seat
+                      {t('home.saved.clear')}
                     </button>
                   </div>
                 </div>
@@ -445,7 +449,7 @@ export default function Home() {
 
             {/* Avatar Selection */}
             <div className="premium-card mt-4 bg-white/50 p-5 backdrop-blur-md sm:p-6">
-              <p className="text-[10px] font-black text-brand-dark/40 mb-4 px-2 uppercase tracking-[0.2em]">Identify as</p>
+              <p className="text-[10px] font-black text-brand-dark/40 mb-4 px-2 uppercase tracking-[0.2em]">{t('home.avatar.identify')}</p>
               <div className="flex flex-wrap gap-3 px-2">
                 {AVATARS.map((avatar) => (
                   <button
@@ -486,16 +490,16 @@ export default function Home() {
             className="grid grid-cols-3 gap-3 sm:gap-4 mt-12 sm:mt-16"
           >
             <div className="premium-card group flex flex-col justify-between p-5 sm:p-6 aspect-square">
-              <span className="inline-block px-3 py-1 rounded-full bg-brand-purple/10 text-brand-purple font-black text-[9px] sm:text-[10px] border border-brand-purple/20 uppercase tracking-widest w-fit">Knowledge</span>
+              <span className="inline-block px-3 py-1 rounded-full bg-brand-purple/10 text-brand-purple font-black text-[9px] sm:text-[10px] border border-brand-purple/20 uppercase tracking-widest w-fit">{t('stats.knowledge')}</span>
               <div>
-                <p className="text-[9px] sm:text-xs font-black text-brand-dark/30 uppercase tracking-widest mb-1">Subjects</p>
+                <p className="text-[9px] sm:text-xs font-black text-brand-dark/30 uppercase tracking-widest mb-1">{t('stats.subjects')}</p>
                 <p className="text-3xl sm:text-5xl font-black transition-colors group-hover:text-brand-purple">+40</p>
               </div>
             </div>
             <div className="premium-card group flex flex-col justify-between bg-brand-orange p-5 sm:p-6 text-white aspect-square">
-              <span className="inline-block px-3 py-1 rounded-full bg-white text-brand-orange font-black text-[9px] sm:text-[10px] border border-white/20 uppercase tracking-widest w-fit">Impact</span>
+              <span className="inline-block px-3 py-1 rounded-full bg-white text-brand-orange font-black text-[9px] sm:text-[10px] border border-white/20 uppercase tracking-widest w-fit">{t('stats.impact')}</span>
               <div>
-                <p className="text-[9px] sm:text-xs font-black text-white/50 uppercase tracking-widest mb-1">Live Sessions</p>
+                <p className="text-[9px] sm:text-xs font-black text-white/50 uppercase tracking-widest mb-1">{t('stats.sessions')}</p>
                 <p className="text-3xl sm:text-5xl font-black">+120</p>
               </div>
             </div>
@@ -504,7 +508,7 @@ export default function Home() {
                 {[1, 2, 3, 4, 5].map(i => <Star key={i} className="w-3 h-3 sm:w-5 sm:h-5 fill-current" />)}
               </div>
               <div>
-                <p className="text-[9px] sm:text-xs font-black text-brand-dark/30 uppercase tracking-widest mb-1">Happy Learners</p>
+                <p className="text-[9px] sm:text-xs font-black text-brand-dark/30 uppercase tracking-widest mb-1">{t('stats.happyLearners')}</p>
                 <p className="text-3xl sm:text-5xl font-black">+180k</p>
               </div>
             </div>

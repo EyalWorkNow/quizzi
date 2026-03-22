@@ -13,6 +13,7 @@ import {
   User,
 } from 'lucide-react';
 import { loadTeacherSettings, saveTeacherSettings } from '../lib/localData.ts';
+import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { trackTeacherAuthEvent, toAnalyticsErrorCode } from '../lib/appAnalytics.ts';
 import {
   DEMO_AUTH_ENABLED,
@@ -37,6 +38,7 @@ export default function Auth() {
   const teacherSettings = loadTeacherSettings();
   const targetPath = typeof location.state?.from === 'string' ? location.state.from : '/teacher/dashboard';
 
+  const { t, direction } = useAppLanguage();
   const [mode, setMode] = useState<AccessMode>('login');
   const [name, setName] = useState(`${teacherSettings.profile.firstName} ${teacherSettings.profile.lastName}`.trim());
   const [school, setSchool] = useState(teacherSettings.profile.school);
@@ -49,7 +51,7 @@ export default function Auth() {
   const [restoringSession, setRestoringSession] = useState(true);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
-  const socialLabel = useMemo(() => (mode === 'login' ? 'Continue with' : 'Create with'), [mode]);
+  const socialLabel = useMemo(() => (mode === 'login' ? t('auth.social.label') : t('auth.social.label')), [mode, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,7 +63,7 @@ export default function Auth() {
         if (redirectSession && !cancelled) {
           completeAccess({
             session: redirectSession,
-            successMessage: 'Signed in successfully via Google.',
+            successMessage: t('auth.heroTitle'), // Or a generic success message
           });
           return;
         }
@@ -155,7 +157,7 @@ export default function Auth() {
     try {
       if (accessMode === 'create') {
         if (password !== confirmPassword) {
-          throw new Error('Password confirmation does not match.');
+          throw new Error(t('settings.feedback.passwordsMismatch'));
         }
       }
 
@@ -177,10 +179,10 @@ export default function Auth() {
         session,
         successMessage:
           accessMode === 'create'
-            ? 'Teacher account created and signed in.'
+            ? t('auth.createAccountTitle')
             : useDemoAccount
-              ? 'Signed in with the demo teacher account.'
-              : 'Signed in successfully.',
+              ? t('auth.enterWithDemoAccount')
+              : t('auth.signIn'),
       });
       void trackTeacherAuthEvent({
         action: 'sign_in',
@@ -189,7 +191,7 @@ export default function Auth() {
         mode: accessMode,
       });
     } catch (loginError: any) {
-      setError(loginError?.message || 'Unable to sign in right now.');
+      setError(loginError?.message || t('home.error.failedToJoin'));
       void trackTeacherAuthEvent({
         action: 'sign_in',
         provider: 'password',
@@ -225,7 +227,7 @@ export default function Auth() {
       });
       completeAccess({
         session,
-        successMessage: 'Signed in with the demo teacher account.',
+        successMessage: t('auth.enterWithDemoAccount'),
       });
       void trackTeacherAuthEvent({
         action: 'sign_in',
@@ -234,7 +236,7 @@ export default function Auth() {
         mode: 'login',
       });
     } catch (loginError: any) {
-      setError(loginError?.message || 'Demo sign-in is unavailable right now.');
+      setError(loginError?.message || t('home.error.failedToJoin'));
       void trackTeacherAuthEvent({
         action: 'sign_in',
         provider: 'password',
@@ -263,13 +265,13 @@ export default function Auth() {
         provider,
       });
       if (!session) {
-        setFeedback('Redirecting to Google sign-in...');
+        setFeedback(t('auth.signingIn'));
         setError('');
         return;
       }
       completeAccess({
         session,
-        successMessage: `${mode === 'login' ? 'Signed in' : 'Account created'} with ${provider === 'google' ? 'Google' : 'Facebook'}.`,
+        successMessage: `${mode === 'login' ? t('auth.signIn') : t('auth.createAccount')} with ${provider === 'google' ? 'Google' : 'Facebook'}.`,
       });
       void trackTeacherAuthEvent({
         action: 'sign_in',
@@ -278,7 +280,7 @@ export default function Auth() {
         mode,
       });
     } catch (socialError: any) {
-      setError(socialError?.message || 'Social access is unavailable right now.');
+      setError(socialError?.message || t('home.error.failedToJoin'));
       void trackTeacherAuthEvent({
         action: 'sign_in',
         provider,
@@ -297,7 +299,7 @@ export default function Auth() {
     try {
       await signOutTeacher();
       setExistingSession(null);
-      setFeedback('Signed out.');
+      setFeedback(t('auth.signingOut'));
       void trackTeacherAuthEvent({
         action: 'sign_out',
         provider: existingSession?.provider || 'password',
@@ -310,8 +312,11 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen bg-brand-bg text-brand-dark font-sans selection:bg-brand-orange selection:text-white overflow-x-clip">
-      <nav className="page-shell relative z-20 flex items-center justify-between gap-4 py-5">
+    <div 
+      dir={direction}
+      className="h-screen max-h-screen overflow-hidden bg-brand-bg text-brand-dark font-sans selection:bg-brand-orange selection:text-white flex flex-col"
+    >
+      <nav className="page-shell relative z-20 flex items-center justify-between gap-4 py-5 shrink-0">
         <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
           <span className="text-brand-orange">Quiz</span>zi
         </div>
@@ -323,7 +328,7 @@ export default function Auth() {
         </button>
       </nav>
 
-      <main className="page-shell grid grid-cols-1 gap-8 items-start pt-4 pb-16 xl:grid-cols-[1.05fr_0.95fr]">
+      <main className="page-shell flex-1 overflow-y-auto thin-scrollbar grid grid-cols-1 gap-8 items-start pt-4 pb-16 xl:grid-cols-[1.05fr_0.95fr]">
         <section className="space-y-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -334,18 +339,18 @@ export default function Auth() {
             <div className="absolute bottom-[-30px] right-28 w-32 h-32 rounded-full bg-brand-yellow/20" />
 
             <div className="relative z-10">
-              <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-yellow mb-3">Teacher Access</p>
+              <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-yellow mb-3">{t('auth.teacherAccess')}</p>
               <h1 className="text-[2.9rem] xs:text-[3.3rem] lg:text-6xl font-black leading-[0.95] tracking-tight mb-5">
-                Move from quiz creation to live analytics without friction.
+                {t('auth.heroTitle')}
               </h1>
               <p className="text-base sm:text-lg font-medium text-white/75 max-w-2xl">
-                One entry point for pack creation, live hosting, class analytics, and student-specific follow-up games.
+                {t('auth.heroBody')}
               </p>
 
               <div className="grid grid-cols-1 gap-4 mt-8 sm:grid-cols-2 xl:grid-cols-3">
-                <BenefitCard title="Create" body="Generate or edit question packs from uploaded material." />
-                <BenefitCard title="Host" body="Launch a live lobby, watch players join, and run the session." />
-                <BenefitCard title="Adapt" body="Open a student drill-down and build a same-material follow-up game." />
+                <BenefitCard title={t('auth.benefit.create.title')} body={t('auth.benefit.create.body')} />
+                <BenefitCard title={t('auth.benefit.host.title')} body={t('auth.benefit.host.body')} />
+                <BenefitCard title={t('auth.benefit.adapt.title')} body={t('auth.benefit.adapt.body')} />
               </div>
             </div>
           </motion.div>
@@ -359,21 +364,21 @@ export default function Auth() {
           >
             <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Demo Credentials</p>
-                <h2 className="text-3xl font-black">Shared teacher account</h2>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('auth.demoCredentials')}</p>
+                <h2 className="text-3xl font-black">{t('auth.sharedTeacherAccount')}</h2>
               </div>
               <button
                 type="button"
                 onClick={applyDemoCredentials}
                 className="px-5 py-3 rounded-full bg-brand-yellow border-2 border-brand-dark font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
               >
-                Load Demo Login
+                {t('auth.loadDemoLogin')}
               </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <CredentialCard label="Email" value={DEMO_TEACHER_EMAIL} />
-              <CredentialCard label="Password" value={DEMO_TEACHER_PASSWORD} />
+              <CredentialCard label={t('auth.emailLabel')} value={DEMO_TEACHER_EMAIL} />
+              <CredentialCard label={t('auth.passwordLabel')} value={DEMO_TEACHER_PASSWORD} />
             </div>
 
             <button
@@ -383,7 +388,7 @@ export default function Auth() {
               className="mt-5 w-full px-6 py-4 bg-brand-dark text-white border-4 border-brand-dark rounded-[1.75rem] font-black text-lg flex items-center justify-center gap-3 shadow-[6px_6px_0px_0px_#FF5A36] disabled:opacity-60"
             >
               {pendingAction === 'password' ? <LoaderCircle className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5" />}
-              Enter With Demo Account
+              {t('auth.enterWithDemoAccount')}
             </button>
           </motion.div>
           )}
@@ -397,8 +402,8 @@ export default function Auth() {
         >
           <div className="flex items-center justify-between gap-3 mb-8">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Access Flow</p>
-              <h2 className="text-3xl sm:text-4xl font-black tracking-tight">{mode === 'login' ? 'Sign in to teacher studio' : 'Create your teacher profile'}</h2>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('auth.accessFlow')}</p>
+              <h2 className="text-3xl sm:text-4xl font-black tracking-tight">{mode === 'login' ? t('auth.signInTitle') : t('auth.createProfileTitle')}</h2>
             </div>
             <ShieldCheck className="w-10 h-10 text-brand-purple" />
           </div>
@@ -407,23 +412,23 @@ export default function Auth() {
             <div className="mb-6 bg-brand-bg rounded-[1.75rem] border-2 border-brand-dark p-5 flex items-center gap-3">
               <LoaderCircle className="w-5 h-5 animate-spin text-brand-orange" />
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Restoring Access</p>
-                <p className="font-bold">Checking whether a secure teacher session is already active.</p>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{t('auth.restoringAccess')}</p>
+                <p className="font-bold">{t('auth.checkingSession')}</p>
               </div>
             </div>
           )}
 
           {existingSession && (
             <div className="mb-6 bg-brand-bg rounded-[1.75rem] border-2 border-brand-dark p-5">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Current Session</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('auth.currentSession')}</p>
               <p className="font-black text-xl">{existingSession.email}</p>
               <p className="text-sm font-bold text-brand-dark/55 mt-1">
-                Protected with an HTTP-only cookie
+                {t('auth.protectedCookie')}
                 {existingSession.expiresAt
-                  ? ` and valid until ${new Date(existingSession.expiresAt).toLocaleTimeString([], {
+                  ? t('auth.validUntil', { time: new Date(existingSession.expiresAt).toLocaleTimeString([], {
                       hour: '2-digit',
                       minute: '2-digit',
-                    })}.`
+                    })})
                   : '.'}
               </p>
               <div className="flex flex-wrap gap-3 mt-4">
@@ -432,7 +437,7 @@ export default function Auth() {
                   onClick={() => navigate('/teacher/dashboard')}
                   className="px-5 py-3 bg-brand-dark text-white border-2 border-brand-dark rounded-full font-black"
                 >
-                  Continue to Dashboard
+                  {t('auth.continueToDashboard')}
                 </button>
                 <button
                   type="button"
@@ -440,7 +445,7 @@ export default function Auth() {
                   disabled={pendingAction === 'logout'}
                   className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black disabled:opacity-60"
                 >
-                  {pendingAction === 'logout' ? 'Signing Out...' : 'Sign Out'}
+                  {pendingAction === 'logout' ? t('auth.signingOut') : t('auth.signOut')}
                 </button>
               </div>
             </div>
@@ -459,7 +464,7 @@ export default function Auth() {
               }}
               className={`px-5 py-4 rounded-2xl border-2 border-brand-dark font-black ${mode === 'login' ? 'bg-brand-dark text-white' : 'bg-brand-bg text-brand-dark'}`}
             >
-              Sign In
+              {t('auth.signIn')}
             </button>
             <button
               type="button"
@@ -477,7 +482,7 @@ export default function Auth() {
               }}
               className={`px-5 py-4 rounded-2xl border-2 border-brand-dark font-black ${mode === 'create' ? 'bg-brand-dark text-white' : 'bg-brand-bg text-brand-dark'}`}
             >
-              Create Account
+              {t('auth.createAccount')}
             </button>
           </div>
 
@@ -497,19 +502,19 @@ export default function Auth() {
           <form onSubmit={handlePasswordAccess} className="space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field
-                label="Display Name"
+                label={t('auth.displayName')}
                 icon={<User className="w-5 h-5" />}
                 value={name}
                 onChange={setName}
-                placeholder="Teacher name"
+                placeholder={t('auth.teacherName')}
                 autoComplete="name"
               />
               <Field
-                label="School"
+                label={t('auth.school')}
                 icon={<Sparkles className="w-5 h-5" />}
                 value={school}
                 onChange={setSchool}
-                placeholder="Your school"
+                placeholder={t('auth.yourSchool')}
                 autoComplete="organization"
               />
             </div>
@@ -517,39 +522,39 @@ export default function Auth() {
             <div className="rounded-[2rem] border-2 border-brand-dark bg-brand-bg p-5">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Email Access</p>
-                  <h3 className="text-2xl font-black">{mode === 'create' ? 'Create a teacher account' : 'Use your teacher login'}</h3>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{t('auth.emailAccess')}</p>
+                  <h3 className="text-2xl font-black">{mode === 'create' ? t('auth.createAccountTitle') : t('auth.useTeacherLogin')}</h3>
                 </div>
                 <span className={`px-3 py-2 rounded-full border-2 border-brand-dark text-xs font-black uppercase tracking-[0.15em] ${mode === 'create' ? 'bg-white' : DEMO_AUTH_ENABLED ? 'bg-brand-yellow' : 'bg-brand-bg'}`}>
-                  {mode === 'create' ? 'Secure Sign-Up' : DEMO_AUTH_ENABLED ? 'Demo Ready' : 'Secure Sign-In'}
+                  {mode === 'create' ? t('auth.secureSignUp') : DEMO_AUTH_ENABLED ? t('auth.demoReady') : t('auth.secureSignIn')}
                 </span>
               </div>
 
               <div className="space-y-4">
                 <Field
-                  label="Email"
+                  label={t('auth.emailLabel')}
                   icon={<Mail className="w-5 h-5" />}
                   value={email}
                   onChange={setEmail}
-                  placeholder={DEMO_AUTH_ENABLED ? DEMO_TEACHER_EMAIL : 'teacher@school.edu'}
+                  placeholder={DEMO_AUTH_ENABLED ? DEMO_TEACHER_EMAIL : t('auth.teacherEmailPlaceholder')}
                   autoComplete="email"
                 />
                 <Field
-                  label="Password"
+                  label={t('auth.passwordLabel')}
                   icon={<Lock className="w-5 h-5" />}
                   value={password}
                   onChange={setPassword}
-                  placeholder={mode === 'login' ? (DEMO_AUTH_ENABLED ? DEMO_TEACHER_PASSWORD : 'Enter your password') : 'Create a password'}
+                  placeholder={mode === 'login' ? (DEMO_AUTH_ENABLED ? DEMO_TEACHER_PASSWORD : t('auth.enterPassword')) : t('auth.createPassword')}
                   type="password"
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                 />
                 {mode === 'create' && (
                   <Field
-                    label="Confirm Password"
+                    label={t('auth.confirmPassword')}
                     icon={<Lock className="w-5 h-5" />}
                     value={confirmPassword}
                     onChange={setConfirmPassword}
-                    placeholder="Repeat your password"
+                    placeholder={t('auth.repeatPassword')}
                     type="password"
                     autoComplete="new-password"
                   />
@@ -564,18 +569,18 @@ export default function Auth() {
                 {pendingAction === 'password' ? <LoaderCircle className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5" />}
                 {pendingAction === 'password'
                   ? mode === 'create'
-                    ? 'Creating Account...'
-                    : 'Signing In...'
+                    ? t('auth.creatingAccount')
+                    : t('auth.signingIn')
                   : mode === 'create'
-                    ? 'Create Teacher Account'
-                    : 'Enter Teacher Area'}
+                    ? t('auth.createTeacherAccount')
+                    : t('auth.enterTeacherArea')}
               </button>
             </div>
           </form>
 
           <div className="my-6 flex items-center gap-3">
             <div className="h-[2px] flex-1 bg-brand-dark/10" />
-            <span className="text-xs font-black uppercase tracking-[0.25em] text-brand-dark/40">Or use social access</span>
+            <span className="text-xs font-black uppercase tracking-[0.25em] text-brand-dark/40">{t('auth.socialAccess')}</span>
             <div className="h-[2px] flex-1 bg-brand-dark/10" />
           </div>
 
@@ -583,7 +588,7 @@ export default function Auth() {
             <SocialAccessButton
               brand="google"
               title={`${socialLabel} Google`}
-              body="Fast and secure access with your Google account."
+              body={t('auth.googleFastAccess')}
               loading={pendingAction === 'google'}
               disabled={pendingAction !== null}
               onClick={() => handleSocialAccess('google')}
@@ -591,7 +596,7 @@ export default function Auth() {
             <SocialAccessButton
               brand="facebook"
               title={`${socialLabel} Facebook`}
-              body="Requires provider activation. Use email registration until Facebook sign-in is configured."
+              body={t('auth.facebookActivation')}
               loading={pendingAction === 'facebook'}
               disabled={pendingAction !== null}
               onClick={() => handleSocialAccess('facebook')}
@@ -599,7 +604,7 @@ export default function Auth() {
           </div>
 
           <p className="mt-6 text-sm font-bold text-brand-dark/50">
-            Teacher routes are now verified on the server. If a session expires or the cookie is missing, direct navigation will send you back here before opening the workspace.
+            {t('auth.serverVerifiedNote')}
           </p>
         </motion.section>
       </main>
