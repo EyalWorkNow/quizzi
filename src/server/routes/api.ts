@@ -1692,6 +1692,151 @@ async function createFollowUpPack({
   };
 }
 
+function deriveAdaptiveFocusTags({
+  sessionAnalytics,
+  overallAnalytics,
+  studentSummary,
+  participant,
+}: {
+  sessionAnalytics?: any;
+  overallAnalytics?: any;
+  studentSummary?: any;
+  participant?: any;
+}) {
+  return uniqueStrings([
+    ...(Array.isArray(sessionAnalytics?.adaptiveTargets?.focus_tags) ? sessionAnalytics.adaptiveTargets.focus_tags : []),
+    ...(Array.isArray(overallAnalytics?.adaptiveTargets?.focus_tags) ? overallAnalytics.adaptiveTargets.focus_tags : []),
+    ...(Array.isArray(sessionAnalytics?.practicePlan?.focus_tags) ? sessionAnalytics.practicePlan.focus_tags : []),
+    ...(Array.isArray(studentSummary?.weak_tags) ? studentSummary.weak_tags : []),
+    ...(Array.isArray(participant?.weak_tags) ? participant.weak_tags : []),
+  ]).slice(0, 4);
+}
+
+function deriveAdaptivePriorityQuestionIds({
+  sessionAnalytics,
+  overallAnalytics,
+  answers,
+}: {
+  sessionAnalytics?: any;
+  overallAnalytics?: any;
+  answers?: any[];
+}) {
+  return uniqueNumbers([
+    ...(Array.isArray(sessionAnalytics?.adaptiveTargets?.priority_question_ids) ? sessionAnalytics.adaptiveTargets.priority_question_ids : []),
+    ...(Array.isArray(overallAnalytics?.adaptiveTargets?.priority_question_ids) ? overallAnalytics.adaptiveTargets.priority_question_ids : []),
+    ...((Array.isArray(answers) ? answers : [])
+      .filter((answer: any) => !Number(answer?.is_correct || 0))
+      .map((answer: any) => answer?.question_id)),
+  ]).slice(0, 8);
+}
+
+async function createAdaptivePackForParticipant({
+  teacherUserId,
+  sourceSession,
+  sourcePack,
+  participant,
+  mastery,
+  practiceAttempts,
+  questions,
+  requestedCount,
+  focusTags,
+  priorityQuestionIds,
+  notesExtra,
+}: {
+  teacherUserId: number;
+  sourceSession: any;
+  sourcePack: any;
+  participant: any;
+  mastery: any[];
+  practiceAttempts: any[];
+  questions: any[];
+  requestedCount: number;
+  focusTags: string[];
+  priorityQuestionIds: number[];
+  notesExtra?: string;
+}) {
+  const safeQuestionCount = Math.min(
+    clampNumber(requestedCount, 1, 20, 5),
+    Math.max(1, Array.isArray(questions) ? questions.length : 1),
+  );
+  const originalPackTitle = String(sourcePack?.title || `Pack ${sourceSession?.quiz_pack_id || 'adaptive'}`);
+  const adaptiveTitle = `Adaptive S${Number(sourceSession?.id || 0)} (${safeQuestionCount}Q): ${String(participant?.nickname || 'Student')} - ${originalPackTitle}`;
+  const existingPack = (await db
+        .prepare('SELECT id FROM quiz_packs WHERE teacher_id = ? AND title = ? LIMIT 1')
+        .get(teacherUserId, adaptiveTitle)) as any;
+
+  if (existingPack?.id) {
+    const questionCount = Number(
+      (await db.prepare('SELECT COUNT(*) as count FROM questions WHERE quiz_pack_id = ?').get(existingPack.id))?.count || 0,
+    );
+    return {
+      pack_id: Number(existingPack.id),
+      title: adaptiveTitle,
+      question_count: questionCount,
+      strategy: 'reused-existing-pack',
+      focus_tags: focusTags,
+      priority_question_ids: priorityQuestionIds,
+      participant: {
+        id: Number(participant?.id || 0),
+        nickname: String(participant?.nickname || 'Student'),
+      },
+      teacherClassId: Number(sourceSession?.teacher_class_id || 0) || null,
+      reused: true,
+    };
+  }
+
+  const adaptiveGame = await runPythonEngine<any>('practice-set', {
+    nickname: participant?.nickname,
+    mastery,
+    questions,
+    practice_attempts: practiceAttempts,
+    count: safeQuestionCount,
+    focus_tags: focusTags,
+    priority_question_ids: priorityQuestionIds,
+  });
+
+  if (!adaptiveGame?.questions?.length) {
+    const error = new Error('No adaptive questions available for this student');
+    (error as any).status = 400;
+    throw error;
+  }
+
+  const packNotes = [
+    `Adaptive path for ${String(participant?.nickname || 'Student')}`,
+    focusTags.length > 0 ? `Focus tags: ${focusTags.join(', ')}` : '',
+    priorityQuestionIds.length > 0 ? `Priority question IDs: ${priorityQuestionIds.join(', ')}` : '',
+    adaptiveGame?.strategy ? `Strategy: ${String(adaptiveGame.strategy)}` : '',
+    notesExtra || '',
+    `Source session: ${Number(sourceSession?.id || 0)}`,
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
+  const createdPack = await createFollowUpPack({
+    teacherUserId,
+    sourceSession,
+    sourcePack,
+    questions: adaptiveGame.questions,
+    title: adaptiveTitle,
+    packNotes,
+  });
+
+  return {
+    pack_id: createdPack.packId,
+    title: adaptiveTitle,
+    question_count: adaptiveGame.questions.length,
+    strategy: adaptiveGame.strategy,
+    focus_tags: focusTags,
+    priority_question_ids: priorityQuestionIds,
+    participant: {
+      id: Number(participant?.id || 0),
+      nickname: String(participant?.nickname || 'Student'),
+    },
+    teacherClassId: createdPack.teacherClassId,
+    reused: false,
+  };
+}
+
 async function executeFollowUpPlan({
   teacherUserId,
   sessionId,
@@ -3995,6 +4140,124 @@ router.post('/teacher/sessions/:sessionId/rematch-pack', requireTeacherSession, 
   }
 });
 
+router.post('/analytics/class/:sessionId/personalized-games', async (req, res) => {
+  const session = readTeacherSession(req);
+  if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
+  try {
+    const teacherUserId = Number((await getTeacherUserByEmail(session.email))?.id || 0);
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceTrustedOrigin(req, res)) return;
+    if (!enforceRateLimit(req, res, 'personalized-games-create', 6, 15 * 60 * 1000, teacherUserId, req.params.sessionId)) return;
+
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const requestedCount = clampNumber(req.body?.count, 1, 20, 5);
+    const ownedSession = (await getTeacherOwnedSession(sessionId, teacherUserId));
+    if (!ownedSession) return res.status(404).json({ error: 'Session not found' });
+
+    const classPayload = (await getSessionPayload(sessionId));
+    if (!classPayload) return res.status(404).json({ error: 'Class analytics not found' });
+    const requestedParticipantIds = uniqueNumbers(Array.isArray(req.body?.participant_ids) ? req.body.participant_ids : []);
+
+    const classDashboard = (await runPythonEngine<any>('class-dashboard', classPayload)) as Record<string, any>;
+    const studentSummaries = new Map<number, any>(
+      (Array.isArray(classDashboard?.participants) ? classDashboard.participants : []).map((row: any) => [Number(row.id), row] as const),
+    );
+    const answeredParticipantIds = new Set<number>(
+      uniqueNumbers((Array.isArray(classPayload.answers) ? classPayload.answers : []).map((answer: any) => answer?.participant_id)),
+    );
+    const eligibleParticipants = (Array.isArray(classPayload.participants) ? classPayload.participants : []).filter((participant: any) => {
+      const participantId = Number(participant?.id || 0);
+      if (!answeredParticipantIds.has(participantId)) return false;
+      if (requestedParticipantIds.length > 0 && !requestedParticipantIds.includes(participantId)) return false;
+      return true;
+    });
+
+    if (!eligibleParticipants.length) {
+      return res.status(400).json({
+        error:
+          requestedParticipantIds.length > 0
+            ? 'None of the requested students were eligible for personalized games in this session'
+            : 'No participating students were found in this session',
+      });
+    }
+
+    const createdPacks: any[] = [];
+    const failedStudents: any[] = [];
+
+    for (const participant of eligibleParticipants) {
+      try {
+        const participantId = Number(participant?.id || 0);
+        const identityKey = getParticipantIdentityKey(participant);
+        const mastery = (await getMasteryRows(identityKey));
+        const practiceAttempts = (await db.prepare('SELECT * FROM practice_attempts WHERE identity_key = ?').all(identityKey)) as any[];
+        const participantAnswers = (Array.isArray(classPayload.answers) ? classPayload.answers : []).filter(
+          (answer: any) => Number(answer?.participant_id || 0) === participantId,
+        );
+        const studentSummary = studentSummaries.get(participantId) || null;
+        const focusTags = deriveAdaptiveFocusTags({ studentSummary, participant });
+        const priorityQuestionIds = deriveAdaptivePriorityQuestionIds({ answers: participantAnswers });
+        const riskLabel = String(studentSummary?.risk_level || 'medium');
+        const notesExtra = [
+          studentSummary?.recommendation ? `Recommendation: ${studentSummary.recommendation}` : '',
+          `Risk: ${riskLabel}`,
+        ]
+          .filter(Boolean)
+          .join(' | ');
+
+        const adaptivePack = await createAdaptivePackForParticipant({
+          teacherUserId,
+          sourceSession: ownedSession,
+          sourcePack: classPayload.pack || {},
+          participant,
+          mastery,
+          practiceAttempts,
+          questions: classPayload.questions,
+          requestedCount,
+          focusTags,
+          priorityQuestionIds,
+          notesExtra,
+        });
+
+        createdPacks.push({
+          ...adaptivePack,
+          risk_level: riskLabel,
+          recommendation: studentSummary?.recommendation || '',
+        });
+      } catch (error: any) {
+        failedStudents.push({
+          participant: {
+            id: Number(participant?.id || 0),
+            nickname: String(participant?.nickname || 'Student'),
+          },
+          error: error?.message || 'Failed to build personalized game',
+        });
+      }
+    }
+
+    if (!createdPacks.length) {
+      return res.status(400).json({
+        error: 'No personalized games could be created for this session',
+        failed_students: failedStudents,
+      });
+    }
+
+    res.json({
+      source_session_id: sessionId,
+      requested_count: requestedCount,
+      requested_participants: requestedParticipantIds.length,
+      processed_count: eligibleParticipants.length,
+      created_count: createdPacks.filter((pack) => !pack.reused).length,
+      reused_count: createdPacks.filter((pack) => pack.reused).length,
+      failed_count: failedStudents.length,
+      created_packs: createdPacks,
+      failed_students: failedStudents,
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Personalized game batch creation failed:', error);
+    respondWithServerError(res, 'Failed to create personalized games');
+  }
+});
+
 router.get('/analytics/class/:sessionId/student/:participantId', async (req, res) => {
   const session = readTeacherSession(req);
   if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
@@ -4054,105 +4317,51 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
     }
     const context = await getSessionStudentContext(sessionId, participantId);
     if (!context) return res.status(404).json({ error: 'Student session analytics not found' });
-
-    const adaptiveGame = await runPythonEngine<any>('practice-set', {
-      nickname: context.participant.nickname,
+    const focusTags = deriveAdaptiveFocusTags({
+      sessionAnalytics: context.sessionAnalytics,
+      overallAnalytics: context.overallAnalytics,
+      studentSummary: context.studentSummary,
+      participant: context.participant,
+    });
+    const priorityQuestionIds = deriveAdaptivePriorityQuestionIds({
+      sessionAnalytics: context.sessionAnalytics,
+      overallAnalytics: context.overallAnalytics,
+      answers: context.classPayload.answers?.filter((answer: any) => Number(answer?.participant_id || 0) === participantId) || [],
+    });
+    const notesExtra = [
+      context.studentSummary?.recommendation ? `Recommendation: ${context.studentSummary.recommendation}` : '',
+      context.studentSummary?.risk_level ? `Risk: ${context.studentSummary.risk_level}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ');
+    const adaptivePack = await createAdaptivePackForParticipant({
+      teacherUserId,
+      sourceSession: ownedSession,
+      sourcePack: context.classPayload.pack || {},
+      participant: context.participant,
       mastery: context.mastery,
+      practiceAttempts: context.practice_attempts,
       questions: context.classPayload.questions,
-      practice_attempts: context.practice_attempts,
-      count: Math.min(requestedCount, Math.max(1, context.classPayload.questions.length || 1)),
-      focus_tags:
-        context.sessionAnalytics?.adaptiveTargets?.focus_tags ||
-        context.overallAnalytics?.adaptiveTargets?.focus_tags ||
-        context.sessionAnalytics?.practicePlan?.focus_tags ||
-        [],
-      priority_question_ids:
-        context.sessionAnalytics?.adaptiveTargets?.priority_question_ids ||
-        context.overallAnalytics?.adaptiveTargets?.priority_question_ids ||
-        [],
+      requestedCount,
+      focusTags,
+      priorityQuestionIds,
+      notesExtra,
     });
-
-    if (!adaptiveGame?.questions?.length) {
-      return res.status(400).json({ error: 'No adaptive questions available for this student' });
-    }
-
-    const originalPackTitle = context.classPayload.pack?.title || `Pack ${context.classPayload.session.quiz_pack_id}`;
-    const adaptiveTitle = `Adaptive: ${context.participant.nickname} - ${originalPackTitle}`;
-    const adaptiveProfile = (await getOrCreateMaterialProfile(context.classPayload.pack?.source_text || ''));
-    const packInfo = (await db
-          .prepare(`
-        INSERT INTO quiz_packs (
-          teacher_id,
-          title,
-          source_text,
-          source_hash,
-          source_excerpt,
-          source_language,
-          source_word_count,
-          material_profile_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-          .run(
-            teacherUserId,
-            adaptiveTitle,
-            context.classPayload.pack?.source_text || '',
-            adaptiveProfile.source_hash,
-            adaptiveProfile.source_excerpt,
-            adaptiveProfile.source_language,
-            adaptiveProfile.word_count,
-            adaptiveProfile.id,
-          ));
-    const adaptivePackId = Number(packInfo.lastInsertRowid);
-
-    const insertQuestion = db.prepare(`
-      INSERT INTO questions (
-        quiz_pack_id,
-        type,
-        prompt,
-        image_url,
-        answers_json,
-        correct_index,
-        explanation,
-        tags_json,
-        difficulty,
-        time_limit_seconds,
-        question_order
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const insertQuestions = db.transaction((questions: any[]) => {
-      questions.forEach((question, index) => {
-        insertQuestion.run(
-          adaptivePackId,
-          question.type || 'multiple_choice',
-          question.prompt,
-          question.image_url || '',
-          question.answers_json || JSON.stringify(question.answers || []),
-          question.correct_index,
-          question.explanation || '',
-          question.tags_json || JSON.stringify(question.tags || []),
-          question.difficulty || 3,
-          question.time_limit_seconds || 20,
-          index + 1,
-        );
-      });
-    });
-    insertQuestions(adaptiveGame.questions);
-    await syncPackDerivedData(adaptivePackId, context.classPayload.pack?.source_text || '', adaptiveGame.questions);
 
     const pin = (await createSessionPin());
     const sessionInfo = db
-          .prepare('INSERT INTO sessions (quiz_pack_id, pin, status) VALUES (?, ?, ?)')
-          .run(adaptivePackId, pin, 'LOBBY');
+          .prepare('INSERT INTO sessions (quiz_pack_id, teacher_class_id, pin, status) VALUES (?, ?, ?, ?)')
+          .run(adaptivePack.pack_id, adaptivePack.teacherClassId, pin, 'LOBBY');
 
     res.json({
-      adaptive_pack_id: adaptivePackId,
+      adaptive_pack_id: adaptivePack.pack_id,
       session_id: Number(sessionInfo.lastInsertRowid),
       pin,
-      title: adaptiveTitle,
-      question_count: adaptiveGame.questions.length,
-      strategy: adaptiveGame.strategy,
+      title: adaptivePack.title,
+      question_count: adaptivePack.question_count,
+      strategy: adaptivePack.strategy,
+      focus_tags: adaptivePack.focus_tags,
+      reused: adaptivePack.reused,
       participant: {
         id: Number(context.participant.id),
         nickname: context.participant.nickname,

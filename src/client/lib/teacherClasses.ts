@@ -132,6 +132,12 @@ export async function removeTeacherClassStudent(classId: number, studentId: numb
   });
 }
 
+export async function deleteTeacherSession(sessionId: number) {
+  return apiFetchJson<{ deleted: boolean; session_id: number }>(`/api/teacher/sessions/${sessionId}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function createClassSession({
   classId,
   packId,

@@ -8,15 +8,19 @@ import {
   ArrowUpRight,
   BarChart3,
   BrainCircuit,
+  Check,
   CheckCircle2,
   ChevronDown,
   CircleAlert,
   CircleHelp,
+  Copy,
   Download,
   Eye,
   Gauge,
   ListChecks,
   RefreshCw,
+  Rocket,
+  Search,
   Sparkles,
   Target,
   TrendingDown,
@@ -32,6 +36,8 @@ const compactNumber = new Intl.NumberFormat('en-US', { notation: 'compact', maxi
 const TEACHER_BOARD_VIEW_KEY = 'quizzi.teacher.analytics.view';
 
 type TeacherBoardViewMode = 'simple' | 'advanced';
+type StudentBoardFilter = 'all' | 'attention' | 'high-risk' | 'fatigue' | 'low-accuracy';
+type QuestionBoardFilter = 'all' | 'teach-now' | 'low-accuracy' | 'high-stress' | 'distractor';
 
 function readTeacherBoardViewMode(): TeacherBoardViewMode {
   if (typeof window === 'undefined') return 'simple';
@@ -131,6 +137,72 @@ function severityRank(level?: string) {
   if (level === 'high') return 3;
   if (level === 'medium') return 2;
   return 1;
+}
+
+function buildSearchHaystack(parts: Array<unknown>) {
+  return parts
+    .flatMap((part) => (Array.isArray(part) ? part : [part]))
+    .filter((part) => part != null && String(part).trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+}
+
+function normalizeTagList(values: Array<unknown>) {
+  return Array.from(
+    new Set(
+      values
+        .flatMap((value) => (Array.isArray(value) ? value : [value]))
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function questionNeedsImmediateAttention(question: any) {
+  return (
+    Number(question?.accuracy || 0) < 70 ||
+    Number(question?.stress_index || 0) >= 60 ||
+    Number(question?.deadline_dependency_rate || 0) >= 25 ||
+    Number(question?.top_distractor?.rate || 0) >= 20 ||
+    Number(question?.changed_away_from_correct_rate || 0) >= 15
+  );
+}
+
+function getQuestionPrioritySignal(question: any) {
+  if (Number(question?.accuracy || 0) < 55) {
+    return { label: 'Reteach now', tone: 'bad' as const };
+  }
+  if (Number(question?.top_distractor?.rate || 0) >= 20) {
+    return {
+      label: question?.top_distractor?.label
+        ? `Distractor ${question.top_distractor.label} is sticky`
+        : 'Distractor cluster',
+      tone: 'bad' as const,
+    };
+  }
+  if (Number(question?.stress_index || 0) >= 60 || Number(question?.deadline_dependency_rate || 0) >= 25) {
+    return { label: 'Pressure hotspot', tone: 'mid' as const };
+  }
+  if (Number(question?.changed_away_from_correct_rate || 0) >= 15) {
+    return { label: 'Confidence wobble', tone: 'mid' as const };
+  }
+  return { label: 'Monitor', tone: 'good' as const };
+}
+
+function getStudentPrioritySignal(student: any, isInAttentionQueue: boolean) {
+  if (isInAttentionQueue) {
+    return { label: 'Priority follow-up', tone: 'bad' as const };
+  }
+  if (String(student?.risk_level || '') === 'high') {
+    return { label: 'High risk', tone: 'bad' as const };
+  }
+  if (student?.fatigue_drift?.direction === 'fatigue') {
+    return { label: 'Fatigue drift', tone: 'mid' as const };
+  }
+  if (Number(student?.accuracy || 0) < 65) {
+    return { label: 'Accuracy dip', tone: 'mid' as const };
+  }
+  return { label: 'Stable', tone: 'good' as const };
 }
 
 const METRIC_EXPLANATIONS = {
@@ -251,6 +323,20 @@ export default function TeacherAnalytics() {
   const [viewMode, setViewMode] = useState<TeacherBoardViewMode>(() => readTeacherBoardViewMode());
   const [followUpBusyPlanId, setFollowUpBusyPlanId] = useState<string | null>(null);
   const [followUpNotice, setFollowUpNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [recoveryBuilderBusyKey, setRecoveryBuilderBusyKey] = useState<string | null>(null);
+  const [recoveryBuilderSummary, setRecoveryBuilderSummary] = useState<null | {
+    targetLabel: string;
+    createdCount: number;
+    reusedCount: number;
+    failedCount: number;
+    createdPacks: any[];
+  }>(null);
+  const [copiedOfficeHoursKey, setCopiedOfficeHoursKey] = useState('');
+  const [copiedReplayTimeline, setCopiedReplayTimeline] = useState(false);
+  const [studentSearch, setStudentSearch] = useState('');
+  const [studentFilter, setStudentFilter] = useState<StudentBoardFilter>('all');
+  const [questionSearch, setQuestionSearch] = useState('');
+  const [questionFilter, setQuestionFilter] = useState<QuestionBoardFilter>('teach-now');
 
   const loadAnalytics = async () => {
     if (!sessionId) return;
@@ -298,6 +384,18 @@ export default function TeacherAnalytics() {
     return () => window.clearTimeout(timeout);
   }, [followUpNotice]);
 
+  useEffect(() => {
+    if (!copiedOfficeHoursKey) return;
+    const timeout = window.setTimeout(() => setCopiedOfficeHoursKey(''), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [copiedOfficeHoursKey]);
+
+  useEffect(() => {
+    if (!copiedReplayTimeline) return;
+    const timeout = window.setTimeout(() => setCopiedReplayTimeline(false), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [copiedReplayTimeline]);
+
   const participants = data?.participants || [];
   const questionRows = data?.questions || [];
   const alertList = data?.alerts || [];
@@ -335,6 +433,13 @@ export default function TeacherAnalytics() {
   const leadMisconception = recurrentMisconceptions[0] || null;
   const attentionQueue = data?.studentSpotlight?.attention_needed || [];
   const topAttentionStudents = attentionQueue.slice(0, 3);
+  const attentionOrder = useMemo(
+    () =>
+      new Map<number, number>(
+        attentionQueue.map((student: any, index: number) => [Number(student.id), index] as const),
+      ),
+    [attentionQueue],
+  );
   const highRiskFatigueCount = participants.filter(
     (student: any) => student.risk_level === 'high' && student.fatigue_drift?.direction === 'fatigue',
   ).length;
@@ -344,6 +449,15 @@ export default function TeacherAnalytics() {
   const harmfulRevisionRate = Number(revisionIntelligence?.changed_away_from_correct_rate || 0);
   const lockedWrongRate = Number(revisionIntelligence?.stayed_wrong_rate || 0);
   const pressureRate = Number(deadlineDependency?.pressure_rate || 0);
+  const leadQuestionTags = useMemo(
+    () =>
+      new Set(
+        [leadMisconception?.tag, ...(Array.isArray(leadQuestion?.tags) ? leadQuestion.tags : [])]
+          .filter(Boolean)
+          .map((value) => String(value).toLowerCase()),
+      ),
+    [leadMisconception?.tag, leadQuestion?.tags],
+  );
   const focusWatchRate = participants.length
     ? (Number(data?.summary?.focus_watch_students || 0) / participants.length) * 100
     : 0;
@@ -1104,9 +1218,6 @@ export default function TeacherAnalytics() {
   );
 
   const prioritizedParticipants = useMemo(() => {
-    const attentionOrder = new Map<number, number>(
-      attentionQueue.map((student: any, index: number) => [Number(student.id), index] as const),
-    );
     return [...participants].sort((left: any, right: any) => {
       const leftAttentionIndex = attentionOrder.get(Number(left.id));
       const rightAttentionIndex = attentionOrder.get(Number(right.id));
@@ -1130,11 +1241,82 @@ export default function TeacherAnalytics() {
 
       return String(left.nickname || '').localeCompare(String(right.nickname || ''));
     });
-  }, [attentionQueue, participants]);
+  }, [attentionOrder, participants]);
+
+  const filteredParticipants = useMemo(() => {
+    const query = studentSearch.trim().toLowerCase();
+    return prioritizedParticipants.filter((student: any) => {
+      const matchesFilter =
+        studentFilter === 'all'
+          ? true
+          : studentFilter === 'attention'
+            ? attentionOrder.has(Number(student.id))
+            : studentFilter === 'high-risk'
+              ? String(student.risk_level || '') === 'high'
+              : studentFilter === 'fatigue'
+                ? student?.fatigue_drift?.direction === 'fatigue'
+                : Number(student.accuracy || 0) < 65;
+
+      if (!matchesFilter) return false;
+      if (!query) return true;
+
+      return buildSearchHaystack([
+        student.nickname,
+        student.decision_style,
+        student.recommendation,
+        student.weak_tags,
+        student.strong_tags,
+        student.flags,
+      ]).includes(query);
+    });
+  }, [attentionOrder, prioritizedParticipants, studentFilter, studentSearch]);
+
+  const filteredQuestionDiagnostics = useMemo(() => {
+    const query = questionSearch.trim().toLowerCase();
+    return questionDiagnostics.filter((question: any) => {
+      const matchesFilter =
+        questionFilter === 'all'
+          ? true
+          : questionFilter === 'teach-now'
+            ? questionNeedsImmediateAttention(question)
+            : questionFilter === 'low-accuracy'
+              ? Number(question.accuracy || 0) < 70
+              : questionFilter === 'high-stress'
+                ? Number(question.stress_index || 0) >= 60 || Number(question.deadline_dependency_rate || 0) >= 25
+                : Boolean(question.top_distractor) && Number(question.top_distractor?.rate || 0) >= 15;
+
+      if (!matchesFilter) return false;
+      if (!query) return true;
+
+      return buildSearchHaystack([
+        question.question_index,
+        `question ${question.question_index}`,
+        question.question_prompt,
+        question.tags,
+        question.learning_objective,
+        question.bloom_level,
+        question.top_distractor?.text,
+        question.top_distractor?.label,
+        question.recommendation,
+      ]).includes(query);
+    });
+  }, [questionDiagnostics, questionFilter, questionSearch]);
 
   const openStudentDashboard = (studentId: number | string) => {
     if (!sessionId) return;
     navigate(`/teacher/analytics/class/${sessionId}/student/${studentId}`);
+  };
+
+  const focusStudentCommandCenter = (filter: StudentBoardFilter = 'all', search = '') => {
+    setStudentFilter(filter);
+    setStudentSearch(search);
+    scrollToBoardSection('teacher-board-students-list');
+  };
+
+  const focusQuestionBoard = (filter: QuestionBoardFilter = 'teach-now', search = '') => {
+    setQuestionFilter(filter);
+    setQuestionSearch(search);
+    scrollToBoardSection('teacher-board-questions');
   };
 
   const handleFollowUpAction = async (planId: string, launchNow: boolean) => {
@@ -1163,6 +1345,614 @@ export default function TeacherAnalytics() {
     } finally {
       setFollowUpBusyPlanId(null);
     }
+  };
+
+  const handleCopyOfficeHours = async (copyKey: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedOfficeHoursKey(copyKey);
+    } catch (copyError: any) {
+      setFollowUpNotice({ tone: 'error', message: copyError?.message || 'Failed to copy outreach text.' });
+    }
+  };
+
+  const handleCopyReplayTimeline = async () => {
+    try {
+      await navigator.clipboard.writeText(replayTimelineText);
+      setCopiedReplayTimeline(true);
+    } catch (copyError: any) {
+      setFollowUpNotice({ tone: 'error', message: copyError?.message || 'Failed to copy replay timeline.' });
+    }
+  };
+
+  const handleBuildRecoveryGames = async (target: { id: string; label: string; participantIds: number[] }) => {
+    if (!sessionId || target.participantIds.length === 0) return;
+
+    try {
+      setRecoveryBuilderBusyKey(target.id);
+      setRecoveryBuilderSummary(null);
+      const payload = await apiFetchJson(`/api/analytics/class/${sessionId}/personalized-games`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          count: 5,
+          participant_ids: target.participantIds,
+        }),
+      });
+
+      setRecoveryBuilderSummary({
+        targetLabel: target.label,
+        createdCount: Number(payload?.created_count || 0),
+        reusedCount: Number(payload?.reused_count || 0),
+        failedCount: Number(payload?.failed_count || 0),
+        createdPacks: Array.isArray(payload?.created_packs) ? payload.created_packs : [],
+      });
+      setFollowUpNotice({
+        tone: 'success',
+        message: `${target.label}: ${Number(payload?.created_count || 0)} created, ${Number(payload?.reused_count || 0)} reused.`,
+      });
+    } catch (buildError: any) {
+      setFollowUpNotice({ tone: 'error', message: buildError?.message || 'Failed to build targeted recovery games.' });
+    } finally {
+      setRecoveryBuilderBusyKey(null);
+    }
+  };
+
+  const teacherActionQueue = useMemo(() => {
+    const items: Array<{
+      id: string;
+      label: string;
+      title: string;
+      body: string;
+      metricLabel: string;
+      metricValue: string;
+      tone: 'bad' | 'mid' | 'good';
+      actionLabel: string;
+      action: { type: 'scroll'; target: string } | { type: 'student'; studentId: number | string } | { type: 'follow-up'; planId: string };
+    }> = [];
+
+    if (leadQuestion) {
+      items.push({
+        id: 'lead-question',
+        label: 'Teach next',
+        title: `Question ${leadQuestion.question_index} needs a reset`,
+        body:
+          leadQuestion.recommendation ||
+          `${Number(leadQuestion.accuracy || 0).toFixed(0)}% accuracy with visible confusion on this item.`,
+        metricLabel: 'Accuracy',
+        metricValue: `${Number(leadQuestion.accuracy || 0).toFixed(0)}%`,
+        tone: Number(leadQuestion.accuracy || 0) < 60 ? 'bad' : 'mid',
+        actionLabel: 'Open question triage',
+        action: { type: 'scroll', target: 'teacher-board-questions' },
+      });
+    }
+
+    if (topAttentionStudents[0]) {
+      items.push({
+        id: 'priority-student',
+        label: 'Student support',
+        title: `${topAttentionStudents[0].nickname} needs follow-up`,
+        body:
+          topAttentionStudents[0].recommendation ||
+          'Open the individual dashboard to build a same-material recovery plan.',
+        metricLabel: 'Risk',
+        metricValue: String(topAttentionStudents[0].risk_level || 'medium'),
+        tone: String(topAttentionStudents[0].risk_level || '') === 'high' ? 'bad' : 'mid',
+        actionLabel: 'Open student dashboard',
+        action: { type: 'student', studentId: topAttentionStudents[0].id },
+      });
+    }
+
+    if (leadMisconception && leadQuestion) {
+      items.push({
+        id: 'misconception-cluster',
+        label: 'Misconception',
+        title: `${humanizeTag(leadMisconception.tag)} is spreading`,
+        body: `${leadMisconception.student_count} students converged on distractor ${leadMisconception.choice_label} in question ${leadQuestion.question_index}.`,
+        metricLabel: 'Students',
+        metricValue: `${Number(leadMisconception.student_count || 0)}`,
+        tone: Number(leadMisconception.student_count || 0) >= Math.max(4, Math.round(participants.length * 0.3)) ? 'bad' : 'mid',
+        actionLabel: 'Open misconception block',
+        action: { type: 'scroll', target: 'teacher-board-teach' },
+      });
+    }
+
+    if (followUpEngine?.plans?.[0]) {
+      items.push({
+        id: 'follow-up-plan',
+        label: 'Next lesson',
+        title: followUpEngine.plans[0].title,
+        body: followUpEngine.plans[0].body || 'Create the next same-material round directly from this board.',
+        metricLabel: 'Questions',
+        metricValue: `${Number(followUpEngine.plans[0].question_count || 0)}`,
+        tone: 'good',
+        actionLabel: 'Create follow-up pack',
+        action: { type: 'follow-up', planId: followUpEngine.plans[0].id },
+      });
+    }
+
+    if (!items.length) {
+      items.push({
+        id: 'overview-fallback',
+        label: 'Overview',
+        title: 'The class is currently stable',
+        body: 'Use the overview and student board to spot smaller patterns before the next live run.',
+        metricLabel: 'Students',
+        metricValue: `${participants.length}`,
+        tone: 'good',
+        actionLabel: 'Jump to overview',
+        action: { type: 'scroll', target: 'teacher-board-overview' },
+      });
+    }
+
+    return items.slice(0, 4);
+  }, [followUpEngine?.plans, leadMisconception, leadQuestion, participants.length, topAttentionStudents]);
+
+  useEffect(() => {
+    if (!filteredParticipants.length) return;
+    if (filteredParticipants.some((student: any) => Number(student.id) === Number(selectedStudentId))) return;
+    setSelectedStudentId(Number(filteredParticipants[0].id));
+  }, [filteredParticipants, selectedStudentId]);
+
+  const interventionCohorts = useMemo(() => {
+    const sharedLeadTag = leadMisconception?.tag ? String(leadMisconception.tag).toLowerCase() : '';
+    const cohorts = [
+      {
+        id: 'reteach-clinic',
+        label: 'Reteach Clinic',
+        title: leadQuestion ? `Students who missed question ${leadQuestion.question_index}` : 'Students who need a same-concept reset',
+        body: leadMisconception
+          ? `Built around ${humanizeTag(leadMisconception.tag)} and the distractor pattern that spread across the room.`
+          : 'Use this group for a short same-material reteach before the next live round.',
+        tone: 'bad' as const,
+        actionLabel: 'Open matching students',
+        actionFilter: 'low-accuracy' as StudentBoardFilter,
+        searchTerm: sharedLeadTag,
+        students: prioritizedParticipants.filter((student: any) => {
+          const weakTags = Array.isArray(student?.weak_tags) ? student.weak_tags.map((tag: string) => String(tag).toLowerCase()) : [];
+          return (
+            Number(student.accuracy || 0) < 70 ||
+            weakTags.some((tag: string) => leadQuestionTags.has(tag)) ||
+            (sharedLeadTag ? weakTags.includes(sharedLeadTag) : false)
+          );
+        }),
+      },
+      {
+        id: 'confidence-rescue',
+        label: 'Confidence Rescue',
+        title: 'Students who knew it, then lost it',
+        body: 'These learners are close to mastery but unstable under pressure. They need a calmer re-check, not a brand-new lesson.',
+        tone: 'mid' as const,
+        actionLabel: 'Open confidence wobble group',
+        actionFilter: 'attention' as StudentBoardFilter,
+        searchTerm: '',
+        students: prioritizedParticipants.filter((student: any) =>
+          Number(student.changed_away_from_correct || 0) > 0 ||
+          (Number(student.first_choice_accuracy || 0) >= 45 && Number(student.stability_score || 0) < 60),
+        ),
+      },
+      {
+        id: 'fatigue-reset',
+        label: 'Fatigue Reset',
+        title: 'Students fading late in the run',
+        body: 'Use a slower pacing move, shorter bursts, or one extra scaffold before the next live block.',
+        tone: 'mid' as const,
+        actionLabel: 'Open fatigue group',
+        actionFilter: 'fatigue' as StudentBoardFilter,
+        searchTerm: '',
+        students: prioritizedParticipants.filter((student: any) =>
+          student?.fatigue_drift?.direction === 'fatigue' ||
+          Number(student.total_focus_loss || 0) >= 2 ||
+          (Number(student.stress_index || 0) >= 70 && Number(student.accuracy || 0) < 75),
+        ),
+      },
+      {
+        id: 'peer-leads',
+        label: 'Peer Leads',
+        title: 'Stable students who can anchor the room',
+        body: 'These students can model reasoning, lead a pair check, or stabilize table talk during the next round.',
+        tone: 'good' as const,
+        actionLabel: 'See likely peer leads',
+        actionFilter: 'all' as StudentBoardFilter,
+        searchTerm: '',
+        students: prioritizedParticipants.filter((student: any) =>
+          String(student.risk_level || '') === 'low' &&
+          Number(student.accuracy || 0) >= 85 &&
+          Number(student.confidence_score || 0) >= 60,
+        ),
+      },
+    ]
+      .map((cohort) => ({
+        ...cohort,
+        count: cohort.students.length,
+        names: cohort.students.slice(0, 4).map((student: any) => student.nickname),
+        focusTags: Array.from(
+          new Set(
+            cohort.students
+              .flatMap((student: any) => (Array.isArray(student?.weak_tags) ? student.weak_tags : []))
+              .filter(Boolean)
+              .slice(0, 4),
+          ),
+        ),
+      }))
+      .filter((cohort) => cohort.count > 0)
+      .sort((left, right) => right.count - left.count);
+
+    return cohorts.slice(0, 4);
+  }, [leadMisconception, leadQuestion, leadQuestionTags, prioritizedParticipants]);
+
+  const peerTutorMatches = useMemo(() => {
+    const tutors = prioritizedParticipants
+      .filter((student: any) =>
+        Number(student.id || 0) > 0 &&
+        String(student.risk_level || '') === 'low' &&
+        Number(student.accuracy || 0) >= 82 &&
+        Number(student.confidence_score || 0) >= 55,
+      )
+      .map((student: any) => ({
+        ...student,
+        supportTags: normalizeTagList([student.strong_tags, student.weak_tags]).map((tag) => tag.toLowerCase()),
+      }));
+
+    const learners = prioritizedParticipants
+      .filter((student: any) =>
+        Number(student.id || 0) > 0 &&
+        (attentionOrder.has(Number(student.id)) ||
+          String(student.risk_level || '') === 'high' ||
+          Number(student.accuracy || 0) < 70 ||
+          student?.fatigue_drift?.direction === 'fatigue'),
+      )
+      .map((student: any) => ({
+        ...student,
+        needTags: normalizeTagList([student.weak_tags, Array.from(leadQuestionTags)]).map((tag) => tag.toLowerCase()),
+      }));
+
+    const usedTutorIds = new Set<number>();
+    const matches = learners
+      .map((learner: any) => {
+        const bestTutor = tutors
+          .filter((tutor: any) => Number(tutor.id) !== Number(learner.id) && !usedTutorIds.has(Number(tutor.id)))
+          .map((tutor: any) => {
+            const overlap = tutor.supportTags.filter((tag: string) => learner.needTags.includes(tag));
+            const score =
+              overlap.length * 12
+              + Number(tutor.accuracy || 0) * 0.4
+              + Number(tutor.confidence_score || 0) * 0.3
+              + Number(tutor.stability_score || 0) * 0.2;
+            return { tutor, overlap, score };
+          })
+          .sort((left, right) => right.score - left.score)[0];
+
+        if (!bestTutor || bestTutor.score <= 0 || bestTutor.overlap.length === 0) {
+          return null;
+        }
+
+        usedTutorIds.add(Number(bestTutor.tutor.id));
+        return {
+          id: `peer-match-${learner.id}-${bestTutor.tutor.id}`,
+          tutor: bestTutor.tutor,
+          learner,
+          overlap: bestTutor.overlap.slice(0, 3),
+        };
+      })
+      .filter(Boolean) as Array<{ id: string; tutor: any; learner: any; overlap: string[] }>;
+
+    return matches.slice(0, 4);
+  }, [attentionOrder, leadQuestionTags, prioritizedParticipants]);
+
+  const pivotMoments = useMemo(() => {
+    const moments = fatigueTimeline
+      .map((row, index, rows) => {
+        if (index === 0) return null;
+        const previous = rows[index - 1];
+        const accuracyDrop = Number(previous.rolling_accuracy || previous.accuracy || 0) - Number(row.rolling_accuracy || row.accuracy || 0);
+        const pressureSpike = Number(row.deadline_dependency_rate || 0) - Number(previous.deadline_dependency_rate || 0);
+        const responseSpike = Number(row.rolling_response_ms || row.avg_response_ms || 0) - Number(previous.rolling_response_ms || previous.avg_response_ms || 0);
+        const volatilitySpike = Number(row.rolling_volatility || row.avg_volatility || 0) - Number(previous.rolling_volatility || previous.avg_volatility || 0);
+        const question = questionDiagnostics.find(
+          (questionRow: any) => Number(questionRow.question_index || 0) === Number(row.question_index || 0),
+        );
+        const score =
+          Math.max(0, accuracyDrop) * 1.7 +
+          Math.max(0, pressureSpike) * 0.9 +
+          Math.max(0, responseSpike) / 350 +
+          Math.max(0, volatilitySpike) * 18;
+
+        if (score < 8) return null;
+
+        let title = `Question ${row.question_index} changed the room`;
+        let body = question?.recommendation || 'This is the point where the class pattern stopped looking stable.';
+        let metricLabel = 'Accuracy drop';
+        let metricValue = `${Math.max(0, accuracyDrop).toFixed(0)} pts`;
+        let tone: 'bad' | 'mid' = 'mid';
+
+        if (accuracyDrop >= 8) {
+          title = `Accuracy broke at question ${row.question_index}`;
+          body = question?.recommendation || `Rolling accuracy fell by ${accuracyDrop.toFixed(0)} points compared with the previous step.`;
+          metricLabel = 'Accuracy drop';
+          metricValue = `${accuracyDrop.toFixed(0)} pts`;
+          tone = accuracyDrop >= 14 ? 'bad' : 'mid';
+        } else if (pressureSpike >= 10) {
+          title = `Pressure spiked at question ${row.question_index}`;
+          body = question?.recommendation || `More students waited until the deadline on this item than on the previous question.`;
+          metricLabel = 'Pressure spike';
+          metricValue = `${pressureSpike.toFixed(0)} pts`;
+          tone = pressureSpike >= 18 ? 'bad' : 'mid';
+        } else if (responseSpike >= 1200) {
+          title = `Decision time stretched at question ${row.question_index}`;
+          body = question?.recommendation || 'Students slowed down noticeably here, which usually signals uncertainty rather than productive struggle.';
+          metricLabel = 'Response shift';
+          metricValue = `+${formatMs(responseSpike)}`;
+          tone = responseSpike >= 2200 ? 'bad' : 'mid';
+        } else if (volatilitySpike >= 0.2) {
+          title = `Choice stability slipped at question ${row.question_index}`;
+          body = question?.recommendation || 'Answer movement widened here, suggesting wobble rather than confident revision.';
+          metricLabel = 'Volatility';
+          metricValue = `+${volatilitySpike.toFixed(2)}`;
+          tone = 'mid';
+        }
+
+        return {
+          id: `pivot-${row.question_index}`,
+          questionIndex: Number(row.question_index || 0),
+          title,
+          body,
+          metricLabel,
+          metricValue,
+          tone,
+          searchTerm: String(row.question_index || ''),
+        };
+      })
+      .filter(Boolean) as Array<{
+      id: string;
+      questionIndex: number;
+      title: string;
+      body: string;
+      metricLabel: string;
+      metricValue: string;
+      tone: 'bad' | 'mid';
+      searchTerm: string;
+    }>;
+
+    return moments.sort((left, right) => right.questionIndex - left.questionIndex).slice(0, 3);
+  }, [fatigueTimeline, questionDiagnostics]);
+
+  const sessionReplayTimeline = useMemo(() => {
+    return questionDiagnostics
+      .map((question: any) => {
+        const timelineRow = fatigueTimeline.find((row) => Number(row.question_index || 0) === Number(question.question_index || 0));
+        const matchingPivot = pivotMoments.find((moment) => Number(moment.questionIndex || 0) === Number(question.question_index || 0));
+        const accuracy = Number(question?.accuracy || 0);
+        const stress = Number(question?.stress_index || 0);
+        const responseMs = Number(timelineRow?.avg_response_ms || question?.avg_response_ms || 0);
+        const distractorRate = Number(question?.top_distractor?.rate || 0);
+
+        let signal = 'Stable checkpoint';
+        let tone: 'good' | 'mid' | 'bad' = 'good';
+        let move = 'Keep the pace and use this question as an anchor for what the class currently understands.';
+
+        if (matchingPivot) {
+          signal = matchingPivot.title;
+          tone = matchingPivot.tone === 'bad' ? 'bad' : 'mid';
+          move = matchingPivot.body;
+        } else if (accuracy < 60) {
+          signal = 'Reteach trigger';
+          tone = 'bad';
+          move = question?.recommendation || 'Re-open the core distinction before asking the class to move on.';
+        } else if (distractorRate >= 18 || stress >= 60) {
+          signal = 'Confusion or pressure spike';
+          tone = 'mid';
+          move = question?.recommendation || 'Contrast the sticky distractor with the correct idea and give the room one calmer re-check.';
+        }
+
+        return {
+          id: `timeline-${question.question_index}`,
+          questionIndex: Number(question.question_index || 0),
+          prompt: String(question.question_prompt || ''),
+          signal,
+          tone,
+          move,
+          accuracy,
+          stress,
+          responseMs,
+          distractorLabel: question?.top_distractor?.label || null,
+          distractorRate,
+        };
+      })
+      .sort((left, right) => left.questionIndex - right.questionIndex);
+  }, [fatigueTimeline, pivotMoments, questionDiagnostics]);
+
+  const replayTimelineText = useMemo(() => {
+    return [
+      `Session Replay Timeline: ${data?.session?.pack_title || `Session #${sessionId}`}`,
+      '',
+      ...sessionReplayTimeline.map((row) => {
+        const segments = [
+          `Q${row.questionIndex}`,
+          row.signal,
+          `${row.accuracy.toFixed(0)}% accuracy`,
+          `${row.stress.toFixed(0)}% stress`,
+          formatMs(row.responseMs),
+        ];
+        if (row.distractorLabel) {
+          segments.push(`distractor ${row.distractorLabel} at ${row.distractorRate.toFixed(0)}%`);
+        }
+        return `${segments.join(' • ')}\nNext move: ${row.move}`;
+      }),
+    ].join('\n\n');
+  }, [data?.session?.pack_title, sessionId, sessionReplayTimeline]);
+
+  const officeHoursQueue = useMemo(() => {
+    return prioritizedParticipants
+      .filter((student: any) =>
+        attentionOrder.has(Number(student.id))
+        || String(student.risk_level || '') === 'high'
+        || Number(student.accuracy || 0) < 70
+        || student?.fatigue_drift?.direction === 'fatigue',
+      )
+      .slice(0, 6)
+      .map((student: any, index: number) => {
+        const focusTags = normalizeTagList([student.weak_tags]).slice(0, 3);
+        const reason =
+          student.recommendation
+          || (student?.fatigue_drift?.direction === 'fatigue'
+            ? 'this student faded late in the session and needs a lower-friction reset'
+            : String(student.risk_level || '') === 'high'
+              ? 'this student shows high-risk signals and should hear from the teacher before the next checkpoint'
+              : 'this student needs a short same-material follow-up while the misconception is still fresh');
+        const invite = [
+          `Hi ${student.nickname},`,
+          '',
+          `I want to pull you into a short Quizzi support check because ${reason}.`,
+          focusTags.length > 0
+            ? `We will focus on: ${focusTags.join(', ')}.`
+            : 'We will focus on the concept cluster that felt least stable in the last session.',
+          'Plan for a short, low-pressure reset rather than a full reteach.',
+        ].join('\n');
+
+        return {
+          id: Number(student.id || index),
+          nickname: String(student.nickname || 'Student'),
+          riskLevel: String(student.risk_level || 'medium'),
+          accuracy: Number(student.accuracy || 0),
+          focusTags,
+          reason,
+          invite,
+        };
+      });
+  }, [attentionOrder, prioritizedParticipants]);
+
+  const officeHoursPacketText = useMemo(() => {
+    return [
+      `Office Hours Auto-Invite: ${data?.session?.pack_title || `Session #${sessionId}`}`,
+      '',
+      ...officeHoursQueue.map((student, index) => (
+        `${index + 1}. ${student.nickname} (${student.riskLevel} risk, ${student.accuracy.toFixed(0)}% accuracy)\nReason: ${student.reason}\nFocus: ${student.focusTags.length > 0 ? student.focusTags.join(', ') : 'same-material reset'}\nMessage:\n${student.invite}`
+      )),
+    ].join('\n\n');
+  }, [data?.session?.pack_title, officeHoursQueue, sessionId]);
+
+  const recoveryBuilderTargets = useMemo(() => {
+    const targets = [
+      {
+        id: 'attention',
+        label: 'Attention Queue',
+        body: 'Build personal recovery games for the students who need follow-up first.',
+        participantIds: topAttentionStudents.map((student: any) => Number(student.id)).filter((id: number) => id > 0),
+      },
+      {
+        id: 'high-risk',
+        label: 'High Risk',
+        body: 'Build the lightest same-material recovery games for the students with the most fragile signal.',
+        participantIds: prioritizedParticipants
+          .filter((student: any) => String(student.risk_level || '') === 'high')
+          .slice(0, 6)
+          .map((student: any) => Number(student.id))
+          .filter((id: number) => id > 0),
+      },
+      {
+        id: 'fatigue',
+        label: 'Fatigue Reset',
+        body: 'Build recovery games for the students who faded late or lost focus repeatedly.',
+        participantIds: prioritizedParticipants
+          .filter((student: any) =>
+            student?.fatigue_drift?.direction === 'fatigue' || Number(student.total_focus_loss || 0) >= 2,
+          )
+          .slice(0, 6)
+          .map((student: any) => Number(student.id))
+          .filter((id: number) => id > 0),
+      },
+    ];
+
+    return targets
+      .map((target) => ({ ...target, count: target.participantIds.length }))
+      .filter((target) => target.count > 0);
+  }, [prioritizedParticipants, topAttentionStudents]);
+
+  const conceptClinics = useMemo(
+    () =>
+      topGapTags
+        .slice(0, 3)
+        .map((tag: any, index: number) => ({
+          id: `clinic-${tag.tag || index}`,
+          concept: humanizeTag(tag.tag),
+          title:
+            Number(tag.accuracy || 0) < 60
+              ? `${humanizeTag(tag.tag)} needs a whole-class reset`
+              : `${humanizeTag(tag.tag)} needs a short clinic`,
+          body:
+            Number(tag.changed_away_from_correct_rate || 0) >= 15
+              ? 'Students are unstable even when they get close. Re-explain the distinction and rehearse it immediately.'
+              : 'Use a short reteach, one contrast example, and one fast re-check to close this gap.',
+          tone:
+            Number(tag.accuracy || 0) < 60 || Number(tag.stress_index || 0) >= 65
+              ? ('bad' as const)
+              : ('mid' as const),
+          studentCount: Number(tag.students_count ?? tag.attempts ?? 0),
+          actionSearch: String(tag.tag || ''),
+        })),
+    [topGapTags],
+  );
+
+  const teachingPlaybook = useMemo(() => {
+    const leadCohort = interventionCohorts.find((cohort) => cohort.id !== 'peer-leads') || interventionCohorts[0] || null;
+    const leadClinic = conceptClinics[0] || null;
+    const leadPlan = followUpEngine?.plans?.[0] || null;
+
+    return [
+      {
+        id: 'playbook-brief',
+        label: '1 minute',
+        title: leadQuestion ? `Re-open question ${leadQuestion.question_index}` : 'Start with the hardest idea',
+        body:
+          leadQuestion?.recommendation ||
+          executiveSummary.actionBody,
+        tone: 'bad' as const,
+        actionLabel: 'Open question triage',
+        onAction: () => focusQuestionBoard('teach-now', String(leadQuestion?.question_index || '')),
+      },
+      {
+        id: 'playbook-group',
+        label: '3 minutes',
+        title: leadCohort ? `Split off ${leadCohort.count} students for a targeted reset` : 'Open the student command center',
+        body:
+          leadCohort?.body ||
+          'Use the command center to decide who needs a slower same-material intervention.',
+        tone: 'mid' as const,
+        actionLabel: leadCohort ? 'Open matching students' : 'Open students',
+        onAction: () => focusStudentCommandCenter(leadCohort?.actionFilter || 'all', leadCohort?.searchTerm || ''),
+      },
+      {
+        id: 'playbook-seal',
+        label: 'After class',
+        title: leadPlan ? leadPlan.title : leadClinic ? `Build a ${leadClinic.concept} clinic` : 'Create the next round',
+        body:
+          leadPlan?.body ||
+          leadClinic?.body ||
+          'Turn this session into a short follow-up pack while the misconceptions are still fresh.',
+        tone: 'good' as const,
+        actionLabel: leadPlan ? 'Create follow-up pack' : 'Open follow-up engine',
+        onAction: () => {
+          if (leadPlan) {
+            void handleFollowUpAction(leadPlan.id, false);
+            return;
+          }
+          scrollToBoardSection('teacher-board-follow-up');
+        },
+      },
+    ];
+  }, [conceptClinics, executiveSummary.actionBody, followUpEngine?.plans, interventionCohorts, leadQuestion]);
+
+  const runTeacherAction = async (action: { type: 'scroll'; target: string } | { type: 'student'; studentId: number | string } | { type: 'follow-up'; planId: string }) => {
+    if (action.type === 'scroll') {
+      scrollToBoardSection(action.target);
+      return;
+    }
+    if (action.type === 'student') {
+      openStudentDashboard(action.studentId);
+      return;
+    }
+    await handleFollowUpAction(action.planId, false);
   };
 
   if (loading) {
@@ -1514,6 +2304,369 @@ export default function TeacherAnalytics() {
                   </React.Fragment>
                 ))}
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mb-10">
+          <div className="bg-brand-dark text-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#FF5A36] p-6 lg:p-7">
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-5">
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <BrainCircuit className="w-6 h-6 text-brand-yellow" />
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow">{t('Intervention Queue')}</p>
+                </div>
+                <h2 className="text-3xl font-black">{t('What deserves attention first')}</h2>
+                <p className="font-bold text-white/72 mt-2 max-w-3xl">
+                  {t('This queue turns the board into a decision tool: what to reteach, who to support, and what to launch next.')}
+                </p>
+              </div>
+              <div className="rounded-full border-2 border-white/20 bg-white/10 px-4 py-2 text-sm font-black">
+                {t(`${teacherActionQueue.length} recommended actions`)}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {teacherActionQueue.map((item) => (
+                <React.Fragment key={item.id}>
+                  <ActionQueueCard
+                    label={item.label}
+                    title={item.title}
+                    body={item.body}
+                    metricLabel={item.metricLabel}
+                    metricValue={item.metricValue}
+                    tone={item.tone}
+                    actionLabel={item.actionLabel}
+                    onAction={() => void runTeacherAction(item.action)}
+                  />
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 xl:grid-cols-[1.04fr_0.96fr] gap-8 mb-10">
+          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+            <div className="flex items-center gap-3 mb-4">
+              <Target className="w-6 h-6 text-brand-orange" />
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Teaching Playbook')}</p>
+                <h2 className="text-3xl font-black">{t('A fast plan for the next teaching move')}</h2>
+                <p className="font-bold text-brand-dark/60 mt-1">{t('Use this when you want to move from analytics to instruction without planning from scratch.')}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {teachingPlaybook.map((step) => (
+                <React.Fragment key={step.id}>
+                  <PlaybookStepCard
+                    label={step.label}
+                    title={step.title}
+                    body={step.body}
+                    tone={step.tone}
+                    actionLabel={step.actionLabel}
+                    onAction={step.onAction}
+                  />
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+            <div className="flex items-center gap-3 mb-4">
+              <Users className="w-6 h-6 text-brand-purple" />
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Intervention Cohorts')}</p>
+                <h2 className="text-3xl font-black">{t('Auto-built groups from this session')}</h2>
+                <p className="font-bold text-brand-dark/60 mt-1">{t('Instead of one giant class response, use these groups to differentiate the next move.')}</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              {interventionCohorts.length > 0 ? (
+                interventionCohorts.map((cohort) => (
+                  <React.Fragment key={cohort.id}>
+                    <CohortCard
+                      label={cohort.label}
+                      title={cohort.title}
+                      body={cohort.body}
+                      tone={cohort.tone}
+                      count={cohort.count}
+                      names={cohort.names}
+                      focusTags={cohort.focusTags}
+                      actionLabel={cohort.actionLabel}
+                      onAction={() => focusStudentCommandCenter(cohort.actionFilter, cohort.searchTerm)}
+                    />
+                  </React.Fragment>
+                ))
+              ) : (
+                <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                  <p className="font-black">{t('Not enough student separation was produced yet')}</p>
+                  <p className="font-medium text-brand-dark/70 mt-2">
+                    {t('Once the session produces clearer weak-tag and risk patterns, the board will propose differentiated groups here.')}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="mb-10">
+          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+            <div className="flex items-center gap-3 mb-4">
+              <Users className="w-6 h-6 text-brand-orange" />
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Peer Tutor Matching')}</p>
+                <h2 className="text-3xl font-black">{t('Who can stabilize whom right now')}</h2>
+                <p className="font-bold text-brand-dark/60 mt-1">{t('These matches pair a stable student with a learner who needs support on the same concept cluster.')}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {peerTutorMatches.length > 0 ? (
+                peerTutorMatches.map((match) => (
+                  <React.Fragment key={match.id}>
+                    <PeerTutorMatchCard
+                      tutorName={match.tutor.nickname}
+                      learnerName={match.learner.nickname}
+                      overlap={match.overlap}
+                      onTutorAction={() => openStudentDashboard(match.tutor.id)}
+                      onLearnerAction={() => openStudentDashboard(match.learner.id)}
+                    />
+                  </React.Fragment>
+                ))
+              ) : (
+                <div className="xl:col-span-2 rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                  <p className="font-black">{t('No clear peer-support pair emerged from this session')}</p>
+                  <p className="font-medium text-brand-dark/70 mt-2">
+                    {t('As soon as the board sees stable high performers and overlapping weak-tag patterns, it will suggest live peer pairings here.')}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 xl:grid-cols-[0.92fr_1.08fr] gap-8 mb-10">
+          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+            <div className="flex items-center gap-3 mb-4">
+              <Activity className="w-6 h-6 text-brand-orange" />
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Pivot Moments')}</p>
+                <h2 className="text-3xl font-black">{t('Where the session stopped feeling stable')}</h2>
+                <p className="font-bold text-brand-dark/60 mt-1">{t('These are the moments where the class bent under pressure, hesitation, or confusion.')}</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              {pivotMoments.length > 0 ? (
+                pivotMoments.map((moment) => (
+                  <React.Fragment key={moment.id}>
+                    <PivotMomentCard
+                      title={moment.title}
+                      body={moment.body}
+                      metricLabel={moment.metricLabel}
+                      metricValue={moment.metricValue}
+                      tone={moment.tone}
+                      onAction={() => focusQuestionBoard('teach-now', moment.searchTerm)}
+                    />
+                  </React.Fragment>
+                ))
+              ) : (
+                <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                  <p className="font-black">{t('No sharp pivot moment stood out above the baseline')}</p>
+                  <p className="font-medium text-brand-dark/70 mt-2">
+                    {t('This run looked relatively even across questions, so use concept clinics and the student board before changing pacing.')}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+            <div className="flex items-center gap-3 mb-4">
+              <BrainCircuit className="w-6 h-6 text-brand-purple" />
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Concept Clinics')}</p>
+                <h2 className="text-3xl font-black">{t('Topic-level fixes for the whole class')}</h2>
+                <p className="font-bold text-brand-dark/60 mt-1">{t('Each clinic proposes a fast same-material intervention around one weak concept cluster.')}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+              {conceptClinics.length > 0 ? (
+                conceptClinics.map((clinic) => (
+                  <React.Fragment key={clinic.id}>
+                    <ConceptClinicCard
+                      concept={clinic.concept}
+                      title={clinic.title}
+                      body={clinic.body}
+                      studentCount={clinic.studentCount}
+                      tone={clinic.tone}
+                      onStudentAction={() => focusStudentCommandCenter('all', clinic.actionSearch)}
+                      onQuestionAction={() => focusQuestionBoard('teach-now', clinic.actionSearch)}
+                    />
+                  </React.Fragment>
+                ))
+              ) : (
+                <div className="xl:col-span-3 rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                  <p className="font-black">{t('No concept clinics were generated yet')}</p>
+                  <p className="font-medium text-brand-dark/70 mt-2">
+                    {t('When the session exposes repeatable weak-topic patterns, this section will turn them into quick class clinics.')}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 xl:grid-cols-[0.98fr_1.02fr] gap-8 mb-10">
+          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-6 h-6 text-brand-orange" />
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Office Hours Auto-Invite')}</p>
+                  <h2 className="text-3xl font-black">{t('Who should hear from you next')}</h2>
+                  <p className="font-bold text-brand-dark/60 mt-1">{t('Copy a ready-made invite for the students most likely to drift or underperform next.')}</p>
+                </div>
+              </div>
+              {officeHoursQueue.length > 0 && (
+                <button
+                  onClick={() => void handleCopyOfficeHours('office-hours-all', officeHoursPacketText)}
+                  className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black"
+                >
+                  {copiedOfficeHoursKey === 'office-hours-all' ? t('Copied') : t('Copy full list')}
+                </button>
+              )}
+            </div>
+            <div className="space-y-4">
+              {officeHoursQueue.length > 0 ? (
+                officeHoursQueue.map((student) => (
+                  <React.Fragment key={student.id}>
+                    <OfficeHoursInviteCard
+                      nickname={student.nickname}
+                      riskLevel={student.riskLevel}
+                      accuracy={student.accuracy}
+                      reason={student.reason}
+                      focusTags={student.focusTags}
+                      copied={copiedOfficeHoursKey === `invite-${student.id}`}
+                      onCopy={() => void handleCopyOfficeHours(`invite-${student.id}`, student.invite)}
+                      onOpen={() => openStudentDashboard(student.id)}
+                    />
+                  </React.Fragment>
+                ))
+              ) : (
+                <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                  <p className="font-black">{t('No office-hours queue was generated for this session')}</p>
+                  <p className="font-medium text-brand-dark/70 mt-2">
+                    {t('Once the board detects risk, fatigue, or accuracy drops, this section will prepare the next outreach move for you.')}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+            <div className="flex items-center gap-3 mb-4">
+              <Rocket className="w-6 h-6 text-brand-purple" />
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Targeted Recovery Builder')}</p>
+                <h2 className="text-3xl font-black">{t('Build personal games for the right cohort')}</h2>
+                <p className="font-bold text-brand-dark/60 mt-1">{t('Instead of building for the whole class, create personal recovery games only for the students who need them most.')}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              {recoveryBuilderTargets.length > 0 ? (
+                recoveryBuilderTargets.map((target) => (
+                  <React.Fragment key={target.id}>
+                    <RecoveryBuilderCard
+                      label={target.label}
+                      body={target.body}
+                      count={target.count}
+                      busy={recoveryBuilderBusyKey === target.id}
+                      onBuild={() => void handleBuildRecoveryGames(target)}
+                    />
+                  </React.Fragment>
+                ))
+              ) : (
+                <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                  <p className="font-black">{t('No recovery cohort is ready yet')}</p>
+                  <p className="font-medium text-brand-dark/70 mt-2">
+                    {t('As soon as the session identifies an attention queue, high-risk cluster, or fatigue group, you will be able to build personal games for them here.')}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {recoveryBuilderSummary && (
+              <div className="mt-5 rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Latest build')}</p>
+                    <p className="text-2xl font-black">{t(recoveryBuilderSummary.targetLabel)}</p>
+                    <p className="font-medium text-brand-dark/70 mt-2">
+                      {t('These packs are now waiting in My Quizzes and can be launched later or assigned in your next live block.')}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-3 py-2 text-sm font-black">
+                      {recoveryBuilderSummary.createdCount} {t('created')}
+                    </span>
+                    <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-sm font-black">
+                      {recoveryBuilderSummary.reusedCount} {t('reused')}
+                    </span>
+                    <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-3 py-2 text-sm font-black">
+                      {recoveryBuilderSummary.failedCount} {t('skipped')}
+                    </span>
+                  </div>
+                </div>
+                {recoveryBuilderSummary.createdPacks.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    {recoveryBuilderSummary.createdPacks.slice(0, 4).map((packRow: any) => (
+                      <div key={`${packRow.pack_id}-${packRow.participant?.id}`} className="rounded-[1.1rem] border-2 border-brand-dark bg-white px-4 py-3">
+                        <p className="font-black">{packRow.participant?.nickname}</p>
+                        <p className="font-medium text-brand-dark/65">{packRow.title}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="mb-10">
+          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-5">
+              <div className="flex items-center gap-3">
+                <Activity className="w-6 h-6 text-brand-purple" />
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Session Replay Timeline')}</p>
+                  <h2 className="text-3xl font-black">{t('Question by question, where the room held or slipped')}</h2>
+                  <p className="font-bold text-brand-dark/60 mt-1">{t('Use this when you need the exact lesson arc: where confidence held, where stress rose, and where the class needed a pivot.')}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => void handleCopyReplayTimeline()}
+                className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black"
+              >
+                {copiedReplayTimeline ? t('Copied') : t('Copy replay timeline')}
+              </button>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {sessionReplayTimeline.map((row) => (
+                <React.Fragment key={row.id}>
+                  <SessionReplayCard
+                    questionIndex={row.questionIndex}
+                    prompt={row.prompt}
+                    signal={row.signal}
+                    tone={row.tone}
+                    accuracy={row.accuracy}
+                    stress={row.stress}
+                    responseMs={row.responseMs}
+                    move={row.move}
+                    distractorLabel={row.distractorLabel}
+                    distractorRate={row.distractorRate}
+                    onOpen={() => focusQuestionBoard('teach-now', String(row.questionIndex))}
+                  />
+                </React.Fragment>
+              ))}
             </div>
           </div>
         </section>
@@ -2535,13 +3688,53 @@ export default function TeacherAnalytics() {
             )}
           </div>
 
+          <div className="px-6 pt-6">
+            <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-4 lg:p-5">
+              <div className="flex flex-col xl:flex-row xl:items-center gap-4">
+                <AnalyticsSearchField
+                  value={questionSearch}
+                  onChange={setQuestionSearch}
+                  placeholder="Search a question, tag, distractor, or objective"
+                />
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    ['teach-now', 'Teach Now'],
+                    ['low-accuracy', 'Low Accuracy'],
+                    ['high-stress', 'High Stress'],
+                    ['distractor', 'Distractor'],
+                    ['all', 'All Questions'],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      onClick={() => setQuestionFilter(value as typeof questionFilter)}
+                      className={`px-4 py-2 rounded-full border-2 border-brand-dark text-sm font-black transition-colors ${
+                        questionFilter === value ? 'bg-brand-dark text-white' : 'bg-white text-brand-dark'
+                      }`}
+                    >
+                      {t(label)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="font-bold text-brand-dark/60 mt-3">
+                {t(`Showing ${filteredQuestionDiagnostics.length} of ${questionDiagnostics.length} questions in the triage view.`)}
+              </p>
+            </div>
+          </div>
+
           <div className="p-6 grid grid-cols-1 xl:grid-cols-2 gap-5">
-            {questionDiagnostics.slice(0, 4).map((question: any) => (
+            {filteredQuestionDiagnostics.slice(0, 4).map((question: any) => (
               <div key={question.question_id} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
                 <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-4">
                   <div className="min-w-0">
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t(`Question ${question.question_index}`)}</p>
                     <p className="text-xl font-black leading-tight mb-3">{question.question_prompt}</p>
+                    <div className="mb-3">
+                      <AnalyticsBadge
+                        label={getQuestionPrioritySignal(question).label}
+                        tone={getQuestionPrioritySignal(question).tone}
+                      />
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       {(question.tags || []).map((tag: string) => (
                         <span key={`${question.question_id}-${tag}`} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-xs font-black capitalize">
@@ -2621,23 +3814,40 @@ export default function TeacherAnalytics() {
             ))}
           </div>
 
-          {questionDiagnostics.length > 4 && (
+          {filteredQuestionDiagnostics.length === 0 && (
+            <div className="px-6 pb-6">
+              <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-6">
+                <p className="text-xl font-black">{t('No questions matched this triage view')}</p>
+                <p className="font-medium text-brand-dark/70 mt-2">
+                  {t('Try widening the search or switching back to all questions to restore the full board.')}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {filteredQuestionDiagnostics.length > 4 && (
             <div className="px-6 pb-6">
               <details className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
                 <summary className="list-none cursor-pointer flex items-center justify-between gap-3">
                   <div>
-                    <p className="font-black">{t(`Show ${questionDiagnostics.length - 4} more question diagnostics`)}</p>
+                    <p className="font-black">{t(`Show ${filteredQuestionDiagnostics.length - 4} more question diagnostics`)}</p>
                     <p className="font-medium text-brand-dark/65">{t('Keep the top trouble spots visible by default, and open the rest only when you need item-level follow-up.')}</p>
                   </div>
                   <ChevronDown className="w-5 h-5 shrink-0" />
                 </summary>
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-5">
-                  {questionDiagnostics.slice(4).map((question: any) => (
+                  {filteredQuestionDiagnostics.slice(4).map((question: any) => (
                     <div key={`extra-${question.question_id}`} className="rounded-[1.75rem] border-2 border-brand-dark bg-white p-5">
                       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-4">
                         <div className="min-w-0">
                           <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t(`Question ${question.question_index}`)}</p>
                           <p className="text-xl font-black leading-tight mb-3">{question.question_prompt}</p>
+                          <div className="mb-3">
+                            <AnalyticsBadge
+                              label={getQuestionPrioritySignal(question).label}
+                              tone={getQuestionPrioritySignal(question).tone}
+                            />
+                          </div>
                           <div className="flex flex-wrap gap-2">
                             {(question.tags || []).map((tag: string) => (
                               <span key={`extra-${question.question_id}-${tag}`} className="px-3 py-1 rounded-full bg-brand-bg border-2 border-brand-dark text-xs font-black capitalize">
@@ -2772,8 +3982,42 @@ export default function TeacherAnalytics() {
             <p className="font-bold text-brand-dark/60 mt-2">{t('Select a student for quick insight, then drill into the personal dashboard to build a same-material follow-up game.')}</p>
           </div>
 
+          <div className="px-6 pt-6">
+            <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-4 lg:p-5">
+              <div className="flex flex-col xl:flex-row xl:items-center gap-4">
+                <AnalyticsSearchField
+                  value={studentSearch}
+                  onChange={setStudentSearch}
+                  placeholder="Search by student, weak topic, decision style, or recommendation"
+                />
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    ['all', 'All Students'],
+                    ['attention', 'Attention Queue'],
+                    ['high-risk', 'High Risk'],
+                    ['fatigue', 'Fatigue'],
+                    ['low-accuracy', 'Low Accuracy'],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      onClick={() => setStudentFilter(value as typeof studentFilter)}
+                      className={`px-4 py-2 rounded-full border-2 border-brand-dark text-sm font-black transition-colors ${
+                        studentFilter === value ? 'bg-brand-dark text-white' : 'bg-white text-brand-dark'
+                      }`}
+                    >
+                      {t(label)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="font-bold text-brand-dark/60 mt-3">
+                {t(`Showing ${filteredParticipants.length} of ${prioritizedParticipants.length} students in the command center.`)}
+              </p>
+            </div>
+          </div>
+
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {prioritizedParticipants.map((student: any) => (
+            {filteredParticipants.map((student: any) => (
               <button
                 key={student.id}
                 onMouseEnter={() => setSelectedStudentId(Number(student.id))}
@@ -2786,6 +4030,12 @@ export default function TeacherAnalytics() {
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-2">{t(`Rank #${student.rank}`)}</p>
                     <h3 className="text-2xl font-black">{student.nickname}</h3>
                     <p className="font-bold text-brand-dark/60">{t(student.decision_style)}</p>
+                    <div className="mt-3">
+                      <AnalyticsBadge
+                        label={getStudentPrioritySignal(student, attentionOrder.has(Number(student.id))).label}
+                        tone={getStudentPrioritySignal(student, attentionOrder.has(Number(student.id))).tone}
+                      />
+                    </div>
                   </div>
                   <RiskBadge level={student.risk_level} compact />
                 </div>
@@ -2816,6 +4066,17 @@ export default function TeacherAnalytics() {
               </button>
             ))}
           </div>
+
+          {filteredParticipants.length === 0 && (
+            <div className="px-6 pb-6">
+              <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-6">
+                <p className="text-xl font-black">{t('No students matched this filter')}</p>
+                <p className="font-medium text-brand-dark/70 mt-2">
+                  {t('Try another student segment or clear the search to bring the full roster back.')}
+                </p>
+              </div>
+            </div>
+          )}
         </section>
       </main>
     </div>
@@ -2865,6 +4126,162 @@ function WorkflowActionCard({
   );
 }
 
+function OfficeHoursInviteCard({
+  nickname,
+  riskLevel,
+  accuracy,
+  reason,
+  focusTags,
+  copied,
+  onCopy,
+  onOpen,
+}: {
+  nickname: string;
+  riskLevel: string;
+  accuracy: number;
+  reason: string;
+  focusTags: string[];
+  copied: boolean;
+  onCopy: () => void;
+  onOpen: () => void;
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+  return (
+    <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <p className="text-lg font-black">{nickname}</p>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">
+            {t(`${riskLevel} risk`)} • {accuracy.toFixed(0)}% {t('accuracy')}
+          </p>
+        </div>
+        <button
+          onClick={onCopy}
+          className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-xs font-black inline-flex items-center gap-2"
+        >
+          {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+          {copied ? t('Copied') : t('Copy invite')}
+        </button>
+      </div>
+      <p className="font-medium text-brand-dark/72">{t(reason)}</p>
+      {focusTags.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {focusTags.map((tag) => (
+            <span key={`${nickname}-${tag}`} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-xs font-black capitalize">
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+      <button
+        onClick={onOpen}
+        className="mt-4 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black"
+      >
+        {t('Open student dashboard')}
+      </button>
+    </div>
+  );
+}
+
+function RecoveryBuilderCard({
+  label,
+  body,
+  count,
+  busy,
+  onBuild,
+}: {
+  label: string;
+  body: string;
+  count: number;
+  busy: boolean;
+  onBuild: () => void;
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+  return (
+    <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-purple mb-2">{t(label)}</p>
+          <p className="text-lg font-black">{count} {t('students ready')}</p>
+        </div>
+        <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-xs font-black">
+          {count}
+        </span>
+      </div>
+      <p className="font-medium text-brand-dark/72">{t(body)}</p>
+      <button
+        onClick={onBuild}
+        disabled={busy}
+        className="mt-4 rounded-full border-2 border-brand-dark bg-brand-dark px-4 py-2 text-sm font-black text-white disabled:opacity-60"
+      >
+        {busy ? t('Building...') : t('Build personal games')}
+      </button>
+    </div>
+  );
+}
+
+function SessionReplayCard({
+  questionIndex,
+  prompt,
+  signal,
+  tone,
+  accuracy,
+  stress,
+  responseMs,
+  move,
+  distractorLabel,
+  distractorRate,
+  onOpen,
+}: {
+  questionIndex: number;
+  prompt: string;
+  signal: string;
+  tone: 'good' | 'mid' | 'bad';
+  accuracy: number;
+  stress: number;
+  responseMs: number;
+  move: string;
+  distractorLabel: string | null;
+  distractorRate: number;
+  onOpen: () => void;
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+  const toneClass = tone === 'bad' ? 'bg-brand-orange/10' : tone === 'mid' ? 'bg-brand-yellow/25' : 'bg-emerald-100';
+
+  return (
+    <div className={`rounded-[1.6rem] border-2 border-brand-dark p-5 ${toneClass}`}>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-purple mb-2">{t(`Question ${questionIndex}`)}</p>
+          <p className="text-xl font-black leading-tight">{prompt}</p>
+        </div>
+        <AnalyticsBadge label={signal} tone={tone} />
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        <SignalPill label="Accuracy" value={`${accuracy.toFixed(0)}%`} tone={accuracyTone(accuracy)} />
+        <SignalPill label="Stress" value={`${stress.toFixed(0)}%`} tone={riskTone(stress >= 70 ? 'high' : stress >= 45 ? 'medium' : 'low')} />
+        <SignalPill label="Response" value={formatMs(responseMs)} />
+      </div>
+
+      {distractorLabel && (
+        <p className="font-bold text-brand-dark/70 mb-3">
+          {t(`Distractor ${distractorLabel} pulled ${distractorRate.toFixed(0)}% of the class.`)}
+        </p>
+      )}
+
+      <p className="font-medium text-brand-dark/72">{t(move)}</p>
+
+      <button
+        onClick={onOpen}
+        className="mt-4 rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black"
+      >
+        {t('Open question triage')}
+      </button>
+    </div>
+  );
+}
+
 function QuickNavCard({
   label,
   body,
@@ -2887,6 +4304,350 @@ function QuickNavCard({
       </div>
       <p className="font-medium text-brand-dark/72 leading-relaxed">{t(body)}</p>
     </button>
+  );
+}
+
+function ActionQueueCard({
+  label,
+  title,
+  body,
+  metricLabel,
+  metricValue,
+  tone,
+  actionLabel,
+  onAction,
+}: {
+  label: string;
+  title: string;
+  body: string;
+  metricLabel: string;
+  metricValue: string;
+  tone: 'bad' | 'mid' | 'good';
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+  const toneClasses =
+    tone === 'bad'
+      ? 'bg-brand-yellow text-brand-dark'
+      : tone === 'mid'
+        ? 'bg-white text-brand-dark'
+        : 'bg-[#d8f1ff] text-brand-dark';
+
+  return (
+    <div className={`rounded-[1.6rem] border-2 border-white/15 p-5 ${toneClasses}`}>
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[0.18em] opacity-65">{t(label)}</p>
+          <p className="text-2xl font-black leading-tight mt-2">{t(title)}</p>
+        </div>
+        <div className="rounded-[1rem] border-2 border-brand-dark bg-white px-3 py-2 text-right">
+          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{t(metricLabel)}</p>
+          <p className="text-lg font-black">{t(metricValue)}</p>
+        </div>
+      </div>
+      <p className="font-medium opacity-80">{t(body)}</p>
+      <button
+        onClick={onAction}
+        className="mt-5 inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-dark px-5 py-3 font-black text-white transition-transform hover:-translate-y-0.5"
+      >
+        {t(actionLabel)}
+        <ArrowUpRight className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+function PlaybookStepCard({
+  label,
+  title,
+  body,
+  tone,
+  actionLabel,
+  onAction,
+}: {
+  label: string;
+  title: string;
+  body: string;
+  tone: 'bad' | 'mid' | 'good';
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+  const toneClass =
+    tone === 'bad'
+      ? 'bg-brand-yellow'
+      : tone === 'mid'
+        ? 'bg-brand-bg'
+        : 'bg-[#d8f1ff]';
+
+  return (
+    <div className={`${toneClass} rounded-[1.5rem] border-2 border-brand-dark p-5 flex h-full flex-col`}>
+      <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-purple mb-2">{t(label)}</p>
+      <p className="text-2xl font-black leading-tight">{t(title)}</p>
+      <p className="font-medium text-brand-dark/72 mt-3 flex-1">{t(body)}</p>
+      <button
+        onClick={onAction}
+        className="mt-5 inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-dark px-5 py-3 font-black text-white transition-transform hover:-translate-y-0.5"
+      >
+        {t(actionLabel)}
+        <ArrowUpRight className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+function CohortCard({
+  label,
+  title,
+  body,
+  tone,
+  count,
+  names,
+  focusTags,
+  actionLabel,
+  onAction,
+}: {
+  label: string;
+  title: string;
+  body: string;
+  tone: 'bad' | 'mid' | 'good';
+  count: number;
+  names: string[];
+  focusTags: string[];
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+  const toneClass =
+    tone === 'bad'
+      ? 'bg-brand-yellow'
+      : tone === 'mid'
+        ? 'bg-brand-bg'
+        : 'bg-emerald-50';
+
+  return (
+    <div className={`${toneClass} rounded-[1.5rem] border-2 border-brand-dark p-5`}>
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-purple mb-2">{t(label)}</p>
+          <p className="text-xl font-black leading-tight">{t(title)}</p>
+        </div>
+        <div className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-sm font-black shrink-0">
+          {count}
+        </div>
+      </div>
+      <p className="font-medium text-brand-dark/72">{t(body)}</p>
+      {focusTags.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-4">
+          {focusTags.map((tag) => (
+            <span key={`${label}-${tag}`} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-xs font-black capitalize">
+              {t(tag)}
+            </span>
+          ))}
+        </div>
+      )}
+      {names.length > 0 && (
+        <p className="font-bold text-brand-dark/60 mt-4">
+          {t('Example students')}: {names.join(', ')}
+        </p>
+      )}
+      <button
+        onClick={onAction}
+        className="mt-4 inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-5 py-3 font-black transition-transform hover:-translate-y-0.5"
+      >
+        {t(actionLabel)}
+        <ArrowUpRight className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+function PivotMomentCard({
+  title,
+  body,
+  metricLabel,
+  metricValue,
+  tone,
+  onAction,
+}: {
+  title: string;
+  body: string;
+  metricLabel: string;
+  metricValue: string;
+  tone: 'bad' | 'mid';
+  onAction: () => void;
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+  const toneClass = tone === 'bad' ? 'bg-brand-orange/10' : 'bg-brand-bg';
+
+  return (
+    <div className={`${toneClass} rounded-[1.5rem] border-2 border-brand-dark p-5`}>
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div>
+          <p className="text-xl font-black leading-tight">{t(title)}</p>
+          <p className="font-medium text-brand-dark/72 mt-2">{t(body)}</p>
+        </div>
+        <div className="rounded-[1rem] border-2 border-brand-dark bg-white px-3 py-2 text-right shrink-0">
+          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{t(metricLabel)}</p>
+          <p className="text-lg font-black">{t(metricValue)}</p>
+        </div>
+      </div>
+      <button
+        onClick={onAction}
+        className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-5 py-3 font-black transition-transform hover:-translate-y-0.5"
+      >
+        {t('Open this question')}
+        <ArrowUpRight className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+function ConceptClinicCard({
+  concept,
+  title,
+  body,
+  studentCount,
+  tone,
+  onStudentAction,
+  onQuestionAction,
+}: {
+  concept: string;
+  title: string;
+  body: string;
+  studentCount: number;
+  tone: 'bad' | 'mid';
+  onStudentAction: () => void;
+  onQuestionAction: () => void;
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+  const toneClass = tone === 'bad' ? 'bg-brand-yellow' : 'bg-brand-bg';
+
+  return (
+    <div className={`${toneClass} rounded-[1.5rem] border-2 border-brand-dark p-5 flex h-full flex-col`}>
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-purple mb-2">{t(concept)}</p>
+          <p className="text-xl font-black leading-tight">{t(title)}</p>
+        </div>
+        <div className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-sm font-black shrink-0">
+          {studentCount}
+        </div>
+      </div>
+      <p className="font-medium text-brand-dark/72 flex-1">{t(body)}</p>
+      <div className="flex flex-col sm:flex-row gap-3 mt-5">
+        <button
+          onClick={onStudentAction}
+          className="flex-1 rounded-full border-2 border-brand-dark bg-white px-4 py-3 font-black transition-transform hover:-translate-y-0.5"
+        >
+          {t('See matching students')}
+        </button>
+        <button
+          onClick={onQuestionAction}
+          className="flex-1 rounded-full border-2 border-brand-dark bg-brand-dark px-4 py-3 font-black text-white transition-transform hover:-translate-y-0.5"
+        >
+          {t('Open matching questions')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PeerTutorMatchCard({
+  tutorName,
+  learnerName,
+  overlap,
+  onTutorAction,
+  onLearnerAction,
+}: {
+  tutorName: string;
+  learnerName: string;
+  overlap: string[];
+  onTutorAction: () => void;
+  onLearnerAction: () => void;
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+
+  return (
+    <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+      <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-purple mb-2">{t('Pair suggestion')}</p>
+      <p className="text-xl font-black leading-tight">
+        {t(tutorName)} {t('can support')} {t(learnerName)}
+      </p>
+      <p className="font-medium text-brand-dark/72 mt-2">
+        {t('Shared concept focus')}: {overlap.map((tag) => t(tag)).join(', ')}
+      </p>
+      <div className="flex flex-wrap gap-2 mt-4">
+        {overlap.map((tag) => (
+          <span key={`${tutorName}-${learnerName}-${tag}`} className="rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black capitalize">
+            {t(tag)}
+          </span>
+        ))}
+      </div>
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+        <button
+          onClick={onLearnerAction}
+          className="flex-1 rounded-full border-2 border-brand-dark bg-brand-dark px-4 py-3 font-black text-white transition-transform hover:-translate-y-0.5"
+        >
+          {t('Open learner dashboard')}
+        </button>
+        <button
+          onClick={onTutorAction}
+          className="flex-1 rounded-full border-2 border-brand-dark bg-white px-4 py-3 font-black transition-transform hover:-translate-y-0.5"
+        >
+          {t('Open tutor dashboard')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AnalyticsSearchField({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  const { direction, isRtl, t } = useTeacherAnalyticsLanguage();
+
+  return (
+    <label className="relative block flex-1 min-w-[260px]">
+      <Search className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/45 ${isRtl ? 'right-4' : 'left-4'}`} />
+      <input
+        dir={direction}
+        type="text"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={t(placeholder)}
+        className={`w-full rounded-full border-2 border-brand-dark bg-white py-3 font-bold outline-none transition-colors focus:bg-brand-bg ${isRtl ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}
+      />
+    </label>
+  );
+}
+
+function AnalyticsBadge({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: 'bad' | 'mid' | 'good';
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+  const classes =
+    tone === 'bad'
+      ? 'bg-brand-orange text-white border-brand-dark'
+      : tone === 'mid'
+        ? 'bg-brand-yellow text-brand-dark border-brand-dark'
+        : 'bg-emerald-100 text-emerald-900 border-brand-dark';
+
+  return (
+    <span className={`inline-flex items-center rounded-full border-2 px-3 py-1 text-xs font-black ${classes}`}>
+      {t(label)}
+    </span>
   );
 }
 

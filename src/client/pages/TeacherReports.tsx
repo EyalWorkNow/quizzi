@@ -7,10 +7,9 @@ import {
   RefreshCw,
   Trash2,
   AlertTriangle,
-  X,
 } from 'lucide-react';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
-import { apiFetch, apiFetchJson } from '../lib/api.ts';
+import { apiFetchJson } from '../lib/api.ts';
 import { useTeacherLanguage } from '../lib/teacherLanguage.ts';
 
 const REPORTS_COPY = {
@@ -156,7 +155,7 @@ export default function TeacherReports() {
     setIsDeleting(true);
     setDeleteError('');
     try {
-      await apiFetch(`/api/teacher/sessions/${pendingDeleteId}`, { method: 'DELETE' });
+      await apiFetchJson(`/api/teacher/sessions/${pendingDeleteId}`, { method: 'DELETE' });
       // Optimistically remove from local state
       setReport((prev: any) => {
         if (!prev) return prev;
@@ -171,6 +170,7 @@ export default function TeacherReports() {
         };
       });
       setPendingDeleteId(null);
+      setPendingDeleteName('');
     } catch (deleteErr: any) {
       console.error('[TeacherReports] Delete session failed:', deleteErr);
       setDeleteError(deleteErr?.message || copy.deleteError);
@@ -296,6 +296,51 @@ export default function TeacherReports() {
                   <p className="text-sm font-bold text-brand-dark/60 mt-1">{copy.sessionsSubtitle}</p>
                 </div>
 
+                {pendingDeleteId !== null && (
+                  <div className="border-b-2 border-brand-dark bg-brand-bg px-6 py-4">
+                    <div className={`rounded-[1.4rem] border-2 border-brand-dark bg-white px-4 py-4 shadow-[3px_3px_0px_0px_#1A1A1A] ${isRtl ? 'text-right' : ''}`}>
+                      <div className={`flex items-start gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
+                        <div className="w-10 h-10 rounded-full border-2 border-brand-dark bg-brand-orange/10 flex items-center justify-center shrink-0">
+                          <AlertTriangle className="w-5 h-5 text-brand-orange" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-black">{copy.confirmDeleteTitle}</p>
+                          {pendingDeleteName && (
+                            <p className="text-sm font-bold text-brand-dark/50 truncate mt-1">"{pendingDeleteName}"</p>
+                          )}
+                          <p className="text-sm font-bold text-brand-dark/65 mt-2">{copy.confirmDeleteBody}</p>
+                          {deleteError && (
+                            <p className="mt-3 rounded-xl bg-brand-orange/10 border-2 border-brand-orange px-3 py-2 text-sm font-bold text-brand-orange">
+                              {deleteError}
+                            </p>
+                          )}
+                          <div className={`mt-4 flex flex-wrap gap-2 ${isRtl ? 'flex-row-reverse' : ''}`}>
+                            <button
+                              onClick={() => void handleDeleteConfirm()}
+                              disabled={isDeleting}
+                              className="rounded-full border-2 border-brand-dark bg-brand-orange px-4 py-2 font-black text-white disabled:opacity-60"
+                            >
+                              {isDeleting ? '...' : copy.confirmDeleteAction}
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (isDeleting) return;
+                                setPendingDeleteId(null);
+                                setPendingDeleteName('');
+                                setDeleteError('');
+                              }}
+                              disabled={isDeleting}
+                              className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 font-black disabled:opacity-60"
+                            >
+                              {copy.cancelAction}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="overflow-x-auto">
                   <table className={`w-full border-collapse ${isRtl ? 'text-right' : 'text-left'}`}>
                     <thead>
@@ -371,63 +416,6 @@ export default function TeacherReports() {
           )}
         </div>
       </main>
-
-      {/* Delete confirmation modal */}
-      {pendingDeleteId !== null && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-brand-dark/40 backdrop-blur-sm"
-            onClick={() => !isDeleting && setPendingDeleteId(null)}
-          />
-          <div className={`relative z-10 w-full max-w-md rounded-[2rem] border-4 border-brand-dark bg-white p-8 shadow-[12px_12px_0px_0px_#1A1A1A] ${isRtl ? 'text-right' : ''}`}>
-            {/* Close */}
-            <button
-              onClick={() => !isDeleting && setPendingDeleteId(null)}
-              className={`absolute top-5 ${isRtl ? 'left-5' : 'right-5'} w-9 h-9 rounded-full border-2 border-brand-dark bg-brand-bg flex items-center justify-center hover:bg-brand-orange hover:text-white transition-colors`}
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            {/* Icon + title */}
-            <div className={`flex items-start gap-4 mb-5 ${isRtl ? 'flex-row-reverse' : ''}`}>
-              <div className="w-12 h-12 rounded-2xl bg-brand-orange/10 border-2 border-brand-orange flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-6 h-6 text-brand-orange" />
-              </div>
-              <div>
-                <h2 className="text-2xl font-black text-brand-dark mb-1">{copy.confirmDeleteTitle}</h2>
-                {pendingDeleteName && (
-                  <p className="text-sm font-bold text-brand-dark/50 truncate max-w-[260px]">"{pendingDeleteName}"</p>
-                )}
-              </div>
-            </div>
-
-            <p className="font-bold text-brand-dark/70 mb-6 leading-relaxed">{copy.confirmDeleteBody}</p>
-
-            {deleteError && (
-              <p className="mb-4 rounded-xl bg-brand-orange/10 border-2 border-brand-orange px-4 py-3 text-sm font-bold text-brand-orange">
-                {deleteError}
-              </p>
-            )}
-
-            <div className={`flex gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
-              <button
-                onClick={() => void handleDeleteConfirm()}
-                disabled={isDeleting}
-                className="flex-1 px-6 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black shadow-[4px_4px_0px_0px_#1A1A1A] hover:bg-orange-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {isDeleting ? '...' : copy.confirmDeleteAction}
-              </button>
-              <button
-                onClick={() => !isDeleting && setPendingDeleteId(null)}
-                disabled={isDeleting}
-                className="flex-1 px-6 py-3 bg-white border-2 border-brand-dark rounded-full font-black hover:bg-slate-50 transition-colors disabled:opacity-60"
-              >
-                {copy.cancelAction}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -142,6 +142,14 @@ export default function TeacherHost() {
   const [isJoinLinkCopied, setIsJoinLinkCopied] = useState(false);
   const [phaseTimeLeft, setPhaseTimeLeft] = useState(0);
   const [hostMessage, setHostMessage] = useState<{ tone: 'error' | 'info'; text: string } | null>(null);
+  const [isCreatingPersonalizedGames, setIsCreatingPersonalizedGames] = useState(false);
+  const [personalizedGamesSummary, setPersonalizedGamesSummary] = useState<null | {
+    createdCount: number;
+    reusedCount: number;
+    failedCount: number;
+    createdPacks: any[];
+    failedStudents: any[];
+  }>(null);
   const [pendingStateKey, setPendingStateKey] = useState('');
   const participantCountRef = useRef(0);
   const questionIndexRef = useRef(0);
@@ -702,6 +710,53 @@ export default function TeacherHost() {
       if (ended) {
         navigate(`/teacher/analytics/class/${sessionId}`);
       }
+    }
+  };
+
+  const handleCreatePersonalizedGames = async () => {
+    const normalizedSessionId = Number(sessionId || 0);
+    if (!normalizedSessionId || isCreatingPersonalizedGames) return;
+
+    try {
+      setIsCreatingPersonalizedGames(true);
+      setHostMessage({ tone: 'info', text: 'Building personal adaptive games for every participating student...' });
+      const payload = await apiFetchJson(`/api/analytics/class/${normalizedSessionId}/personalized-games`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          count: Math.min(5, Math.max(1, packQuestionCount || 5)),
+        }),
+      });
+
+      const createdCount = Number(payload?.created_count || 0);
+      const reusedCount = Number(payload?.reused_count || 0);
+      const failedCount = Number(payload?.failed_count || 0);
+      setPersonalizedGamesSummary({
+        createdCount,
+        reusedCount,
+        failedCount,
+        createdPacks: Array.isArray(payload?.created_packs) ? payload.created_packs : [],
+        failedStudents: Array.isArray(payload?.failed_students) ? payload.failed_students : [],
+      });
+
+      if (createdCount > 0 || reusedCount > 0) {
+        const summaryParts = [
+          createdCount > 0 ? `${createdCount} personal games created` : '',
+          reusedCount > 0 ? `${reusedCount} existing games reused` : '',
+          failedCount > 0 ? `${failedCount} students skipped` : '',
+        ].filter(Boolean);
+        setHostMessage({ tone: 'info', text: `${summaryParts.join(' • ')}.` });
+      } else {
+        setHostMessage({ tone: 'error', text: 'No personal games could be prepared for this session.' });
+      }
+    } catch (error: any) {
+      console.error('[TeacherHost] Failed to build personalized games:', error);
+      setHostMessage({
+        tone: 'error',
+        text: error?.message || 'Failed to build personalized games for this class.',
+      });
+    } finally {
+      setIsCreatingPersonalizedGames(false);
     }
   };
 
@@ -1468,24 +1523,42 @@ export default function TeacherHost() {
               {gameMode.label}
             </div>
           </div>
-          <motion.button
-            whileHover={{ scale: phaseTransitionPending ? 1 : 1.05 }}
-            whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
-            onClick={async () => {
-              if (isLast) {
-                const ended = await updateState('ENDED', questionIndex);
-                if (ended) {
-                  navigate(`/teacher/analytics/class/${sessionId}`);
+          <div className="flex flex-col gap-3 sm:flex-row">
+            {isLast && (
+              <motion.button
+                whileHover={{ scale: isCreatingPersonalizedGames ? 1 : 1.03 }}
+                whileTap={{ scale: isCreatingPersonalizedGames ? 1 : 0.97 }}
+                onClick={() => void handleCreatePersonalizedGames()}
+                disabled={isCreatingPersonalizedGames}
+                className="bg-brand-yellow text-brand-dark px-6 py-4 rounded-xl font-black text-lg hover:opacity-90 transition-all flex items-center justify-center gap-3 shadow-[6px_6px_0px_0px_#1A1A1A] disabled:opacity-60"
+              >
+                <Sparkles className="w-6 h-6" />
+                {isCreatingPersonalizedGames
+                  ? 'Building Personal Games...'
+                  : personalizedGamesSummary
+                    ? 'Refresh Personal Games'
+                    : 'Build Personal Games For Everyone'}
+              </motion.button>
+            )}
+            <motion.button
+              whileHover={{ scale: phaseTransitionPending ? 1 : 1.05 }}
+              whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
+              onClick={async () => {
+                if (isLast) {
+                  const ended = await updateState('ENDED', questionIndex);
+                  if (ended) {
+                    navigate(`/teacher/analytics/class/${sessionId}`);
+                  }
+                } else {
+                  await updateState('QUESTION_ACTIVE', questionIndex + 1);
                 }
-              } else {
-                await updateState('QUESTION_ACTIVE', questionIndex + 1);
-              }
-            }}
-            disabled={phaseTransitionPending}
-            className={`${isLast ? 'bg-emerald-500 shadow-[6px_6px_0px_0px_#064e3b]' : 'bg-brand-dark shadow-[6px_6px_0px_0px_#FF5A36]'} text-white px-10 py-4 rounded-xl font-black text-xl hover:opacity-90 transition-all flex items-center gap-3 disabled:opacity-50`}
-          >
-            {phaseTransitionPending ? 'Working...' : isLast ? 'End Game & Results' : 'Next Question'} <ChevronRight className="w-8 h-8" />
-          </motion.button>
+              }}
+              disabled={phaseTransitionPending}
+              className={`${isLast ? 'bg-emerald-500 shadow-[6px_6px_0px_0px_#064e3b]' : 'bg-brand-dark shadow-[6px_6px_0px_0px_#FF5A36]'} text-white px-10 py-4 rounded-xl font-black text-xl hover:opacity-90 transition-all flex items-center justify-center gap-3 disabled:opacity-50`}
+            >
+              {phaseTransitionPending ? 'Working...' : isLast ? 'End Game & Results' : 'Next Question'} <ChevronRight className="w-8 h-8" />
+            </motion.button>
+          </div>
         </div>
 
         {hostMessage && (
@@ -1504,6 +1577,93 @@ export default function TeacherHost() {
               {isLast ? 'The Winners Circle' : 'Leaderboard'}
             </h2>
           </motion.div>
+
+          {isLast && personalizedGamesSummary && (
+            <motion.div
+              initial={{ y: 16, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              className="mb-6 w-full shrink-0 rounded-[2rem] border-4 border-brand-dark bg-white p-5 shadow-[8px_8px_0px_0px_#1A1A1A]"
+            >
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Personal Adaptive Games</p>
+                  <h3 className="text-2xl font-black leading-tight">
+                    {personalizedGamesSummary.createdCount > 0
+                      ? `Prepared ${personalizedGamesSummary.createdCount} new personal games for this class`
+                      : 'Personal games were already prepared for this class'}
+                  </h3>
+                  <p className="font-medium text-brand-dark/70 mt-2">
+                    These packs are now available in My Quizzes, one per student, using the session analytics and each learner&apos;s weak areas.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black">
+                    {personalizedGamesSummary.createdCount} created
+                  </span>
+                  <span className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black">
+                    {personalizedGamesSummary.reusedCount} reused
+                  </span>
+                  <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black">
+                    {personalizedGamesSummary.failedCount} skipped
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                {personalizedGamesSummary.createdPacks.slice(0, 6).map((packRow: any) => (
+                  <div
+                    key={`${packRow.participant?.id}-${packRow.pack_id}`}
+                    className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="min-w-0">
+                        <p className="text-lg font-black truncate">{packRow.participant?.nickname}</p>
+                        <p className="font-medium text-brand-dark/65 truncate">{packRow.title}</p>
+                      </div>
+                      <span className={`rounded-full border-2 border-brand-dark px-3 py-1 text-xs font-black ${packRow.reused ? 'bg-white' : 'bg-emerald-100 text-emerald-900'}`}>
+                        {packRow.reused ? 'Reused' : 'Ready'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black">
+                        {packRow.question_count} questions
+                      </span>
+                      {Array.isArray(packRow.focus_tags) && packRow.focus_tags.slice(0, 2).map((tag: string) => (
+                        <span
+                          key={`${packRow.pack_id}-${tag}`}
+                          className="rounded-full border-2 border-brand-dark bg-brand-orange/10 px-3 py-1 text-xs font-black capitalize"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {personalizedGamesSummary.failedCount > 0 && personalizedGamesSummary.failedStudents.length > 0 && (
+                <p className="mt-4 font-medium text-brand-dark/70">
+                  Skipped students: {personalizedGamesSummary.failedStudents.slice(0, 4).map((row: any) => row?.participant?.nickname).filter(Boolean).join(', ')}
+                  {personalizedGamesSummary.failedStudents.length > 4 ? '...' : ''}
+                </p>
+              )}
+
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <button
+                  onClick={() => navigate('/teacher/dashboard')}
+                  className="rounded-full border-2 border-brand-dark bg-brand-dark px-5 py-3 font-black text-white transition-transform hover:-translate-y-0.5"
+                >
+                  Open My Quizzes
+                </button>
+                <button
+                  onClick={() => navigate(`/teacher/analytics/class/${sessionId}`)}
+                  className="rounded-full border-2 border-brand-dark bg-white px-5 py-3 font-black transition-transform hover:-translate-y-0.5"
+                >
+                  Open Class Analytics
+                </button>
+              </div>
+            </motion.div>
+          )}
 
           <div className="flex-1 w-full min-h-0 overflow-auto custom-scrollbar pr-2 pb-10">
             {isTeamMode && teamBoard.length > 0 ? (

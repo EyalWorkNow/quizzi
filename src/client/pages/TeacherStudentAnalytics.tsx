@@ -6,10 +6,13 @@ import {
   ArrowUpRight,
   BarChart3,
   BrainCircuit,
+  Check,
   CheckCircle2,
   Clock3,
+  Copy,
   Gauge,
   Layers3,
+  Printer,
   RefreshCw,
   Sparkles,
   Target,
@@ -94,6 +97,7 @@ export default function TeacherStudentAnalytics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isCreatingGame, setIsCreatingGame] = useState(false);
+  const [snapshotCopied, setSnapshotCopied] = useState(false);
 
   const buildFallbackPayload = async () => {
     const classPayload = await apiFetchJson(`/api/analytics/class/${sessionId}`);
@@ -151,6 +155,12 @@ export default function TeacherStudentAnalytics() {
   useEffect(() => {
     loadStudentAnalytics();
   }, [sessionId, participantId]);
+
+  useEffect(() => {
+    if (!snapshotCopied) return;
+    const timeout = window.setTimeout(() => setSnapshotCopied(false), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [snapshotCopied]);
 
   const analytics = data?.analytics;
   const overallAnalytics = data?.overall_analytics;
@@ -236,6 +246,48 @@ export default function TeacherStudentAnalytics() {
     return moves.slice(0, 4);
   }, [analytics, student]);
 
+  const supportSnapshot = useMemo(() => {
+    const weakTags = (analytics?.practicePlan?.focus_tags || analytics?.profile?.weak_tags || []).slice(0, 3);
+    const strongTags = (analytics?.profile?.strong_tags || overallAnalytics?.profile?.strong_tags || []).slice(0, 3);
+    const strengths = strongTags.length > 0
+      ? `Strongest areas right now: ${strongTags.join(', ')}.`
+      : `The student is currently strongest when the question format feels familiar and the decision path stays stable.`;
+    const watchouts = weakTags.length > 0
+      ? `Main support areas: ${weakTags.join(', ')}.`
+      : `The main support area is decision stability under pressure rather than one single content gap.`;
+    const sessionRead = `${data?.participant?.nickname} finished this session with ${Number(analytics?.stats?.accuracy || student?.accuracy || 0).toFixed(0)}% accuracy at ${Number(analytics?.risk?.stress_index || student?.stress_index || 0).toFixed(0)}% stress.`;
+    const nextMove =
+      student?.recommendation
+      || analytics?.practicePlan?.body
+      || teacherMoves[0]?.body
+      || 'A short same-material adaptive game is the next recommended move.';
+    const familyNote =
+      student?.risk_level === 'high' || analytics?.risk?.level === 'high'
+        ? 'This learner would benefit from a short, low-pressure re-entry step before the next bigger assessment.'
+        : 'A short same-topic check-in this week should be enough to keep momentum stable.';
+
+    const lines = [
+      `Support Snapshot: ${data?.participant?.nickname}`,
+      `Session: ${data?.pack?.title || 'Quizzi session'} (#${data?.session?.id || sessionId})`,
+      '',
+      sessionRead,
+      strengths,
+      watchouts,
+      `Teacher next move: ${nextMove}`,
+      `Home / advisor note: ${familyNote}`,
+    ];
+
+    return {
+      title: `${data?.participant?.nickname} support snapshot`,
+      strengths,
+      watchouts,
+      sessionRead,
+      nextMove,
+      familyNote,
+      text: lines.join('\n'),
+    };
+  }, [analytics, data?.pack?.title, data?.participant?.nickname, data?.session?.id, overallAnalytics?.profile?.strong_tags, sessionId, student, teacherMoves]);
+
   const handleCreateAdaptiveGame = async () => {
     if (!sessionId || !participantId) return;
 
@@ -251,6 +303,15 @@ export default function TeacherStudentAnalytics() {
       window.alert(createError?.message || 'Failed to create adaptive game');
     } finally {
       setIsCreatingGame(false);
+    }
+  };
+
+  const handleCopySupportSnapshot = async () => {
+    try {
+      await navigator.clipboard.writeText(supportSnapshot.text);
+      setSnapshotCopied(true);
+    } catch (copyError: any) {
+      window.alert(copyError?.message || 'Failed to copy support snapshot');
     }
   };
 
@@ -318,6 +379,20 @@ export default function TeacherStudentAnalytics() {
               Refresh
             </button>
             <button
+              onClick={() => void handleCopySupportSnapshot()}
+              className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
+            >
+              {snapshotCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {snapshotCopied ? 'Snapshot Copied' : 'Copy Support Snapshot'}
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="px-5 py-3 bg-brand-yellow border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
+            >
+              <Printer className="w-4 h-4" />
+              Print Snapshot
+            </button>
+            <button
               onClick={handleCreateAdaptiveGame}
               disabled={isCreatingGame}
               className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-60"
@@ -378,6 +453,38 @@ export default function TeacherStudentAnalytics() {
               <p className="font-medium text-brand-dark/70">
                 {student?.recommendation || analytics?.practicePlan?.body}
               </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mb-8">
+          <div className="bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
+            <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-5 mb-5">
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <Users className="w-6 h-6 text-brand-purple" />
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple">Support Snapshot</p>
+                </div>
+                <h2 className="text-3xl font-black">{supportSnapshot.title}</h2>
+                <p className="font-bold text-brand-dark/60 mt-2">
+                  A short plain-language summary you can reuse with a parent, advisor, coordinator, or support teacher.
+                </p>
+              </div>
+              <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg px-4 py-3 font-black">
+                Session #{data?.session?.id}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <SnapshotBlock title="What happened in this game" body={supportSnapshot.sessionRead} tone="bg-brand-bg" />
+              <SnapshotBlock title="What the student already shows" body={supportSnapshot.strengths} tone="bg-emerald-50" />
+              <SnapshotBlock title="Where support is needed" body={supportSnapshot.watchouts} tone="bg-brand-yellow/25" />
+              <SnapshotBlock title="Recommended next move" body={supportSnapshot.nextMove} tone="bg-brand-orange/10" />
+            </div>
+
+            <div className="mt-4 rounded-[1.5rem] border-2 border-brand-dark bg-brand-dark p-5 text-white">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">Home / Advisor Note</p>
+              <p className="font-medium text-white/80">{supportSnapshot.familyNote}</p>
             </div>
           </div>
         </section>
@@ -885,6 +992,23 @@ function TagCloud({ tags, tone }: { tags: string[]; tone: 'weak' | 'strong' }) {
           {tag}
         </span>
       ))}
+    </div>
+  );
+}
+
+function SnapshotBlock({
+  title,
+  body,
+  tone,
+}: {
+  title: string;
+  body: string;
+  tone: string;
+}) {
+  return (
+    <div className={`rounded-[1.5rem] border-2 border-brand-dark p-5 ${tone}`}>
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{title}</p>
+      <p className="font-medium text-brand-dark/75">{body}</p>
     </div>
   );
 }

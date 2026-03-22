@@ -3,14 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   BookOpen,
+  Check,
   CheckCircle2,
   ClipboardList,
   Clock3,
+  Copy,
   GraduationCap,
   Layers3,
   LoaderCircle,
   Plus,
   Search,
+  Trash2,
   Users,
   UserPlus,
   XCircle,
@@ -28,6 +31,7 @@ import {
   createClassSession,
   createTeacherClass,
   deleteTeacherClass,
+  deleteTeacherSession,
   listTeacherClasses,
   removeTeacherClassStudent,
   TEACHER_CLASS_COLOR_OPTIONS,
@@ -129,6 +133,8 @@ export default function TeacherClasses() {
   const [selectedClassId, setSelectedClassId] = useState<number | 'new' | null>(null);
   const [form, setForm] = useState<ClassFormState>(EMPTY_FORM);
   const [studentName, setStudentName] = useState('');
+  const [pendingSessionDelete, setPendingSessionDelete] = useState<null | { sessionId: number; classId: number; label: string }>(null);
+  const [copiedOutreachKey, setCopiedOutreachKey] = useState('');
 
   useEffect(() => {
     void bootstrapPage();
@@ -139,6 +145,12 @@ export default function TeacherClasses() {
     const timeout = window.setTimeout(() => setFeedback(null), 4200);
     return () => window.clearTimeout(timeout);
   }, [feedback]);
+
+  useEffect(() => {
+    if (!copiedOutreachKey) return;
+    const timeout = window.setTimeout(() => setCopiedOutreachKey(''), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [copiedOutreachKey]);
 
   useEffect(() => {
     if (selectedClassId === 'new' || selectedClassId === null) return;
@@ -263,6 +275,38 @@ export default function TeacherClasses() {
       return matchesSearch && matchesSubject;
     });
   }, [classes, searchQuery, subjectFilter]);
+
+  const selectedClassOutreachQueue = useMemo(() => {
+    if (!selectedClass?.retention) return [];
+
+    return selectedClass.retention.watchlist_students.map((student) => {
+      const status =
+        student.status === 'never_started'
+          ? 'Never started'
+          : student.status === 'inactive_14d'
+            ? 'Inactive 14d'
+            : 'Slipping';
+      const move =
+        student.status === 'never_started'
+          ? 'Send a low-friction first step and invite the student into one easy comeback task.'
+          : student.status === 'inactive_14d'
+            ? 'Reach out with a short re-entry message and a lighter success target for this week.'
+            : 'Use a confidence rebuild move before the next graded checkpoint.';
+      const nudge =
+        student.status === 'never_started'
+          ? `Hi ${student.name}, I noticed you have not really started yet. Let us begin with one short Quizzi activity so getting moving feels easy.`
+          : student.status === 'inactive_14d'
+            ? `Hi ${student.name}, you have been away from the class flow recently. I prepared a light comeback step so you can re-enter without overload.`
+            : `Hi ${student.name}, I can see you are still in the flow, but the recent results suggest a short targeted reset will help you stabilize.`;
+
+      return {
+        ...student,
+        statusLabel: status,
+        move,
+        nudge,
+      };
+    });
+  }, [selectedClass]);
 
   const summaryStats = useMemo(() => {
     const totalStudents = classes.reduce((sum, classItem) => sum + classItem.stats.student_count, 0);
@@ -423,6 +467,33 @@ export default function TeacherClasses() {
       setFeedback({ tone: 'error', message: error?.message || 'Failed to start the live class.' });
     } finally {
       setBusyKey(null);
+    }
+  };
+
+  const handleDeleteRecentSession = async () => {
+    if (!pendingSessionDelete) return;
+
+    try {
+      setBusyKey(`session-delete-${pendingSessionDelete.sessionId}`);
+      await deleteTeacherSession(pendingSessionDelete.sessionId);
+      const refreshed = await listTeacherClasses();
+      setClasses(sortClassesByRecent(Array.isArray(refreshed) ? refreshed : []));
+      setFeedback({ tone: 'success', message: `Session ${pendingSessionDelete.label} was deleted.` });
+      setPendingSessionDelete(null);
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: error?.message || 'Failed to delete session.' });
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleCopyOutreach = async (studentName: string, message: string) => {
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopiedOutreachKey(studentName);
+      setFeedback({ tone: 'success', message: `Copied outreach note for ${studentName}.` });
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: error?.message || 'Failed to copy outreach note.' });
     }
   };
 
@@ -764,6 +835,61 @@ export default function TeacherClasses() {
                       )}
                     </div>
 
+                    <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4 mb-5">
+                      <div className="flex items-center gap-2 mb-3">
+                        <AlertTriangle className="w-5 h-5 text-brand-orange" />
+                        <div>
+                          <h3 className="text-lg font-black">Dropout Risk Radar</h3>
+                          <p className="text-sm font-bold text-brand-dark/50">
+                            Copy a ready-made nudge or open the latest report before students drift further.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        {selectedClassOutreachQueue.length > 0 ? (
+                          selectedClassOutreachQueue.map((student) => (
+                            <div key={`${selectedClass.id}-outreach-${student.name}`} className="rounded-[1.25rem] border-2 border-brand-dark bg-brand-bg p-4">
+                              <div className="flex items-start justify-between gap-3 mb-2">
+                                <div>
+                                  <p className="font-black">{student.name}</p>
+                                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">
+                                    {student.statusLabel}
+                                  </p>
+                                </div>
+                                <span className={`px-3 py-1 rounded-full border-2 border-brand-dark text-[10px] font-black uppercase tracking-[0.18em] ${retentionStatusTone(student.status)}`}>
+                                  {student.statusLabel}
+                                </span>
+                              </div>
+                              <p className="text-sm font-bold text-brand-dark/65">{student.reason}</p>
+                              <p className="text-sm font-black text-brand-dark mt-3">{student.move}</p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  onClick={() => void handleCopyOutreach(student.name, student.nudge)}
+                                  className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black"
+                                >
+                                  {copiedOutreachKey === student.name ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                                  {copiedOutreachKey === student.name ? 'Copied' : 'Copy nudge'}
+                                </button>
+                                {selectedClass.latest_completed_session && (
+                                  <button
+                                    onClick={() => navigate(`/teacher/analytics/class/${selectedClass.latest_completed_session?.id}`)}
+                                    className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black"
+                                  >
+                                    Open latest report
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm font-bold text-brand-dark/50">
+                            This class does not have a current watchlist. Outreach suggestions will appear here once drift signals accumulate.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="flex items-center gap-2 mb-3">
                       <GraduationCap className="w-5 h-5 text-brand-purple" />
                       <h3 className="text-lg font-black">Recent Sessions</h3>
@@ -771,16 +897,32 @@ export default function TeacherClasses() {
 
                     <div className="space-y-3">
                       {selectedClass.recent_sessions.map((session) => (
-                        <button
+                        <div
                           key={session.id}
-                          onClick={() => navigate(`/teacher/analytics/class/${session.id}`)}
                           className="w-full text-left bg-brand-bg rounded-2xl border-2 border-brand-dark/10 p-4 hover:border-brand-dark transition-colors"
                         >
-                          <div className="flex items-center justify-between gap-3 mb-2">
-                            <span className="font-black">Session #{session.id}</span>
-                            <span className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">
-                              {session.status}
-                            </span>
+                          <div className="flex items-start justify-between gap-3 mb-2">
+                            <div>
+                              <span className="font-black">Session #{session.id}</span>
+                              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50 mt-1">
+                                {session.status}
+                              </p>
+                            </div>
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setPendingSessionDelete({
+                                  sessionId: session.id,
+                                  classId: selectedClass.id,
+                                  label: `#${session.id}`,
+                                });
+                              }}
+                              disabled={busyKey === `session-delete-${session.id}`}
+                              className="inline-flex items-center justify-center rounded-full border-2 border-brand-dark bg-white p-2 text-brand-dark/55 transition-colors hover:text-brand-orange disabled:opacity-50"
+                              title="Delete session"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                           <div className="flex items-center justify-between gap-3 text-sm font-bold text-brand-dark/70">
                             <span>{session.participant_count} players</span>
@@ -789,7 +931,13 @@ export default function TeacherClasses() {
                           <p className="text-xs font-bold text-brand-dark/45 mt-2">
                             {formatRelativeTime(session.ended_at || session.started_at)}
                           </p>
-                        </button>
+                          <button
+                            onClick={() => navigate(`/teacher/analytics/class/${session.id}`)}
+                            className="mt-3 inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black"
+                          >
+                            Open analytics
+                          </button>
+                        </div>
                       ))}
                       {selectedClass.recent_sessions.length === 0 && (
                         <p className="text-sm font-bold text-brand-dark/50">
@@ -797,6 +945,31 @@ export default function TeacherClasses() {
                         </p>
                       )}
                     </div>
+
+                    {pendingSessionDelete?.classId === selectedClass.id && (
+                      <div className="mt-4 rounded-[1.4rem] border-2 border-brand-dark bg-white p-4 shadow-[3px_3px_0px_0px_#1A1A1A]">
+                        <p className="font-black">Delete session {pendingSessionDelete.label}?</p>
+                        <p className="text-sm font-bold text-brand-dark/60 mt-2">
+                          This will permanently remove the session, its answers, participants, and behavior logs from the database.
+                        </p>
+                        <div className="mt-4 flex gap-2">
+                          <button
+                            onClick={() => void handleDeleteRecentSession()}
+                            disabled={busyKey === `session-delete-${pendingSessionDelete.sessionId}`}
+                            className="rounded-full border-2 border-brand-dark bg-brand-orange px-4 py-2 font-black text-white disabled:opacity-60"
+                          >
+                            {busyKey === `session-delete-${pendingSessionDelete.sessionId}` ? 'Deleting...' : 'Yes, delete'}
+                          </button>
+                          <button
+                            onClick={() => setPendingSessionDelete(null)}
+                            disabled={busyKey === `session-delete-${pendingSessionDelete.sessionId}`}
+                            className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 font-black"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </>
               )}
@@ -1008,4 +1181,10 @@ function retentionLevelTone(level: 'low' | 'medium' | 'high') {
   if (level === 'high') return 'bg-rose-100 text-rose-700';
   if (level === 'medium') return 'bg-brand-yellow text-brand-dark';
   return 'bg-emerald-100 text-emerald-800';
+}
+
+function retentionStatusTone(status: 'never_started' | 'inactive_14d' | 'slipping') {
+  if (status === 'never_started') return 'bg-rose-100 text-rose-700';
+  if (status === 'inactive_14d') return 'bg-brand-orange/15 text-brand-dark';
+  return 'bg-brand-yellow text-brand-dark';
 }
