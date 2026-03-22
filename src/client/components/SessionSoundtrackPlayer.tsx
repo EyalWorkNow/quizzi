@@ -160,7 +160,7 @@ export default function SessionSoundtrackPlayer({ status, modeConfig, className 
         setMuted(true);
         setIsPlaying(false);
       }}
-      className={`fixed bottom-24 right-4 z-40 flex items-center gap-3 rounded-full border-4 border-brand-dark bg-white px-5 py-3 text-left shadow-[6px_6px_0px_0px_#1A1A1A] transition-colors hover:bg-brand-yellow sm:bottom-5 sm:right-5 ${className}`.trim()}
+      className={`fixed bottom-5 right-5 z-40 hidden items-center gap-3 rounded-full border-4 border-brand-dark bg-white px-5 py-3 text-left shadow-[6px_6px_0px_0px_#1A1A1A] transition-colors hover:bg-brand-yellow md:flex ${className}`.trim()}
       title={activeTrack.label}
     >
       <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-brand-dark bg-brand-bg">

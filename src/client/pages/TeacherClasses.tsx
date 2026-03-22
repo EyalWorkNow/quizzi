@@ -414,11 +414,32 @@ export default function TeacherClasses() {
   };
 
   const handleViewReport = (classItem: TeacherClassBoard) => {
-    if (!classItem.latest_session?.id) {
+    if (!classItem.latest_completed_session?.id) {
       setFeedback({ tone: 'error', message: 'This class does not have a report yet. Run a live session first.' });
       return;
     }
-    navigate(`/teacher/analytics/class/${classItem.latest_session.id}`);
+    navigate(`/teacher/analytics/class/${classItem.latest_completed_session.id}`);
+  };
+
+  const handleBuildRematch = async (classItem: TeacherClassBoard) => {
+    if (!classItem.latest_completed_session?.id) {
+      setFeedback({ tone: 'error', message: 'Run a class session first so Quizzi can build a rematch pack from real results.' });
+      return;
+    }
+
+    try {
+      setBusyKey(`rematch-${classItem.id}`);
+      const payload = await apiFetchJson(`/api/teacher/sessions/${classItem.latest_completed_session.id}/rematch-pack`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_id: 'whole_class_reset' }),
+      });
+      navigate(`/teacher/pack/${payload.pack_id}/edit`);
+    } catch (error: any) {
+      setFeedback({ tone: 'error', message: error?.message || 'Failed to build a rematch pack.' });
+    } finally {
+      setBusyKey(null);
+    }
   };
 
   return (
@@ -528,11 +549,16 @@ export default function TeacherClasses() {
                     <ClassCard
                       key={classItem.id}
                       classItem={classItem}
-                      isBusy={busyKey === `delete-${classItem.id}` || busyKey === `host-${classItem.id}`}
+                      isBusy={
+                        busyKey === `delete-${classItem.id}`
+                        || busyKey === `host-${classItem.id}`
+                        || busyKey === `rematch-${classItem.id}`
+                      }
                       onEdit={() => openClassEditor(classItem)}
                       onDelete={() => void handleDeleteClass(classItem)}
                       onHost={() => void handleHostClass(classItem)}
                       onViewReport={() => handleViewReport(classItem)}
+                      onRematch={() => void handleBuildRematch(classItem)}
                     />
                   ))}
                 </div>
@@ -766,6 +792,7 @@ function ClassCard({
   onDelete,
   onHost,
   onViewReport,
+  onRematch,
 }: {
   key?: React.Key;
   classItem: TeacherClassBoard;
@@ -774,19 +801,23 @@ function ClassCard({
   onDelete: () => void;
   onHost: () => void;
   onViewReport: () => void;
+  onRematch: () => void;
 }) {
   const isLight = classItem.color === 'bg-white' || classItem.color === 'bg-brand-yellow';
   const textColor = isLight ? 'text-brand-dark' : 'text-white';
   const secondaryText = isLight ? 'text-brand-dark/70' : 'text-white/75';
   const panelTone = isLight ? 'bg-white/50' : 'bg-white/10';
   const buttonTone = isLight ? 'bg-brand-dark text-white' : 'bg-white text-brand-dark';
-  const hasReport = Boolean(classItem.latest_session?.id);
+  const hasReport = Boolean(classItem.latest_completed_session?.id);
+  const hasOpenLiveRoom = Boolean(
+    classItem.latest_session && String(classItem.latest_session.status || '').toUpperCase() !== 'ENDED',
+  );
   const hasAssignedPack = Boolean(classItem.pack?.id);
   const sessionState =
-    classItem.latest_session && String(classItem.latest_session.status || '').toUpperCase() !== 'ENDED'
+    hasOpenLiveRoom
       ? 'Live room open'
-      : classItem.latest_session
-        ? `Last run ${formatRelativeTime(classItem.latest_session.ended_at || classItem.latest_session.started_at)}`
+      : classItem.latest_completed_session
+        ? `Last run ${formatRelativeTime(classItem.latest_completed_session.ended_at || classItem.latest_completed_session.started_at)}`
         : 'No live run yet';
 
   return (
@@ -856,9 +887,16 @@ function ClassCard({
             isLight ? 'bg-brand-yellow text-brand-dark' : 'bg-brand-orange text-white'
           }`}
         >
-          {classItem.latest_session && String(classItem.latest_session.status || '').toUpperCase() !== 'ENDED'
-            ? 'Open Live Room'
-            : 'Host Class'}
+          {hasOpenLiveRoom ? 'Open Live Room' : 'Host Class'}
+        </button>
+        <button
+          onClick={onRematch}
+          disabled={!hasReport || isBusy}
+          className={`sm:col-span-2 py-3 rounded-xl font-bold text-sm border-2 border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-50 ${
+            isLight ? 'bg-brand-yellow text-brand-dark' : 'bg-white text-brand-dark'
+          }`}
+        >
+          Build Rematch Pack
         </button>
       </div>
     </motion.div>

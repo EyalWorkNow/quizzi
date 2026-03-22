@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowUpRight,
   BarChart,
@@ -30,6 +30,7 @@ import {
   Search,
   Settings,
   Sparkles,
+  SquarePen,
   Trash2,
   Users,
   Wind,
@@ -97,7 +98,7 @@ function getPackState(pack: any) {
   if (Number(pack.active_session_count || 0) > 0) {
     return {
       label: 'שיעור פעיל',
-      body: `קוד גישה ${pack.last_session_pin || 'מוכן'} עדיין פתוח לתלמידים.`,
+      body: `קוד גישה ${pack.latest_active_session_pin || pack.last_session_pin || 'מוכן'} עדיין פתוח לתלמידים.`,
       tone: 'bg-brand-orange text-white shadow-[0_0_20px_rgba(255,90,54,0.3)]',
     };
   }
@@ -165,6 +166,7 @@ export default function TeacherDashboard() {
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [hasLoadedPackBoard, setHasLoadedPackBoard] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { direction } = useTeacherLanguage();
   const teacherProfile = loadTeacherSettings().profile;
 
@@ -192,9 +194,20 @@ export default function TeacherDashboard() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
+  useEffect(() => {
+    const state = location.state as { notice?: { tone: 'success' | 'error'; message: string } } | null;
+    if (!state?.notice) return;
+    setNotice(state.notice);
+    navigate(location.pathname, { replace: true });
+  }, [location.pathname, location.state, navigate]);
+
   const handleLogout = async () => {
     await signOutTeacher();
     navigate('/');
+  };
+
+  const openPackEditor = (packId: number) => {
+    navigate(`/teacher/pack/${packId}/edit`);
   };
 
   const loadPackPreview = async (packId: number) => {
@@ -343,9 +356,9 @@ export default function TeacherDashboard() {
   };
 
   const openLiveRoom = (pack: any) => {
-    if (!pack?.last_session_pin) return;
-    navigate(`/teacher/session/${pack.last_session_pin}/host`, {
-      state: { sessionId: pack.last_session_id, packId: pack.id },
+    if (!pack?.latest_active_session_pin) return;
+    navigate(`/teacher/session/${pack.latest_active_session_pin}/host`, {
+      state: { sessionId: pack.latest_active_session_id, packId: pack.id },
     });
   };
 
@@ -460,6 +473,35 @@ export default function TeacherDashboard() {
       });
     } catch (duplicateError: any) {
       setNotice({ tone: 'error', message: duplicateError?.message || 'Failed to duplicate this pack.' });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleCreateRematchFromSession = async (sessionId: number, packId: number, sourceTitle: string) => {
+    try {
+      setBusyAction({ packId, action: 'rematch' });
+      const response = await apiFetch(`/api/teacher/sessions/${sessionId}/rematch-pack`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_id: 'whole_class_reset' }),
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      const payload = await response.json();
+      setSelectedPack(null);
+      await loadPacks();
+      setNotice({
+        tone: 'success',
+        message: `${payload?.title || 'Rematch pack'} is ready. You can refine it before the next live run.`,
+      });
+      navigate(`/teacher/pack/${payload.pack_id}/edit`);
+    } catch (rematchError: any) {
+      setNotice({
+        tone: 'error',
+        message: rematchError?.message || `Failed to build a rematch pack from ${sourceTitle}.`,
+      });
     } finally {
       setBusyAction(null);
     }
@@ -795,25 +837,32 @@ export default function TeacherDashboard() {
                           <Search className="w-4 h-4" />
                           תצוגה מקדימה
                         </button>
-                        
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            onClick={() => void handleDuplicate(pack)}
-                            disabled={isBusy}
-                            title="שכפול"
-                            className="bg-white border-2 border-brand-dark rounded-xl py-2.5 font-black text-sm shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-brand-yellow hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all flex items-center justify-center disabled:opacity-60"
-                          >
-                            <Copy className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setDeletingPack(pack)}
-                            disabled={isBusy}
-                            title="מחיקה"
-                            className="bg-white border-2 border-brand-dark rounded-xl py-2.5 font-black text-sm shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-rose-500 hover:text-white hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all flex items-center justify-center disabled:opacity-60"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+
+                        <button
+                          onClick={() => openPackEditor(Number(pack.id))}
+                          disabled={isBusy}
+                          className="bg-white border-2 border-brand-dark rounded-xl py-2.5 font-black text-sm shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-brand-yellow hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                        >
+                          <SquarePen className="w-4 h-4" />
+                          עריכה
+                        </button>
+
+                        <button
+                          onClick={() => void handleDuplicate(pack)}
+                          disabled={isBusy}
+                          title="שכפול"
+                          className="bg-white border-2 border-brand-dark rounded-xl py-2.5 font-black text-sm shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-brand-yellow hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all flex items-center justify-center disabled:opacity-60"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setDeletingPack(pack)}
+                          disabled={isBusy}
+                          title="מחיקה"
+                          className="bg-white border-2 border-brand-dark rounded-xl py-2.5 font-black text-sm shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-rose-500 hover:text-white hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all flex items-center justify-center disabled:opacity-60"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
                     </motion.div>
@@ -1029,11 +1078,39 @@ export default function TeacherDashboard() {
                 {Number(selectedPack.active_session_count || 0) > 0 ? 'Open Live Room' : 'Host This Pack'}
               </button>
               <button
+                onClick={() => {
+                  const nextPackId = Number(selectedPack.id);
+                  setSelectedPack(null);
+                  openPackEditor(nextPackId);
+                }}
+                className="bg-white border-2 border-brand-dark rounded-2xl py-4 font-black flex items-center justify-center gap-2"
+              >
+                <SquarePen className="w-4 h-4" />
+                Edit
+              </button>
+              <button
                 onClick={() => void handleDuplicate(selectedPack)}
                 className="bg-white border-2 border-brand-dark rounded-2xl py-4 font-black"
               >
                 Duplicate
               </button>
+              {Number(selectedPack.last_completed_session_id || 0) > 0 && (
+                <button
+                  onClick={() =>
+                    void handleCreateRematchFromSession(
+                      Number(selectedPack.last_completed_session_id),
+                      Number(selectedPack.id),
+                      String(selectedPack.title || 'this pack'),
+                    )
+                  }
+                  disabled={Number(busyAction?.packId) === Number(selectedPack.id) && busyAction?.action === 'rematch'}
+                  className="col-span-2 bg-brand-yellow border-2 border-brand-dark rounded-2xl py-4 font-black disabled:opacity-60"
+                >
+                  {Number(busyAction?.packId) === Number(selectedPack.id) && busyAction?.action === 'rematch'
+                    ? 'Building Rematch...'
+                    : 'Build Rematch Pack From Last Completed Run'}
+                </button>
+              )}
               <button
                 onClick={() => {
                   setDeletingPack(selectedPack);

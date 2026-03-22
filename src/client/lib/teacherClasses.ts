@@ -58,6 +58,7 @@ export type TeacherClassBoard = {
     average_accuracy: number | null;
   };
   latest_session: TeacherClassSessionSummary | null;
+  latest_completed_session: TeacherClassSessionSummary | null;
   recent_sessions: TeacherClassSessionSummary[];
 };
 

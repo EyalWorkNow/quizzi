@@ -18,6 +18,107 @@ import { buildSessionJoinUrl } from '../lib/joinCodes.ts';
 import { isPeerInstructionMode, resolveSessionQuestionTimeLimit } from '../lib/sessionModeRules.ts';
 import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
 
+function formatAnswerSlotLabel(index: number) {
+  return String.fromCharCode(65 + (index % 26));
+}
+
+function buildLiveHostInsights({
+  status,
+  participants,
+  totalAnswers,
+  voteCount,
+  phaseTimeLeft,
+  activeQuestionSeconds,
+  isPeerMode,
+  currentQuestion,
+  answerSelectionSummary,
+}: {
+  status: string;
+  participants: number;
+  totalAnswers: number;
+  voteCount: number;
+  phaseTimeLeft: number;
+  activeQuestionSeconds: number;
+  isPeerMode: boolean;
+  currentQuestion: any;
+  answerSelectionSummary: Array<{ index: number; count: number; pct: number }>;
+}) {
+  const answeredCount =
+    status === 'QUESTION_DISCUSSION' || (status === 'QUESTION_ACTIVE' && isPeerMode)
+      ? voteCount
+      : totalAnswers;
+  const participationPct = participants > 0 ? Math.round((answeredCount / participants) * 100) : 0;
+  const sortedSelections = [...answerSelectionSummary].sort((left, right) => right.count - left.count);
+  const leader = sortedSelections[0] || null;
+  const runnerUp = sortedSelections[1] || null;
+  const secondsThreshold = Math.max(6, Math.ceil(activeQuestionSeconds * 0.35));
+  const cues: Array<{ tone: 'warning' | 'insight' | 'success'; title: string; body: string }> = [];
+
+  if (!participants) {
+    cues.push({
+      tone: 'insight',
+      title: 'Room not ready yet',
+      body: 'No students are connected right now, so keep the PIN visible until the room fills.',
+    });
+  } else if (participationPct < 55 && phaseTimeLeft <= secondsThreshold) {
+    cues.push({
+      tone: 'warning',
+      title: 'Hesitation detected',
+      body: 'Many students still have not committed. Add a hint, extend the timer, or slow the pace before you reveal.',
+    });
+  }
+
+  if (leader && runnerUp && leader.count > 0 && runnerUp.count > 0 && leader.pct - runnerUp.pct <= 12) {
+    cues.push({
+      tone: 'insight',
+      title: 'Split room',
+      body: `The room is split between ${formatAnswerSlotLabel(leader.index)} and ${formatAnswerSlotLabel(runnerUp.index)}. Invite both sides to justify before the reveal.`,
+    });
+  }
+
+  if (
+    currentQuestion &&
+    leader &&
+    leader.count > 0 &&
+    leader.index !== Number(currentQuestion.correct_index) &&
+    leader.pct >= 45
+  ) {
+    cues.push({
+      tone: 'warning',
+      title: 'Misconception cluster',
+      body: `Most students are leaning toward ${formatAnswerSlotLabel(leader.index)}, which is not correct. Pause and probe the reasoning before moving on.`,
+    });
+  }
+
+  if (participants > 0 && participationPct >= 85 && phaseTimeLeft <= Math.max(3, Math.ceil(activeQuestionSeconds * 0.15))) {
+    cues.push({
+      tone: 'success',
+      title: 'Ready to move',
+      body: 'The room has mostly committed. You can reveal soon without losing much participation.',
+    });
+  }
+
+  if (cues.length === 0) {
+    cues.push({
+      tone: 'insight',
+      title: status === 'QUESTION_DISCUSSION' ? 'Discussion in motion' : 'Healthy momentum',
+      body:
+        status === 'QUESTION_DISCUSSION'
+          ? 'Pods are comparing reasoning right now. Listen for one strong argument from each side before opening the revote.'
+          : 'The room is moving at a stable pace. Let the strongest pattern emerge before the next transition.',
+    });
+  }
+
+  return {
+    answeredCount,
+    participationPct,
+    leader,
+    runnerUp,
+    primaryCue: cues[0],
+    secondaryCue: cues[1] || null,
+  };
+}
+
 export default function TeacherHost() {
   const { pin } = useParams();
   const navigate = useNavigate();
@@ -117,6 +218,21 @@ export default function TeacherHost() {
     currentQuestion && Number.isFinite(Number(currentQuestion.correct_index))
       ? Number(answerSelectionSummary[Number(currentQuestion.correct_index)]?.count || 0)
       : 0;
+  const liveHostInsights = React.useMemo(
+    () =>
+      buildLiveHostInsights({
+        status,
+        participants: participants.length,
+        totalAnswers,
+        voteCount: Object.keys(studentSelections).length,
+        phaseTimeLeft,
+        activeQuestionSeconds,
+        isPeerMode,
+        currentQuestion,
+        answerSelectionSummary,
+      }),
+    [activeQuestionSeconds, answerSelectionSummary, currentQuestion, isPeerMode, participants.length, phaseTimeLeft, status, studentSelections, totalAnswers],
+  );
   const phaseTransitionPending = Boolean(pendingStateKey);
 
   useEffect(() => {
@@ -1180,6 +1296,48 @@ export default function TeacherHost() {
             </div>
           </motion.div>
 
+          <div className="grid w-full gap-4 mb-8 lg:grid-cols-[1.05fr_1.05fr_1.6fr]">
+            <HostInsightCard
+              title="Room Pulse"
+              accent="indigo"
+              value={`${liveHostInsights.participationPct}%`}
+              body={`${liveHostInsights.answeredCount} of ${participants.length || 0} students have committed in this phase.`}
+            />
+            <HostInsightCard
+              title="Lead Signal"
+              accent={
+                liveHostInsights.leader &&
+                currentQuestion &&
+                liveHostInsights.leader.index !== Number(currentQuestion.correct_index) &&
+                liveHostInsights.leader.pct >= 45
+                  ? 'amber'
+                  : 'emerald'
+              }
+              value={
+                liveHostInsights.leader
+                  ? `${formatAnswerSlotLabel(liveHostInsights.leader.index)} · ${liveHostInsights.leader.pct}%`
+                  : 'Waiting'
+              }
+              body={
+                liveHostInsights.runnerUp
+                  ? `Second place is ${formatAnswerSlotLabel(liveHostInsights.runnerUp.index)} at ${liveHostInsights.runnerUp.pct}%.`
+                  : 'No clear pattern has formed yet.'
+              }
+            />
+            <HostInsightCard
+              title={liveHostInsights.primaryCue.title}
+              accent={
+                liveHostInsights.primaryCue.tone === 'warning'
+                  ? 'amber'
+                  : liveHostInsights.primaryCue.tone === 'success'
+                    ? 'emerald'
+                    : 'indigo'
+              }
+              body={liveHostInsights.primaryCue.body}
+              secondaryBody={liveHostInsights.secondaryCue?.body || ''}
+            />
+          </div>
+
           <div
             className="grid gap-6 w-full"
             style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
@@ -1670,6 +1828,36 @@ function HostStageMetric({
     <div className={`rounded-[1.4rem] border-2 p-4 min-h-[94px] ${toneClass}`}>
       <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-2">{label}</p>
       <p className="text-2xl font-black break-words leading-tight">{value}</p>
+    </div>
+  );
+}
+
+function HostInsightCard({
+  title,
+  value,
+  body,
+  secondaryBody,
+  accent,
+}: {
+  title: string;
+  value?: string;
+  body: string;
+  secondaryBody?: string;
+  accent: 'indigo' | 'amber' | 'emerald';
+}) {
+  const accentClass =
+    accent === 'amber'
+      ? 'border-amber-300 bg-amber-50 text-amber-900'
+      : accent === 'emerald'
+        ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+        : 'border-indigo-200 bg-indigo-50 text-indigo-900';
+
+  return (
+    <div className={`rounded-[1.6rem] border-2 p-5 ${accentClass}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-2">{title}</p>
+      {value && <p className="text-3xl font-black leading-none mb-3">{value}</p>}
+      <p className="font-bold leading-snug">{body}</p>
+      {secondaryBody ? <p className="mt-3 text-sm font-medium opacity-80">{secondaryBody}</p> : null}
     </div>
   );
 }

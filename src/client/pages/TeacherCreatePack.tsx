@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Library, Search, Layout, Rocket, Play, PlusCircle, ChevronDown, ChevronUp, Monitor, Brain, MessageSquare, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
@@ -54,6 +54,9 @@ function readFileAsDataUrl(file: File) {
 
 export default function TeacherCreatePack() {
   const navigate = useNavigate();
+  const { id } = useParams();
+  const editPackId = Number(id || 0);
+  const isEditMode = Number.isFinite(editPackId) && editPackId > 0;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const questionImageInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const [title, setTitle] = useState('');
@@ -82,6 +85,8 @@ export default function TeacherCreatePack() {
   const [questionBankItems, setQuestionBankItems] = useState<any[]>([]);
   const [isQuestionBankLoading, setIsQuestionBankLoading] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
+  const [isLoadingPack, setIsLoadingPack] = useState(isEditMode);
+  const [packLoadError, setPackLoadError] = useState('');
 
   // Advanced Generation Settings
   const [questionCount, setQuestionCount] = useState(5);
@@ -105,6 +110,84 @@ export default function TeacherCreatePack() {
     () => recommendModesForDraft(questions.length || questionCount, materialProfile?.topic_fingerprint?.length || 0),
     [materialProfile?.topic_fingerprint?.length, questionCount, questions.length],
   );
+
+  useEffect(() => {
+    if (!isEditMode) {
+      setIsLoadingPack(false);
+      setPackLoadError('');
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingPack(true);
+    setPackLoadError('');
+
+    apiFetchJson(`/api/teacher/packs/${editPackId}`)
+      .then((pack) => {
+        if (cancelled) return;
+        const initialQuestionCount = Number(pack?.question_count || pack?.questions?.length || 5);
+        setTitle(String(pack?.title || ''));
+        setSourceText(String(pack?.source_text || ''));
+        setQuestions(
+          Array.isArray(pack?.questions)
+            ? pack.questions.map((question: any, index: number) => ({
+                id: question.id,
+                prompt: question.prompt || '',
+                image_url: question.image_url || '',
+                answers: Array.isArray(question.answers)
+                  ? question.answers.slice(0, MAX_QUESTION_ANSWERS)
+                  : ['', '', '', ''],
+                correct_index: Number(question.correct_index || 0),
+                explanation: question.explanation || '',
+                tags: Array.isArray(question.tags) && question.tags.length > 0 ? question.tags : ['general'],
+                time_limit_seconds: Number(question.time_limit_seconds || 20),
+                learning_objective: question.learning_objective || '',
+                bloom_level: question.bloom_level || '',
+                question_order: Number(question.question_order || index + 1),
+              }))
+            : [],
+        );
+        setLanguage(String(pack?.source_language || 'English'));
+        setAcademicMeta({
+          course_code: pack?.course_code || '',
+          course_name: pack?.course_name || '',
+          section_name: pack?.section_name || '',
+          academic_term: pack?.academic_term || '',
+          week_label: pack?.week_label || '',
+          learning_objectives: Array.isArray(pack?.learning_objectives) ? pack.learning_objectives : [],
+          bloom_levels: Array.isArray(pack?.bloom_levels) ? pack.bloom_levels : [],
+          pack_notes: pack?.pack_notes || '',
+        });
+        setIsPublic(Number(pack?.is_public || 0) === 1);
+        setQuestionCount(Number.isFinite(initialQuestionCount) ? Math.max(5, Math.min(20, initialQuestionCount)) : 5);
+        setCreationStep(Array.isArray(pack?.questions) && pack.questions.length > 0 ? 'QUESTIONS' : 'CONTENT');
+      })
+      .catch((error: any) => {
+        if (cancelled) return;
+        setPackLoadError(error?.message || 'Failed to load this pack for editing.');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsLoadingPack(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editPackId, isEditMode]);
+
+  const buildSaveNotice = (savedPack: any) => {
+    if (savedPack?.saved_as_new_revision) {
+      return {
+        tone: 'success' as const,
+        message: `${savedPack.title || 'A revised pack'} was saved as a new revision so past session analytics stay intact.`,
+      };
+    }
+    return {
+      tone: 'success' as const,
+      message: `${savedPack?.title || title || 'Your pack'} was ${isEditMode ? 'updated' : 'saved'} successfully.`,
+    };
+  };
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -267,8 +350,8 @@ export default function TeacherCreatePack() {
       };
     });
 
-    const res = await apiFetch('/api/packs', {
-      method: 'POST',
+    const res = await apiFetch(isEditMode ? `/api/teacher/packs/${editPackId}` : '/api/packs', {
+      method: isEditMode ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         title,
@@ -290,8 +373,10 @@ export default function TeacherCreatePack() {
     setIsSaving(true);
     setSaveError('');
     try {
-      await persistPack();
-      navigate('/teacher/dashboard');
+      const savedPack = await persistPack();
+      navigate('/teacher/dashboard', {
+        state: { notice: buildSaveNotice(savedPack) },
+      });
     } catch (err: any) {
       console.error(err);
       setSaveError(err?.message || 'Failed to save pack.');
@@ -440,6 +525,43 @@ export default function TeacherCreatePack() {
     ]);
   };
 
+  if (isLoadingPack) {
+    return (
+      <div className="min-h-screen bg-brand-bg flex items-center justify-center px-6">
+        <div className="rounded-[2rem] border-4 border-brand-dark bg-white px-10 py-9 shadow-[10px_10px_0px_0px_#1A1A1A] text-center">
+          <div className="mx-auto mb-5 h-14 w-14 rounded-full border-4 border-brand-dark border-t-brand-orange animate-spin" />
+          <p className="text-2xl font-black text-brand-dark">{isEditMode ? 'Loading pack editor...' : 'Loading...'}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (packLoadError) {
+    return (
+      <div className="min-h-screen bg-brand-bg flex items-center justify-center px-6">
+        <div className="w-full max-w-2xl rounded-[2rem] border-4 border-brand-dark bg-white p-8 shadow-[10px_10px_0px_0px_#1A1A1A]">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-3">Pack editor</p>
+          <h1 className="text-4xl font-black text-brand-dark mb-3">This quiz could not be opened for editing.</h1>
+          <p className="font-bold text-brand-dark/65 mb-6">{packLoadError}</p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => navigate('/teacher/dashboard')}
+              className="px-6 py-3 rounded-full border-2 border-brand-dark bg-white font-black shadow-[3px_3px_0px_0px_#1A1A1A]"
+            >
+              Back to dashboard
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-6 py-3 rounded-full border-2 border-brand-dark bg-brand-orange text-white font-black shadow-[3px_3px_0px_0px_#1A1A1A]"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-brand-bg pb-20 font-sans text-brand-dark selection:bg-brand-orange selection:text-white">
       {/* Header */}
@@ -453,8 +575,10 @@ export default function TeacherCreatePack() {
               <ArrowLeft className="w-6 h-6 text-brand-dark" />
             </button>
             <div>
-              <h1 className="text-2xl font-black text-brand-dark tracking-tight">Create Quiz Pack</h1>
-              <p className="text-sm font-bold text-brand-dark/60">Design your questions or let AI help</p>
+              <h1 className="text-2xl font-black text-brand-dark tracking-tight">{isEditMode ? 'Edit Quiz Pack' : 'Create Quiz Pack'}</h1>
+              <p className="text-sm font-bold text-brand-dark/60">
+                {isEditMode ? 'Refine questions, keep the classroom flow, and publish a safer revision when needed' : 'Design your questions or let AI help'}
+              </p>
             </div>
           </div>
           <div className="flex flex-wrap gap-3 justify-end">
@@ -464,7 +588,7 @@ export default function TeacherCreatePack() {
               className="bg-brand-purple text-white px-6 py-3 rounded-full font-bold border-2 border-brand-dark hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[4px] active:translate-x-[4px] flex items-center gap-2"
             >
               <Save className="w-5 h-5" />
-              {isSaving ? 'Saving...' : 'Save Pack'}
+              {isSaving ? (isEditMode ? 'Updating...' : 'Saving...') : isEditMode ? 'Update Pack' : 'Save Pack'}
             </button>
             <button
               onClick={handleSaveAndHost}
@@ -472,7 +596,7 @@ export default function TeacherCreatePack() {
               className="bg-brand-orange text-white px-6 py-3 rounded-full font-bold border-2 border-brand-dark hover:bg-[#e84d2a] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[4px] active:translate-x-[4px] flex items-center gap-2"
             >
               <Sparkles className="w-5 h-5" />
-              {isHosting ? 'Launching...' : `Save & Host ${getGameMode(selectedLaunchMode).shortLabel}`}
+              {isHosting ? 'Launching...' : `${isEditMode ? 'Update' : 'Save'} & Host ${getGameMode(selectedLaunchMode).shortLabel}`}
             </button>
           </div>
         </div>

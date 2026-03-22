@@ -30,6 +30,18 @@
     font-family: var(--font-main), ui-sans-serif, system-ui, sans-serif;
   }
 
+  body[data-student-surface="true"][data-student-profile="focus"] {
+    --brand-bg: 42 100% 98%;
+  }
+
+  body[data-student-surface="true"][data-student-profile="contrast"] {
+    --brand-bg: 0 0% 100%;
+    --brand-orange: 12 95% 46%;
+    --brand-yellow: 48 100% 52%;
+    --brand-purple: 262 66% 49%;
+    --brand-dark: 0 0% 4%;
+  }
+
   html,
   body,
   #root {
@@ -72,6 +84,30 @@
   canvas,
   video {
     max-width: 100%;
+  }
+
+  body[data-student-surface="true"][data-student-profile="focus"] *,
+  body[data-student-surface="true"][data-student-profile="focus"] *::before,
+  body[data-student-surface="true"][data-student-profile="focus"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.12s !important;
+    scroll-behavior: auto !important;
+  }
+
+  body[data-student-surface="true"][data-student-profile="contrast"] button,
+  body[data-student-surface="true"][data-student-profile="contrast"] input,
+  body[data-student-surface="true"][data-student-profile="contrast"] textarea,
+  body[data-student-surface="true"][data-student-profile="contrast"] select,
+  body[data-student-surface="true"][data-student-profile="contrast"] .premium-card {
+    box-shadow: 6px 6px 0 0 #111 !important;
+  }
+
+  body[data-student-surface="true"][data-student-profile="touch"] button,
+  body[data-student-surface="true"][data-student-profile="touch"] input,
+  body[data-student-surface="true"][data-student-profile="touch"] textarea,
+  body[data-student-surface="true"][data-student-profile="touch"] select {
+    min-height: 56px;
   }
 }
 
@@ -142,6 +178,19 @@
 
   .chart-scroll-shell {
     @apply overflow-x-auto overscroll-x-contain rounded-[1.35rem] border-2 border-brand-dark bg-brand-bg p-3 sm:rounded-[1.7rem] sm:p-4;
+  }
+
+  .student-answer-button {
+    @apply transition-all;
+  }
+
+  body[data-student-surface="true"][data-student-profile="touch"] .student-answer-button {
+    min-height: 190px !important;
+    padding: 2.25rem 1.5rem !important;
+  }
+
+  body[data-student-surface="true"][data-student-profile="focus"] .student-answer-button {
+    box-shadow: 6px 6px 0 0 #1a1a1a !important;
   }
 }
 

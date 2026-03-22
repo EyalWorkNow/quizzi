@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { CheckCircle, XCircle, Clock, Trophy, Sparkles, Flame, Star, Zap } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Clock, Flame, LoaderCircle, Sparkles, Trophy, Wifi, WifiOff, XCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'motion/react';
 import Avatar, { extractNickname } from '../components/Avatar.tsx';
@@ -26,8 +26,114 @@ const COLORS = [
   { bg: 'bg-white', text: 'text-brand-dark', border: 'border-brand-dark', shadow: 'shadow-[8px_8px_0px_0px_#1A1A1A]' }
 ];
 
+type PersistedStudentPlayState = {
+  questionId: number | null;
+  currentSelectedAnswer: number | null;
+  selectedConfidence: number;
+  firstRoundChoice: number | null;
+  hasLockedInitialVote: boolean;
+  hasAnswered: boolean;
+  score: number;
+  streak: number;
+};
+
+type QueuedAnswerSubmission = {
+  questionId: number;
+  chosenIndex: number;
+  responseMs: number;
+  confidenceLevel: number | null;
+  telemetry: Record<string, unknown>;
+  queuedAt: number;
+  selectedAnswerText: string;
+};
+
 function isTeamGameLabel(gameType?: string) {
   return ['team_relay', 'peer_pods', 'mastery_matrix'].includes(String(gameType || ''));
+}
+
+function buildStudentPlayStateKey(pin: string, participantId: string) {
+  return `quizzi.student.play-state:${pin}:${participantId}`;
+}
+
+function buildQueuedAnswerKey(pin: string, participantId: string) {
+  return `quizzi.student.pending-answer:${pin}:${participantId}`;
+}
+
+function readPersistedStudentPlayState(storageKey: string): PersistedStudentPlayState | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return {
+      questionId: Number.isFinite(Number(parsed?.questionId)) ? Number(parsed.questionId) : null,
+      currentSelectedAnswer: Number.isFinite(Number(parsed?.currentSelectedAnswer)) ? Number(parsed.currentSelectedAnswer) : null,
+      selectedConfidence: Number.isFinite(Number(parsed?.selectedConfidence)) ? Number(parsed.selectedConfidence) : 2,
+      firstRoundChoice: Number.isFinite(Number(parsed?.firstRoundChoice)) ? Number(parsed.firstRoundChoice) : null,
+      hasLockedInitialVote: Boolean(parsed?.hasLockedInitialVote),
+      hasAnswered: Boolean(parsed?.hasAnswered),
+      score: Number.isFinite(Number(parsed?.score)) ? Number(parsed.score) : 0,
+      streak: Number.isFinite(Number(parsed?.streak)) ? Number(parsed.streak) : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistStudentPlayState(storageKey: string, state: PersistedStudentPlayState) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(storageKey, JSON.stringify(state));
+}
+
+function clearPersistedStudentPlayState(storageKey: string) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(storageKey);
+}
+
+function readQueuedAnswerSubmission(storageKey: string): QueuedAnswerSubmission | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const questionId = Number(parsed?.questionId);
+    const chosenIndex = Number(parsed?.chosenIndex);
+    if (!Number.isFinite(questionId) || !Number.isFinite(chosenIndex)) {
+      return null;
+    }
+    return {
+      questionId,
+      chosenIndex,
+      responseMs: Number.isFinite(Number(parsed?.responseMs)) ? Number(parsed.responseMs) : 0,
+      confidenceLevel: Number.isFinite(Number(parsed?.confidenceLevel)) ? Number(parsed.confidenceLevel) : null,
+      telemetry: parsed?.telemetry && typeof parsed.telemetry === 'object' ? parsed.telemetry : {},
+      queuedAt: Number.isFinite(Number(parsed?.queuedAt)) ? Number(parsed.queuedAt) : Date.now(),
+      selectedAnswerText: String(parsed?.selectedAnswerText || ''),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistQueuedAnswerSubmission(storageKey: string, submission: QueuedAnswerSubmission) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(storageKey, JSON.stringify(submission));
+}
+
+function clearQueuedAnswerSubmission(storageKey: string) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(storageKey);
+}
+
+function shouldQueueAnswerRetry(message: string) {
+  const normalized = message.toLowerCase();
+  return !(
+    normalized.includes('participant authentication required')
+    || normalized.includes('invalid session state')
+    || normalized.includes('question not found')
+    || normalized.includes('invalid answer choice')
+    || normalized.includes('final answers open after the discussion round')
+  );
 }
 
 export default function StudentPlay() {
@@ -47,6 +153,12 @@ export default function StudentPlay() {
   const [hasLockedInitialVote, setHasLockedInitialVote] = useState(false);
   const [firstRoundChoice, setFirstRoundChoice] = useState<number | null>(null);
   const [streak, setStreak] = useState(0);
+  const [sessionError, setSessionError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [connectionState, setConnectionState] = useState<'connecting' | 'live' | 'fallback'>('connecting');
+  const [pendingSubmission, setPendingSubmission] = useState<QueuedAnswerSubmission | null>(null);
+  const [isRetryingPendingSubmission, setIsRetryingPendingSubmission] = useState(false);
 
   const firstInteractionMsRef = useRef<number | null>(null);
   const answerHistoryRef = useRef<{ index: number; timestamp: number }[]>([]);
@@ -65,6 +177,8 @@ export default function StudentPlay() {
   const hoverStartTimeRef = useRef<number | null>(null);
   const lastPointerTrackedAtRef = useRef(0);
   const firstRoundChoiceRef = useRef<number | null>(null);
+  const currentSelectedAnswerRef = useRef<number | null>(null);
+  const pendingSubmissionRef = useRef<QueuedAnswerSubmission | null>(null);
 
   const focusLossDebounceRef = useRef(0);
   const idleThresholdMs = 4000;
@@ -74,6 +188,8 @@ export default function StudentPlay() {
   const participantToken = getParticipantToken();
   const teamName = localStorage.getItem('team_name') || '';
   const savedGameType = localStorage.getItem('game_type') || '';
+  const playStateKey = pin && participantId ? buildStudentPlayStateKey(String(pin), String(participantId)) : '';
+  const queuedAnswerKey = pin && participantId ? buildQueuedAnswerKey(String(pin), String(participantId)) : '';
   const displayNickname = extractNickname(String(nickname || ''));
   const modeConfig = sessionMeta?.mode_config || sessionMeta?.modeConfig || {};
   const gameMode = getGameMode(sessionMeta?.game_type || savedGameType || 'classic_quiz');
@@ -81,11 +197,29 @@ export default function StudentPlay() {
   const isPeerMode = isPeerInstructionMode(gameMode.id, modeConfig);
   const needsConfidence = requiresConfidenceLock(gameMode.id, modeConfig);
   const isInteractivePhase = status === 'QUESTION_ACTIVE' || status === 'QUESTION_REVOTE';
-  const isSelectionLocked = hasAnswered || (isPeerMode && status === 'QUESTION_ACTIVE' && hasLockedInitialVote);
+  const isSelectionLocked = hasAnswered || Boolean(pendingSubmission) || (isPeerMode && status === 'QUESTION_ACTIVE' && hasLockedInitialVote);
+  const selectedAnswerText =
+    currentSelectedAnswer !== null && Array.isArray(question?.answers)
+      ? String(question.answers[currentSelectedAnswer] || '')
+      : '';
+  const connectionLabel =
+    connectionState === 'live'
+      ? 'Live sync'
+      : connectionState === 'fallback'
+        ? 'Backup sync'
+        : 'Connecting';
 
   useEffect(() => {
     firstRoundChoiceRef.current = firstRoundChoice;
   }, [firstRoundChoice]);
+
+  useEffect(() => {
+    currentSelectedAnswerRef.current = currentSelectedAnswer;
+  }, [currentSelectedAnswer]);
+
+  useEffect(() => {
+    pendingSubmissionRef.current = pendingSubmission;
+  }, [pendingSubmission]);
 
   const resetTelemetry = () => {
     firstInteractionMsRef.current = null;
@@ -150,6 +284,75 @@ export default function StudentPlay() {
     touchActivityCountRef.current += 1;
   };
 
+  const clearPendingSubmissionState = () => {
+    setPendingSubmission(null);
+    if (queuedAnswerKey) {
+      clearQueuedAnswerSubmission(queuedAnswerKey);
+    }
+  };
+
+  const applyAnswerSubmissionSuccess = (payload: any) => {
+    clearPendingSubmissionState();
+    setHasAnswered(true);
+    const scoreAwarded = Number(payload?.score_awarded || 0);
+    setScore((current) => current + scoreAwarded);
+    if (scoreAwarded > 0) {
+      setStreak((current) => current + 1);
+    } else {
+      setStreak(0);
+    }
+
+    void publishAnswerProgress(String(pin || ''), {
+      participantId: Number(participantId),
+      totalAnswers: Number(payload?.total_answers || 0),
+      expected: Number(payload?.expected || 0),
+    });
+  };
+
+  const postAnswerSubmission = async (submission: QueuedAnswerSubmission) => {
+    const response = await apiFetch(`/api/sessions/${pin}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        participant_id: Number(participantId),
+        question_id: submission.questionId,
+        chosen_index: submission.chosenIndex,
+        response_ms: submission.responseMs,
+        confidence_level: submission.confidenceLevel ?? undefined,
+        telemetry: submission.telemetry,
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(payload?.error || 'Failed to submit answer');
+    }
+    return payload;
+  };
+
+  const retryPendingSubmission = async () => {
+    if (!pendingSubmission || isRetryingPendingSubmission) return;
+    try {
+      setIsRetryingPendingSubmission(true);
+      const payload = await postAnswerSubmission(pendingSubmission);
+      applyAnswerSubmissionSuccess(payload);
+      setActionError('');
+    } catch (error: any) {
+      const message = String(error?.message || '');
+      if (!shouldQueueAnswerRetry(message)) {
+        clearPendingSubmissionState();
+        setActionError(
+          message.toLowerCase().includes('invalid session state')
+            ? 'The round moved on before your queued answer could sync.'
+            : message || 'The queued answer could not be synced.',
+        );
+      } else {
+        setActionError('Your answer is saved on this device. We will keep retrying until the connection stabilizes.');
+      }
+    } finally {
+      setIsRetryingPendingSubmission(false);
+    }
+  };
+
   useEffect(() => {
     if (!participantId || !nickname || !participantToken) {
       navigate('/');
@@ -160,11 +363,16 @@ export default function StudentPlay() {
     let realtimeCleanup: (() => void) | null = null;
     let presenceCleanup: (() => void) | null = null;
     let eventSource: EventSource | null = null;
+    setSessionError('');
+    setActionError('');
+    setIsBootstrapping(true);
+    setConnectionState('connecting');
 
     const applyLiveStateChange = (data: any) => {
       const nextStatus = data?.status || 'LOBBY';
       const nextModeConfig = data?.mode_config || data?.modeConfig || {};
       const nextQuestion = data?.question || null;
+      setSessionError('');
       setStatus(nextStatus);
       setSessionMeta((current: any) => ({
         ...(current || {}),
@@ -175,6 +383,10 @@ export default function StudentPlay() {
       }));
 
       if (nextStatus === 'QUESTION_ACTIVE') {
+        if (pendingSubmissionRef.current && Number(pendingSubmissionRef.current.questionId || 0) !== Number(nextQuestion?.id || 0)) {
+          clearPendingSubmissionState();
+          setActionError('The room moved on before your queued answer could sync.');
+        }
         setQuestion(nextQuestion);
         setHasAnswered(false);
         setHasLockedInitialVote(false);
@@ -212,7 +424,7 @@ export default function StudentPlay() {
         if (nextQuestion) {
           setQuestion(nextQuestion);
           // NEW: Trigger confetti if correct and it was the reveal phase
-          if (nextQuestion.correct_index === currentSelectedAnswer) {
+          if (nextQuestion.correct_index === currentSelectedAnswerRef.current) {
             confetti({
               particleCount: 150,
               spread: 70,
@@ -221,8 +433,13 @@ export default function StudentPlay() {
             });
           }
         }
+        if (pendingSubmissionRef.current) {
+          clearPendingSubmissionState();
+          setActionError('The round closed before your queued answer could sync.');
+        }
         flushHoverDwell();
       } else if (nextStatus === 'ENDED') {
+        clearPendingSubmissionState();
         navigate(`/student/dashboard/${nickname}`);
       }
     };
@@ -231,14 +448,76 @@ export default function StudentPlay() {
       if (cancelled || eventSource) return;
 
       eventSource = apiEventSource(`/api/sessions/${pin}/stream`);
+      eventSource.onopen = () => {
+        if (!cancelled) {
+          setConnectionState('fallback');
+        }
+      };
       eventSource.addEventListener('STATE_CHANGE', (event) => {
         applyLiveStateChange(JSON.parse(event.data));
       });
+      eventSource.onerror = () => {
+        if (!cancelled) {
+          setSessionError('Live updates are unstable right now. We are trying to keep you connected.');
+        }
+      };
     };
 
-    apiFetchJson(`/api/sessions/${pin}`)
-      .then((data) => setSessionMeta(data))
-      .catch((error) => console.error('Failed to load session meta:', error));
+    apiFetchJson(`/api/sessions/${pin}/student-state`)
+      .then((data) => {
+        if (cancelled) return;
+        const sessionPayload = data?.session || null;
+        const participantState = data?.participant_state || null;
+        const currentAnswer = participantState?.current_answer || null;
+        const persistedState = playStateKey ? readPersistedStudentPlayState(playStateKey) : null;
+        const queuedSubmission = queuedAnswerKey ? readQueuedAnswerSubmission(queuedAnswerKey) : null;
+        setSessionMeta(sessionPayload);
+        if (sessionPayload?.status) {
+          setStatus(sessionPayload.status);
+        }
+        setScore(Number(participantState?.score || 0));
+        setStreak(Number(participantState?.streak || persistedState?.streak || 0));
+        if (typeof sessionPayload?.current_question_index === 'number') {
+          setTimeLeft(Number(data?.question?.time_limit_seconds || 30));
+        }
+        if (data?.question) {
+          setQuestion(data.question);
+        }
+        if (currentAnswer && data?.question && Number(currentAnswer.question_id) === Number(data.question.id)) {
+          clearPendingSubmissionState();
+          setHasAnswered(true);
+          setCurrentSelectedAnswer(Number(currentAnswer.chosen_index));
+          setSelectedConfidence(2);
+          setFirstRoundChoice(Number(currentAnswer.chosen_index));
+          setHasLockedInitialVote(false);
+          return;
+        }
+        if (queuedSubmission && data?.question && queuedSubmission.questionId === Number(data.question.id)) {
+          setPendingSubmission(queuedSubmission);
+          setCurrentSelectedAnswer(queuedSubmission.chosenIndex);
+          setSelectedConfidence(queuedSubmission.confidenceLevel || 2);
+        }
+        if (persistedState && data?.question && persistedState.questionId === Number(data.question.id)) {
+          setCurrentSelectedAnswer(persistedState.currentSelectedAnswer);
+          setSelectedConfidence(persistedState.selectedConfidence || 2);
+          setFirstRoundChoice(persistedState.firstRoundChoice);
+          setHasLockedInitialVote(persistedState.hasLockedInitialVote);
+          setHasAnswered(false);
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to load session meta:', error);
+        if (cancelled) return;
+        if (String(error?.message || '').includes('Participant authentication required')) {
+          navigate('/');
+          return;
+        }
+        setSessionError(error?.message || 'The session could not be loaded.');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsBootstrapping(false);
+      });
 
     void attachParticipantPresence(String(pin || ''), {
       participantId: Number(participantId),
@@ -259,6 +538,7 @@ export default function StudentPlay() {
     void subscribeToStudentSessionRealtime(String(pin || ''), {
       onMeta: (meta) => {
         if (!meta) return;
+        setConnectionState('live');
         applyLiveStateChange({
           status: meta.status,
           question: meta.question,
@@ -268,6 +548,7 @@ export default function StudentPlay() {
         });
       },
       onError: () => {
+        setConnectionState('fallback');
         startEventSource();
       },
     }).then((cleanup) => {
@@ -288,7 +569,72 @@ export default function StudentPlay() {
       presenceCleanup?.();
       eventSource?.close();
     };
-  }, [navigate, nickname, participantId, participantToken, pin, savedGameType, teamName]);
+  }, [navigate, nickname, participantId, participantToken, pin, playStateKey, queuedAnswerKey, savedGameType, teamName]);
+
+  useEffect(() => {
+    if (!playStateKey || isBootstrapping) return;
+    if (status === 'ENDED') {
+      clearPersistedStudentPlayState(playStateKey);
+      return;
+    }
+    persistStudentPlayState(playStateKey, {
+      questionId: Number.isFinite(Number(question?.id)) ? Number(question.id) : null,
+      currentSelectedAnswer,
+      selectedConfidence,
+      firstRoundChoice,
+      hasLockedInitialVote,
+      hasAnswered,
+      score,
+      streak,
+    });
+  }, [
+    currentSelectedAnswer,
+    firstRoundChoice,
+    hasAnswered,
+    hasLockedInitialVote,
+    isBootstrapping,
+    playStateKey,
+    question?.id,
+    score,
+    selectedConfidence,
+    status,
+    streak,
+  ]);
+
+  useEffect(() => {
+    if (!queuedAnswerKey) return;
+    if (!pendingSubmission) {
+      clearQueuedAnswerSubmission(queuedAnswerKey);
+      return;
+    }
+    persistQueuedAnswerSubmission(queuedAnswerKey, pendingSubmission);
+  }, [pendingSubmission, queuedAnswerKey]);
+
+  useEffect(() => {
+    setActionError('');
+  }, [status, question?.id]);
+
+  useEffect(() => {
+    if (!pendingSubmission) return;
+
+    const handleOnline = () => {
+      void retryPendingSubmission();
+    };
+
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [pendingSubmission]);
+
+  useEffect(() => {
+    if (!pendingSubmission || isRetryingPendingSubmission) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+
+    const timeout = window.setTimeout(() => {
+      void retryPendingSubmission();
+    }, connectionState === 'live' ? 1200 : 2800);
+
+    return () => window.clearTimeout(timeout);
+  }, [connectionState, isRetryingPendingSubmission, pendingSubmission, question?.id, status]);
 
   // Timer effect & telemetry watchers
   useEffect(() => {
@@ -368,6 +714,7 @@ export default function StudentPlay() {
   // Submit final answer to server with telemetry
   const submitAnswer = async (finalIndex: number, submitHistory: any[]) => {
     if (hasAnswered) return;
+    setActionError('');
     setHasAnswered(true);
 
     const submitTime = Date.now();
@@ -410,43 +757,31 @@ export default function StudentPlay() {
       option_dwell_json: JSON.stringify(optionDwellRef.current),
     };
 
-    try {
-      const response = await apiFetch(`/api/sessions/${pin}/answer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          participant_id: Number(participantId),
-          question_id: question.id,
-          chosen_index: finalIndex,
-          response_ms: responseMs,
-          confidence_level: needsConfidence ? selectedConfidence : undefined,
-          telemetry
-        })
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || 'Failed to submit answer');
-      }
-      if (response.ok) {
-        const scoreAwarded = Number(payload?.score_awarded || 0);
-        setScore((current) => current + scoreAwarded);
-        
-        // NEW: Update streak
-        if (scoreAwarded > 0) {
-          setStreak(s => s + 1);
-        } else {
-          setStreak(0);
-        }
+    const submission: QueuedAnswerSubmission = {
+      questionId: Number(question.id),
+      chosenIndex: finalIndex,
+      responseMs,
+      confidenceLevel: needsConfidence ? selectedConfidence : null,
+      telemetry,
+      queuedAt: Date.now(),
+      selectedAnswerText: String(question?.answers?.[finalIndex] || ''),
+    };
 
-        void publishAnswerProgress(String(pin || ''), {
-          participantId: Number(participantId),
-          totalAnswers: Number(payload?.total_answers || 0),
-          expected: Number(payload?.expected || 0),
-        });
+    try {
+      const payload = await postAnswerSubmission(submission);
+      applyAnswerSubmissionSuccess(payload);
+    } catch (error: any) {
+      const message = String(error?.message || '');
+      if (shouldQueueAnswerRetry(message)) {
+        setHasAnswered(false);
+        setPendingSubmission(submission);
+        setActionError('Your answer is saved on this device. We will keep retrying until the connection stabilizes.');
+      } else {
+        setHasAnswered(false);
+        clearPendingSubmissionState();
+        setActionError(message || 'Your answer did not go through. Check your connection and try locking it in again.');
       }
-    } catch (err) {
-      setHasAnswered(false);
-      console.error(err);
+      console.error(error);
     }
   };
 
@@ -454,6 +789,7 @@ export default function StudentPlay() {
     if (isSelectionLocked) return;
 
     const now = Date.now();
+    setActionError('');
     if (!firstInteractionMsRef.current) firstInteractionMsRef.current = now - startTime;
     recordActivity('pointer', now);
     beginHoverDwell(index);
@@ -487,21 +823,67 @@ export default function StudentPlay() {
   };
 
   const handleLockIn = () => {
-    if (currentSelectedAnswer === null || isSelectionLocked) return;
+    if (isSelectionLocked) return;
+    if (currentSelectedAnswer === null) {
+      setActionError('Pick an answer before you lock it in.');
+      return;
+    }
     if (isPeerMode && status === 'QUESTION_ACTIVE') {
       setFirstRoundChoice(currentSelectedAnswer);
       setHasLockedInitialVote(true);
       flushHoverDwell();
       return;
     }
-    if (needsConfidence && !selectedConfidence) return;
+    if (needsConfidence && !selectedConfidence) {
+      setActionError('Choose how confident you feel before submitting.');
+      return;
+    }
     submitAnswer(currentSelectedAnswer, answerHistoryRef.current);
   };
+
+  if (isBootstrapping) {
+    return (
+      <StudentShellFallback
+        title="Connecting you to the game..."
+        body="We are restoring your seat, syncing the live room, and getting the next phase ready."
+        loading
+      />
+    );
+  }
+
+  if (sessionError && !sessionMeta) {
+    return (
+      <StudentShellFallback
+        title="The live game could not be loaded"
+        body={sessionError}
+        onRetry={() => window.location.reload()}
+        onExit={() => navigate('/')}
+      />
+    );
+  }
+
+  if (
+    ['QUESTION_ACTIVE', 'QUESTION_DISCUSSION', 'QUESTION_REVOTE', 'QUESTION_REVEAL'].includes(status) &&
+    (!question || !Array.isArray(question?.answers))
+  ) {
+    return (
+      <StudentShellFallback
+        title="Waiting for the next question..."
+        body="The host already moved the room forward. We are still syncing the question payload to your device."
+        loading
+        onRetry={() => window.location.reload()}
+        onExit={() => navigate(`/student/dashboard/${nickname}`)}
+      />
+    );
+  }
 
   if (status === 'LOBBY') {
     return (
       <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-brand-dark text-center overflow-x-clip relative selection:bg-brand-orange selection:text-white">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+        <div className="relative z-20 w-full max-w-4xl mb-4">
+          <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
+        </div>
         {/* Exit Button */}
         <button
           onClick={() => navigate(`/student/dashboard/${nickname}`)}
@@ -541,6 +923,14 @@ export default function StudentPlay() {
               <LobbyMetaCard label="Game Type" value={gameMode.label} />
               <LobbyMetaCard label="Team" value={teamName || (gameMode.teamBased ? 'Auto team' : 'Solo')} />
             </div>
+
+            <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4 text-left">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Sync status</p>
+              <div className="flex items-center gap-3 font-black">
+                {connectionState === 'live' ? <Wifi className="w-5 h-5 text-emerald-600" /> : connectionState === 'fallback' ? <WifiOff className="w-5 h-5 text-brand-orange" /> : <LoaderCircle className="w-5 h-5 animate-spin text-brand-dark/70" />}
+                <span>{connectionLabel}</span>
+              </div>
+            </div>
           </div>
         </motion.div>
       </div>
@@ -551,6 +941,9 @@ export default function StudentPlay() {
     return (
       <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+        <div className="relative z-20 w-full max-w-5xl mb-4">
+          <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
+        </div>
         <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
 
         <motion.div
@@ -621,11 +1014,13 @@ export default function StudentPlay() {
 
   if (status === 'QUESTION_ACTIVE' || status === 'QUESTION_REVOTE') {
     const isRevote = status === 'QUESTION_REVOTE';
-    const showWaitCard = hasAnswered || (isPeerMode && status === 'QUESTION_ACTIVE' && hasLockedInitialVote);
-    const waitTitle = hasAnswered ? 'Answer submitted!' : 'First vote locked!';
+    const showWaitCard = hasAnswered || Boolean(pendingSubmission) || (isPeerMode && status === 'QUESTION_ACTIVE' && hasLockedInitialVote);
+    const waitTitle = hasAnswered ? 'Answer submitted!' : pendingSubmission ? 'Answer saved locally' : 'First vote locked!';
     const waitBody = hasAnswered
       ? 'Waiting for the rest of the class to finish...'
-      : 'Hold your choice for now. Discussion opens as soon as the round ends.';
+      : pendingSubmission
+        ? 'We are retrying your answer in the background and will sync it as soon as the connection stabilizes.'
+        : 'Hold your choice for now. Discussion opens as soon as the round ends.';
     const stageTitle = isRevote ? 'Final revote' : isPeerMode ? 'Silent first vote' : 'Live question';
     const stageBody = isRevote
       ? 'You can keep or change your first answer before the final submit.'
@@ -644,6 +1039,16 @@ export default function StudentPlay() {
       return (
         <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
           <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+          <div className="relative z-20 w-full max-w-4xl mb-4">
+            <StudentRealtimeBanner
+              connectionState={connectionState}
+              sessionError={sessionError}
+              actionError={actionError}
+              pendingSubmission={pendingSubmission}
+              onRetryPending={() => void retryPendingSubmission()}
+              isRetryingPendingSubmission={isRetryingPendingSubmission}
+            />
+          </div>
           <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
 
           <motion.div
@@ -663,6 +1068,15 @@ export default function StudentPlay() {
             <h2 className="text-4xl sm:text-5xl font-black text-brand-dark tracking-tight mb-6">{waitTitle}</h2>
             <p className="text-xl sm:text-2xl text-brand-dark/60 font-bold">{waitBody}</p>
 
+            {selectedAnswerText && (
+              <div className="mt-8 rounded-[1.8rem] border-4 border-brand-dark bg-brand-bg p-5 text-left">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">
+                  {hasAnswered ? 'Your submitted answer' : pendingSubmission ? 'Queued answer' : 'Your locked answer'}
+                </p>
+                <p className="text-2xl font-black text-brand-dark">{selectedAnswerText}</p>
+              </div>
+            )}
+
             <div className="mt-12 flex flex-wrap justify-center gap-3">
               <span className={`px-5 py-3 rounded-full border-2 border-brand-dark font-black ${gameTone.pill}`}>
                 {stageTitle}
@@ -677,8 +1091,11 @@ export default function StudentPlay() {
     }
 
     return (
-      <div className="min-h-screen bg-brand-bg flex flex-col p-4 sm:p-6 md:p-10 selection:bg-brand-orange selection:text-white relative overflow-hidden">
+      <div className="min-h-screen bg-brand-bg flex flex-col p-4 pb-40 sm:p-6 sm:pb-44 md:p-10 md:pb-48 selection:bg-brand-orange selection:text-white relative overflow-hidden">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+        <div className="relative z-20 w-full max-w-6xl mx-auto mb-4">
+          <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
+        </div>
         {/* Dynamic Background Pattern */}
         <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03]">
           <motion.div 
@@ -743,6 +1160,11 @@ export default function StudentPlay() {
             <span className="font-black text-2xl">{score}</span>
           </div>
 
+          <div className={`flex items-center gap-3 px-6 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] ${connectionState === 'live' ? 'bg-white' : 'bg-brand-yellow'}`}>
+            {connectionState === 'live' ? <Wifi className="w-6 h-6 text-emerald-600" /> : connectionState === 'fallback' ? <WifiOff className="w-6 h-6 text-brand-dark" /> : <LoaderCircle className="w-6 h-6 animate-spin text-brand-dark" />}
+            <span className="font-black text-lg">{connectionLabel}</span>
+          </div>
+
           {/* NEW: Streak Indicator */}
           {streak >= 2 && (
             <motion.div 
@@ -795,6 +1217,15 @@ export default function StudentPlay() {
           </h2>
           <p className="text-lg sm:text-xl font-bold text-brand-dark/40 max-w-3xl mx-auto">{stageBody}</p>
         </motion.div>
+
+        <SelectedAnswerSummaryCard
+          selectedAnswerText={selectedAnswerText}
+          currentSelectedAnswer={currentSelectedAnswer}
+          selectedConfidence={selectedConfidence}
+          needsConfidence={needsConfidence}
+          lockLabel={lockLabel}
+          isRevote={isRevote}
+        />
 
         {/* Confidence Check */}
         {needsConfidence && (
@@ -852,7 +1283,7 @@ export default function StudentPlay() {
                   onMouseEnter={() => beginHoverDwell(i)}
                   onMouseLeave={() => flushHoverDwell()}
                   className={`
-                    group relative flex min-h-[140px] md:min-h-[180px] items-center justify-center p-8 text-2xl md:text-4xl font-black rounded-[2.5rem] border-4 transition-all
+                    student-answer-button group relative flex min-h-[140px] md:min-h-[180px] items-center justify-center p-8 text-2xl md:text-4xl font-black rounded-[2.5rem] border-4 transition-all
                     ${isSelected 
                       ? 'bg-brand-dark text-white border-brand-dark shadow-[12px_12px_0px_0px_#FF5A36]' 
                       : `${COLORS[i % 4].bg} ${COLORS[i % 4].text} border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] hover:translate-x-1 hover:translate-y-1 hover:shadow-none`
@@ -902,28 +1333,67 @@ export default function StudentPlay() {
   }
 
   if (status === 'QUESTION_REVEAL') {
+    const answeredCorrectly = currentSelectedAnswer !== null && Number(question?.correct_index) === currentSelectedAnswer;
+    const chosenAnswer =
+      currentSelectedAnswer !== null && Array.isArray(question?.answers)
+        ? String(question.answers[currentSelectedAnswer] || '')
+        : '';
+    const correctAnswer =
+      Number.isFinite(Number(question?.correct_index)) && Array.isArray(question?.answers)
+        ? String(question.answers[Number(question.correct_index)] || '')
+        : '';
     return (
       <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+        <div className="relative z-20 w-full max-w-4xl mb-4">
+          <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
+        </div>
         {/* Animated background patterns */}
         <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
 
         <motion.div
           initial={{ scale: 0.8, opacity: 0, rotate: 10 }}
           animate={{ scale: 1, opacity: 1, rotate: -2 }}
-          className="relative z-10 bg-brand-purple p-6 sm:p-10 lg:p-16 rounded-[2.2rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-2xl w-full"
+          className="relative z-10 bg-white p-6 sm:p-10 lg:p-14 rounded-[2.2rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-3xl w-full"
         >
           <div className="flex justify-center mb-6">
             <span className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
               {gameMode.label}
             </span>
           </div>
-          <div className="inline-flex items-center justify-center w-24 h-24 sm:w-32 sm:h-32 bg-white border-4 border-brand-dark rounded-full mb-8 sm:mb-10 shadow-[8px_8px_0px_0px_#1A1A1A] rotate-12">
-            <Flame className="w-12 h-12 sm:w-16 sm:h-16 text-brand-orange" />
+          <div className={`inline-flex items-center justify-center w-24 h-24 sm:w-32 sm:h-32 border-4 border-brand-dark rounded-full mb-8 sm:mb-10 shadow-[8px_8px_0px_0px_#1A1A1A] ${answeredCorrectly ? 'bg-emerald-100' : 'bg-brand-yellow'}`}>
+            {answeredCorrectly ? <CheckCircle className="w-12 h-12 sm:w-16 sm:h-16 text-emerald-600" /> : <Flame className="w-12 h-12 sm:w-16 sm:h-16 text-brand-orange" />}
           </div>
-          <h2 className="text-4xl xs:text-5xl md:text-7xl font-black text-white mb-8 tracking-tight">Time's Up!</h2>
-          <div className="bg-white/20 p-6 rounded-2xl border-2 border-white/30 backdrop-blur-sm">
-            <p className="text-xl sm:text-2xl text-white font-bold">Look at the main screen to see the correct answer and your points.</p>
+          <h2 className="text-4xl xs:text-5xl md:text-6xl font-black text-brand-dark mb-4 tracking-tight">
+            {answeredCorrectly ? 'Nice call!' : chosenAnswer ? 'Review the answer' : "Time's Up!"}
+          </h2>
+          <p className="text-lg sm:text-2xl font-bold text-brand-dark/60 mb-8">
+            {answeredCorrectly
+              ? 'You matched the correct answer for this round.'
+              : chosenAnswer
+                ? 'Here is how your answer compared to the correct one.'
+                : 'The round closed before you submitted. Use the reveal to calibrate for the next question.'}
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left mb-8">
+            <RevealAnswerCard label="Your answer" value={chosenAnswer || 'No answer submitted'} tone={answeredCorrectly ? 'success' : chosenAnswer ? 'warning' : 'neutral'} />
+            <RevealAnswerCard label="Correct answer" value={correctAnswer || 'Watch the host screen'} tone="success" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 mb-8">
+            <PlayerMetricCard label="Score" value={score} tone="dark" />
+            <PlayerMetricCard label="Streak" value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
+          </div>
+
+          {question?.explanation && (
+            <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-bg p-6 text-left mb-6">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Why this answer works</p>
+              <p className="text-lg font-bold text-brand-dark/75">{question.explanation}</p>
+            </div>
+          )}
+
+          <div className="bg-brand-purple p-6 rounded-2xl border-2 border-brand-dark text-white">
+            <p className="text-xl sm:text-2xl font-bold">Watch the main screen for the full class result and the next transition.</p>
           </div>
         </motion.div>
       </div>
@@ -934,6 +1404,9 @@ export default function StudentPlay() {
     return (
       <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+        <div className="relative z-20 w-full max-w-4xl mb-4">
+          <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
+        </div>
         {/* Animated background patterns */}
         <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
 
@@ -952,16 +1425,27 @@ export default function StudentPlay() {
             <Trophy className="w-12 h-12 sm:w-16 sm:h-16 text-brand-dark" />
           </div>
           <h2 className="text-4xl xs:text-5xl md:text-7xl font-black mb-8 tracking-tight text-brand-dark">Leaderboard</h2>
+          <div className="grid grid-cols-2 gap-4 mb-8">
+            <PlayerMetricCard label="Current score" value={score} tone="dark" />
+            <PlayerMetricCard label="Best streak" value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
+          </div>
           <div className="bg-brand-bg p-5 sm:p-8 rounded-[2rem] border-4 border-brand-dark/10">
             <p className="text-2xl sm:text-3xl text-brand-dark/80 font-bold mb-4">Check the main screen!</p>
-            <p className="text-lg sm:text-xl text-brand-dark/50 font-medium">Did you make it to the top 5?</p>
+            <p className="text-lg sm:text-xl text-brand-dark/50 font-medium">Your score is locked in. Watch to see how the room reshuffled.</p>
           </div>
         </motion.div>
       </div>
     );
   }
 
-  return null;
+  return (
+    <StudentShellFallback
+      title="This game state looks unfamiliar"
+      body={`The session reached "${status}" and the student screen did not know how to render it yet.`}
+      onRetry={() => window.location.reload()}
+      onExit={() => navigate(`/student/dashboard/${nickname}`)}
+    />
+  );
 }
 
 function LobbyMetaCard({ label, value }: { label: string; value: string }) {
@@ -969,6 +1453,213 @@ function LobbyMetaCard({ label, value }: { label: string; value: string }) {
     <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4 text-left">
       <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{label}</p>
       <p className="text-xl font-black capitalize break-words">{String(value || '').replace(/_/g, ' ')}</p>
+    </div>
+  );
+}
+
+function StudentRealtimeBanner({
+  connectionState,
+  sessionError,
+  actionError,
+  pendingSubmission,
+  onRetryPending,
+  isRetryingPendingSubmission = false,
+}: {
+  connectionState: 'connecting' | 'live' | 'fallback';
+  sessionError: string;
+  actionError: string;
+  pendingSubmission?: QueuedAnswerSubmission | null;
+  onRetryPending?: () => void;
+  isRetryingPendingSubmission?: boolean;
+}) {
+  const bannerMessage =
+    pendingSubmission
+      ? 'Your answer is saved on this device. We will keep retrying until the connection stabilizes.'
+      : actionError || sessionError
+        ? actionError || sessionError
+        : connectionState === 'live'
+          ? 'Live updates are stable.'
+          : connectionState === 'fallback'
+            ? 'Running on backup live sync.'
+            : 'Connecting to the room...';
+  const toneClass =
+    pendingSubmission || actionError || sessionError
+      ? 'bg-brand-orange/15 border-brand-dark text-brand-dark'
+      : connectionState === 'live'
+        ? 'bg-white border-brand-dark text-brand-dark'
+        : 'bg-brand-yellow border-brand-dark text-brand-dark';
+
+  return (
+    <div className={`rounded-[1.5rem] border-2 px-4 py-3 shadow-[3px_3px_0px_0px_#1A1A1A] ${toneClass}`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3 font-black">
+          {pendingSubmission ? (
+            isRetryingPendingSubmission ? (
+              <LoaderCircle className="w-5 h-5 animate-spin text-brand-orange" />
+            ) : (
+              <WifiOff className="w-5 h-5 text-brand-orange" />
+            )
+          ) : actionError || sessionError ? (
+            <AlertTriangle className="w-5 h-5 text-brand-orange" />
+          ) : connectionState === 'live' ? (
+            <Wifi className="w-5 h-5 text-emerald-600" />
+          ) : connectionState === 'fallback' ? (
+            <WifiOff className="w-5 h-5 text-brand-dark" />
+          ) : (
+            <LoaderCircle className="w-5 h-5 animate-spin text-brand-dark/70" />
+          )}
+          <span>{bannerMessage}</span>
+        </div>
+        {pendingSubmission && onRetryPending ? (
+          <button
+            type="button"
+            onClick={onRetryPending}
+            disabled={isRetryingPendingSubmission}
+            className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-xs font-black uppercase tracking-[0.2em] shadow-[2px_2px_0px_0px_#1A1A1A] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isRetryingPendingSubmission ? 'Retrying' : 'Retry now'}
+          </button>
+        ) : !actionError && !sessionError && (
+          <span className="text-xs font-black uppercase tracking-[0.2em] opacity-60">
+            {connectionState === 'live' ? 'Realtime active' : connectionState === 'fallback' ? 'Fallback active' : 'Booting'}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SelectedAnswerSummaryCard({
+  selectedAnswerText,
+  currentSelectedAnswer,
+  selectedConfidence,
+  needsConfidence,
+  lockLabel,
+  isRevote,
+}: {
+  selectedAnswerText: string;
+  currentSelectedAnswer: number | null;
+  selectedConfidence: number;
+  needsConfidence: boolean;
+  lockLabel: string;
+  isRevote: boolean;
+}) {
+  return (
+    <div className="relative z-10 max-w-6xl mx-auto w-full mb-8">
+      <div className="rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 md:p-6 shadow-[6px_6px_0px_0px_#1A1A1A]">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">
+              {currentSelectedAnswer !== null ? (isRevote ? 'Current final choice' : 'Current choice') : 'Choose one answer'}
+            </p>
+            <p className="text-2xl font-black text-brand-dark break-words">
+              {selectedAnswerText || 'Tap any answer card below to preview your selection before locking it in.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3 shrink-0">
+            <span className="px-4 py-3 rounded-full border-2 border-brand-dark bg-brand-bg font-black">
+              {lockLabel}
+            </span>
+            {needsConfidence && (
+              <span className="px-4 py-3 rounded-full border-2 border-brand-dark bg-brand-yellow font-black">
+                Confidence {selectedConfidence}/3
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RevealAnswerCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: 'success' | 'warning' | 'neutral';
+}) {
+  const toneClass =
+    tone === 'success'
+      ? 'bg-emerald-100 border-emerald-400'
+      : tone === 'warning'
+        ? 'bg-brand-yellow border-brand-dark'
+        : 'bg-brand-bg border-brand-dark';
+
+  return (
+    <div className={`rounded-[1.8rem] border-4 p-5 ${toneClass}`}>
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{label}</p>
+      <p className="text-2xl font-black text-brand-dark">{value}</p>
+    </div>
+  );
+}
+
+function PlayerMetricCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  tone: 'light' | 'warm' | 'dark';
+}) {
+  const toneClass =
+    tone === 'dark'
+      ? 'bg-brand-dark text-white'
+      : tone === 'warm'
+        ? 'bg-brand-orange text-white'
+        : 'bg-brand-bg text-brand-dark';
+
+  return (
+    <div className={`rounded-[1.8rem] border-4 border-brand-dark p-5 ${toneClass}`}>
+      <p className="text-xs font-black uppercase tracking-[0.2em] opacity-70 mb-2">{label}</p>
+      <p className="text-3xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function StudentShellFallback({
+  title,
+  body,
+  loading = false,
+  onRetry,
+  onExit,
+}: {
+  title: string;
+  body: string;
+  loading?: boolean;
+  onRetry?: () => void;
+  onExit?: () => void;
+}) {
+  return (
+    <div className="min-h-screen bg-brand-bg flex items-center justify-center p-6 text-center selection:bg-brand-orange selection:text-white">
+      <div className="w-full max-w-2xl rounded-[2.6rem] border-4 border-brand-dark bg-white p-8 shadow-[12px_12px_0px_0px_#1A1A1A]">
+        <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-[2rem] border-4 border-brand-dark bg-brand-yellow">
+          {loading ? <LoaderCircle className="w-12 h-12 animate-spin text-brand-dark" /> : <AlertTriangle className="w-12 h-12 text-brand-dark" />}
+        </div>
+        <h2 className="text-4xl font-black text-brand-dark mb-4">{title}</h2>
+        <p className="text-lg font-bold text-brand-dark/65 mb-8">{body}</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="px-6 py-4 rounded-2xl border-2 border-brand-dark bg-brand-dark text-white font-black shadow-[4px_4px_0px_0px_#FF5A36]"
+            >
+              Retry
+            </button>
+          )}
+          {onExit && (
+            <button
+              onClick={onExit}
+              className="px-6 py-4 rounded-2xl border-2 border-brand-dark bg-white font-black"
+            >
+              Leave Screen
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { CheckCircle2, QrCode, ScanLine, Sparkles, Star } from 'lucide-react';
+import { CheckCircle2, Play, QrCode, RotateCcw, ScanLine, Sparkles, Star } from 'lucide-react';
 import { motion } from 'motion/react';
+import { extractNickname } from '../components/Avatar.tsx';
 import JoinScannerModal from '../components/JoinScannerModal.tsx';
 import { trackStudentJoinEvent, trackTeacherAuthEvent, toAnalyticsErrorCode } from '../lib/appAnalytics.ts';
 import { announceParticipantJoin } from '../lib/firebaseRealtime.ts';
 import { isValidSessionPin, sanitizeSessionPin } from '../lib/joinCodes.ts';
 import { apiFetch } from '../lib/api.ts';
-import { getOrCreateStudentIdentityKey, storeJoinedParticipantSession } from '../lib/studentSession.ts';
+import {
+  clearJoinedParticipantSession,
+  getOrCreateStudentIdentityKey,
+  getParticipantToken,
+  storeJoinedParticipantSession,
+} from '../lib/studentSession.ts';
 import {
   loadTeacherAuth,
   isTeacherAuthenticated,
@@ -32,6 +38,26 @@ const HOME_PIN_KEY = 'quizzi.home.pin';
 const HOME_NICKNAME_KEY = 'quizzi.home.nickname';
 const HOME_AVATAR_KEY = 'quizzi.home.avatar';
 
+function readSavedSeat() {
+  if (typeof window === 'undefined') return null;
+  const sessionPin = sanitizeSessionPin(window.localStorage.getItem('session_pin') || '');
+  const storedNickname = window.localStorage.getItem('nickname') || '';
+  const teamName = window.localStorage.getItem('team_name') || '';
+  const avatar = window.localStorage.getItem('avatar') || '';
+  const token = getParticipantToken();
+
+  if (!isValidSessionPin(sessionPin) || !storedNickname || !token) {
+    return null;
+  }
+
+  return {
+    sessionPin,
+    nickname: extractNickname(storedNickname),
+    teamName,
+    avatar,
+  };
+}
+
 export default function Home() {
   const { pin: routePinParam } = useParams();
   const [pin, setPin] = useState(() => localStorage.getItem(HOME_PIN_KEY) || '');
@@ -43,9 +69,13 @@ export default function Home() {
   const [scannerSupported, setScannerSupported] = useState(false);
   const [joinAssistMessage, setJoinAssistMessage] = useState('');
   const [teacherSignedIn, setTeacherSignedIn] = useState(() => isTeacherAuthenticated());
+  const [savedSeat, setSavedSeat] = useState(() => readSavedSeat());
   const nicknameInputRef = useRef<HTMLInputElement | null>(null);
   const autoResolvedPinRef = useRef('');
   const navigate = useNavigate();
+  const sessionPinReady = isValidSessionPin(pin);
+  const nicknameReady = nickname.trim().length >= 2;
+  const canJoin = sessionPinReady && nicknameReady && !joining;
 
   useEffect(() => {
     localStorage.setItem(HOME_PIN_KEY, pin);
@@ -139,6 +169,7 @@ export default function Home() {
         teamName: data.team_name || null,
         gameType: data.game_type || null,
       });
+      setSavedSeat(readSavedSeat());
 
       void announceParticipantJoin(sessionPin, {
         participantId: Number(data.participant_id),
@@ -165,6 +196,17 @@ export default function Home() {
     } finally {
       setJoining(false);
     }
+  };
+
+  const handleResumeSavedSession = () => {
+    if (!savedSeat) return;
+    navigate(`/student/session/${savedSeat.sessionPin}/play`);
+  };
+
+  const handleClearSavedSession = () => {
+    clearJoinedParticipantSession();
+    setSavedSeat(null);
+    setJoinAssistMessage('Saved seat cleared from this device.');
   };
 
   useEffect(() => {
@@ -314,11 +356,23 @@ export default function Home() {
               />
               <button
                 type="submit"
-                disabled={joining}
-                className="w-full rounded-full border-2 border-brand-dark bg-brand-orange px-8 py-4 text-lg font-bold text-white shadow-[4px_4px_0px_0px_#1A1A1A] transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:bg-[#e84d2a] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none md:w-auto md:px-10 md:py-5 md:text-xl"
+                disabled={!canJoin}
+                className="w-full rounded-full border-2 border-brand-dark bg-brand-orange px-8 py-4 text-lg font-bold text-white shadow-[4px_4px_0px_0px_#1A1A1A] transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:bg-[#e84d2a] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-[4px_4px_0px_0px_#1A1A1A] md:w-auto md:px-10 md:py-5 md:text-xl"
               >
                 {joining ? 'Joining...' : 'Join'}
               </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 text-sm font-bold text-brand-dark/60 md:grid-cols-3">
+              <div className={`rounded-[1.3rem] border-2 px-4 py-3 ${sessionPinReady ? 'border-emerald-300 bg-emerald-50 text-brand-dark' : 'border-brand-dark/10 bg-white/70'}`}>
+                {sessionPinReady ? `PIN ${pin} is ready.` : 'Enter a 6-digit game PIN.'}
+              </div>
+              <div className={`rounded-[1.3rem] border-2 px-4 py-3 ${nicknameReady ? 'border-emerald-300 bg-emerald-50 text-brand-dark' : 'border-brand-dark/10 bg-white/70'}`}>
+                {nicknameReady ? `Joining as ${nickname.trim()}.` : 'Choose a nickname with 2+ characters.'}
+              </div>
+              <div className="rounded-[1.3rem] border-2 border-brand-dark/10 bg-white/70 px-4 py-3">
+                We keep your avatar on this device so rejoining is faster next time.
+              </div>
             </div>
 
             <div className="action-row">
@@ -355,6 +409,39 @@ export default function Home() {
                 </div>
               </div>
             </div>
+
+            {savedSeat && (
+              <div className="premium-card border-brand-dark bg-white/80 p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Saved seat on this device</p>
+                    <p className="text-2xl font-black text-brand-dark mb-1">{savedSeat.nickname}</p>
+                    <p className="font-bold text-brand-dark/60">
+                      Session {savedSeat.sessionPin}
+                      {savedSeat.teamName ? ` • ${savedSeat.teamName}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={handleResumeSavedSession}
+                      className="action-pill rounded-full border-2 border-brand-dark bg-brand-dark px-5 py-3 font-black text-white shadow-[4px_4px_0px_0px_#FF5A36] flex items-center gap-2"
+                    >
+                      <Play className="w-4 h-4 fill-current" />
+                      Continue Live Game
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearSavedSession}
+                      className="action-pill rounded-full border-2 border-brand-dark bg-white px-5 py-3 font-black flex items-center gap-2"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      Clear Saved Seat
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Avatar Selection */}
             <div className="premium-card mt-4 bg-white/50 p-5 backdrop-blur-md sm:p-6">

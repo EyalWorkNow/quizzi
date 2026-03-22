@@ -15,6 +15,7 @@ import {
   Sparkles,
   Target,
   TrendingUp,
+  Wifi,
   Zap,
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -26,7 +27,8 @@ import {
 } from '../components/studentDashboardCharts.tsx';
 import { apiFetchJson } from '../lib/api.ts';
 import Avatar, { extractNickname } from '../components/Avatar.tsx';
-import { clearJoinedParticipantSession } from '../lib/studentSession.ts';
+import { clearJoinedParticipantSession, getParticipantToken } from '../lib/studentSession.ts';
+import { isValidSessionPin } from '../lib/joinCodes.ts';
 
 // Replaced by central apiFetchJson
 
@@ -35,6 +37,8 @@ export default function StudentDashboard() {
   const navigate = useNavigate();
   const participantId = localStorage.getItem('participant_id');
   const displayNickname = extractNickname(localStorage.getItem('nickname') || nickname || '');
+  const resumeSessionPin = localStorage.getItem('session_pin') || '';
+  const canResumeLiveSession = isValidSessionPin(resumeSessionPin) && Boolean(getParticipantToken());
 
   const [overallData, setOverallData] = useState<any>(null);
   const [gameData, setGameData] = useState<any>(null);
@@ -224,6 +228,24 @@ export default function StudentDashboard() {
         {error && (
           <div className="mb-6 px-5 py-4 bg-brand-yellow border-2 border-brand-dark rounded-[1.5rem] font-bold">
             {error}
+          </div>
+        )}
+
+        {canResumeLiveSession && (
+          <div className="mb-8 rounded-[2rem] border-4 border-brand-dark bg-white p-5 shadow-[6px_6px_0px_0px_#1A1A1A]">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Live game still attached to this device</p>
+                <p className="text-2xl font-black">You can jump back into session {resumeSessionPin} without typing the PIN again.</p>
+              </div>
+              <button
+                onClick={() => navigate(`/student/session/${resumeSessionPin}/play`)}
+                className="px-5 py-3 bg-brand-dark text-white border-2 border-brand-dark rounded-full font-black shadow-[3px_3px_0px_0px_#FF5A36] flex items-center gap-2 shrink-0"
+              >
+                <Wifi className="w-4 h-4" />
+                Return to Live Game
+              </button>
+            </div>
           </div>
         )}
 

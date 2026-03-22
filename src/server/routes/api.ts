@@ -701,7 +701,21 @@ async function getTeacherPackBoard(teacherUserId: number) {
         const rightTime = new Date(right.ended_at || right.started_at || 0).getTime();
         return rightTime - leftTime || Number(right.id) - Number(left.id);
       })[0] || null;
+    const latestCompletedSession =
+      packSessions
+        .filter((session: any) => String(session.status || '').toUpperCase() === 'ENDED')
+        .sort((left: any, right: any) => {
+          const leftTime = new Date(left.ended_at || left.started_at || 0).getTime();
+          const rightTime = new Date(right.ended_at || right.started_at || 0).getTime();
+          return rightTime - leftTime || Number(right.id) - Number(left.id);
+        })[0] || null;
     const activeSessions = packSessions.filter((session: any) => String(session.status || '').toUpperCase() !== 'ENDED');
+    const latestActiveSession =
+      [...activeSessions].sort((left: any, right: any) => {
+        const leftTime = new Date(left.ended_at || left.started_at || 0).getTime();
+        const rightTime = new Date(right.ended_at || right.started_at || 0).getTime();
+        return rightTime - leftTime || Number(right.id) - Number(left.id);
+      })[0] || null;
 
     return {
       ...pack,
@@ -713,6 +727,20 @@ async function getTeacherPackBoard(teacherUserId: number) {
       last_session_status: latestSession?.status || null,
       last_session_at: latestSession?.ended_at || latestSession?.started_at || null,
       last_session_players: latestSession ? Number(participantCounts.get(Number(latestSession.id)) || 0) : 0,
+      last_completed_session_id: latestCompletedSession ? Number(latestCompletedSession.id) : null,
+      last_completed_session_pin: latestCompletedSession?.pin || null,
+      last_completed_session_status: latestCompletedSession?.status || null,
+      last_completed_session_at: latestCompletedSession?.ended_at || latestCompletedSession?.started_at || null,
+      last_completed_session_players: latestCompletedSession
+        ? Number(participantCounts.get(Number(latestCompletedSession.id)) || 0)
+        : 0,
+      latest_active_session_id: latestActiveSession ? Number(latestActiveSession.id) : null,
+      latest_active_session_pin: latestActiveSession?.pin || null,
+      latest_active_session_status: latestActiveSession?.status || null,
+      latest_active_session_at: latestActiveSession?.ended_at || latestActiveSession?.started_at || null,
+      latest_active_session_players: latestActiveSession
+        ? Number(participantCounts.get(Number(latestActiveSession.id)) || 0)
+        : 0,
       version_count: Number(versionCounts.get(Number(pack.id)) || 0),
     };
   });
@@ -736,6 +764,179 @@ async function buildPackCopyTitle(teacherUserId: number, originalTitle: string) 
     counter += 1;
   }
   return `${baseTitle} ${counter}`;
+}
+
+async function buildPackRevisionTitle(teacherUserId: number, originalTitle: string) {
+  const baseTitle = `${String(originalTitle || 'Untitled pack').trim()} (Edited)`;
+  const existingTitles = new Set(
+    (await db
+            .prepare('SELECT title FROM quiz_packs WHERE teacher_id = ?')
+            .all(teacherUserId))
+      .map((row: any) => String(row.title || '').trim().toLowerCase()),
+  );
+
+  if (!existingTitles.has(baseTitle.toLowerCase())) {
+    return baseTitle;
+  }
+
+  let counter = 2;
+  while (existingTitles.has(`${baseTitle} ${counter}`.toLowerCase())) {
+    counter += 1;
+  }
+  return `${baseTitle} ${counter}`;
+}
+
+async function preparePackWritePayload(body: any) {
+  const title = sanitizeLine(body?.title, 120);
+  const sourceText = sanitizeMultiline(body?.source_text, 120000);
+  const incomingQuestions = Array.isArray(body?.questions) ? body.questions : [];
+  const academicMeta = sanitizeAcademicMeta(body?.academic_meta || body);
+  const isPublic = sanitizeBooleanFlag(body?.is_public, false);
+  const materialProfile = (await getOrCreateMaterialProfile(sourceText || ''));
+  const sourceLanguage = sanitizeLine(body?.language || materialProfile.source_language || 'English', 24);
+  const normalizedQuestions = normalizeGeneratedQuestions(
+    incomingQuestions,
+    materialProfile.topic_fingerprint || [],
+  ).map((question: any, index: number) => sanitizeQuestionDraft(question, index, materialProfile.topic_fingerprint || []));
+
+  return {
+    title,
+    sourceText,
+    sourceLanguage,
+    academicMeta,
+    isPublic,
+    materialProfile,
+    normalizedQuestions,
+  };
+}
+
+function insertQuestionsForPack(packId: number, questions: any[]) {
+  const insertQuestion = db.prepare(`
+    INSERT INTO questions (
+      quiz_pack_id,
+      prompt,
+      image_url,
+      answers_json,
+      correct_index,
+      explanation,
+      tags_json,
+      time_limit_seconds,
+      question_order,
+      learning_objective,
+      bloom_level
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const question of questions) {
+    insertQuestion.run(
+      packId,
+      question.prompt,
+      question.image_url || '',
+      JSON.stringify(question.answers),
+      question.correct_index,
+      question.explanation,
+      JSON.stringify(question.tags),
+      question.time_limit_seconds || 20,
+      question.question_order || 0,
+      question.learning_objective || '',
+      question.bloom_level || '',
+    );
+  }
+}
+
+async function createTeacherPackFromPreparedPayload(
+  teacherUserId: number,
+  payload: Awaited<ReturnType<typeof preparePackWritePayload>>,
+  {
+    sourceLabel = 'create',
+    versionLabel = 'Initial version',
+    titleOverride = '',
+  }: {
+    sourceLabel?: string;
+    versionLabel?: string;
+    titleOverride?: string;
+  } = {},
+) {
+  const resolvedTitle = sanitizeLine(titleOverride || payload.title, 120);
+  const info = db.prepare(`
+    INSERT INTO quiz_packs (
+      teacher_id,
+      title,
+      source_text,
+      course_code,
+      course_name,
+      section_name,
+      academic_term,
+      week_label,
+      learning_objectives_json,
+      bloom_levels_json,
+      pack_notes,
+      is_public,
+      source_hash,
+      source_excerpt,
+      source_language,
+      source_word_count,
+      material_profile_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+        teacherUserId,
+        resolvedTitle,
+        payload.sourceText,
+        payload.academicMeta.course_code,
+        payload.academicMeta.course_name,
+        payload.academicMeta.section_name,
+        payload.academicMeta.academic_term,
+        payload.academicMeta.week_label,
+        JSON.stringify(payload.academicMeta.learning_objectives),
+        JSON.stringify(payload.academicMeta.bloom_levels),
+        payload.academicMeta.pack_notes,
+        payload.isPublic ? 1 : 0,
+        payload.materialProfile.source_hash,
+        payload.materialProfile.source_excerpt,
+        payload.sourceLanguage || payload.materialProfile.source_language,
+        payload.materialProfile.word_count,
+        payload.materialProfile.id,
+      );
+
+  const packId = Number(info.lastInsertRowid);
+  insertQuestionsForPack(packId, payload.normalizedQuestions);
+  (await syncPackDerivedData(packId, payload.sourceText || '', payload.normalizedQuestions, payload.sourceLanguage));
+  (await createPackVersionSnapshot(packId, teacherUserId, versionLabel, sourceLabel));
+
+  return {
+    packId,
+    title: resolvedTitle,
+    questionCount: payload.normalizedQuestions.length,
+    isPublic: payload.isPublic,
+  };
+}
+
+async function packHasHistoricalUsage(packId: number) {
+  const sessionCount = Number((await db.prepare('SELECT COUNT(*) as count FROM sessions WHERE quiz_pack_id = ?').get(packId))?.count || 0);
+  if (sessionCount > 0) {
+    return true;
+  }
+
+  const questionIds = uniqueNumbers(
+    (await db.prepare('SELECT id FROM questions WHERE quiz_pack_id = ?').all(packId)).map((row: any) => row.id),
+  );
+  if (questionIds.length === 0) {
+    return false;
+  }
+
+  const placeholders = questionIds.map(() => '?').join(', ');
+  const answerCount = Number(
+    (await db.prepare(`SELECT COUNT(*) as count FROM answers WHERE question_id IN (${placeholders})`).get(...questionIds))?.count || 0,
+  );
+  if (answerCount > 0) {
+    return true;
+  }
+
+  const practiceCount = Number(
+    (await db.prepare(`SELECT COUNT(*) as count FROM practice_attempts WHERE question_id IN (${placeholders})`).get(...questionIds))?.count || 0,
+  );
+  return practiceCount > 0;
 }
 
 async function getPackVersions(packId: number) {
@@ -1328,11 +1529,138 @@ async function createFollowUpPack({
   };
 }
 
+async function executeFollowUpPlan({
+  teacherUserId,
+  sessionId,
+  requestedPlanId,
+  launchNow,
+  titlePrefix,
+  fallbackToDefault,
+}: {
+  teacherUserId: number;
+  sessionId: number;
+  requestedPlanId: string;
+  launchNow: boolean;
+  titlePrefix: string;
+  fallbackToDefault: boolean;
+}) {
+  const ownedSession = (await getTeacherOwnedSession(sessionId, teacherUserId));
+  if (!ownedSession) {
+    const error = new Error('Session not found');
+    (error as any).status = 404;
+    throw error;
+  }
+
+  const context = await getClassFollowUpContext(sessionId);
+  if (!context) {
+    const error = new Error('Class analytics not found');
+    (error as any).status = 404;
+    throw error;
+  }
+
+  const preferredPlanId = String(requestedPlanId || '').trim() as FollowUpPlan['id'];
+  const defaultPlan =
+    context.followUpEngine.plans.find((plan) => plan.id === 'whole_class_reset')
+    || context.followUpEngine.plans[0]
+    || null;
+  const selectedPlan =
+    context.followUpEngine.plans.find((plan) => plan.id === preferredPlanId)
+    || (fallbackToDefault ? defaultPlan : null);
+
+  if (!selectedPlan) {
+    const error = new Error('Requested follow-up plan is unavailable');
+    (error as any).status = 400;
+    throw error;
+  }
+
+  const sourceQuestions = Array.isArray(context.classPayload.questions) && context.classPayload.questions.length > 0
+    ? context.classPayload.questions
+    : Array.isArray(context.packDetail?.questions)
+      ? context.packDetail.questions
+      : [];
+
+  const practiceSet = await runPythonEngine<any>('practice-set', {
+    questions: sourceQuestions,
+    count: Math.min(selectedPlan.question_count, Math.max(1, sourceQuestions.length || 1)),
+    focus_tags: selectedPlan.focus_tags,
+    priority_question_ids: selectedPlan.priority_question_ids,
+  });
+
+  const followUpQuestions =
+    Array.isArray(practiceSet?.questions) && practiceSet.questions.length > 0
+      ? practiceSet.questions
+      : sourceQuestions.filter((question: any) => selectedPlan.priority_question_ids.includes(Number(question?.id || 0)));
+
+  if (!followUpQuestions.length) {
+    const error = new Error('No follow-up questions are available for this plan');
+    (error as any).status = 400;
+    throw error;
+  }
+
+  const sourcePackTitle = context.packDetail?.title || context.classPayload.pack?.title || `Pack ${ownedSession.quiz_pack_id}`;
+  const followUpTitle = `${titlePrefix}: ${selectedPlan.title} - ${sourcePackTitle}`;
+  const packNotes = [
+    `${titlePrefix} plan: ${selectedPlan.title}`,
+    selectedPlan.focus_tags.length > 0 ? `Focus tags: ${selectedPlan.focus_tags.join(', ')}` : '',
+    selectedPlan.priority_question_indexes.length > 0
+      ? `Priority questions: ${selectedPlan.priority_question_indexes.map((index) => `Q${index}`).join(', ')}`
+      : '',
+    selectedPlan.target_student_names.length > 0
+      ? `Target students: ${selectedPlan.target_student_names.join(', ')}`
+      : `Target scope: ${selectedPlan.audience}`,
+    `Source session: ${sessionId}`,
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
+  const createdPack = await createFollowUpPack({
+    teacherUserId,
+    sourceSession: ownedSession,
+    sourcePack: context.packDetail || context.classPayload.pack || {},
+    questions: followUpQuestions,
+    title: followUpTitle,
+    packNotes,
+  });
+
+  let hostedSessionPayload: { id: number; pin: string } | null = null;
+  if (launchNow) {
+    const pin = (await createSessionPin());
+    const hostedSession = (await db
+          .prepare(`
+        INSERT INTO sessions (quiz_pack_id, teacher_class_id, pin, game_type, team_count, mode_config_json, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+          .run(
+            createdPack.packId,
+            createdPack.teacherClassId,
+            pin,
+            'classic_quiz',
+            0,
+            JSON.stringify(sanitizeModeConfig('classic_quiz', null)),
+            'LOBBY',
+          ));
+    hostedSessionPayload = {
+      id: Number(hostedSession.lastInsertRowid),
+      pin,
+    };
+  }
+
+  return {
+    pack_id: createdPack.packId,
+    title: followUpTitle,
+    question_count: followUpQuestions.length,
+    plan: selectedPlan,
+    strategy: practiceSet?.strategy || null,
+    session_id: hostedSessionPayload?.id || null,
+    pin: hostedSessionPayload?.pin || null,
+  };
+}
+
 router.post('/translate', async (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
   if (!enforceRateLimit(req, res, 'ui-translate', 120, 60 * 1000)) return;
 
-  const targetLanguage = String(req.body?.targetLanguage || '').trim().toLowerCase();
+  const targetLanguage = String(req.body?.targetLanguage || req.body?.target_language || '').trim().toLowerCase();
   const texts = sanitizeTranslateTexts(req.body?.texts);
 
   if (!SUPPORTED_UI_LANGUAGES.has(targetLanguage)) {
@@ -2484,107 +2812,145 @@ router.post('/packs', requireTeacherSession, async (req, res) => {
     return res.status(401).json({ error: 'Teacher authentication required' });
   }
   if (!enforceRateLimit(req, res, 'teacher-pack-create', 30, 10 * 60 * 1000, teacherUserId)) return;
-  const title = sanitizeLine(req.body?.title, 120);
-  const source_text = sanitizeMultiline(req.body?.source_text, 120000);
-  const questions = Array.isArray(req.body?.questions) ? req.body.questions : [];
-  const language = sanitizeLine(req.body?.language || 'English', 24);
-  const academicMeta = sanitizeAcademicMeta(req.body?.academic_meta || req.body);
-  const isPublic = sanitizeBooleanFlag(req.body?.is_public, false);
-  if (!title) {
+  const payload = (await preparePackWritePayload(req.body));
+  if (!payload.title) {
     return res.status(400).json({ error: 'Pack title is required' });
   }
-  if (questions.length === 0) {
+  if (payload.normalizedQuestions.length === 0) {
     return res.status(400).json({ error: 'At least one question is required' });
   }
 
-  const materialProfile = (await getOrCreateMaterialProfile(source_text || ''));
-  const normalizedQuestions = normalizeGeneratedQuestions(
-    Array.isArray(questions) ? questions : [],
-    materialProfile.topic_fingerprint || [],
-  ).map((question: any, index: number) => sanitizeQuestionDraft(question, index, materialProfile.topic_fingerprint || []));
+  const createdPack = (await createTeacherPackFromPreparedPayload(teacherUserId, payload, {
+    sourceLabel: 'create',
+    versionLabel: 'Initial version',
+  }));
 
-  const insertPack = db.prepare(`
-    INSERT INTO quiz_packs (
-      teacher_id,
-      title,
-      source_text,
-      course_code,
-      course_name,
-      section_name,
-      academic_term,
-      week_label,
-      learning_objectives_json,
-      bloom_levels_json,
-      pack_notes,
-      is_public,
-      source_hash,
-      source_excerpt,
-      source_language,
-      source_word_count,
-      material_profile_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const info = insertPack.run(
-    teacherUserId,
-    title,
-    source_text,
-    academicMeta.course_code,
-    academicMeta.course_name,
-    academicMeta.section_name,
-    academicMeta.academic_term,
-    academicMeta.week_label,
-    JSON.stringify(academicMeta.learning_objectives),
-    JSON.stringify(academicMeta.bloom_levels),
-    academicMeta.pack_notes,
-    isPublic ? 1 : 0,
-    materialProfile.source_hash,
-    materialProfile.source_excerpt,
-    language || materialProfile.source_language,
-    materialProfile.word_count,
-    materialProfile.id,
+  res.json({
+    id: createdPack.packId,
+    title: createdPack.title,
+    question_count: createdPack.questionCount,
+    is_public: createdPack.isPublic ? 1 : 0,
+  });
+});
+
+router.put('/teacher/packs/:id', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  const teacherUserId = (await getTeacherUserIdFromRequest(req));
+  if (!teacherUserId) {
+    return res.status(401).json({ error: 'Teacher authentication required' });
+  }
+  if (!enforceRateLimit(req, res, 'teacher-pack-update', 40, 10 * 60 * 1000, teacherUserId, req.params.id)) return;
+
+  const packId = parsePositiveInt(req.params.id);
+  const pack = (await getTeacherOwnedPack(packId, teacherUserId));
+  if (!pack) {
+    return res.status(404).json({ error: 'Pack not found' });
+  }
+
+  const activeSessionCount = Number(
+    (await db
+          .prepare(`
+        SELECT COUNT(*) as count
+        FROM sessions
+        WHERE quiz_pack_id = ?
+          AND UPPER(COALESCE(status, '')) <> 'ENDED'
+      `)
+          .get(packId))?.count || 0,
   );
-  const packId = info.lastInsertRowid;
+  if (activeSessionCount > 0) {
+    return res.status(409).json({ error: 'End the active live session before editing this pack.' });
+  }
 
-  const insertQuestion = db.prepare(`
-    INSERT INTO questions (
-      quiz_pack_id,
-      prompt,
-      image_url,
-      answers_json,
-      correct_index,
-      explanation,
-      tags_json,
-      time_limit_seconds,
-      question_order,
-      learning_objective,
-      bloom_level
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+  const payload = (await preparePackWritePayload(req.body));
+  if (!payload.title) {
+    return res.status(400).json({ error: 'Pack title is required' });
+  }
+  if (payload.normalizedQuestions.length === 0) {
+    return res.status(400).json({ error: 'At least one question is required' });
+  }
 
-  const insertMany = db.transaction((qs: any[]) => {
-    for (const q of qs) {
-      insertQuestion.run(
-        packId,
-        q.prompt,
-        q.image_url || '',
-        JSON.stringify(q.answers),
-        q.correct_index,
-        q.explanation,
-        JSON.stringify(q.tags),
-        q.time_limit_seconds || 20,
-        q.question_order || 0,
-        q.learning_objective || '',
-        q.bloom_level || '',
-      );
-    }
+  if (await packHasHistoricalUsage(packId)) {
+    const revisionTitle = (await buildPackRevisionTitle(teacherUserId, payload.title));
+    const revisedPack = (await createTeacherPackFromPreparedPayload(teacherUserId, payload, {
+      sourceLabel: 'edit_revision',
+      versionLabel: 'Edited revision',
+      titleOverride: revisionTitle,
+    }));
+    const hydratedRevision = (await getTeacherPackBoard(teacherUserId)).find((entry: any) => Number(entry.id) === revisedPack.packId);
+    return res.status(201).json({
+      ...(hydratedRevision || {
+        id: revisedPack.packId,
+        title: revisedPack.title,
+        question_count: revisedPack.questionCount,
+        is_public: revisedPack.isPublic ? 1 : 0,
+      }),
+      edit_mode: 'copy',
+      source_pack_id: packId,
+      saved_as_new_revision: true,
+    });
+  }
+
+  const replacePackInternal = db.transaction(() => {
+    db.prepare(`
+      UPDATE quiz_packs
+      SET
+        title = ?,
+        source_text = ?,
+        course_code = ?,
+        course_name = ?,
+        section_name = ?,
+        academic_term = ?,
+        week_label = ?,
+        learning_objectives_json = ?,
+        bloom_levels_json = ?,
+        pack_notes = ?,
+        is_public = ?,
+        source_hash = ?,
+        source_excerpt = ?,
+        source_language = ?,
+        source_word_count = ?,
+        material_profile_id = ?
+      WHERE id = ? AND teacher_id = ?
+    `).run(
+      payload.title,
+      payload.sourceText,
+      payload.academicMeta.course_code,
+      payload.academicMeta.course_name,
+      payload.academicMeta.section_name,
+      payload.academicMeta.academic_term,
+      payload.academicMeta.week_label,
+      JSON.stringify(payload.academicMeta.learning_objectives),
+      JSON.stringify(payload.academicMeta.bloom_levels),
+      payload.academicMeta.pack_notes,
+      payload.isPublic ? 1 : 0,
+      payload.materialProfile.source_hash,
+      payload.materialProfile.source_excerpt,
+      payload.sourceLanguage || payload.materialProfile.source_language,
+      payload.materialProfile.word_count,
+      payload.materialProfile.id,
+      packId,
+      teacherUserId,
+    );
+
+    db.prepare('DELETE FROM questions WHERE quiz_pack_id = ?').run(packId);
+    insertQuestionsForPack(packId, payload.normalizedQuestions);
   });
 
-  insertMany(normalizedQuestions);
-  (await syncPackDerivedData(Number(packId), source_text || '', normalizedQuestions, language));
-  (await createPackVersionSnapshot(Number(packId), teacherUserId, 'Initial version', 'create'));
+  replacePackInternal();
+  (await syncPackDerivedData(packId, payload.sourceText || '', payload.normalizedQuestions, payload.sourceLanguage));
+  (await createPackVersionSnapshot(packId, teacherUserId, 'Edited version', 'edit'));
 
-  res.json({ id: packId, title, question_count: normalizedQuestions.length, is_public: isPublic ? 1 : 0 });
+  const updatedPack = (await getTeacherPackBoard(teacherUserId)).find((entry: any) => Number(entry.id) === packId);
+  res.json({
+    ...(updatedPack || {
+      id: packId,
+      title: payload.title,
+      question_count: payload.normalizedQuestions.length,
+      is_public: payload.isPublic ? 1 : 0,
+    }),
+    edit_mode: 'in_place',
+    saved_as_new_revision: false,
+  });
 });
 
 // Host a session
@@ -2697,6 +3063,94 @@ router.get('/sessions/:pin', async (req, res) => {
   const session = (await db.prepare('SELECT * FROM sessions WHERE pin = ?').get(pin));
   if (!session) return res.status(404).json({ error: 'Session not found' });
   res.json(hydrateSessionRow(session));
+});
+
+router.get('/sessions/:pin/student-state', async (req, res) => {
+  const pin = sanitizeSessionPin(req.params.pin);
+  const authorized = await getAuthorizedParticipantForPin(req, pin);
+  if (!authorized) {
+    return res.status(401).json({ error: 'Participant authentication required' });
+  }
+
+  const session = authorized.session as any;
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  let questionPayload = null;
+  let currentQuestionRow: any = null;
+  if (['QUESTION_ACTIVE', 'QUESTION_DISCUSSION', 'QUESTION_REVOTE', 'QUESTION_REVEAL'].includes(String(session.status || ''))) {
+    const question = (await db
+            .prepare('SELECT * FROM questions WHERE quiz_pack_id = ? ORDER BY question_order ASC, id ASC LIMIT 1 OFFSET ?')
+            .get(session.quiz_pack_id, session.current_question_index)) as any;
+    if (question) {
+      currentQuestionRow = question;
+      questionPayload = {
+        ...question,
+        answers: parseJsonArray(question.answers_json),
+        time_limit_seconds: resolvePhaseTimeLimit(question, session, String(session.status || '')),
+      };
+      delete questionPayload.answers_json;
+      if (session.status === 'QUESTION_ACTIVE' || session.status === 'QUESTION_DISCUSSION' || session.status === 'QUESTION_REVOTE') {
+        delete questionPayload.correct_index;
+        delete questionPayload.explanation;
+      }
+    }
+  }
+
+  const participantId = Number(authorized.participant.id);
+  const totalScore = Number(
+    (await db
+          .prepare('SELECT COALESCE(SUM(score_awarded), 0) as total FROM answers WHERE session_id = ? AND participant_id = ?')
+          .get(session.id, participantId))?.total || 0,
+  );
+  const currentAnswer = currentQuestionRow
+    ? (await db
+          .prepare(`
+        SELECT question_id, chosen_index, is_correct, score_awarded, created_at
+        FROM answers
+        WHERE session_id = ? AND participant_id = ? AND question_id = ?
+        LIMIT 1
+      `)
+          .get(session.id, participantId, currentQuestionRow.id)) as any
+    : null;
+  const recentAnswers = (await db
+        .prepare(`
+      SELECT a.is_correct
+      FROM answers a
+      JOIN questions q ON q.id = a.question_id
+      WHERE a.session_id = ? AND a.participant_id = ?
+      ORDER BY q.question_order DESC, a.id DESC
+      LIMIT 25
+    `)
+        .all(session.id, participantId)) as any[];
+  let streak = 0;
+  for (const answer of recentAnswers) {
+    if (!Number(answer?.is_correct)) break;
+    streak += 1;
+  }
+
+  res.json({
+    session: hydrateSessionRow(session),
+    question: questionPayload,
+    participant: {
+      id: participantId,
+      nickname: authorized.participant.nickname,
+      team_name: authorized.participant.team_name || null,
+    },
+    participant_state: {
+      score: totalScore,
+      streak,
+      current_answer: currentAnswer
+        ? {
+          question_id: Number(currentAnswer.question_id),
+          chosen_index: Number(currentAnswer.chosen_index),
+          is_correct: Number(currentAnswer.is_correct || 0) === 1,
+          score_awarded: Number(currentAnswer.score_awarded || 0),
+        }
+        : null,
+    },
+  });
 });
 
 router.get('/sessions/:pin/participants', async (req, res) => {
@@ -2952,14 +3406,6 @@ router.post('/sessions/:pin/answer', async (req, res) => {
     }
     const session = authorized.session as any;
 
-    if (!session || !['QUESTION_ACTIVE', 'QUESTION_REVOTE'].includes(String(session.status || ''))) {
-      return res.status(400).json({ error: 'Invalid session state' });
-    }
-
-    if (session.game_type === 'peer_pods' && session.status !== 'QUESTION_REVOTE') {
-      return res.status(409).json({ error: 'Final answers open after the discussion round.' });
-    }
-
     const existingAnswer = (await db
           .prepare('SELECT score_awarded FROM answers WHERE session_id = ? AND question_id = ? AND participant_id = ?')
           .get(session.id, question_id, participant_id)) as any;
@@ -2978,6 +3424,14 @@ router.post('/sessions/:pin/answer', async (req, res) => {
         total_answers: totalAnswers,
         expected: totalParticipants,
       });
+    }
+
+    if (!session || !['QUESTION_ACTIVE', 'QUESTION_REVOTE'].includes(String(session.status || ''))) {
+      return res.status(400).json({ error: 'Invalid session state' });
+    }
+
+    if (session.game_type === 'peer_pods' && session.status !== 'QUESTION_REVOTE') {
+      return res.status(409).json({ error: 'Final answers open after the discussion round.' });
     }
 
     const question = (await db
@@ -3263,100 +3717,58 @@ router.post('/analytics/class/:sessionId/follow-up-engine', async (req, res) => 
     if (!sessionId || !planId) {
       return res.status(400).json({ error: 'sessionId and plan_id are required' });
     }
-
-    const ownedSession = (await getTeacherOwnedSession(sessionId, teacherUserId));
-    if (!ownedSession) return res.status(404).json({ error: 'Session not found' });
-
-    const context = await getClassFollowUpContext(sessionId);
-    if (!context) return res.status(404).json({ error: 'Class analytics not found' });
-
-    const selectedPlan = context.followUpEngine.plans.find((plan) => plan.id === planId);
-    if (!selectedPlan) {
-      return res.status(400).json({ error: 'Requested follow-up plan is unavailable' });
-    }
-
-    const sourceQuestions = Array.isArray(context.classPayload.questions) && context.classPayload.questions.length > 0
-      ? context.classPayload.questions
-      : Array.isArray(context.packDetail?.questions)
-        ? context.packDetail.questions
-        : [];
-
-    const practiceSet = await runPythonEngine<any>('practice-set', {
-      questions: sourceQuestions,
-      count: Math.min(selectedPlan.question_count, Math.max(1, sourceQuestions.length || 1)),
-      focus_tags: selectedPlan.focus_tags,
-      priority_question_ids: selectedPlan.priority_question_ids,
-    });
-
-    const followUpQuestions =
-      Array.isArray(practiceSet?.questions) && practiceSet.questions.length > 0
-        ? practiceSet.questions
-        : sourceQuestions.filter((question: any) => selectedPlan.priority_question_ids.includes(Number(question?.id || 0)));
-
-    if (!followUpQuestions.length) {
-      return res.status(400).json({ error: 'No follow-up questions are available for this plan' });
-    }
-
-    const sourcePackTitle = context.packDetail?.title || context.classPayload.pack?.title || `Pack ${ownedSession.quiz_pack_id}`;
-    const followUpTitle = `Follow-Up: ${selectedPlan.title} - ${sourcePackTitle}`;
-    const packNotes = [
-      `Follow-up plan: ${selectedPlan.title}`,
-      selectedPlan.focus_tags.length > 0 ? `Focus tags: ${selectedPlan.focus_tags.join(', ')}` : '',
-      selectedPlan.priority_question_indexes.length > 0
-        ? `Priority questions: ${selectedPlan.priority_question_indexes.map((index) => `Q${index}`).join(', ')}`
-        : '',
-      selectedPlan.target_student_names.length > 0
-        ? `Target students: ${selectedPlan.target_student_names.join(', ')}`
-        : `Target scope: ${selectedPlan.audience}`,
-      `Source session: ${sessionId}`,
-    ]
-      .filter(Boolean)
-      .join(' | ');
-
-    const createdPack = await createFollowUpPack({
+    const payload = await executeFollowUpPlan({
       teacherUserId,
-      sourceSession: ownedSession,
-      sourcePack: context.packDetail || context.classPayload.pack || {},
-      questions: followUpQuestions,
-      title: followUpTitle,
-      packNotes,
+      sessionId,
+      requestedPlanId: planId,
+      launchNow,
+      titlePrefix: 'Follow-Up',
+      fallbackToDefault: false,
     });
-
-    let hostedSessionPayload: { id: number; pin: string } | null = null;
-    if (launchNow) {
-      const pin = (await createSessionPin());
-      const hostedSession = (await db
-            .prepare(`
-          INSERT INTO sessions (quiz_pack_id, teacher_class_id, pin, game_type, team_count, mode_config_json, status)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `)
-            .run(
-              createdPack.packId,
-              createdPack.teacherClassId,
-              pin,
-              'classic_quiz',
-              0,
-              JSON.stringify(sanitizeModeConfig('classic_quiz', null)),
-              'LOBBY',
-            ));
-      hostedSessionPayload = {
-        id: Number(hostedSession.lastInsertRowid),
-        pin,
-      };
-    }
-
-    res.json({
-      pack_id: createdPack.packId,
-      title: followUpTitle,
-      question_count: followUpQuestions.length,
-      plan: selectedPlan,
-      strategy: practiceSet?.strategy || null,
-      session_id: hostedSessionPayload?.id || null,
-      pin: hostedSessionPayload?.pin || null,
-    });
+    res.json(payload);
   } catch (error: any) {
     console.error('[ERROR] Follow-up engine creation failed:', error);
+    if (Number(error?.status || 0) >= 400 && Number(error?.status || 0) < 500) {
+      res.status(Number(error.status)).json({ error: error.message });
+      return;
+    }
     respondWithServerError(res, 'Failed to create follow-up pack');
+  }
+});
+
+router.post('/teacher/sessions/:sessionId/rematch-pack', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-session-rematch-pack', 20, 10 * 60 * 1000, teacherUserId, req.params.sessionId)) return;
+
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    if (!sessionId) {
+      return res.status(400).json({ error: 'sessionId is required' });
+    }
+
+    const launchNow = sanitizeBooleanFlag(req.body?.launch_now, false);
+    const requestedPlanId = sanitizeLine(req.body?.plan_id, 60) || 'whole_class_reset';
+    const payload = await executeFollowUpPlan({
+      teacherUserId,
+      sessionId,
+      requestedPlanId,
+      launchNow,
+      titlePrefix: 'Rematch',
+      fallbackToDefault: true,
+    });
+
+    res.status(201).json(payload);
+  } catch (error: any) {
+    console.error('[ERROR] Session rematch pack failed:', error);
+    if (Number(error?.status || 0) >= 400 && Number(error?.status || 0) < 500) {
+      res.status(Number(error.status)).json({ error: error.message });
+      return;
+    }
+    respondWithServerError(res, 'Failed to create rematch pack');
   }
 });
 

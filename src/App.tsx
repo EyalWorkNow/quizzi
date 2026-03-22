@@ -9,6 +9,7 @@ import Home from './client/pages/Home.tsx';
 import ProtectedTeacherRoute from './client/components/ProtectedTeacherRoute.tsx';
 import { AppLanguageProvider } from './client/lib/appLanguage.tsx';
 import { trackPageView } from './client/lib/appAnalytics.ts';
+import { StudentExperienceProvider } from './client/lib/studentExperience.tsx';
 
 const Explore = lazy(() => import('./client/pages/Explore.tsx'));
 const Contact = lazy(() => import('./client/pages/Contact.tsx'));
@@ -47,32 +48,35 @@ function RouteFallback() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AppLanguageProvider>
-        <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-          <RouteAnalytics />
-          <Suspense fallback={<RouteFallback />}>
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/join/:pin" element={<Home />} />
-              <Route path="/explore" element={<Explore />} />
-              <Route path="/contact" element={<Contact />} />
-              <Route path="/auth" element={<Auth />} />
-              <Route path="/teacher/dashboard" element={<ProtectedTeacherRoute><TeacherDashboard /></ProtectedTeacherRoute>} />
-              <Route path="/help" element={<HelpCenter />} />
-              <Route path="/teacher/reports" element={<ProtectedTeacherRoute><TeacherReports /></ProtectedTeacherRoute>} />
-              <Route path="/teacher/classes" element={<ProtectedTeacherRoute><TeacherClasses /></ProtectedTeacherRoute>} />
-              <Route path="/teacher/settings" element={<ProtectedTeacherRoute><TeacherSettings /></ProtectedTeacherRoute>} />
-              <Route path="/teacher/pack/create" element={<ProtectedTeacherRoute><TeacherCreatePack /></ProtectedTeacherRoute>} />
-              <Route path="/teacher/session/:pin/host" element={<ProtectedTeacherRoute><TeacherHost /></ProtectedTeacherRoute>} />
-              <Route path="/teacher/analytics/class/:sessionId" element={<ProtectedTeacherRoute><TeacherAnalytics /></ProtectedTeacherRoute>} />
-              <Route path="/teacher/analytics/class/:sessionId/student/:participantId" element={<ProtectedTeacherRoute><TeacherStudentAnalytics /></ProtectedTeacherRoute>} />
-              <Route path="/student/session/:pin/play" element={<StudentPlay />} />
-              <Route path="/student/dashboard/:nickname" element={<StudentDashboard />} />
-              <Route path="/student/practice/:nickname" element={<StudentPractice />} />
-            </Routes>
-          </Suspense>
-        </div>
-      </AppLanguageProvider>
+      <StudentExperienceProvider>
+        <AppLanguageProvider>
+          <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+            <RouteAnalytics />
+            <Suspense fallback={<RouteFallback />}>
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/join/:pin" element={<Home />} />
+                <Route path="/explore" element={<Explore />} />
+                <Route path="/contact" element={<Contact />} />
+                <Route path="/auth" element={<Auth />} />
+                <Route path="/teacher/dashboard" element={<ProtectedTeacherRoute><TeacherDashboard /></ProtectedTeacherRoute>} />
+                <Route path="/help" element={<HelpCenter />} />
+                <Route path="/teacher/reports" element={<ProtectedTeacherRoute><TeacherReports /></ProtectedTeacherRoute>} />
+                <Route path="/teacher/classes" element={<ProtectedTeacherRoute><TeacherClasses /></ProtectedTeacherRoute>} />
+                <Route path="/teacher/settings" element={<ProtectedTeacherRoute><TeacherSettings /></ProtectedTeacherRoute>} />
+                <Route path="/teacher/pack/create" element={<ProtectedTeacherRoute><TeacherCreatePack /></ProtectedTeacherRoute>} />
+                <Route path="/teacher/pack/:id/edit" element={<ProtectedTeacherRoute><TeacherCreatePack /></ProtectedTeacherRoute>} />
+                <Route path="/teacher/session/:pin/host" element={<ProtectedTeacherRoute><TeacherHost /></ProtectedTeacherRoute>} />
+                <Route path="/teacher/analytics/class/:sessionId" element={<ProtectedTeacherRoute><TeacherAnalytics /></ProtectedTeacherRoute>} />
+                <Route path="/teacher/analytics/class/:sessionId/student/:participantId" element={<ProtectedTeacherRoute><TeacherStudentAnalytics /></ProtectedTeacherRoute>} />
+                <Route path="/student/session/:pin/play" element={<StudentPlay />} />
+                <Route path="/student/dashboard/:nickname" element={<StudentDashboard />} />
+                <Route path="/student/practice/:nickname" element={<StudentPractice />} />
+              </Routes>
+            </Suspense>
+          </div>
+        </AppLanguageProvider>
+      </StudentExperienceProvider>
     </BrowserRouter>
   );
 }

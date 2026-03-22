@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { CheckCircle, XCircle, ArrowRight, BrainCircuit, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckCircle, XCircle, ArrowRight, BrainCircuit, RotateCcw, Sparkles, Target } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
+import QuestionImageCard from '../components/QuestionImageCard.tsx';
 
 const COLORS = [
   { bg: 'bg-rose-500', shadow: 'shadow-[0_8px_0_0_#be123c]' },
@@ -18,18 +19,33 @@ export default function StudentPractice() {
   const [questions, setQuestions] = useState<any[]>([]);
   const [strategy, setStrategy] = useState<any>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [status, setStatus] = useState<'LOADING' | 'ACTIVE' | 'FEEDBACK' | 'DONE'>('LOADING');
+  const [status, setStatus] = useState<'LOADING' | 'ACTIVE' | 'FEEDBACK' | 'DONE' | 'ERROR'>('LOADING');
   const [feedback, setFeedback] = useState<any>(null);
   const [startTime, setStartTime] = useState(0);
+  const [error, setError] = useState('');
+  const [practiceStats, setPracticeStats] = useState({ correct: 0, answered: 0 });
 
   useEffect(() => {
+    let cancelled = false;
+    setStatus('LOADING');
+    setError('');
     apiFetchJson(`/api/practice/${nickname}`)
       .then(data => {
+        if (cancelled) return;
         setQuestions(data.questions || []);
         setStrategy(data.strategy || null);
-        setStatus('ACTIVE');
+        setStatus((data.questions || []).length > 0 ? 'ACTIVE' : 'DONE');
         setStartTime(Date.now());
+      })
+      .catch((loadError: any) => {
+        if (cancelled) return;
+        setError(loadError?.message || 'Failed to load your adaptive practice set.');
+        setStatus('ERROR');
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [nickname]);
 
   const handleAnswer = async (index: number) => {
@@ -37,6 +53,7 @@ export default function StudentPractice() {
     
     const responseMs = Date.now() - startTime;
     const question = questions[currentIndex];
+    setError('');
     
     try {
       const data = await apiFetchJson(`/api/practice/${nickname}/answer`, {
@@ -49,13 +66,19 @@ export default function StudentPractice() {
         })
       });
       setFeedback({ ...data, chosen_index: index });
+      setPracticeStats((current) => ({
+        correct: current.correct + (data?.is_correct ? 1 : 0),
+        answered: current.answered + 1,
+      }));
       setStatus('FEEDBACK');
     } catch (err) {
       console.error(err);
+      setError('Your answer could not be submitted. Try again.');
     }
   };
 
   const handleNext = () => {
+    setError('');
     if (currentIndex < questions.length - 1) {
       setCurrentIndex(prev => prev + 1);
       setStatus('ACTIVE');
@@ -77,7 +100,37 @@ export default function StudentPractice() {
     );
   }
 
+  if (status === 'ERROR') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="w-full max-w-xl rounded-[2.6rem] border-4 border-brand-dark bg-white p-8 text-center shadow-[10px_10px_0px_0px_#1A1A1A]">
+          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-[2rem] border-4 border-brand-dark bg-brand-yellow">
+            <AlertTriangle className="w-10 h-10 text-brand-dark" />
+          </div>
+          <h2 className="text-4xl font-black text-slate-900 mb-3">Practice did not load cleanly</h2>
+          <p className="text-lg font-bold text-slate-600 mb-8">{error || 'Something interrupted the adaptive practice flow.'}</p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-6 py-4 rounded-2xl border-2 border-brand-dark bg-brand-dark text-white font-black flex items-center justify-center gap-2 shadow-[4px_4px_0px_0px_#FF5A36]"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Retry
+            </button>
+            <button
+              onClick={() => navigate(`/student/dashboard/${nickname}`)}
+              className="px-6 py-4 rounded-2xl border-2 border-brand-dark bg-white font-black"
+            >
+              Back to Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (status === 'DONE') {
+    const accuracy = practiceStats.answered > 0 ? Math.round((practiceStats.correct / practiceStats.answered) * 100) : 0;
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-600 to-purple-700 flex flex-col items-center justify-center p-8 text-center text-white overflow-hidden relative">
         <motion.div 
@@ -95,7 +148,21 @@ export default function StudentPractice() {
             <Sparkles className="w-12 h-12 text-yellow-300" />
           </div>
           <h2 className="text-5xl font-black mb-4 tracking-tight">Practice Complete!</h2>
-          <p className="text-xl text-indigo-100 font-medium mb-12">Your mastery scores have been updated.</p>
+          <p className="text-xl text-indigo-100 font-medium mb-8">Your mastery scores have been updated.</p>
+          <div className="grid grid-cols-3 gap-3 mb-10">
+            <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60 mb-2">Correct</p>
+              <p className="text-3xl font-black">{practiceStats.correct}</p>
+            </div>
+            <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60 mb-2">Answered</p>
+              <p className="text-3xl font-black">{practiceStats.answered}</p>
+            </div>
+            <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60 mb-2">Accuracy</p>
+              <p className="text-3xl font-black">{accuracy}%</p>
+            </div>
+          </div>
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -111,6 +178,14 @@ export default function StudentPractice() {
   }
 
   const question = questions[currentIndex];
+  const progressPct = questions.length > 0 ? ((currentIndex + (status === 'FEEDBACK' ? 1 : 0)) / questions.length) * 100 : 0;
+  const safeTags = (() => {
+    try {
+      return Array.isArray(question?.tags) ? question.tags : JSON.parse(question?.tags_json || '[]');
+    } catch {
+      return [];
+    }
+  })();
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col p-4 md:p-8">
@@ -140,6 +215,10 @@ export default function StudentPractice() {
           </div>
         </div>
 
+        <div className="w-full h-3 rounded-full bg-white border-2 border-slate-200 overflow-hidden p-[2px] mb-6">
+          <div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
+        </div>
+
         {strategy && (
           <div className="bg-indigo-50 border border-indigo-100 rounded-[2rem] p-6 mb-6">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500 mb-2">Practice Strategy</p>
@@ -155,10 +234,20 @@ export default function StudentPractice() {
           className="bg-white rounded-[3rem] p-10 shadow-sm mb-8 text-center flex-1 flex flex-col justify-center border border-slate-200 relative overflow-hidden"
         >
           <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-bl-full -z-10"></div>
+          <div className="mx-auto mb-5 inline-flex items-center gap-3 rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2">
+            <Target className="w-4 h-4 text-brand-orange" />
+            <span className="text-sm font-black uppercase tracking-[0.16em] text-brand-dark/70">Adaptive target</span>
+          </div>
+          <QuestionImageCard
+            imageUrl={question?.image_url}
+            alt={question?.prompt || 'Practice question image'}
+            className="w-full max-w-2xl mx-auto mb-6"
+            imgClassName="max-h-[260px]"
+          />
           <h2 className="text-4xl md:text-5xl font-black text-slate-900 mb-6 leading-tight">{question?.prompt}</h2>
-          {question?.tags_json && (
+          {safeTags.length > 0 && (
             <div className="flex justify-center gap-2 mt-4">
-              {JSON.parse(question.tags_json).map((tag: string, i: number) => (
+              {safeTags.map((tag: string, i: number) => (
                 <span key={i} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold capitalize border border-slate-200">
                   {tag}
                 </span>
@@ -178,7 +267,7 @@ export default function StudentPractice() {
                 whileTap={{ scale: 0.95 }}
                 key={i}
                 onClick={() => handleAnswer(i)}
-                className={`${COLORS[i % 4].bg} ${COLORS[i % 4].shadow} rounded-[2rem] flex items-center justify-center p-8 text-white text-3xl font-black hover:translate-y-1 hover:shadow-[0_4px_0_0_rgba(0,0,0,0.2)] active:translate-y-2 active:shadow-none transition-all min-h-[140px]`}
+                className={`student-answer-button ${COLORS[i % 4].bg} ${COLORS[i % 4].shadow} rounded-[2rem] flex items-center justify-center p-8 text-white text-3xl font-black hover:translate-y-1 hover:shadow-[0_4px_0_0_rgba(0,0,0,0.2)] active:translate-y-2 active:shadow-none transition-all min-h-[140px]`}
               >
                 {ans}
               </motion.button>
@@ -196,6 +285,12 @@ export default function StudentPractice() {
                 {feedback?.is_correct ? 'Correct!' : 'Not quite.'}
               </h3>
             </div>
+
+            {error && (
+              <div className="mb-6 rounded-2xl border-2 border-rose-300 bg-rose-50 px-4 py-3 text-left font-bold text-rose-700">
+                {error}
+              </div>
+            )}
             
             <div className="space-y-4 mb-10">
               {question?.answers?.map((ans: string, i: number) => {

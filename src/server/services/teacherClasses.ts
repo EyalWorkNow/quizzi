@@ -58,6 +58,7 @@ export type TeacherClassBoard = {
     average_accuracy: number | null;
   };
   latest_session: TeacherClassSessionSummary | null;
+  latest_completed_session: TeacherClassSessionSummary | null;
   recent_sessions: TeacherClassSessionSummary[];
 };
 
@@ -224,6 +225,8 @@ export async function listTeacherClasses(
     const classId = Number(row.id);
     const students = studentsByClassId.get(classId) || [];
     const sessions = sessionsByClassId.get(classId) || [];
+    const latestCompletedSession =
+      sessions.find((session) => String(session.status || '').toUpperCase() === 'ENDED') || null;
     const totalParticipantCount = sessions.reduce(
       (sum, session) => sum + Number(session.participant_count || 0),
       0,
@@ -256,6 +259,7 @@ export async function listTeacherClasses(
         average_accuracy: accuracyByClassId.get(classId) ?? null,
       },
       latest_session: sessions[0] || null,
+      latest_completed_session: latestCompletedSession,
       recent_sessions: sessions.slice(0, recentSessionLimit),
     };
   });
