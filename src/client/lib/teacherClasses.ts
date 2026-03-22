@@ -33,6 +33,28 @@ export type TeacherClassSessionSummary = {
   ended_at: string | null;
 };
 
+export type TeacherClassRetentionStudent = {
+  name: string;
+  status: 'never_started' | 'inactive_14d' | 'slipping';
+  reason: string;
+  last_activity_at: string | null;
+  live_answers_7d: number;
+  practice_attempts_7d: number;
+};
+
+export type TeacherClassRetentionSummary = {
+  level: 'low' | 'medium' | 'high';
+  headline: string;
+  body: string;
+  active_last_7d: number;
+  slipping: number;
+  inactive_14d: number;
+  never_started: number;
+  started_count: number;
+  needs_attention_count: number;
+  watchlist_students: TeacherClassRetentionStudent[];
+};
+
 export type TeacherClassBoard = {
   id: number;
   teacher_id: number;
@@ -60,6 +82,7 @@ export type TeacherClassBoard = {
   latest_session: TeacherClassSessionSummary | null;
   latest_completed_session: TeacherClassSessionSummary | null;
   recent_sessions: TeacherClassSessionSummary[];
+  retention: TeacherClassRetentionSummary;
 };
 
 export type TeacherClassPayload = {

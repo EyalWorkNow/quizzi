@@ -36,6 +36,14 @@ const dbPath = resolveSqliteDbPath();
 const defaultCwdDbPath = path.resolve(process.cwd(), 'quizzi.db');
 let db: Database.Database;
 
+export type SqliteStorageStatus = {
+  path: string;
+  using_working_directory: boolean;
+  on_render_disk: boolean;
+  explicit_path_configured: boolean;
+  persistent: boolean;
+};
+
 try {
   const isVercel = !!process.env.VERCEL;
   if (isVercel) {
@@ -503,6 +511,26 @@ export async function initDb() {
 
 export function getPostgresMirrorStatus() {
   return postgresMirror.getStatus();
+}
+
+export function getSqliteStorageStatus(): SqliteStorageStatus {
+  const explicitPathConfigured = Boolean(
+    String(process.env.SQLITE_DB_PATH || process.env.QUIZZI_SQLITE_PATH || process.env.RENDER_DISK_PATH || '').trim(),
+  );
+  const usingWorkingDirectory = dbPath === defaultCwdDbPath;
+  const onRenderDisk = dbPath.startsWith('/var/data/');
+
+  return {
+    path: dbPath,
+    using_working_directory: usingWorkingDirectory,
+    on_render_disk: onRenderDisk,
+    explicit_path_configured: explicitPathConfigured,
+    persistent: onRenderDisk || (!usingWorkingDirectory && explicitPathConfigured),
+  };
+}
+
+export async function flushPostgresMirror() {
+  await postgresMirror.flushPending();
 }
 
 export default db;

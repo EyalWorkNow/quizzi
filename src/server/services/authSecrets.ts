@@ -7,9 +7,20 @@ export function getAuthSecret() {
   return String(process.env.QUIZZI_AUTH_SECRET || DEFAULT_AUTH_SECRET);
 }
 
-export function assertSecureAuthConfig() {
+export function getAuthSecretStatus() {
   const configuredSecret = String(process.env.QUIZZI_AUTH_SECRET || '');
-  if (isProduction && (!configuredSecret || configuredSecret === DEFAULT_AUTH_SECRET)) {
+  const usingFallback = !configuredSecret || configuredSecret === DEFAULT_AUTH_SECRET;
+
+  return {
+    configured: !usingFallback,
+    using_fallback: usingFallback,
+    source: usingFallback ? 'fallback' : 'environment',
+  };
+}
+
+export function assertSecureAuthConfig() {
+  const authSecretStatus = getAuthSecretStatus();
+  if (isProduction && authSecretStatus.using_fallback) {
     console.error(
       '[CRITICAL SECURITY] QUIZZI_AUTH_SECRET is not configured or uses the default value in production. ' +
       'Teacher session cookies and scoped auth tokens are being signed with an unsafe fallback secret. ' +

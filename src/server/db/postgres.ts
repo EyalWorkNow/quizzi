@@ -6,6 +6,7 @@ export type PostgresHealth = {
   ok: boolean;
   database: string | null;
   host: string | null;
+  source: string | null;
   checkedAt: string;
   message: string;
 };
@@ -17,15 +18,57 @@ type PoolOptions = {
 
 let sharedRuntimePool: Pool | null = null;
 
-export function getPostgresConnectionString(options: PoolOptions = {}) {
-  const pooled = String(process.env.DATABASE_URL || '').trim();
-  const direct = String(process.env.DIRECT_URL || '').trim();
+const POOLED_CONNECTION_ENV_KEYS = [
+  'DATABASE_URL',
+  'POSTGRES_URL',
+  'SUPABASE_DATABASE_URL',
+  'SUPABASE_DB_URL',
+] as const;
 
-  if (options.preferDirect) {
-    return direct || pooled || '';
+const DIRECT_CONNECTION_ENV_KEYS = [
+  'DIRECT_URL',
+  'POSTGRES_URL_NON_POOLING',
+  'POSTGRES_DIRECT_URL',
+  'SUPABASE_DIRECT_URL',
+] as const;
+
+function resolveEnvValue(keys: readonly string[]) {
+  for (const key of keys) {
+    const value = String(process.env[key] || '').trim();
+    if (value) {
+      return {
+        key,
+        value,
+      };
+    }
   }
 
-  return pooled || direct || '';
+  return {
+    key: null,
+    value: '',
+  };
+}
+
+export function getPostgresConnectionString(options: PoolOptions = {}) {
+  const pooled = resolveEnvValue(POOLED_CONNECTION_ENV_KEYS);
+  const direct = resolveEnvValue(DIRECT_CONNECTION_ENV_KEYS);
+
+  if (options.preferDirect) {
+    return direct.value || pooled.value || '';
+  }
+
+  return pooled.value || direct.value || '';
+}
+
+export function getPostgresConnectionSource(options: PoolOptions = {}) {
+  const pooled = resolveEnvValue(POOLED_CONNECTION_ENV_KEYS);
+  const direct = resolveEnvValue(DIRECT_CONNECTION_ENV_KEYS);
+
+  if (options.preferDirect) {
+    return direct.key || pooled.key || null;
+  }
+
+  return pooled.key || direct.key || null;
 }
 
 export function isPostgresConfigured() {
@@ -44,9 +87,10 @@ export function describePostgresConnection(options: PoolOptions = {}) {
       configured: true,
       host: parsed.hostname || null,
       database: parsed.pathname.replace(/^\//, '') || null,
+      source: getPostgresConnectionSource(options),
     };
   } catch {
-    return { configured: true, host: null, database: null };
+    return { configured: true, host: null, database: null, source: getPostgresConnectionSource(options) };
   }
 }
 
@@ -92,8 +136,10 @@ export async function checkPostgresHealth(options: PoolOptions = {}): Promise<Po
       ok: false,
       database: null,
       host: null,
+      source: null,
       checkedAt: new Date().toISOString(),
-      message: 'Supabase Postgres is not configured yet.',
+      message:
+        'Supabase Postgres is not configured yet. Set DATABASE_URL or DIRECT_URL (or POSTGRES_URL / POSTGRES_URL_NON_POOLING).',
     };
   }
 
@@ -106,6 +152,7 @@ export async function checkPostgresHealth(options: PoolOptions = {}): Promise<Po
       ok: true,
       database: result.rows[0]?.database_name || summary.database,
       host: summary.host,
+      source: summary.source,
       checkedAt: new Date().toISOString(),
       message: 'Supabase Postgres connection is healthy.',
     };
@@ -115,6 +162,7 @@ export async function checkPostgresHealth(options: PoolOptions = {}): Promise<Po
       ok: false,
       database: summary.database,
       host: summary.host,
+      source: summary.source,
       checkedAt: new Date().toISOString(),
       message: error?.message || 'Supabase Postgres connection failed.',
     };

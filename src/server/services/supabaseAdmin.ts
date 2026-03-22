@@ -6,16 +6,43 @@ type SupabaseRestHealth = {
   checkedAt: string;
   message: string;
   tableCount: number | null;
+  url_source: string | null;
+  key_source: string | null;
 };
 
 let adminClient: SupabaseClient | null = null;
 
+function resolveEnvValue(keys: readonly string[]) {
+  for (const key of keys) {
+    const value = String(process.env[key] || '').trim();
+    if (value) {
+      return {
+        key,
+        value,
+      };
+    }
+  }
+
+  return {
+    key: null,
+    value: '',
+  };
+}
+
 function getSupabaseUrl() {
-  return String(process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
+  return resolveEnvValue(['SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL']).value;
+}
+
+function getSupabaseUrlSource() {
+  return resolveEnvValue(['SUPABASE_URL', 'VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL']).key;
 }
 
 function getSupabaseSecretKey() {
-  return String(process.env.SUPABASE_SECRET_KEY || '').trim();
+  return resolveEnvValue(['SUPABASE_SECRET_KEY', 'SUPABASE_SERVICE_ROLE_KEY']).value;
+}
+
+function getSupabaseSecretKeySource() {
+  return resolveEnvValue(['SUPABASE_SECRET_KEY', 'SUPABASE_SERVICE_ROLE_KEY']).key;
 }
 
 export function isSupabaseAdminConfigured() {
@@ -48,8 +75,11 @@ export async function checkSupabaseRestHealth(): Promise<SupabaseRestHealth> {
       configured: false,
       ok: false,
       checkedAt: new Date().toISOString(),
-      message: 'Supabase REST admin client is not configured yet.',
+      message:
+        'Supabase REST admin client is not configured yet. Set SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY/SUPABASE_SERVICE_ROLE_KEY.',
       tableCount: null,
+      url_source: getSupabaseUrlSource(),
+      key_source: getSupabaseSecretKeySource(),
     };
   }
 
@@ -67,6 +97,8 @@ export async function checkSupabaseRestHealth(): Promise<SupabaseRestHealth> {
       checkedAt: new Date().toISOString(),
       message: 'Supabase REST admin client is healthy.',
       tableCount: Number(count || 0),
+      url_source: getSupabaseUrlSource(),
+      key_source: getSupabaseSecretKeySource(),
     };
   } catch (error: any) {
     return {
@@ -75,6 +107,8 @@ export async function checkSupabaseRestHealth(): Promise<SupabaseRestHealth> {
       checkedAt: new Date().toISOString(),
       message: error?.message || 'Supabase REST admin client failed.',
       tableCount: null,
+      url_source: getSupabaseUrlSource(),
+      key_source: getSupabaseSecretKeySource(),
     };
   }
 }

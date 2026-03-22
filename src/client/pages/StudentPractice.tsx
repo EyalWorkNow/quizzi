@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, CheckCircle, XCircle, ArrowRight, BrainCircuit, RotateCcw, Sparkles, Target } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
@@ -15,25 +15,56 @@ const COLORS = [
 export default function StudentPractice() {
   const { nickname } = useParams();
   const navigate = useNavigate();
-  
+  const [searchParams] = useSearchParams();
   const [questions, setQuestions] = useState<any[]>([]);
   const [strategy, setStrategy] = useState<any>(null);
+  const [mission, setMission] = useState<any>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [status, setStatus] = useState<'LOADING' | 'ACTIVE' | 'FEEDBACK' | 'DONE' | 'ERROR'>('LOADING');
   const [feedback, setFeedback] = useState<any>(null);
   const [startTime, setStartTime] = useState(0);
   const [error, setError] = useState('');
   const [practiceStats, setPracticeStats] = useState({ correct: 0, answered: 0 });
+  const queryString = searchParams.toString();
+  const fallbackMission = useMemo(
+    () => ({
+      id: String(searchParams.get('mission') || '').trim() || null,
+      label: String(searchParams.get('mission_label') || '').trim() || 'Adaptive Practice',
+      question_count: Number(searchParams.get('count') || 5) || 5,
+      focus_tags: String(searchParams.get('focus_tags') || '')
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    }),
+    [queryString, searchParams],
+  );
+  const missionTitle = mission?.label || fallbackMission.label || 'Adaptive Practice';
+  const missionFocusTags = Array.isArray(mission?.focus_tags)
+    ? mission.focus_tags
+    : Array.isArray(fallbackMission.focus_tags)
+      ? fallbackMission.focus_tags
+      : [];
+  const missionMode = String(mission?.id || fallbackMission.id || '');
+  const missionBody =
+    missionMode === 'reentry'
+      ? 'A short reset round built to make coming back easy.'
+      : missionMode === 'targeted'
+        ? 'A focused sprint aimed at the concepts where confidence is still fragile.'
+        : missionMode === 'momentum'
+          ? 'A quick booster to keep your recent gains warm.'
+          : 'Adaptive practice built from your current mastery profile.';
 
   useEffect(() => {
     let cancelled = false;
     setStatus('LOADING');
     setError('');
-    apiFetchJson(`/api/practice/${nickname}`)
+    const practicePath = queryString ? `/api/practice/${nickname}?${queryString}` : `/api/practice/${nickname}`;
+    apiFetchJson(practicePath)
       .then(data => {
         if (cancelled) return;
         setQuestions(data.questions || []);
         setStrategy(data.strategy || null);
+        setMission(data.mission || fallbackMission);
         setStatus((data.questions || []).length > 0 ? 'ACTIVE' : 'DONE');
         setStartTime(Date.now());
       })
@@ -46,7 +77,7 @@ export default function StudentPractice() {
     return () => {
       cancelled = true;
     };
-  }, [nickname]);
+  }, [fallbackMission, nickname, queryString]);
 
   const handleAnswer = async (index: number) => {
     if (status !== 'ACTIVE') return;
@@ -95,7 +126,7 @@ export default function StudentPractice() {
         <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }}>
           <BrainCircuit className="w-16 h-16 text-indigo-300 mb-6" />
         </motion.div>
-        <h2 className="text-2xl font-bold text-slate-700">Loading your personalized practice set...</h2>
+        <h2 className="text-2xl font-bold text-slate-700">Loading {missionTitle.toLowerCase()}...</h2>
       </div>
     );
   }
@@ -147,8 +178,8 @@ export default function StudentPractice() {
           <div className="inline-flex items-center justify-center w-24 h-24 bg-white/20 rounded-3xl mb-8">
             <Sparkles className="w-12 h-12 text-yellow-300" />
           </div>
-          <h2 className="text-5xl font-black mb-4 tracking-tight">Practice Complete!</h2>
-          <p className="text-xl text-indigo-100 font-medium mb-8">Your mastery scores have been updated.</p>
+          <h2 className="text-5xl font-black mb-4 tracking-tight">{missionTitle} complete</h2>
+          <p className="text-xl text-indigo-100 font-medium mb-8">Your mastery scores have been updated and your progress signal has been refreshed.</p>
           <div className="grid grid-cols-3 gap-3 mb-10">
             <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60 mb-2">Correct</p>
@@ -207,7 +238,7 @@ export default function StudentPractice() {
               <div className="p-2 bg-indigo-100 rounded-xl">
                 <BrainCircuit className="w-6 h-6" />
               </div>
-              Adaptive Practice
+              {missionTitle}
             </div>
           </div>
           <div className="text-slate-500 font-bold bg-slate-100 px-4 py-2 rounded-xl">
@@ -217,6 +248,21 @@ export default function StudentPractice() {
 
         <div className="w-full h-3 rounded-full bg-white border-2 border-slate-200 overflow-hidden p-[2px] mb-6">
           <div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
+        </div>
+
+        <div className="bg-white rounded-[2rem] border border-slate-200 p-6 mb-6">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500 mb-2">Mission Context</p>
+          <h3 className="text-2xl font-black text-slate-900 mb-2">{missionTitle}</h3>
+          <p className="text-slate-600 font-medium mb-4">{missionBody}</p>
+          {missionFocusTags.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {missionFocusTags.map((tag: string) => (
+                <span key={`mission-${tag}`} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold capitalize border border-slate-200">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {strategy && (

@@ -1299,36 +1299,199 @@ function buildAnalyticsComparison(sessionAnalytics: any, overallAnalytics: any) 
   };
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function uniqueStrings(values: Array<unknown>) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function parseTimestampMs(value: unknown) {
+  const parsed = new Date(String(value || '')).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toUtcDayKey(timestampMs: number) {
+  return new Date(timestampMs).toISOString().slice(0, 10);
+}
+
+function maxIsoTimestamp(values: Array<unknown>) {
+  const timestamps = values
+    .map((value) => parseTimestampMs(value))
+    .filter((value): value is number => value !== null);
+  if (!timestamps.length) return null;
+  return new Date(Math.max(...timestamps)).toISOString();
+}
+
+function buildConsecutiveDayStreak(dayKeys: string[]) {
+  if (!dayKeys.length) return 0;
+  const sortedKeys = [...dayKeys].sort().reverse();
+  let streak = 1;
+  let previousDayMs = Date.parse(`${sortedKeys[0]}T00:00:00.000Z`);
+
+  for (let index = 1; index < sortedKeys.length; index += 1) {
+    const currentDayMs = Date.parse(`${sortedKeys[index]}T00:00:00.000Z`);
+    if (previousDayMs - currentDayMs !== DAY_MS) {
+      break;
+    }
+    streak += 1;
+    previousDayMs = currentDayMs;
+  }
+
+  return streak;
+}
+
+function summarizeFocusTags(tags: string[]) {
+  if (!tags.length) return 'your weakest concept mix';
+  if (tags.length === 1) return tags[0];
+  if (tags.length === 2) return `${tags[0]} and ${tags[1]}`;
+  return `${tags[0]}, ${tags[1]}, and ${tags[2]}`;
+}
+
+function buildStudentEngagementEnvelope({
+  analytics,
+  answers,
+  practiceAttempts,
+}: {
+  analytics: Record<string, any>;
+  answers: any[];
+  practiceAttempts: any[];
+}) {
+  const now = Date.now();
+  const window7dStart = now - 7 * DAY_MS;
+  const activityTimestamps = [...answers, ...practiceAttempts]
+    .map((row) => parseTimestampMs(row?.created_at))
+    .filter((value): value is number => value !== null);
+  const activeDayKeys = uniqueStrings(activityTimestamps.map((timestamp) => toUtcDayKey(timestamp)));
+  const activeDays7d = uniqueStrings(
+    activityTimestamps
+      .filter((timestamp) => timestamp >= window7dStart)
+      .map((timestamp) => toUtcDayKey(timestamp)),
+  ).length;
+  const lastActivityAt = maxIsoTimestamp([...answers.map((row) => row?.created_at), ...practiceAttempts.map((row) => row?.created_at)]);
+  const lastActivityMs = parseTimestampMs(lastActivityAt);
+  const daysSinceLastActivity = lastActivityMs === null ? null : Math.max(0, Math.floor((now - lastActivityMs) / DAY_MS));
+  const focusTags = uniqueStrings([
+    ...(Array.isArray(analytics?.practicePlan?.focus_tags) ? analytics.practicePlan.focus_tags : []),
+    ...(Array.isArray(analytics?.profile?.weak_tags) ? analytics.profile.weak_tags : []),
+    ...(Array.isArray(analytics?.adaptiveTargets?.focus_tags) ? analytics.adaptiveTargets.focus_tags : []),
+  ]).slice(0, 4);
+  const confidenceScore = Number(analytics?.profile?.confidence_score || 0);
+  const focusScore = Number(analytics?.profile?.focus_score || 0);
+  const liveAnswers7d = answers.filter((row) => {
+    const createdAt = parseTimestampMs(row?.created_at);
+    return createdAt !== null && createdAt >= window7dStart;
+  }).length;
+  const practiceAttempts7d = practiceAttempts.filter((row) => {
+    const createdAt = parseTimestampMs(row?.created_at);
+    return createdAt !== null && createdAt >= window7dStart;
+  }).length;
+  const comebackStreakDays = buildConsecutiveDayStreak(activeDayKeys);
+
+  let missionId = 'momentum';
+  let missionLabel = 'Momentum Booster';
+  let questionCount = 5;
+  let headline = 'Keep your rhythm warm';
+  let body = 'You are already in motion. A short five-question sprint will lock in the gains from your recent games.';
+  let ctaLabel = 'Start Momentum Sprint';
+
+  if (lastActivityAt === null || (daysSinceLastActivity ?? 0) >= 6) {
+    missionId = 'reentry';
+    missionLabel = 'Comeback Mission';
+    questionCount = 3;
+    headline = 'Quick comeback mission';
+    body = `Take a low-friction reset with 3 short questions around ${summarizeFocusTags(focusTags)} so returning feels easy, not heavy.`;
+    ctaLabel = 'Start 3-Question Reset';
+  } else if (focusScore < 60 || confidenceScore < 60 || focusTags.length > 0) {
+    missionId = 'targeted';
+    missionLabel = 'Focus Sprint';
+    questionCount = 4;
+    headline = 'Targeted confidence rebuild';
+    body = `Run a tight 4-question sprint on ${summarizeFocusTags(focusTags)} to stabilize your weak spots before the next live game.`;
+    ctaLabel = 'Run Focus Sprint';
+  }
+
+  const weeklyGoalTarget = missionId === 'reentry' ? 2 : 3;
+  const weeklyGoalProgress = Math.min(activeDays7d, weeklyGoalTarget);
+
+  return {
+    last_activity_at: lastActivityAt,
+    days_since_last_activity: daysSinceLastActivity,
+    active_days_7d: activeDays7d,
+    live_answers_7d: liveAnswers7d,
+    practice_attempts_7d: practiceAttempts7d,
+    comeback_streak_days: comebackStreakDays,
+    weekly_goal: {
+      active_days_target: weeklyGoalTarget,
+      active_days_progress: weeklyGoalProgress,
+      completion_pct: Math.round((weeklyGoalProgress / Math.max(1, weeklyGoalTarget)) * 100),
+    },
+    comeback_mission: {
+      id: missionId,
+      label: missionLabel,
+      headline,
+      body,
+      cta_label: ctaLabel,
+      question_count: questionCount,
+      focus_tags: focusTags,
+      practice_query: {
+        count: questionCount,
+        focus_tags: focusTags,
+        mission: missionId,
+        mission_label: missionLabel,
+      },
+    },
+  };
+}
+
 async function getOverallStudentAnalytics({
   identityKey,
   nickname,
 }: {
   identityKey: string;
   nickname: string;
-}) {
+}): Promise<any> {
   const participants = (await getParticipantsForIdentityKey(identityKey));
   const participantIds = uniqueNumbers(participants.map((row: any) => row.id));
   const sessionIds = uniqueNumbers(participants.map((row: any) => row.session_id));
   const sessions = (await getSessionsForIds(sessionIds));
   const packs = (await getPacksForIds(uniqueNumbers(sessions.map((row: any) => row.quiz_pack_id))));
-
-  return runPythonEngine<any>('student-dashboard', {
+  const mastery = (await getMasteryRows(identityKey));
+  const answers = (await db
+        .prepare(`
+      SELECT a.*
+      FROM answers a
+      JOIN participants p ON a.participant_id = p.id
+      WHERE p.identity_key = ?
+    `)
+        .all(identityKey)) as any[];
+  const practiceAttempts = (await db.prepare('SELECT * FROM practice_attempts WHERE identity_key = ?').all(identityKey)) as any[];
+  const dashboard = (await runPythonEngine<any>('student-dashboard', {
     nickname,
-    mastery: (await getMasteryRows(identityKey)),
-    answers: (await db
-          .prepare(`
-        SELECT a.*
-        FROM answers a
-        JOIN participants p ON a.participant_id = p.id
-        WHERE p.identity_key = ?
-      `)
-          .all(identityKey)),
+    mastery,
+    answers,
     questions: (await db.prepare('SELECT * FROM questions').all()),
     behavior_logs: (await getLogsForParticipantIds(participantIds)),
-    practice_attempts: (await db.prepare('SELECT * FROM practice_attempts WHERE identity_key = ?').all(identityKey)),
+    practice_attempts: practiceAttempts,
     sessions,
     packs,
+  })) as Record<string, any>;
+  const engagement = buildStudentEngagementEnvelope({
+    analytics: dashboard || {},
+    answers,
+    practiceAttempts,
   });
+
+  return {
+    ...(dashboard || {}),
+    engagement,
+    comebackMission: engagement.comeback_mission,
+  };
 }
 
 async function getSessionStudentContext(sessionId: number, participantId: number) {
@@ -3966,15 +4129,37 @@ router.get('/practice/:nickname', async (req, res) => {
     if (!authorized) return res.status(401).json({ error: 'Participant authentication required' });
     const identityKey = getParticipantIdentityKey(authorized.participant);
     if (!enforceRateLimit(req, res, 'practice-load', 90, 5 * 60 * 1000, authorized.participant.id)) return;
+    const requestedCount = clampNumber(req.query?.count, 2, 8, 5);
+    const focusTags = uniqueStrings(String(req.query?.focus_tags || '').split(',').map((tag) => sanitizeLine(tag, 40))).slice(0, 4);
+    const requestedMissionId = sanitizeLine(req.query?.mission, 40);
+    const requestedMissionLabel = sanitizeLine(req.query?.mission_label, 80);
     const practiceSet = await runPythonEngine<unknown>('practice-set', {
       nickname: authorized.participant.nickname,
       mastery: (await getMasteryRows(identityKey)),
       questions: (await db.prepare('SELECT * FROM questions').all()),
       practice_attempts: (await db.prepare('SELECT * FROM practice_attempts WHERE identity_key = ?').all(identityKey)),
-      count: 5,
+      count: requestedCount,
+      focus_tags: focusTags,
     });
+    const missionLabel =
+      requestedMissionLabel ||
+      (requestedMissionId === 'reentry'
+        ? 'Comeback Mission'
+        : requestedMissionId === 'targeted'
+          ? 'Focus Sprint'
+          : requestedMissionId === 'momentum'
+            ? 'Momentum Booster'
+            : 'Adaptive Practice');
 
-    res.json(practiceSet);
+    res.json({
+      ...(practiceSet && typeof practiceSet === 'object' ? practiceSet : {}),
+      mission: {
+        id: requestedMissionId || null,
+        label: missionLabel,
+        question_count: requestedCount,
+        focus_tags: focusTags,
+      },
+    });
   } catch (error: any) {
     console.error('[ERROR] Practice selection failed:', error);
     respondWithServerError(res, 'Failed to load adaptive practice');

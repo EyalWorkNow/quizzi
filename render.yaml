@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: quizzi
+    runtime: node
+    plan: starter
+    autoDeploy: true
+    healthCheckPath: /healthz
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    disk:
+      name: quizzi-data
+      mountPath: /var/data
+      sizeGB: 10
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 20
+      - key: RENDER_DISK_PATH
+        value: /var/data
+      - key: QUIZZI_REQUIRE_SUPABASE_MIRROR
+        value: true
+      - key: QUIZZI_POSTGRES_SYNC_DEBOUNCE_MS
+        value: 1000
+      - key: QUIZZI_AUTH_SECRET
+        generateValue: true
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false

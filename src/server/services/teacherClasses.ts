@@ -33,6 +33,28 @@ export type TeacherClassSessionSummary = {
   ended_at: string | null;
 };
 
+export type TeacherClassRetentionStudent = {
+  name: string;
+  status: 'never_started' | 'inactive_14d' | 'slipping';
+  reason: string;
+  last_activity_at: string | null;
+  live_answers_7d: number;
+  practice_attempts_7d: number;
+};
+
+export type TeacherClassRetentionSummary = {
+  level: 'low' | 'medium' | 'high';
+  headline: string;
+  body: string;
+  active_last_7d: number;
+  slipping: number;
+  inactive_14d: number;
+  never_started: number;
+  started_count: number;
+  needs_attention_count: number;
+  watchlist_students: TeacherClassRetentionStudent[];
+};
+
 export type TeacherClassBoard = {
   id: number;
   teacher_id: number;
@@ -60,7 +82,189 @@ export type TeacherClassBoard = {
   latest_session: TeacherClassSessionSummary | null;
   latest_completed_session: TeacherClassSessionSummary | null;
   recent_sessions: TeacherClassSessionSummary[];
+  retention: TeacherClassRetentionSummary;
 };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function normalizeRosterName(value: unknown) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function parseTimestampMs(value: unknown) {
+  const parsed = new Date(String(value || '')).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getLatestIsoTimestamp(values: Array<unknown>) {
+  const timestamps = values
+    .map((value) => parseTimestampMs(value))
+    .filter((value): value is number => value !== null);
+  if (!timestamps.length) return null;
+  return new Date(Math.max(...timestamps)).toISOString();
+}
+
+function getDaysSince(value: unknown) {
+  const timestamp = parseTimestampMs(value);
+  if (timestamp === null) return null;
+  return Math.max(0, Math.floor((Date.now() - timestamp) / DAY_MS));
+}
+
+function buildTeacherRetentionSummary({
+  students,
+  participantSignals,
+  practiceByIdentity,
+}: {
+  students: TeacherClassStudentRecord[];
+  participantSignals: Array<{
+    nickname: string;
+    identity_key: string;
+    last_live_activity_at: string | null;
+    live_answers_7d: number;
+    live_answers_total: number;
+  }>;
+  practiceByIdentity: Map<string, { last_practice_at: string | null; practice_attempts_7d: number }>;
+}): TeacherClassRetentionSummary {
+  if (!students.length) {
+    return {
+      level: 'low',
+      headline: 'Add roster members to unlock retention tracking',
+      body: 'Quizzi will start surfacing comeback and dropout signals as soon as students are attached to this class.',
+      active_last_7d: 0,
+      slipping: 0,
+      inactive_14d: 0,
+      never_started: 0,
+      started_count: 0,
+      needs_attention_count: 0,
+      watchlist_students: [],
+    };
+  }
+
+  const watchlist: TeacherClassRetentionStudent[] = [];
+  let activeLast7d = 0;
+  let slipping = 0;
+  let inactive14d = 0;
+  let neverStarted = 0;
+  let startedCount = 0;
+
+  students.forEach((student) => {
+    const normalizedStudentName = normalizeRosterName(student.name);
+    const matchedParticipants = participantSignals.filter(
+      (entry) => normalizeRosterName(entry.nickname) === normalizedStudentName,
+    );
+    const matchedIdentityKeys = Array.from(
+      new Set(
+        matchedParticipants
+          .map((entry) => String(entry.identity_key || '').trim())
+          .filter(Boolean),
+      ),
+    );
+    const practiceSignals = matchedIdentityKeys
+      .map((identityKey) => practiceByIdentity.get(identityKey) || null)
+      .filter((entry): entry is { last_practice_at: string | null; practice_attempts_7d: number } => Boolean(entry));
+    const liveAnswers7d = matchedParticipants.reduce((sum, entry) => sum + Number(entry.live_answers_7d || 0), 0);
+    const practiceAttempts7d = practiceSignals.reduce((sum, entry) => sum + Number(entry.practice_attempts_7d || 0), 0);
+    const lastActivityAt = getLatestIsoTimestamp([
+      ...matchedParticipants.map((entry) => entry.last_live_activity_at),
+      ...practiceSignals.map((entry) => entry.last_practice_at),
+    ]);
+    const daysSinceLastActivity = getDaysSince(lastActivityAt);
+
+    if (!matchedParticipants.length) {
+      neverStarted += 1;
+      watchlist.push({
+        name: student.name,
+        status: 'never_started',
+        reason: 'This roster member has not joined a live Quizzi session yet.',
+        last_activity_at: null,
+        live_answers_7d: 0,
+        practice_attempts_7d: 0,
+      });
+      return;
+    }
+
+    startedCount += 1;
+
+    if (liveAnswers7d + practiceAttempts7d > 0) {
+      activeLast7d += 1;
+      return;
+    }
+
+    if ((daysSinceLastActivity ?? 0) >= 14) {
+      inactive14d += 1;
+      watchlist.push({
+        name: student.name,
+        status: 'inactive_14d',
+        reason: `No live or practice activity for ${daysSinceLastActivity} days.`,
+        last_activity_at: lastActivityAt,
+        live_answers_7d: liveAnswers7d,
+        practice_attempts_7d: practiceAttempts7d,
+      });
+      return;
+    }
+
+    if ((daysSinceLastActivity ?? 0) >= 7) {
+      slipping += 1;
+      watchlist.push({
+        name: student.name,
+        status: 'slipping',
+        reason: `Momentum is fading after ${daysSinceLastActivity} days without activity.`,
+        last_activity_at: lastActivityAt,
+        live_answers_7d: liveAnswers7d,
+        practice_attempts_7d: practiceAttempts7d,
+      });
+    }
+  });
+
+  const needsAttentionCount = neverStarted + inactive14d + slipping;
+  const rosterCount = students.length;
+  const riskRatio = rosterCount > 0 ? needsAttentionCount / rosterCount : 0;
+  const level: TeacherClassRetentionSummary['level'] =
+    riskRatio >= 0.35 || neverStarted >= Math.max(1, Math.round(rosterCount * 0.2))
+      ? 'high'
+      : riskRatio >= 0.16
+        ? 'medium'
+        : 'low';
+  const headline =
+    level === 'high'
+      ? `${needsAttentionCount} students need re-entry support`
+      : level === 'medium'
+        ? 'Momentum is softening in this class'
+        : 'Participation looks healthy';
+  const body =
+    level === 'high'
+      ? 'Use a short rematch, focused practice, or direct outreach before these students disappear from the loop.'
+      : level === 'medium'
+        ? 'A few students are drifting. A tighter follow-up pack or a lighter homework check-in can pull them back.'
+        : 'Most roster members are still active. Keep the rhythm going with short follow-up practice between live sessions.';
+  const severityOrder = {
+    never_started: 3,
+    inactive_14d: 2,
+    slipping: 1,
+  } as const;
+
+  return {
+    level,
+    headline,
+    body,
+    active_last_7d: activeLast7d,
+    slipping,
+    inactive_14d: inactive14d,
+    never_started: neverStarted,
+    started_count: startedCount,
+    needs_attention_count: needsAttentionCount,
+    watchlist_students: [...watchlist]
+      .sort((left, right) => {
+        const severityDelta = severityOrder[right.status] - severityOrder[left.status];
+        if (severityDelta !== 0) return severityDelta;
+        return (getDaysSince(right.last_activity_at) || 999) - (getDaysSince(left.last_activity_at) || 999);
+      })
+      .slice(0, 4),
+  };
+}
 
 function uniqueNumbers(values: Array<number | string | null | undefined>) {
   return Array.from(
@@ -176,6 +380,7 @@ export async function listTeacherClasses(
         s.id DESC
     `)
       .all(...classIds)) as any[];
+  const sessionIds = uniqueNumbers(sessionRows.map((row: any) => row.id));
   const accuracyRows = (await db
       .prepare(`
       SELECT
@@ -187,6 +392,44 @@ export async function listTeacherClasses(
       GROUP BY s.teacher_class_id
     `)
       .all(...classIds)) as any[];
+  const participantActivityRows = sessionIds.length
+    ? ((await db
+          .prepare(`
+        SELECT
+          p.session_id,
+          p.identity_key,
+          p.nickname,
+          p.created_at AS joined_at,
+          MAX(COALESCE(a.created_at, p.created_at)) AS last_activity_at,
+          SUM(CASE WHEN a.id IS NOT NULL AND a.created_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) AS live_answers_7d,
+          COUNT(a.id) AS live_answers_total
+        FROM participants p
+        LEFT JOIN answers a ON a.participant_id = p.id
+        WHERE p.session_id IN (${sessionIds.map(() => '?').join(', ')})
+        GROUP BY p.id
+      `)
+          .all(...sessionIds)) as any[])
+    : [];
+  const practiceIdentityKeys = Array.from(
+    new Set(
+      participantActivityRows
+        .map((row: any) => String(row.identity_key || '').trim())
+        .filter(Boolean),
+    ),
+  );
+  const practiceRows = practiceIdentityKeys.length
+    ? ((await db
+          .prepare(`
+        SELECT
+          identity_key,
+          MAX(created_at) AS last_practice_at,
+          SUM(CASE WHEN created_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) AS practice_attempts_7d
+        FROM practice_attempts
+        WHERE identity_key IN (${practiceIdentityKeys.map(() => '?').join(', ')})
+        GROUP BY identity_key
+      `)
+          .all(...practiceIdentityKeys)) as any[])
+    : [];
 
   const studentsByClassId = new Map<number, TeacherClassStudentRecord[]>();
   for (const student of studentRows) {
@@ -220,6 +463,40 @@ export async function listTeacherClasses(
       row.accuracy_rate === null || row.accuracy_rate === undefined ? null : Number(row.accuracy_rate),
     );
   }
+  const sessionClassById = new Map<number, number>();
+  sessionRows.forEach((row: any) => {
+    sessionClassById.set(Number(row.id), Number(row.teacher_class_id || 0));
+  });
+  const participantSignalsByClassId = new Map<
+    number,
+    Array<{
+      nickname: string;
+      identity_key: string;
+      last_live_activity_at: string | null;
+      live_answers_7d: number;
+      live_answers_total: number;
+    }>
+  >();
+  participantActivityRows.forEach((row: any) => {
+    const classId = sessionClassById.get(Number(row.session_id || 0)) || 0;
+    if (!classId) return;
+    const current = participantSignalsByClassId.get(classId) || [];
+    current.push({
+      nickname: String(row.nickname || ''),
+      identity_key: String(row.identity_key || '').trim(),
+      last_live_activity_at: row.last_activity_at || row.joined_at || null,
+      live_answers_7d: Number(row.live_answers_7d || 0),
+      live_answers_total: Number(row.live_answers_total || 0),
+    });
+    participantSignalsByClassId.set(classId, current);
+  });
+  const practiceByIdentity = new Map<string, { last_practice_at: string | null; practice_attempts_7d: number }>();
+  practiceRows.forEach((row: any) => {
+    practiceByIdentity.set(String(row.identity_key || '').trim(), {
+      last_practice_at: row.last_practice_at || null,
+      practice_attempts_7d: Number(row.practice_attempts_7d || 0),
+    });
+  });
 
   return classRows.map((row: any) => {
     const classId = Number(row.id);
@@ -261,6 +538,11 @@ export async function listTeacherClasses(
       latest_session: sessions[0] || null,
       latest_completed_session: latestCompletedSession,
       recent_sessions: sessions.slice(0, recentSessionLimit),
+      retention: buildTeacherRetentionSummary({
+        students,
+        participantSignals: participantSignalsByClassId.get(classId) || [],
+        practiceByIdentity,
+      }),
     };
   });
 }

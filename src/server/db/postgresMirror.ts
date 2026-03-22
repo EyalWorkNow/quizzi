@@ -30,7 +30,7 @@ const SQLITE_BOOLEAN_COLUMNS = new Map<string, Set<string>>([
 ]);
 
 const MUTATION_PATTERNS = [
-  /^\s*insert\s+into\s+["`[]?([a-z_][\w]*)/i,
+  /^\s*insert(?:\s+or\s+(?:rollback|abort|replace|fail|ignore))?\s+into\s+["`[]?([a-z_][\w]*)/i,
   /^\s*update\s+["`[]?([a-z_][\w]*)/i,
   /^\s*delete\s+from\s+["`[]?([a-z_][\w]*)/i,
   /^\s*replace\s+into\s+["`[]?([a-z_][\w]*)/i,
@@ -40,7 +40,10 @@ const MUTATION_PATTERNS = [
   /^\s*truncate\s+table\s+["`[]?([a-z_][\w]*)/i,
 ] as const;
 
-const DEFAULT_SYNC_DEBOUNCE_MS = Math.max(750, Number(process.env.QUIZZI_POSTGRES_SYNC_DEBOUNCE_MS || 4000));
+const DEFAULT_SYNC_DEBOUNCE_MS = Math.max(
+  500,
+  Number(process.env.QUIZZI_POSTGRES_SYNC_DEBOUNCE_MS || (process.env.NODE_ENV === 'production' ? 1000 : 4000)),
+);
 
 export function createPostgresMirror(db: Database.Database, options: { sqlitePath: string }) {
   let active = false;
@@ -246,6 +249,15 @@ export function createPostgresMirror(db: Database.Database, options: { sqlitePat
     return syncInFlight;
   }
 
+  async function flushPending() {
+    if (syncTimer) {
+      clearTimeout(syncTimer);
+      syncTimer = null;
+    }
+
+    await flushDirtyTables();
+  }
+
   async function hydrateSqliteFromPostgres(client: { query: (sql: string, values?: unknown[]) => Promise<{ rows: any[] }> }) {
     const rowsByTable = new Map<string, any[]>();
     for (const table of POSTGRES_TABLE_ORDER) {
@@ -359,6 +371,7 @@ export function createPostgresMirror(db: Database.Database, options: { sqlitePat
     getStatus,
     setup,
     wrapDatabase,
+    flushPending,
   };
 }
 

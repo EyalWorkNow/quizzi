@@ -129,6 +129,9 @@ export default function StudentDashboard() {
   const xpProgress = currentXP % 1000;
   const xpToNextLevel = 1000 - xpProgress;
   const latestSessionTitle = latestGame?.pack?.title || latestGame?.sessionHistory?.[0]?.pack_title;
+  const engagement = overall?.engagement || null;
+  const comebackMission = overall?.comebackMission || engagement?.comeback_mission || null;
+  const primaryPracticePath = buildStudentPracticePath(nickname || displayNickname || 'student', comebackMission, focusTags);
 
   const signalBaselines = useMemo(
     () => new Map(overallSignals.map((signal: any) => [signal.id, signal.score])),
@@ -205,7 +208,7 @@ export default function StudentDashboard() {
               Explore Packs
             </button>
             <button
-              onClick={() => navigate(`/student/practice/${nickname}`)}
+              onClick={() => navigate(primaryPracticePath)}
               className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#1A1A1A] flex items-center gap-2"
             >
               <Sparkles className="w-4 h-4" />
@@ -247,6 +250,89 @@ export default function StudentDashboard() {
               </button>
             </div>
           </div>
+        )}
+
+        {engagement && comebackMission && (
+          <section className="grid grid-cols-1 xl:grid-cols-[1.08fr_0.92fr] gap-6 mb-8">
+            <div className="rounded-[2.6rem] border-4 border-brand-dark bg-brand-purple text-white p-7 shadow-[8px_8px_0px_0px_#1A1A1A]">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/70 mb-3">{comebackMission.label}</p>
+              <h2 className="text-4xl font-black leading-tight mb-3">{comebackMission.headline}</h2>
+              <p className="font-bold text-white/80 mb-5 max-w-2xl">{comebackMission.body}</p>
+              {Array.isArray(comebackMission.focus_tags) && comebackMission.focus_tags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-6">
+                  {comebackMission.focus_tags.map((tag: string) => (
+                    <span key={`mission-${tag}`} className="px-3 py-2 rounded-full bg-white text-brand-dark border-2 border-brand-dark text-xs font-black capitalize">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => navigate(primaryPracticePath)}
+                className="px-6 py-4 bg-brand-yellow text-brand-dark border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[3px_3px_0px_0px_#FF5A36]"
+              >
+                <Sparkles className="w-4 h-4" />
+                {comebackMission.cta_label || 'Start next practice mission'}
+              </button>
+            </div>
+
+            <div className="rounded-[2.6rem] border-4 border-brand-dark bg-white p-7 shadow-[8px_8px_0px_0px_#1A1A1A]">
+              <div className="flex items-center justify-between gap-3 mb-5">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Consistency Pulse</p>
+                  <h2 className="text-3xl font-black">Stay in the loop</h2>
+                </div>
+                <span className="px-4 py-2 rounded-full border-2 border-brand-dark bg-brand-bg font-black">
+                  {engagement.weekly_goal?.completion_pct || 0}% goal hit
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-5">
+                <InsightTile
+                  label="Active Days"
+                  value={`${engagement.active_days_7d || 0}/${engagement.weekly_goal?.active_days_target || 3}`}
+                  helper="Days with any Quizzi activity"
+                  icon={<TrendingUp className="w-5 h-5" />}
+                />
+                <InsightTile
+                  label="Live Answers"
+                  value={engagement.live_answers_7d || 0}
+                  helper="Responses in the last week"
+                  icon={<Layers3 className="w-5 h-5" />}
+                />
+                <InsightTile
+                  label="Practice Hits"
+                  value={engagement.practice_attempts_7d || 0}
+                  helper="Adaptive reps in the last week"
+                  icon={<Target className="w-5 h-5" />}
+                />
+                <InsightTile
+                  label="Streak"
+                  value={engagement.comeback_streak_days || 0}
+                  helper="Consecutive active days"
+                  icon={<Flame className="w-5 h-5" />}
+                />
+              </div>
+
+              <div className="rounded-[1.7rem] border-2 border-brand-dark bg-brand-bg p-5">
+                <div className="flex items-center justify-between gap-4 mb-3">
+                  <span className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45">Weekly goal progress</span>
+                  <span className="font-black">
+                    {engagement.weekly_goal?.active_days_progress || 0}/{engagement.weekly_goal?.active_days_target || 3}
+                  </span>
+                </div>
+                <div className="w-full h-4 rounded-full bg-white border-2 border-brand-dark/10 overflow-hidden p-[2px] mb-3">
+                  <div
+                    className="h-full rounded-full bg-brand-orange"
+                    style={{ width: `${Math.max(0, Math.min(100, Number(engagement.weekly_goal?.completion_pct || 0)))}%` }}
+                  />
+                </div>
+                <p className="font-medium text-brand-dark/68">
+                  {formatActivityRecency(engagement.last_activity_at, engagement.days_since_last_activity)}
+                </p>
+              </div>
+            </div>
+          </section>
         )}
 
         <section className="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-8 mb-8">
@@ -338,7 +424,7 @@ export default function StudentDashboard() {
                   )}
                 </div>
                 <button
-                  onClick={() => navigate(`/student/practice/${nickname}`)}
+                  onClick={() => navigate(primaryPracticePath)}
                   className="px-6 py-4 bg-brand-dark text-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[3px_3px_0px_0px_#FF5A36]"
                 >
                   <Sparkles className="w-4 h-4 text-brand-yellow" />
@@ -604,7 +690,7 @@ export default function StudentDashboard() {
                 <p className="text-2xl font-black mb-2">{overall?.practicePlan?.headline}</p>
                 <p className="font-medium text-white/80 mb-4">{overall?.practicePlan?.body}</p>
                 <button
-                  onClick={() => navigate(`/student/practice/${nickname}`)}
+                  onClick={() => navigate(primaryPracticePath)}
                   className="px-5 py-3 bg-white text-brand-dark border-2 border-brand-dark rounded-full font-black"
                 >
                   Launch Practice Round
@@ -793,4 +879,33 @@ function questionStatusTone(status: string) {
   if (status === 'missed') return 'bg-brand-orange text-white';
   if (status === 'shaky') return 'bg-brand-yellow text-brand-dark';
   return 'bg-emerald-200 text-brand-dark';
+}
+
+function buildStudentPracticePath(nickname: string, mission: any, fallbackTags: string[]) {
+  const params = new URLSearchParams();
+  const questionCount = Number(mission?.question_count || 0);
+  const focusTags = Array.isArray(mission?.focus_tags) && mission.focus_tags.length > 0 ? mission.focus_tags : fallbackTags;
+  if (questionCount > 0) {
+    params.set('count', String(questionCount));
+  }
+  if (focusTags.length > 0) {
+    params.set('focus_tags', focusTags.slice(0, 4).join(','));
+  }
+  if (mission?.id) {
+    params.set('mission', String(mission.id));
+  }
+  if (mission?.label) {
+    params.set('mission_label', String(mission.label));
+  }
+
+  const basePath = `/student/practice/${encodeURIComponent(nickname)}`;
+  return params.size > 0 ? `${basePath}?${params.toString()}` : basePath;
+}
+
+function formatActivityRecency(lastActivityAt?: string | null, daysSince?: number | null) {
+  if (!lastActivityAt) return 'No recent Quizzi activity yet. A short mission is the fastest way back into momentum.';
+  if (daysSince === null || daysSince === undefined) return 'Recent activity detected.';
+  if (daysSince <= 0) return 'You were active today. Keep the streak alive with one more short sprint.';
+  if (daysSince === 1) return 'Last active yesterday. A quick practice round will keep you from cooling off.';
+  return `Last active ${daysSince} days ago. A shorter mission now is better than waiting for a full review block.`;
 }

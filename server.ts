@@ -4,15 +4,50 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { seedAnalyticsShowcase, seedDemoData } from './src/server/db/seeding.js';
-import { getPostgresMirrorStatus } from './src/server/db/index.js';
+import { flushPostgresMirror, getPostgresMirrorStatus, getSqliteStorageStatus } from './src/server/db/index.js';
 import { checkPostgresHealth, closePostgresPool } from './src/server/db/postgres.js';
 import { checkSupabaseRestHealth } from './src/server/services/supabaseAdmin.js';
 import { isAllowedBrowserOrigin, normalizeOrigin } from './src/server/services/requestGuards.js';
-import { assertSecureAuthConfig } from './src/server/services/authSecrets.js';
+import { assertSecureAuthConfig, getAuthSecretStatus } from './src/server/services/authSecrets.js';
 import apiRouter from './src/server/routes/api.js';
+
+function shouldRequireSupabaseMirrorInProduction() {
+  const configuredValue = String(process.env.QUIZZI_REQUIRE_SUPABASE_MIRROR || '').trim().toLowerCase();
+  if (!configuredValue) return process.env.NODE_ENV === 'production';
+  return !['0', 'false', 'no', 'off'].includes(configuredValue);
+}
+
+function isUnsafePersistenceExplicitlyAllowed() {
+  const configuredValue = String(process.env.QUIZZI_ALLOW_UNSAFE_PERSISTENCE || '').trim().toLowerCase();
+  return ['1', 'true', 'yes', 'on'].includes(configuredValue);
+}
+
+function assertSafePersistenceConfig() {
+  if (process.env.NODE_ENV !== 'production' || isUnsafePersistenceExplicitlyAllowed()) {
+    return;
+  }
+
+  const mirrorStatus = getPostgresMirrorStatus();
+  const sqliteStatus = getSqliteStorageStatus();
+
+  if (shouldRequireSupabaseMirrorInProduction() && !mirrorStatus.configured) {
+    throw new Error(
+      '[CRITICAL CONFIG] Production requires Supabase persistence, but DATABASE_URL/DIRECT_URL are missing. ' +
+      'Set Supabase Postgres env vars before deploying so teacher content is not trapped in local SQLite.',
+    );
+  }
+
+  if (!mirrorStatus.configured && !sqliteStatus.persistent) {
+    throw new Error(
+      `[CRITICAL CONFIG] Unsafe production storage detected. SQLite is using ${sqliteStatus.path} with no persistent disk and no Supabase mirror. ` +
+      'Mount /var/data or configure RENDER_DISK_PATH, and set DATABASE_URL/DIRECT_URL.',
+    );
+  }
+}
 
 async function startServer() {
   assertSecureAuthConfig();
+  assertSafePersistenceConfig();
 
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
@@ -119,14 +154,17 @@ async function startServer() {
     const latestPostgresHealth = await checkPostgresHealth();
     const latestSupabaseRestHealth = await checkSupabaseRestHealth();
     const postgresMirror = getPostgresMirrorStatus();
+    const sqliteStorage = getSqliteStorageStatus();
     res.json({
       status: 'ok',
       app: 'quizzi',
       primary_db: postgresMirror.active ? 'sqlite_with_supabase_mirror' : 'sqlite',
       sqlite_seeded: true,
+      sqlite_storage: sqliteStorage,
       postgres_mirror: postgresMirror,
       supabase_postgres: latestPostgresHealth,
       supabase_rest: latestSupabaseRestHealth,
+      auth_signing: getAuthSecretStatus(),
     });
   });
 
@@ -213,6 +251,9 @@ async function startServer() {
     console.log(`[server] Received ${signal}, draining connections...`);
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
+    });
+    await flushPostgresMirror().catch((error) => {
+      console.warn('[server] Failed to flush Postgres mirror cleanly:', error);
     });
     await closePostgresPool().catch((error) => {
       console.warn('[server] Failed to close Postgres pool cleanly:', error);

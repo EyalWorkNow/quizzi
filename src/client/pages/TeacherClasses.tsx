@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  AlertTriangle,
   BookOpen,
   CheckCircle2,
   ClipboardList,
@@ -267,6 +268,10 @@ export default function TeacherClasses() {
     const totalStudents = classes.reduce((sum, classItem) => sum + classItem.stats.student_count, 0);
     const liveRooms = classes.reduce((sum, classItem) => sum + classItem.stats.active_session_count, 0);
     const assignedPacks = classes.filter((classItem) => classItem.pack).length;
+    const studentsNeedingAttention = classes.reduce(
+      (sum, classItem) => sum + Number(classItem.retention?.needs_attention_count || 0),
+      0,
+    );
 
     return [
       {
@@ -292,6 +297,14 @@ export default function TeacherClasses() {
         body: 'Classes that can launch directly into a live session.',
         tone: 'bg-brand-purple text-white',
         icon: <BookOpen className="w-5 h-5" />,
+      },
+      {
+        id: 'retention',
+        label: 'Watchlist students',
+        value: studentsNeedingAttention,
+        body: 'Roster members drifting out of the loop and likely to need a lighter re-entry move.',
+        tone: 'bg-rose-100',
+        icon: <AlertTriangle className="w-5 h-5" />,
       },
       {
         id: 'live',
@@ -484,7 +497,7 @@ export default function TeacherClasses() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-8">
             {summaryStats.map((stat) => (
               <div
                 key={stat.id}
@@ -706,6 +719,51 @@ export default function TeacherClasses() {
                   </div>
 
                   <div className="mt-8 pt-6 border-t-2 border-brand-dark/10">
+                    <div className="rounded-[1.5rem] border-2 border-brand-dark/10 bg-brand-bg p-4 mb-5">
+                      <div className="flex items-center justify-between gap-3 mb-3">
+                        <div>
+                          <h3 className="text-lg font-black">Retention Snapshot</h3>
+                          <p className="text-sm font-bold text-brand-dark/50">{selectedClass.retention.headline}</p>
+                        </div>
+                        <span className={`px-3 py-2 rounded-full border-2 border-brand-dark text-xs font-black ${retentionLevelTone(selectedClass.retention.level)}`}>
+                          {selectedClass.retention.level.toUpperCase()} RISK
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 mb-3 text-xs font-black uppercase tracking-[0.14em]">
+                        <span className="px-3 py-2 rounded-full border border-brand-dark/15 bg-white">
+                          {selectedClass.retention.active_last_7d} active 7d
+                        </span>
+                        <span className="px-3 py-2 rounded-full border border-brand-dark/15 bg-white">
+                          {selectedClass.retention.slipping} slipping
+                        </span>
+                        <span className="px-3 py-2 rounded-full border border-brand-dark/15 bg-white">
+                          {selectedClass.retention.inactive_14d} inactive 14d
+                        </span>
+                        <span className="px-3 py-2 rounded-full border border-brand-dark/15 bg-white">
+                          {selectedClass.retention.never_started} never started
+                        </span>
+                      </div>
+
+                      <p className="text-sm font-bold text-brand-dark/65">{selectedClass.retention.body}</p>
+
+                      {selectedClass.retention.watchlist_students.length > 0 && (
+                        <div className="space-y-2 mt-4">
+                          {selectedClass.retention.watchlist_students.map((student) => (
+                            <div key={`${selectedClass.id}-${student.name}`} className="rounded-xl border border-brand-dark/10 bg-white px-3 py-3">
+                              <div className="flex items-center justify-between gap-3 mb-1">
+                                <span className="font-black">{student.name}</span>
+                                <span className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">
+                                  {student.status.replace('_', ' ')}
+                                </span>
+                              </div>
+                              <p className="text-sm font-bold text-brand-dark/60">{student.reason}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     <div className="flex items-center gap-2 mb-3">
                       <GraduationCap className="w-5 h-5 text-brand-purple" />
                       <h3 className="text-lg font-black">Recent Sessions</h3>
@@ -819,6 +877,7 @@ function ClassCard({
       : classItem.latest_completed_session
         ? `Last run ${formatRelativeTime(classItem.latest_completed_session.ended_at || classItem.latest_completed_session.started_at)}`
         : 'No live run yet';
+  const retention = classItem.retention;
 
   return (
     <motion.div
@@ -868,6 +927,48 @@ function ClassCard({
         </span>
       </div>
 
+      <div className={`space-y-3 ${panelTone} rounded-2xl p-4 border border-current/10`}>
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-bold">Retention Radar</span>
+          <span className={`px-3 py-2 rounded-full border-2 border-brand-dark text-[10px] font-black uppercase tracking-[0.18em] ${retentionLevelTone(retention.level)}`}>
+            {retention.level} risk
+          </span>
+        </div>
+        <p className="text-sm font-black">{retention.headline}</p>
+        <p className={`text-sm font-bold ${secondaryText}`}>{retention.body}</p>
+
+        <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-[0.14em]">
+          <span className="px-3 py-2 rounded-full border border-current/20">
+            {retention.active_last_7d} active 7d
+          </span>
+          <span className="px-3 py-2 rounded-full border border-current/20">
+            {retention.slipping} slipping
+          </span>
+          <span className="px-3 py-2 rounded-full border border-current/20">
+            {retention.inactive_14d} inactive
+          </span>
+          <span className="px-3 py-2 rounded-full border border-current/20">
+            {retention.never_started} not started
+          </span>
+        </div>
+
+        {retention.watchlist_students.length > 0 && (
+          <div className="space-y-2">
+            {retention.watchlist_students.slice(0, 2).map((student) => (
+              <div key={`${classItem.id}-${student.name}`} className="rounded-xl border border-current/15 bg-white/70 px-3 py-3 text-brand-dark">
+                <div className="flex items-center justify-between gap-3 mb-1">
+                  <span className="font-black">{student.name}</span>
+                  <span className="text-[10px] font-black uppercase tracking-[0.16em] text-brand-dark/50">
+                    {student.status.replace('_', ' ')}
+                  </span>
+                </div>
+                <p className="text-sm font-bold text-brand-dark/65">{student.reason}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <p className={`font-bold text-sm min-h-10 ${secondaryText}`}>
         {classItem.notes || 'No notes yet.'}
       </p>
@@ -901,4 +1002,10 @@ function ClassCard({
       </div>
     </motion.div>
   );
+}
+
+function retentionLevelTone(level: 'low' | 'medium' | 'high') {
+  if (level === 'high') return 'bg-rose-100 text-rose-700';
+  if (level === 'medium') return 'bg-brand-yellow text-brand-dark';
+  return 'bg-emerald-100 text-emerald-800';
 }
