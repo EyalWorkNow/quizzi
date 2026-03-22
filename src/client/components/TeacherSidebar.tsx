@@ -33,7 +33,7 @@ export default function TeacherSidebar() {
     <motion.aside
       animate={{ width: isSidebarOpen ? 256 : 80 }}
       dir={direction}
-      className={`h-screen bg-white ${direction === 'rtl' ? 'border-l-2' : 'border-r-2'} border-brand-dark flex flex-col flex-shrink-0 transition-all duration-300 relative z-20 shadow-[4px_0px_0px_0px_#1A1A1A]`}
+      className={`h-screen bg-white ${direction === 'rtl' ? 'border-l-2' : 'border-r-2'} border-brand-dark flex flex-col flex-shrink-0 transition-all duration-300 relative z-20 shadow-[4px_0px_0px_0px_#1A1A1A] overflow-visible`}
     >
       <div className="h-20 flex items-center px-6 border-b-2 border-brand-dark">
         {isSidebarOpen ? (
@@ -64,13 +64,28 @@ export default function TeacherSidebar() {
         <NavItem icon={<Users />} label={t('dash.nav.classes')} isOpen={isSidebarOpen} active={path === '/teacher/classes'} onClick={() => navigate('/teacher/classes')} />
       </nav>
 
-      {/* Toggle Button - Outside of nav to avoid overflow:hidden clipping */}
-      <div className="absolute top-1/2 -translate-y-1/2 z-30" style={{ [direction === 'rtl' ? 'left' : 'right']: '-12px' }}>
+      {/* Toggle Button — floats outside sidebar, never clipped */}
+      <div
+        className="absolute top-1/2 -translate-y-1/2 z-[100]"
+        style={{ [direction === 'rtl' ? 'left' : 'right']: '-14px' }}
+      >
         <button
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="w-6 h-6 bg-brand-yellow rounded-full flex items-center justify-center border-2 border-brand-dark hover:bg-yellow-300 transition-colors shadow-[2px_2px_0px_0px_#1A1A1A]"
+          className="w-7 h-7 bg-brand-yellow rounded-full flex items-center justify-center border-2 border-brand-dark hover:bg-yellow-300 transition-colors shadow-[2px_2px_0px_0px_#1A1A1A]"
+          aria-label={isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
         >
-          <ChevronLeft className={`w-4 h-4 transition-transform ${(!isSidebarOpen && direction === 'ltr') || (isSidebarOpen && direction === 'rtl') ? 'rotate-180' : ''}`} />
+          {/*
+            LTR: sidebar open → arrow points LEFT (collapse), closed → points RIGHT (expand)
+            RTL: sidebar open → arrow points RIGHT (collapse), closed → points LEFT (expand)
+            ChevronLeft = ← by default. rotate-180 flips it to →
+          */}
+          <ChevronLeft
+            className={`w-4 h-4 transition-transform duration-300 ${
+              direction === 'rtl'
+                ? isSidebarOpen ? 'rotate-180' : ''
+                : isSidebarOpen ? '' : 'rotate-180'
+            }`}
+          />
         </button>
       </div>
 
