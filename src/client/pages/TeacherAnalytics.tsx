@@ -4536,16 +4536,16 @@ function ConceptClinicCard({
         </div>
       </div>
       <p className="font-medium text-brand-dark/72 flex-1">{t(body)}</p>
-      <div className="flex flex-col sm:flex-row gap-3 mt-5">
+      <div className="mt-5 grid grid-cols-1 gap-3 xl:grid-cols-2">
         <button
           onClick={onStudentAction}
-          className="flex-1 rounded-full border-2 border-brand-dark bg-white px-4 py-3 font-black transition-transform hover:-translate-y-0.5"
+          className="min-h-[3.75rem] rounded-full border-2 border-brand-dark bg-white px-4 py-3 text-center text-sm font-black leading-tight whitespace-normal transition-transform hover:-translate-y-0.5 sm:text-base"
         >
           {t('See matching students')}
         </button>
         <button
           onClick={onQuestionAction}
-          className="flex-1 rounded-full border-2 border-brand-dark bg-brand-dark px-4 py-3 font-black text-white transition-transform hover:-translate-y-0.5"
+          className="min-h-[3.75rem] rounded-full border-2 border-brand-dark bg-brand-dark px-4 py-3 text-center text-sm font-black leading-tight whitespace-normal text-white transition-transform hover:-translate-y-0.5 sm:text-base"
         >
           {t('Open matching questions')}
         </button>

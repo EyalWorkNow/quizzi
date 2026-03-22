@@ -19,6 +19,24 @@ import { isPeerInstructionMode, resolveSessionQuestionTimeLimit } from '../lib/s
 import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 
+const HOST_STATUS_ALIASES: Record<string, string> = {
+  QUESTION_RESULT: 'QUESTION_REVEAL',
+  QUESTION_RESULTS: 'QUESTION_REVEAL',
+  RESULT: 'QUESTION_REVEAL',
+  RESULTS: 'QUESTION_REVEAL',
+  SCOREBOARD: 'LEADERBOARD',
+  FINAL_RESULTS: 'LEADERBOARD',
+  COMPLETE: 'ENDED',
+  COMPLETED: 'ENDED',
+  CLOSED: 'ENDED',
+};
+
+function normalizeHostStatus(value: unknown) {
+  const raw = String(value || '').trim().toUpperCase();
+  if (!raw) return 'LOBBY';
+  return HOST_STATUS_ALIASES[raw] || raw;
+}
+
 function formatAnswerSlotLabel(index: number) {
   return String.fromCharCode(65 + (index % 26));
 }
@@ -254,7 +272,7 @@ export default function TeacherHost() {
   }, [questionIndex]);
 
   useEffect(() => {
-    statusRef.current = status;
+    statusRef.current = normalizeHostStatus(status);
   }, [status]);
 
   useEffect(() => {
@@ -267,6 +285,14 @@ export default function TeacherHost() {
     const timeoutId = window.setTimeout(() => setHostMessage(null), 4200);
     return () => window.clearTimeout(timeoutId);
   }, [hostMessage]);
+
+  useEffect(() => {
+    if (status !== 'ENDED' || !sessionId) return;
+    const timeoutId = window.setTimeout(() => {
+      navigate(`/teacher/analytics/class/${sessionId}`);
+    }, 1400);
+    return () => window.clearTimeout(timeoutId);
+  }, [navigate, sessionId, status]);
 
   useEffect(() => {
     // Force targetTime calculation to be stable
@@ -311,7 +337,7 @@ export default function TeacherHost() {
         setSessionMeta(data);
         setSessionId(data.id);
         setPackId(data.quiz_pack_id);
-        setStatus(data.status);
+        setStatus(normalizeHostStatus(data.status));
         setQuestionIndex(data.current_question_index);
       })
       .catch((err: any) => {
@@ -404,7 +430,7 @@ export default function TeacherHost() {
   };
 
   const handleLiveStateChange = (data: any) => {
-    const nextStatus = data?.status || 'LOBBY';
+    const nextStatus = normalizeHostStatus(data?.status || sessionMeta?.status || 'LOBBY');
     const nextQuestionIndex = Number(data?.current_question_index ?? data?.currentQuestionIndex ?? 0);
     const nextGameType = data?.game_type || data?.gameType;
     const nextTeamCount = data?.team_count ?? data?.teamCount;
@@ -651,9 +677,12 @@ export default function TeacherHost() {
       gameType: sessionMeta?.game_type || 'classic_quiz',
       teamCount: Number(sessionMeta?.team_count || 0),
       modeConfig,
-      status: sessionMeta?.status || status,
+      status: normalizeHostStatus(sessionMeta?.status || status),
       currentQuestionIndex: Number(sessionMeta?.current_question_index ?? questionIndex),
-      question: buildRealtimeQuestionPayload(sessionMeta?.status || status, Number(sessionMeta?.current_question_index ?? questionIndex)),
+      question: buildRealtimeQuestionPayload(
+        normalizeHostStatus(sessionMeta?.status || status),
+        Number(sessionMeta?.current_question_index ?? questionIndex),
+      ),
       expectedParticipants: participantCountRef.current,
     });
   }, [modeConfig, pin, sessionId, packId, pack, sessionMeta, questionIndex, status]);
@@ -1771,6 +1800,37 @@ export default function TeacherHost() {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'ENDED') {
+    return (
+      <div className="game-viewport-shell flex flex-col items-center justify-center p-4 sm:p-8 text-brand-dark">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+        <div className="w-full max-w-xl rounded-[2rem] border-4 border-brand-dark bg-white p-8 text-center shadow-[8px_8px_0px_0px_#1A1A1A]">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border-4 border-brand-dark bg-brand-yellow">
+            <Trophy className="h-8 w-8 text-brand-orange" />
+          </div>
+          <h2 className="mb-3 text-3xl font-black">Game complete</h2>
+          <p className="mb-6 font-medium text-brand-dark/70">
+            Quizzi is wrapping this room and opening the analytics report for the finished session.
+          </p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <button
+              onClick={() => navigate(`/teacher/analytics/class/${sessionId}`)}
+              className="rounded-full border-2 border-brand-dark bg-brand-orange px-6 py-3 font-black text-white shadow-[4px_4px_0px_0px_#1A1A1A]"
+            >
+              Open Analytics
+            </button>
+            <button
+              onClick={() => navigate('/teacher/dashboard')}
+              className="rounded-full border-2 border-brand-dark bg-white px-6 py-3 font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
+            >
+              Back to Dashboard
+            </button>
           </div>
         </div>
       </div>

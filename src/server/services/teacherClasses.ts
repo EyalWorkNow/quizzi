@@ -276,13 +276,117 @@ function uniqueNumbers(values: Array<number | string | null | undefined>) {
   );
 }
 
+async function bootstrapTeacherClassesFromUnlinkedSessions(teacherUserId: number) {
+  const packRows = (await db
+      .prepare(`
+      SELECT
+        qp.id,
+        qp.title,
+        COALESCE(qp.course_code, '') AS course_code,
+        COALESCE(qp.course_name, '') AS course_name,
+        COALESCE(qp.section_name, '') AS section_name,
+        COALESCE(qp.academic_term, '') AS academic_term,
+        MAX(COALESCE(s.started_at, s.ended_at, '1970-01-01 00:00:00')) AS last_activity_at
+      FROM quiz_packs qp
+      JOIN sessions s ON s.quiz_pack_id = qp.id
+      WHERE qp.teacher_id = ?
+        AND COALESCE(s.teacher_class_id, 0) = 0
+      GROUP BY qp.id
+      ORDER BY last_activity_at DESC, qp.id DESC
+    `)
+      .all(teacherUserId)) as any[];
+
+  if (!packRows.length) return false;
+
+  for (const [index, packRow] of packRows.entries()) {
+    const className = String(packRow.course_name || packRow.title || `Recovered Class ${index + 1}`).trim();
+    const subject = String(packRow.course_code || packRow.course_name || 'General').trim();
+    const grade = String(packRow.section_name || packRow.academic_term || 'Mixed').trim();
+    const color = TEACHER_CLASS_COLOR_OPTIONS[index % TEACHER_CLASS_COLOR_OPTIONS.length];
+    const notes = 'Recovered automatically from historical Quizzi live sessions.';
+
+    const insertResult = await db
+      .prepare(`
+        INSERT INTO teacher_classes (
+          teacher_id,
+          name,
+          subject,
+          grade,
+          color,
+          notes,
+          pack_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        teacherUserId,
+        className || `Recovered Class ${index + 1}`,
+        subject || 'General',
+        grade || 'Mixed',
+        color,
+        notes,
+        Number(packRow.id || 0) || null,
+      );
+
+    const classId = Number(insertResult.lastInsertRowid || 0);
+    const packId = Number(packRow.id || 0);
+    if (!classId || !packId) continue;
+
+    const sessionRows = (await db
+        .prepare(`
+        SELECT id
+        FROM sessions
+        WHERE quiz_pack_id = ?
+          AND COALESCE(teacher_class_id, 0) = 0
+      `)
+        .all(packId)) as any[];
+    const sessionIds = uniqueNumbers(sessionRows.map((row: any) => row.id));
+
+    await db
+      .prepare(`
+        UPDATE sessions
+        SET teacher_class_id = ?
+        WHERE quiz_pack_id = ?
+          AND COALESCE(teacher_class_id, 0) = 0
+      `)
+      .run(classId, packId);
+
+    if (!sessionIds.length) continue;
+
+    const participantRows = (await db
+        .prepare(`
+        SELECT nickname
+        FROM participants
+        WHERE session_id IN (${sessionIds.map(() => '?').join(', ')})
+        ORDER BY created_at ASC, id ASC
+      `)
+        .all(...sessionIds)) as any[];
+    const seenNames = new Set<string>();
+
+    for (const row of participantRows) {
+      const rawName = String(row.nickname || '').trim();
+      const normalizedName = normalizeRosterName(rawName);
+      if (!normalizedName || seenNames.has(normalizedName)) continue;
+      seenNames.add(normalizedName);
+      await db
+        .prepare(`
+          INSERT INTO teacher_class_students (class_id, name)
+          VALUES (?, ?)
+        `)
+        .run(classId, rawName);
+    }
+  }
+
+  return true;
+}
+
 export function sanitizeTeacherClassColor(value: unknown): TeacherClassColor {
   const normalized = String(value || '').trim() as TeacherClassColor;
   return TEACHER_CLASS_COLOR_OPTIONS.includes(normalized) ? normalized : 'bg-brand-purple';
 }
 
 export async function getTeacherOwnedClass(classId: number, teacherUserId: number, includeArchived = false) {
-  const archiveFilter = includeArchived ? '' : 'AND archived = 0';
+  const archiveFilter = includeArchived ? '' : 'AND COALESCE(archived, 0) = 0';
   return (await db
       .prepare(`
       SELECT *
@@ -327,9 +431,9 @@ export async function listTeacherClasses(
 ): Promise<TeacherClassBoard[]> {
   const includeArchived = Boolean(options.includeArchived);
   const recentSessionLimit = Math.max(1, Math.min(8, Number(options.recentSessionLimit || 4)));
-  const archiveFilter = includeArchived ? '' : 'AND tc.archived = 0';
+  const archiveFilter = includeArchived ? '' : 'AND COALESCE(tc.archived, 0) = 0';
 
-  const classRows = (await db
+  let classRows = (await db
       .prepare(`
       SELECT
         tc.*,
@@ -344,7 +448,27 @@ export async function listTeacherClasses(
     `)
       .all(teacherUserId)) as any[];
 
-  const classIds = uniqueNumbers(classRows.map((row: any) => row.id));
+  let classIds = uniqueNumbers(classRows.map((row: any) => row.id));
+  if (!classIds.length && !includeArchived) {
+    const bootstrapped = await bootstrapTeacherClassesFromUnlinkedSessions(teacherUserId);
+    if (bootstrapped) {
+      classRows = (await db
+          .prepare(`
+          SELECT
+            tc.*,
+            qp.title AS pack_title,
+            COALESCE(qp.question_count_cache, 0) AS pack_question_count
+          FROM teacher_classes tc
+          LEFT JOIN quiz_packs qp
+            ON qp.id = tc.pack_id
+           AND qp.teacher_id = tc.teacher_id
+          WHERE tc.teacher_id = ? ${archiveFilter}
+          ORDER BY tc.updated_at DESC, tc.id DESC
+        `)
+          .all(teacherUserId)) as any[];
+      classIds = uniqueNumbers(classRows.map((row: any) => row.id));
+    }
+  }
   if (!classIds.length) return [];
 
   const placeholders = classIds.map(() => '?').join(', ');

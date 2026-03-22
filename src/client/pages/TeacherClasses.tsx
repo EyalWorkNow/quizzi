@@ -126,6 +126,7 @@ export default function TeacherClasses() {
   const [classes, setClasses] = useState<TeacherClassBoard[]>([]);
   const [packs, setPacks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -163,13 +164,28 @@ export default function TeacherClasses() {
   const bootstrapPage = async () => {
     try {
       setLoading(true);
-      const [packBoard, classBoard] = await Promise.all([
+      setLoadError('');
+      const [packBoardResult, classBoardResult] = await Promise.allSettled([
         apiFetchJson('/api/teacher/packs'),
         listTeacherClasses(),
       ]);
 
-      let nextClasses = Array.isArray(classBoard) ? classBoard : [];
-      const nextPacks = Array.isArray(packBoard) ? packBoard : [];
+      const nextPacks =
+        packBoardResult.status === 'fulfilled' && Array.isArray(packBoardResult.value)
+          ? packBoardResult.value
+          : [];
+      let nextClasses =
+        classBoardResult.status === 'fulfilled' && Array.isArray(classBoardResult.value)
+          ? classBoardResult.value
+          : [];
+      const classBoardError =
+        classBoardResult.status === 'rejected'
+          ? classBoardResult.reason?.message || 'Failed to load classes.'
+          : '';
+      const packBoardError =
+        packBoardResult.status === 'rejected'
+          ? packBoardResult.reason?.message || 'Failed to load packs.'
+          : '';
       const migrated = nextClasses.length === 0 ? await maybeMigrateLegacyClasses(nextPacks) : false;
 
       if (migrated) {
@@ -179,7 +195,15 @@ export default function TeacherClasses() {
 
       setPacks(nextPacks);
       setClasses(sortClassesByRecent(nextClasses));
+      setLoadError(classBoardError);
+      if (classBoardError || packBoardError) {
+        setFeedback({
+          tone: 'error',
+          message: classBoardError || packBoardError,
+        });
+      }
     } catch (error: any) {
+      setLoadError(error?.message || 'Failed to load classes.');
       setFeedback({ tone: 'error', message: error?.message || 'Failed to load classes.' });
     } finally {
       setLoading(false);
@@ -614,11 +638,22 @@ export default function TeacherClasses() {
                   <LoaderCircle className="w-5 h-5 animate-spin" />
                   Loading classes...
                 </div>
+              ) : loadError && filteredClasses.length === 0 ? (
+                <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-10 shadow-[4px_4px_0px_0px_#1A1A1A] text-center">
+                  <p className="text-2xl font-black mb-2">Classes did not load cleanly.</p>
+                  <p className="font-bold text-brand-dark/60 mb-6">{loadError}</p>
+                  <button
+                    onClick={() => void bootstrapPage()}
+                    className="px-6 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
+                  >
+                    Try again
+                  </button>
+                </div>
               ) : filteredClasses.length === 0 ? (
                 <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-10 shadow-[4px_4px_0px_0px_#1A1A1A] text-center">
                   <p className="text-2xl font-black mb-2">No classes matched this board.</p>
                   <p className="font-bold text-brand-dark/60 mb-6">
-                    Create a class, assign a quiz pack, and it will start producing live sessions and report history here.
+                    Create a class, or let Quizzi rebuild boards from historical live sessions when it finds session history with no class board attached.
                   </p>
                   <button
                     onClick={openNewClassBuilder}

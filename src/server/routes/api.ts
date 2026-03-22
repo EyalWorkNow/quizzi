@@ -1270,6 +1270,206 @@ async function getBehaviorLogsForSessionIds(sessionIds: number[]) {
   return (await db.prepare(`SELECT * FROM student_behavior_logs WHERE session_id IN (${placeholders})`).all(...sessionIds));
 }
 
+function averageNumbers(values: number[]) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function formatTeacherOverviewDate(session: any) {
+  const rawTimestamp = session?.ended_at || session?.started_at;
+  const timestamp = new Date(String(rawTimestamp || '')).getTime();
+  if (!Number.isFinite(timestamp)) return 'Recently';
+  return new Intl.DateTimeFormat('en', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(timestamp));
+}
+
+function computeFallbackStressIndex(logs: any[]) {
+  if (!logs.length) return 0;
+  const stressValues = logs.map((log) =>
+    Math.min(
+      100,
+      (Number(log.focus_loss_count || 0) * 14)
+        + (Number(log.total_swaps || 0) * 8)
+        + (Number(log.panic_swaps || 0) * 16)
+        + (Number(log.same_answer_reclicks || 0) * 6)
+        + (Number(log.idle_time_ms || 0) / 320)
+        + (Number(log.blur_time_ms || 0) / 360)
+        + (Number(log.longest_idle_streak_ms || 0) / 450),
+    ),
+  );
+  return Number(averageNumbers(stressValues).toFixed(1));
+}
+
+type TeacherOverviewResponse = {
+  summary: {
+    total_players: number;
+    avg_accuracy: number;
+    quizzes_hosted: number;
+    avg_stress: number;
+  };
+  recent_sessions: Array<{
+    session_id: number;
+    quiz_pack_id: number;
+    quiz_name: string;
+    date: string;
+    players: number;
+    avg_score: number;
+    avg_accuracy: number;
+    stress_index: number;
+    status: string;
+    pin: string | null;
+    headline: string;
+  }>;
+  insights: Array<{ title: string; body: string }>;
+};
+
+function buildTeacherOverviewFallback(payload: {
+  packs: any[];
+  sessions: any[];
+  participants: any[];
+  answers: any[];
+  questions: any[];
+  behavior_logs: any[];
+}): TeacherOverviewResponse {
+  const packById = new Map<number, any>(
+    payload.packs.map((pack: any) => [Number(pack.id || 0), pack]),
+  );
+  const participantsBySession = new Map<number, any[]>();
+  const answersBySession = new Map<number, any[]>();
+  const logsBySession = new Map<number, any[]>();
+
+  payload.participants.forEach((participant: any) => {
+    const sessionId = Number(participant.session_id || 0);
+    if (!sessionId) return;
+    const current = participantsBySession.get(sessionId) || [];
+    current.push(participant);
+    participantsBySession.set(sessionId, current);
+  });
+
+  payload.answers.forEach((answer: any) => {
+    const sessionId = Number(answer.session_id || 0);
+    if (!sessionId) return;
+    const current = answersBySession.get(sessionId) || [];
+    current.push(answer);
+    answersBySession.set(sessionId, current);
+  });
+
+  payload.behavior_logs.forEach((log: any) => {
+    const sessionId = Number(log.session_id || 0);
+    if (!sessionId) return;
+    const current = logsBySession.get(sessionId) || [];
+    current.push(log);
+    logsBySession.set(sessionId, current);
+  });
+
+  const recentSessions = payload.sessions
+    .map((session: any) => {
+      const sessionId = Number(session.id || 0);
+      const quizPackId = Number(session.quiz_pack_id || 0);
+      const participants = participantsBySession.get(sessionId) || [];
+      const answers = answersBySession.get(sessionId) || [];
+      const logs = logsBySession.get(sessionId) || [];
+      const avgAccuracy = answers.length
+        ? Number(
+            averageNumbers(
+              answers.map((answer: any) => (Number(answer.is_correct) === 1 || answer.is_correct === true ? 100 : 0)),
+            ).toFixed(1),
+          )
+        : 0;
+      const stressIndex = computeFallbackStressIndex(logs);
+      const players = uniqueNumbers(participants.map((participant: any) => participant.id)).length;
+      let headline = 'Open this report to inspect the response patterns in detail.';
+      if (players === 0 && answers.length === 0) {
+        headline = 'The room opened, but no student answers were captured yet.';
+      } else if (avgAccuracy >= 80 && stressIndex < 35) {
+        headline = 'Students moved through this session with strong accuracy and low pressure.';
+      } else if (avgAccuracy >= 60) {
+        headline = 'Most students stayed on track, with a few hesitation signals worth reviewing.';
+      } else {
+        headline = 'This session needs a guided recap before the next checkpoint.';
+      }
+
+      return {
+        session_id: sessionId,
+        quiz_pack_id: quizPackId,
+        quiz_name: String(packById.get(quizPackId)?.title || `Pack ${quizPackId}`),
+        date: formatTeacherOverviewDate(session),
+        players,
+        avg_score: answers.length
+          ? Number(averageNumbers(answers.map((answer: any) => Number(answer.score_awarded || 0))).toFixed(1))
+          : 0,
+        avg_accuracy: avgAccuracy,
+        stress_index: stressIndex,
+        status: String(session.status || 'LOBBY'),
+        pin: session.pin || null,
+        headline,
+      };
+    })
+    .filter((session) => session.players > 0 || session.avg_accuracy > 0 || String(session.status).toUpperCase() !== 'LOBBY')
+    .sort((left, right) => {
+      const leftTimestamp = new Date(String(left.date || '')).getTime() || 0;
+      const rightTimestamp = new Date(String(right.date || '')).getTime() || 0;
+      return rightTimestamp - leftTimestamp || Number(right.session_id) - Number(left.session_id);
+    });
+
+  const totalPlayers = recentSessions.reduce((sum, session) => sum + Number(session.players || 0), 0);
+  const avgAccuracy = Number(averageNumbers(recentSessions.map((session) => Number(session.avg_accuracy || 0))).toFixed(1));
+  const avgStress = Number(averageNumbers(recentSessions.map((session) => Number(session.stress_index || 0))).toFixed(1));
+  const quizzesHosted = recentSessions.filter(
+    (session) => Number(session.players || 0) > 0 || String(session.status || '').toUpperCase() !== 'LOBBY',
+  ).length;
+
+  const hardestSession = [...recentSessions].sort((left, right) => Number(left.avg_accuracy || 0) - Number(right.avg_accuracy || 0))[0];
+  const highestStressSession = [...recentSessions].sort((left, right) => Number(right.stress_index || 0) - Number(left.stress_index || 0))[0];
+  const insights: Array<{ title: string; body: string }> = [];
+
+  if (hardestSession) {
+    insights.push({
+      title: 'Most challenging session',
+      body: `${hardestSession.quiz_name} settled at ${Number(hardestSession.avg_accuracy || 0).toFixed(1)}% accuracy. That session is the best candidate for a guided rematch.`,
+    });
+  }
+
+  if (highestStressSession && Number(highestStressSession.stress_index || 0) >= 45) {
+    insights.push({
+      title: 'Highest pressure session',
+      body: `${highestStressSession.quiz_name} showed the strongest pressure signals (${Number(highestStressSession.stress_index || 0).toFixed(0)}%). Review pacing, distractors, and timer pressure there first.`,
+    });
+  }
+
+  if (!insights.length) {
+    insights.push({
+      title: 'No major risk detected',
+      body: 'Recent sessions look stable. Keep the same pacing and follow up with a short practice task between live games.',
+    });
+  }
+
+  return {
+    summary: {
+      total_players: totalPlayers,
+      avg_accuracy: avgAccuracy,
+      quizzes_hosted: quizzesHosted,
+      avg_stress: avgStress,
+    },
+    recent_sessions: recentSessions.slice(0, 10),
+    insights,
+  };
+}
+
+function isTeacherOverviewPayload(value: any): value is TeacherOverviewResponse {
+  return Boolean(
+    value
+      && typeof value === 'object'
+      && value.summary
+      && typeof value.summary === 'object'
+      && Array.isArray(value.recent_sessions)
+      && Array.isArray(value.insights),
+  );
+}
+
 function buildAnalyticsComparison(sessionAnalytics: any, overallAnalytics: any) {
   const sessionSignals = Array.isArray(sessionAnalytics?.behaviorSignals) ? sessionAnalytics.behaviorSignals : [];
   const overallSignals = new Map<string, any>(
@@ -4576,15 +4776,27 @@ router.get('/dashboard/teacher/overview', async (req, res) => {
                   .all(...packIds))
       : [];
     const sessionIds = uniqueNumbers(sessions.map((row: any) => row.id));
-
-    const overview = await runPythonEngine<unknown>('teacher-overview', {
+    const overviewPayload = {
       packs,
       sessions,
       participants: (await getParticipantsForSessionIds(sessionIds)),
       answers: (await getAnswersForSessionIds(sessionIds)),
       questions: (await getQuestionsForPackIds(packIds)),
       behavior_logs: (await getBehaviorLogsForSessionIds(sessionIds)),
-    });
+    };
+    const fallbackOverview = buildTeacherOverviewFallback(overviewPayload);
+    let overview = fallbackOverview;
+
+    try {
+      const engineOverview = await runPythonEngine<unknown>('teacher-overview', overviewPayload);
+      if (isTeacherOverviewPayload(engineOverview)) {
+        overview = engineOverview;
+      } else {
+        console.warn('[TeacherReports] Python overview returned an invalid payload. Serving JS fallback instead.');
+      }
+    } catch (engineError: any) {
+      console.warn('[TeacherReports] Python overview failed. Serving JS fallback instead.', engineError?.message || engineError);
+    }
 
     res.json(overview);
   } catch (error: any) {
