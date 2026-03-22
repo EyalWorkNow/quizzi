@@ -1619,8 +1619,8 @@ export default function TeacherHost() {
 
   console.warn('[TeacherHost] Unhandled game status or state reached. Rendering fallback.', { status, pin, sessionId, packId });
   return (
-      <div className="game-viewport-shell flex flex-col items-center justify-center p-4 sm:p-8">
-        <div className="bg-white rounded-[2rem] border-4 border-brand-dark p-8 shadow-[8px_8px_0px_0px_#1A1A1A] max-w-md text-center">
+    <div className="game-viewport-shell flex flex-col items-center justify-center p-4 sm:p-8">
+      <div className="bg-white rounded-[2rem] border-4 border-brand-dark p-8 shadow-[8px_8px_0px_0px_#1A1A1A] max-w-md text-center">
         <h2 className="text-3xl font-black mb-4">{t('dash.error.requestFailed')}</h2>
         <p className="font-medium text-brand-dark/70 mb-6">
           {t('game.fallback.unfamiliarState')}
