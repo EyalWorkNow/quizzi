@@ -100,7 +100,7 @@ function StudentExperienceDock({
   const activeProfile = PROFILE_OPTIONS.find((option) => option.id === profile) || PROFILE_OPTIONS[0];
 
   return (
-    <div className="fixed top-4 right-4 z-[80] flex flex-col items-end gap-3 pointer-events-none">
+    <div className="fixed bottom-4 right-4 z-[80] flex flex-col items-end gap-3 pointer-events-none">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
