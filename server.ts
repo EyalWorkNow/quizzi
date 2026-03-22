@@ -333,15 +333,23 @@ async function startServer() {
 
 
     // Automatic Keep-Alive Ping for Render Free Tier Instances
-    const renderExternalUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
-    if (renderExternalUrl) {
+    const rawAppUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
+    if (rawAppUrl) {
+      // Resolve localhost to 127.0.0.1 to avoid IPv6 resolution issues (::1) on some systems
+      const renderExternalUrl = rawAppUrl.replace('localhost', '127.0.0.1');
       console.log(`[keep-alive] Auto-ping activated for ${renderExternalUrl}`);
       const keepAliveTimer = setInterval(async () => {
         try {
           const res = await fetch(`${renderExternalUrl}/healthz`);
-          console.log(`[keep-alive] Pinged ${renderExternalUrl}/healthz: ${res.status}`);
-        } catch (err) {
-          console.error('[keep-alive] Ping failed:', err);
+          if (!res.ok) {
+             console.warn(`[keep-alive] Pinged ${renderExternalUrl}/healthz: ${res.status} ${res.statusText}`);
+          }
+        } catch (err: any) {
+          if (err?.code === 'ECONNREFUSED') {
+            // Silently ignore connection refused for local pings to avoid log noise if dev server isn't up
+            return;
+          }
+          console.error('[keep-alive] Ping failed:', err?.message || err);
         }
       }, 5 * 60 * 1000); // 5 minutes
       keepAliveTimer.unref?.();

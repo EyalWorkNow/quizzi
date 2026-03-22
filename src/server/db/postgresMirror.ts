@@ -442,22 +442,35 @@ function buildInsertStatement(table: string, columns: string[], rowCount: number
 }
 
 function normalizeSqliteValueForPostgres(table: string, column: string, value: unknown) {
-  if (value === undefined) return null;
+  if (value === undefined || value === null) return null;
 
   if (SQLITE_BOOLEAN_COLUMNS.get(table)?.has(column)) {
-    if (value === null) return null;
     return Boolean(Number(value));
+  }
+
+  // If SQLite has an object (e.g. from internal logic), stringify it for Postgres JSON/JSONB
+  if (typeof value === 'object' && !(value instanceof Date) && !(value instanceof Buffer)) {
+    return JSON.stringify(value);
   }
 
   return value;
 }
 
 function normalizePostgresValueForSqlite(table: string, column: string, value: unknown) {
-  if (value === undefined) return null;
+  if (value === undefined || value === null) return null;
 
   if (SQLITE_BOOLEAN_COLUMNS.get(table)?.has(column)) {
-    if (value === null) return null;
     return Number(Boolean(value));
+  }
+
+  // SQLite3 cannot bind Date objects directly
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  // SQLite3 cannot bind plain objects directly (JSON columns)
+  if (typeof value === 'object' && !(value instanceof Buffer)) {
+    return JSON.stringify(value);
   }
 
   return value;
