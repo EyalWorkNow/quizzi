@@ -48,8 +48,8 @@ function RouteFallback() {
 export default function App() {
   return (
     <BrowserRouter>
-      <StudentExperienceProvider>
-        <AppLanguageProvider>
+      <AppLanguageProvider>
+        <StudentExperienceProvider>
           <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
             <RouteAnalytics />
             <Suspense fallback={<RouteFallback />}>
@@ -75,8 +75,8 @@ export default function App() {
               </Routes>
             </Suspense>
           </div>
-        </AppLanguageProvider>
-      </StudentExperienceProvider>
+        </StudentExperienceProvider>
+      </AppLanguageProvider>
     </BrowserRouter>
   );
 }
