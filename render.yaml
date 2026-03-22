@@ -15,7 +15,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: NODE_VERSION
-        value: 20
+        value: 22
       - key: RENDER_DISK_PATH
         value: /var/data
       - key: QUIZZI_REQUIRE_SUPABASE_MIRROR
