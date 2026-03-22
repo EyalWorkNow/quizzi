@@ -795,7 +795,7 @@ export default function TeacherHost() {
   // we show a loading view to prevent the game-state UI from rendering with nulls.
   if (pin && (!sessionMeta || !pack)) {
     return (
-      <div className="h-screen max-h-screen bg-brand-bg overflow-hidden flex flex-col items-center justify-center p-8">
+      <div className="game-viewport-shell flex flex-col items-center justify-center p-4 sm:p-8">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         <motion.div
           animate={{ 
@@ -836,12 +836,12 @@ export default function TeacherHost() {
 
   if (status === 'LOBBY') {
     return (
-      <div className="h-screen max-h-screen overflow-hidden bg-brand-bg text-brand-dark font-sans selection:bg-brand-orange selection:text-white relative">
+      <div className="game-viewport-shell relative text-brand-dark">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         <div className="absolute top-[-8%] left-[-4%] w-96 h-96 border-[4px] border-brand-dark/5 rounded-full pointer-events-none" />
         <div className="absolute bottom-[-10%] right-[-6%] w-[460px] h-[460px] border-[4px] border-brand-dark/5 rounded-full pointer-events-none" />
-        
-        <div className="flex flex-col h-full max-w-[1380px] mx-auto px-6 lg:px-10 py-6 relative z-10">
+
+        <div className="relative z-10 mx-auto flex h-full w-full max-w-[1380px] flex-col px-4 py-4 sm:px-6 lg:px-10 lg:py-6">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 shrink-0">
             <div className="flex items-center gap-4">
               <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/teacher/dashboard')}>
@@ -1119,9 +1119,9 @@ export default function TeacherHost() {
       ? `${Object.keys(studentSelections).length} / ${participants.length} first votes recorded`
       : responseCountLabel;
     return (
-      <div className="h-screen max-h-screen bg-brand-bg flex flex-col overflow-hidden font-sans text-brand-dark">
+      <div className="game-viewport-shell flex flex-col overflow-hidden text-brand-dark">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="bg-white px-6 py-4 shadow-sm flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b-4 border-brand-dark z-50 shrink-0">
+        <div className="z-50 shrink-0 flex flex-col gap-4 border-b-4 border-brand-dark bg-white px-4 py-4 shadow-sm sm:px-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-4">
             <button
               onClick={handleEndSession}
@@ -1169,7 +1169,7 @@ export default function TeacherHost() {
           </div>
         )}
 
-        <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-6 max-w-7xl mx-auto w-full relative overflow-hidden">
+        <div className="relative mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-y-auto overflow-x-hidden px-4 pb-6 sm:px-6">
           <div className="absolute top-0 right-0 p-4 space-y-2 pointer-events-none z-50">
             <AnimatePresence>
               {Array.from(focusAlerts).map((nickname) => (
@@ -1227,7 +1227,7 @@ export default function TeacherHost() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 lg:grid-cols-2 gap-3 min-w-[320px] shrink-0">
+              <div className="grid min-w-0 shrink-0 grid-cols-2 gap-3 lg:min-w-[320px] lg:grid-cols-2">
                 <HostStageMetric label="Timer" value={`${phaseTimeLeft}s`} tone="dark" />
                 <HostStageMetric label={isDiscussion ? 'First votes' : isPeerMode && !isRevote ? 'Votes' : 'Answers'} value={isDiscussion ? Object.keys(studentSelections).length : isPeerMode && !isRevote ? Object.keys(studentSelections).length : totalAnswers} tone="light" />
                 <HostStageMetric label="Players" value={participants.length} tone="light" />
@@ -1281,8 +1281,8 @@ export default function TeacherHost() {
           </div>
 
           <div
-            className="grid gap-6 w-full"
-            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
+            className="grid w-full gap-4 sm:gap-6"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))' }}
           >
             {currentAnswers.map((ans: string, i: number) => {
               const selectionCount = Object.values(studentSelections).filter((idx) => idx === i).length;
@@ -1293,13 +1293,13 @@ export default function TeacherHost() {
                   animate={{ y: 0, opacity: 1 }}
                   transition={{ delay: i * 0.08 }}
                   key={i}
-                  className={`rounded-[1.8rem] p-6 sm:p-8 text-2xl lg:text-3xl font-black text-center shadow-[8px_8px_0px_0px_#1A1A1A] flex flex-col items-center justify-center min-h-[140px] lg:min-h-[180px] relative overflow-hidden border-4 ${
+                  className={`relative flex min-h-[132px] flex-col items-center justify-center overflow-hidden rounded-[1.8rem] border-4 p-5 text-center text-lg font-black shadow-[8px_8px_0px_0px_#1A1A1A] sm:min-h-[150px] sm:p-6 sm:text-2xl lg:min-h-[180px] lg:text-3xl ${
                     isDiscussion ? 'bg-brand-dark text-white border-brand-dark' : 'bg-white text-brand-dark border-brand-dark'
                   }`}
                 >
                   <div className="absolute top-0 left-0 h-full bg-brand-orange/15" style={{ width: `${selectionPct}%` }} />
                   <div className="relative z-10 w-full">
-                    <p className="leading-tight break-words">{ans}</p>
+                    <p className="leading-tight break-words text-balance">{ans}</p>
                     <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
                       <span className={`px-4 py-2 rounded-full text-sm font-black border-2 ${isDiscussion ? 'bg-white/10 text-white border-white/20' : 'bg-brand-bg text-brand-dark border-brand-dark/10'}`}>
                         {selectionCount}
@@ -1320,9 +1320,9 @@ export default function TeacherHost() {
 
   if (status === 'QUESTION_REVEAL') {
     return (
-      <div className="h-screen max-h-screen overflow-hidden bg-brand-bg flex flex-col font-sans text-brand-dark">
+      <div className="game-viewport-shell flex flex-col overflow-hidden text-brand-dark">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="bg-white px-8 py-4 shadow-sm flex justify-between items-center border-b-4 border-brand-dark z-50 shrink-0">
+        <div className="z-50 shrink-0 flex flex-col gap-4 border-b-4 border-brand-dark bg-white px-4 py-4 shadow-sm sm:px-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-6">
             <button
               onClick={handleEndSession}
@@ -1353,7 +1353,7 @@ export default function TeacherHost() {
           </div>
         )}
 
-        <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-6 max-w-7xl mx-auto w-full relative overflow-hidden">
+        <div className="relative mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-y-auto overflow-x-hidden px-4 pb-6 sm:px-6">
           <motion.div
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -1392,7 +1392,7 @@ export default function TeacherHost() {
           </div>
 
           <div className="grid w-full gap-4 mb-6 lg:grid-cols-2 flex-1 min-h-0 overflow-auto pr-2 custom-scrollbar">
-            {currentQuestion?.choices.map((choice, i) => {
+            {currentAnswers.map((choice: string, i: number) => {
               const isCorrect = i === currentQuestion?.correct_index;
               const choiceResult = answerSelectionSummary[i] || { count: 0, pct: 0 };
               return (
@@ -1410,7 +1410,7 @@ export default function TeacherHost() {
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black shrink-0 ${isCorrect ? 'bg-emerald-500 text-white' : 'bg-brand-bg text-brand-dark/30'}`}>
                         {isCorrect ? <CheckCircle2 className="w-6 h-6" /> : formatAnswerSlotLabel(i)}
                       </div>
-                      <p className={`font-black text-lg lg:text-xl truncate ${isCorrect ? 'text-brand-dark' : 'text-brand-dark/40'}`}>{choice}</p>
+                      <p className={`font-black text-lg lg:text-xl break-words ${isCorrect ? 'text-brand-dark' : 'text-brand-dark/40'}`}>{choice}</p>
                     </div>
                     {isCorrect && <CheckCircle2 className="w-8 h-8 text-emerald-500 shrink-0" />}
                   </div>
@@ -1450,9 +1450,9 @@ export default function TeacherHost() {
     const isLast = questionIndex >= (pack?.questions?.length || 0) - 1;
 
     return (
-      <div className="h-screen max-h-screen overflow-hidden bg-brand-bg flex flex-col font-sans text-brand-dark">
+      <div className="game-viewport-shell flex flex-col overflow-hidden text-brand-dark">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="bg-white px-8 py-4 shadow-sm flex justify-between items-center border-b-4 border-brand-dark z-50 shrink-0">
+        <div className="z-50 shrink-0 flex flex-col gap-4 border-b-4 border-brand-dark bg-white px-4 py-4 shadow-sm sm:px-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-4">
             <button
               onClick={handleEndSession}
@@ -1494,7 +1494,7 @@ export default function TeacherHost() {
           </div>
         )}
 
-        <div className="flex-1 min-h-0 flex flex-col items-center justify-start p-6 max-w-[1400px] mx-auto w-full overflow-hidden">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col overflow-y-auto overflow-x-hidden px-4 pb-6 pt-4 sm:px-6">
           <motion.div
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -1535,7 +1535,7 @@ export default function TeacherHost() {
               <div className="w-full flex flex-col items-center">
                 <div className="w-full mb-10 shrink-0">
                   {leaderboard.length > 0 ? (
-                    <div className="flex flex-row items-end justify-center gap-4 h-[320px] lg:h-[400px]">
+                    <div className="flex h-[260px] flex-row items-end justify-center gap-3 sm:h-[320px] lg:h-[400px] lg:gap-4">
                       {/* 2nd Place */}
                       {leaderboard[1] && (
                         <PodiumStep 
@@ -1619,8 +1619,8 @@ export default function TeacherHost() {
 
   console.warn('[TeacherHost] Unhandled game status or state reached. Rendering fallback.', { status, pin, sessionId, packId });
   return (
-    <div className="h-screen max-h-screen bg-brand-bg overflow-hidden flex flex-col items-center justify-center p-8">
-      <div className="bg-white rounded-[2rem] border-4 border-brand-dark p-8 shadow-[8px_8px_0px_0px_#1A1A1A] max-w-md text-center">
+      <div className="game-viewport-shell flex flex-col items-center justify-center p-4 sm:p-8">
+        <div className="bg-white rounded-[2rem] border-4 border-brand-dark p-8 shadow-[8px_8px_0px_0px_#1A1A1A] max-w-md text-center">
         <h2 className="text-3xl font-black mb-4">{t('dash.error.requestFailed')}</h2>
         <p className="font-medium text-brand-dark/70 mb-6">
           {t('game.fallback.unfamiliarState')}
@@ -1693,8 +1693,8 @@ function PodiumStep({
             textClassName="hidden"
           />
         </motion.div>
-        <div className="mt-6 bg-white px-8 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
-          <p className="text-3xl font-black text-brand-dark whitespace-nowrap">{extractNickname(participant.nickname)}</p>
+        <div className="mt-6 max-w-[220px] rounded-full border-4 border-brand-dark bg-white px-5 py-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:max-w-[260px] sm:px-8">
+          <p className="truncate text-xl font-black text-brand-dark sm:text-2xl lg:text-3xl">{extractNickname(participant.nickname)}</p>
         </div>
         <p className="text-5xl font-black text-brand-purple mt-4 drop-shadow-sm">{participant.total_score || 0}</p>
       </div>

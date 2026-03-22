@@ -180,6 +180,23 @@
     @apply overflow-x-auto overscroll-x-contain rounded-[1.35rem] border-2 border-brand-dark bg-brand-bg p-3 sm:rounded-[1.7rem] sm:p-4;
   }
 
+  .game-viewport-shell {
+    @apply h-[100dvh] max-h-[100dvh] overflow-hidden bg-brand-bg font-sans text-brand-dark selection:bg-brand-orange selection:text-white;
+  }
+
+  .game-viewport-scroll {
+    @apply flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-4 sm:px-6 sm:py-6;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .game-viewport-inner {
+    @apply mx-auto flex min-h-full w-full max-w-7xl flex-col;
+  }
+
+  .game-stage-card {
+    @apply w-full max-w-full;
+  }
+
   .student-answer-button {
     @apply transition-all;
   }

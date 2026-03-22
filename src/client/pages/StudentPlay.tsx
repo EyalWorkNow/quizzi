@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AlertTriangle, CheckCircle, Clock, Flame, LoaderCircle, Sparkles, Trophy, Wifi, WifiOff, XCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
@@ -881,77 +881,79 @@ export default function StudentPlay() {
 
   if (status === 'LOBBY') {
     return (
-      <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-brand-dark text-center overflow-x-clip relative selection:bg-brand-orange selection:text-white">
-        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="relative z-20 w-full max-w-4xl mb-4">
-          <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
-        </div>
-        {/* Exit Button */}
-        <button
-          onClick={() => navigate(`/student/dashboard/${nickname}`)}
-          className="absolute left-4 top-4 sm:left-8 sm:top-8 z-50 flex items-center gap-2 bg-white border-2 border-brand-dark hover:bg-brand-yellow px-4 py-2 rounded-full shadow-[2px_2px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none transition-all font-bold"
-        >
-          <XCircle className="w-5 h-5" />
-          Leave Game
-        </button>
+      <StudentStageViewport
+        status={status}
+        modeConfig={modeConfig}
+        banner={<StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />}
+        maxWidthClass="max-w-4xl"
+      >
+        <div className="relative flex w-full flex-col gap-4 text-center">
+          <button
+            onClick={() => navigate(`/student/dashboard/${nickname}`)}
+            className="z-20 inline-flex w-full items-center justify-center gap-2 self-start rounded-full border-2 border-brand-dark bg-white px-4 py-3 font-bold shadow-[2px_2px_0px_0px_#1A1A1A] transition-all hover:bg-brand-yellow sm:w-auto"
+          >
+            <XCircle className="h-5 w-5" />
+            Leave Game
+          </button>
 
-        {/* Decorative elements */}
-        <div className="absolute top-10 left-10 w-24 h-24 bg-brand-yellow rounded-full border-4 border-brand-dark opacity-50 animate-pulse"></div>
-        <div className="absolute bottom-20 right-20 w-32 h-32 bg-brand-purple rounded-full border-4 border-brand-dark opacity-50 animate-bounce"></div>
-        <div className="absolute top-1/4 right-1/4 w-16 h-16 bg-brand-orange rounded-full border-4 border-brand-dark opacity-50"></div>
+          <div className="pointer-events-none absolute inset-0 hidden sm:block">
+            <div className="absolute left-4 top-4 h-16 w-16 rounded-full border-4 border-brand-dark bg-brand-yellow opacity-40" />
+            <div className="absolute bottom-6 right-8 h-20 w-20 rounded-full border-4 border-brand-dark bg-brand-purple opacity-35" />
+          </div>
 
-        <motion.div
-          initial={{ scale: 0.8, opacity: 0, y: 50 }}
-          animate={{ scale: 1, opacity: 1, y: 0 }}
-          transition={{ type: 'spring', bounce: 0.5 }}
-          className="relative z-10 bg-white border-4 border-brand-dark rounded-[2.2rem] sm:rounded-[3rem] p-6 sm:p-12 shadow-[16px_16px_0px_0px_#1A1A1A] max-w-lg w-full flex flex-col items-center"
-        >
-          <Avatar
-            nickname={String(nickname || '')}
-            className="mb-6 sm:mb-8"
-            imgClassName="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-brand-yellow border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] -rotate-6"
-            textClassName="hidden"
-          />
-          <h2 className="text-4xl sm:text-5xl font-black mb-2 tracking-tight">You're in!</h2>
-          <p className="text-lg sm:text-xl font-bold text-brand-dark/60 mb-6 sm:mb-8">Waiting for the host to start...</p>
+          <motion.div
+            initial={{ scale: 0.94, opacity: 0, y: 24 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            transition={{ type: 'spring', bounce: 0.32 }}
+            className="relative z-10 mx-auto flex w-full max-w-lg flex-col items-center rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 shadow-[12px_12px_0px_0px_#1A1A1A] sm:rounded-[3rem] sm:p-8"
+          >
+            <Avatar
+              nickname={String(nickname || '')}
+              className="mb-5 sm:mb-6"
+              imgClassName="h-24 w-24 rounded-full border-4 border-brand-dark bg-brand-yellow shadow-[6px_6px_0px_0px_#1A1A1A] sm:h-32 sm:w-32"
+              textClassName="hidden"
+            />
+            <h2 className="mb-2 text-3xl font-black tracking-tight sm:text-5xl">You're in!</h2>
+            <p className="mb-5 text-base font-bold text-brand-dark/60 sm:mb-7 sm:text-xl">Waiting for the host to start...</p>
 
-          <div className="space-y-4 w-full">
-            <div className="bg-brand-bg px-5 sm:px-8 py-4 rounded-full border-2 border-brand-dark/20 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
-              <span className="text-sm font-bold text-brand-dark/50 uppercase tracking-widest">Playing as</span>
-              <span className="text-xl sm:text-2xl font-black">{displayNickname}</span>
-            </div>
+            <div className="w-full space-y-3">
+              <div className="flex flex-wrap items-center justify-center gap-3 rounded-[1.4rem] border-2 border-brand-dark/20 bg-brand-bg px-4 py-4 sm:gap-4 sm:px-6">
+                <span className="text-xs font-bold uppercase tracking-widest text-brand-dark/50 sm:text-sm">Playing as</span>
+                <span className="text-lg font-black sm:text-2xl">{displayNickname}</span>
+              </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <LobbyMetaCard label="Game Type" value={gameMode.label} />
-              <LobbyMetaCard label="Team" value={teamName || (gameMode.teamBased ? 'Auto team' : 'Solo')} />
-            </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <LobbyMetaCard label="Game Type" value={gameMode.label} />
+                <LobbyMetaCard label="Team" value={teamName || (gameMode.teamBased ? 'Auto team' : 'Solo')} />
+              </div>
 
-            <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4 text-left">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Sync status</p>
-              <div className="flex items-center gap-3 font-black">
-                {connectionState === 'live' ? <Wifi className="w-5 h-5 text-emerald-600" /> : connectionState === 'fallback' ? <WifiOff className="w-5 h-5 text-brand-orange" /> : <LoaderCircle className="w-5 h-5 animate-spin text-brand-dark/70" />}
-                <span>{connectionLabel}</span>
+              <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4 text-left">
+                <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-brand-purple">Sync status</p>
+                <div className="flex items-center gap-3 font-black">
+                  {connectionState === 'live' ? <Wifi className="h-5 w-5 text-emerald-600" /> : connectionState === 'fallback' ? <WifiOff className="h-5 w-5 text-brand-orange" /> : <LoaderCircle className="h-5 w-5 animate-spin text-brand-dark/70" />}
+                  <span className="break-words">{connectionLabel}</span>
+                </div>
               </div>
             </div>
-          </div>
-        </motion.div>
-      </div>
+          </motion.div>
+        </div>
+      </StudentStageViewport>
     );
   }
 
   if (status === 'QUESTION_DISCUSSION') {
     return (
-      <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
-        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="relative z-20 w-full max-w-5xl mb-4">
-          <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
-        </div>
-        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
-
+      <StudentStageViewport
+        status={status}
+        modeConfig={modeConfig}
+        banner={<StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />}
+        maxWidthClass="max-w-5xl"
+        patterned
+      >
         <motion.div
-          initial={{ scale: 0.88, opacity: 0, y: 18 }}
+          initial={{ scale: 0.94, opacity: 0, y: 18 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
-          className="relative z-10 bg-white border-4 border-brand-dark rounded-[2.4rem] p-6 sm:p-10 lg:p-14 shadow-[16px_16px_0px_0px_#1A1A1A] max-w-4xl w-full"
+          className="relative z-10 w-full rounded-[2.4rem] border-4 border-brand-dark bg-white p-5 shadow-[12px_12px_0px_0px_#1A1A1A] sm:p-8 lg:p-10"
         >
           <div className="flex flex-wrap justify-center gap-3 mb-6">
             <span className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
@@ -992,17 +994,17 @@ export default function StudentPlay() {
               imageUrl={question?.image_url}
               alt={question?.prompt || 'Question image'}
               className="mb-5 shadow-none border-white/20"
-              imgClassName="max-h-[260px]"
+              imgClassName="max-h-[28vh] sm:max-h-[260px]"
             />
-            <p className="text-2xl sm:text-3xl font-black mb-5">{question?.prompt}</p>
+            <p className="text-xl font-black sm:text-3xl mb-5 text-balance">{question?.prompt}</p>
             <div
               className="grid gap-3"
-              style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+              style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))' }}
             >
               {question?.answers?.map((answer: string, index: number) => (
                 <div
                   key={index}
-                  className={`rounded-[1.4rem] border-2 p-4 font-black text-lg ${firstRoundChoice === index ? 'bg-brand-yellow text-brand-dark border-brand-dark' : 'bg-white/10 border-white/10 text-white'}`}
+                  className={`rounded-[1.4rem] border-2 p-4 font-black text-base sm:text-lg break-words ${firstRoundChoice === index ? 'bg-brand-yellow text-brand-dark border-brand-dark' : 'bg-white/10 border-white/10 text-white'}`}
                 >
                   {answer}
                 </div>
@@ -1010,7 +1012,7 @@ export default function StudentPlay() {
             </div>
           </div>
         </motion.div>
-      </div>
+      </StudentStageViewport>
     );
   }
 
@@ -1039,9 +1041,10 @@ export default function StudentPlay() {
 
     if (showWaitCard) {
       return (
-        <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-x-clip">
-          <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-          <div className="relative z-20 w-full max-w-4xl mb-4">
+        <StudentStageViewport
+          status={status}
+          modeConfig={modeConfig}
+          banner={
             <StudentRealtimeBanner
               connectionState={connectionState}
               sessionError={sessionError}
@@ -1050,13 +1053,14 @@ export default function StudentPlay() {
               onRetryPending={() => void retryPendingSubmission()}
               isRetryingPendingSubmission={isRetryingPendingSubmission}
             />
-          </div>
-          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
-
+          }
+          maxWidthClass="max-w-4xl"
+          patterned
+        >
           <motion.div
-            initial={{ scale: 0.8, opacity: 0 }}
+            initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="relative z-10 bg-white p-6 sm:p-12 lg:p-16 rounded-[2.2rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-xl w-full"
+            className="relative z-10 mx-auto w-full max-w-xl rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 shadow-[12px_12px_0px_0px_#1A1A1A] sm:rounded-[3rem] sm:p-8 lg:p-10"
           >
             <motion.div
               animate={{ rotate: 360 }}
@@ -1075,7 +1079,7 @@ export default function StudentPlay() {
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">
                   {hasAnswered ? 'Your submitted answer' : pendingSubmission ? 'Queued answer' : 'Your locked answer'}
                 </p>
-                <p className="text-2xl font-black text-brand-dark">{selectedAnswerText}</p>
+                <p className="text-xl font-black text-brand-dark break-words">{selectedAnswerText}</p>
               </div>
             )}
 
@@ -1088,82 +1092,82 @@ export default function StudentPlay() {
               </span>
             </div>
           </motion.div>
-        </div>
+        </StudentStageViewport>
       );
     }
 
     return (
-      <div className="min-h-screen bg-brand-bg flex flex-col p-4 pb-40 sm:p-6 sm:pb-44 md:p-10 md:pb-48 selection:bg-brand-orange selection:text-white relative overflow-hidden">
+      <div className="game-viewport-shell relative flex flex-col">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="relative z-20 w-full max-w-6xl mx-auto mb-4">
-          <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
-        </div>
-        {/* Dynamic Background Pattern */}
         <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03]">
-          <motion.div 
-            animate={{ 
+          <motion.div
+            animate={{
               rotate: [0, 360],
-              scale: [1, 1.1, 1]
+              scale: [1, 1.1, 1],
             }}
-            transition={{ duration: 60, repeat: Infinity, ease: "linear" }}
-            className="absolute -top-1/2 -left-1/2 w-[200%] h-[200%]"
-            style={{ 
-              backgroundImage: `radial-gradient(circle at center, #1A1A1A 2px, transparent 2px)`,
+            transition={{ duration: 60, repeat: Infinity, ease: 'linear' }}
+            className="absolute -left-1/2 -top-1/2 h-[200%] w-[200%]"
+            style={{
+              backgroundImage: 'radial-gradient(circle at center, #1A1A1A 2px, transparent 2px)',
               backgroundSize: timeLeft < 5 ? '20px 20px' : '40px 40px',
-              transition: 'background-size 0.5s ease'
+              transition: 'background-size 0.5s ease',
             }}
           />
         </div>
 
-        {/* Top HUD */}
-        <div className="relative z-10 mb-8 max-w-6xl mx-auto w-full flex flex-col gap-5 lg:grid lg:grid-cols-[1fr_auto_auto] lg:items-center">
-          <div className="flex flex-wrap items-center gap-4">
+        <div className="relative z-20 px-4 pt-4 sm:px-6 sm:pt-6">
+          <div className="mx-auto w-full max-w-6xl">
+            <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
+          </div>
+        </div>
+
+        <div className="relative z-10 mx-auto mb-4 mt-4 grid w-full max-w-6xl gap-4 px-4 sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
             <motion.button
-              whileHover={{ scale: 1.1, rotate: -5 }}
-              whileTap={{ scale: 0.9 }}
+              whileHover={{ scale: 1.04, rotate: -3 }}
+              whileTap={{ scale: 0.96 }}
               onClick={() => {
                 if (window.confirm('Are you sure you want to leave the game?')) {
                   navigate(`/student/dashboard/${nickname}`);
                 }
               }}
-              className="w-14 h-14 flex items-center justify-center bg-white border-4 border-brand-dark rounded-2xl shadow-[4px_4px_0px_0px_#1A1A1A] transition-all hover:bg-brand-orange hover:text-white"
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border-4 border-brand-dark bg-white shadow-[4px_4px_0px_0px_#1A1A1A] transition-all hover:bg-brand-orange hover:text-white sm:h-14 sm:w-14"
             >
-              <XCircle className="w-7 h-7" />
+              <XCircle className="h-6 w-6 sm:h-7 sm:w-7" />
             </motion.button>
-            <div className="flex items-center gap-4 bg-white px-6 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
+            <div className="min-w-0 flex flex-1 items-center gap-3 rounded-2xl border-4 border-brand-dark bg-white px-4 py-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:flex-none sm:px-6 sm:py-3.5">
               <Avatar
                 nickname={String(nickname || '')}
-                imgClassName="w-12 h-12 rounded-2xl"
-                textClassName="font-black text-xl lg:text-2xl"
+                imgClassName="h-11 w-11 rounded-2xl sm:h-12 sm:w-12"
+                textClassName="truncate font-black text-lg sm:text-xl lg:text-2xl"
               />
             </div>
             {(teamName || isTeamGameLabel(sessionMeta?.game_type || savedGameType)) && (
-              <div className="flex items-center gap-3 bg-brand-yellow px-6 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <Sparkles className="w-6 h-6 text-brand-dark" />
-                <span className="font-black text-lg">{teamName || t('game.status.lobby')}</span>
+              <div className="flex min-w-0 items-center gap-3 rounded-2xl border-4 border-brand-dark bg-brand-yellow px-4 py-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:px-6 sm:py-3.5">
+                <Sparkles className="h-5 w-5 shrink-0 text-brand-dark sm:h-6 sm:w-6" />
+                <span className="truncate font-black text-base sm:text-lg">{teamName || t('game.status.lobby')}</span>
               </div>
             )}
           </div>
 
-          <div className="flex items-center gap-4 bg-white px-8 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A]">
-            <Trophy className="w-8 h-8 text-brand-yellow fill-current" />
-            <span className="font-black text-2xl">{score}</span>
+          <div className="flex items-center gap-3 rounded-2xl border-4 border-brand-dark bg-white px-5 py-3 shadow-[6px_6px_0px_0px_#1A1A1A] sm:px-8 sm:py-3.5">
+            <Trophy className="h-7 w-7 fill-current text-brand-yellow sm:h-8 sm:w-8" />
+            <span className="font-black text-xl sm:text-2xl">{score}</span>
           </div>
 
-          <div className={`flex items-center gap-3 px-6 py-3.5 rounded-2xl border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] ${connectionState === 'live' ? 'bg-white' : 'bg-brand-yellow'}`}>
-            {connectionState === 'live' ? <Wifi className="w-6 h-6 text-emerald-600" /> : connectionState === 'fallback' ? <WifiOff className="w-6 h-6 text-brand-dark" /> : <LoaderCircle className="w-6 h-6 animate-spin text-brand-dark" />}
-            <span className="font-black text-lg">{connectionLabel}</span>
+          <div className={`flex min-w-0 items-center gap-3 rounded-2xl border-4 border-brand-dark px-4 py-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:px-6 sm:py-3.5 ${connectionState === 'live' ? 'bg-white' : 'bg-brand-yellow'}`}>
+            {connectionState === 'live' ? <Wifi className="h-5 w-5 shrink-0 text-emerald-600 sm:h-6 sm:w-6" /> : connectionState === 'fallback' ? <WifiOff className="h-5 w-5 shrink-0 text-brand-dark sm:h-6 sm:w-6" /> : <LoaderCircle className="h-5 w-5 shrink-0 animate-spin text-brand-dark sm:h-6 sm:w-6" />}
+            <span className="truncate font-black text-base sm:text-lg">{connectionLabel}</span>
           </div>
         </div>
 
-        {/* Main Interactive Container - Scrollable internal Area */}
-        <div className="flex-1 overflow-y-auto pr-2 -mr-2 scrollbar-thin scrollbar-thumb-brand-dark/20 hover:scrollbar-thumb-brand-dark/40 pb-32">
-          {/* Question Area */}
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            className="relative z-10 bg-white rounded-[2.5rem] p-8 sm:p-12 lg:p-14 border-4 border-brand-dark mb-8 text-center shadow-[16px_16px_0px_0px_#1A1A1A] max-w-6xl mx-auto w-full overflow-hidden shrink-0"
-          >
+        <div className="game-viewport-scroll relative z-10 pt-0">
+          <div className="game-viewport-inner">
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              className="relative z-10 mx-auto mb-6 w-full max-w-6xl overflow-hidden rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 text-center shadow-[12px_12px_0px_0px_#1A1A1A] sm:p-8 lg:p-10"
+            >
             {/* Progress Bar */}
             <div className="absolute top-0 left-0 w-full h-3 bg-brand-dark/5">
               <motion.div
@@ -1187,122 +1191,121 @@ export default function StudentPlay() {
               imageUrl={question?.image_url}
               alt={question?.prompt || t('game.question.imageAlt')}
               className="relative z-10 max-w-4xl mx-auto w-full mb-6"
-              imgClassName="max-h-[340px]"
+              imgClassName="max-h-[28vh] sm:max-h-[340px]"
             />
-            <h2 className="text-3xl sm:text-4xl md:text-6xl font-black text-brand-dark leading-tight mb-4 tracking-tight">
+            <h2 className="text-2xl font-black leading-tight tracking-tight text-brand-dark text-balance sm:text-4xl md:text-5xl">
               {question?.prompt}
             </h2>
             <p className="text-lg sm:text-xl font-bold text-brand-dark/40 max-w-3xl mx-auto">{stageBody}</p>
-          </motion.div>
+            </motion.div>
 
-          <SelectedAnswerSummaryCard
-            selectedAnswerText={selectedAnswerText}
-            currentSelectedAnswer={currentSelectedAnswer}
-            selectedConfidence={selectedConfidence}
-            needsConfidence={needsConfidence}
-            lockLabel={lockLabel}
-            isRevote={isRevote}
-          />
+            <SelectedAnswerSummaryCard
+              selectedAnswerText={selectedAnswerText}
+              currentSelectedAnswer={currentSelectedAnswer}
+              selectedConfidence={selectedConfidence}
+              needsConfidence={needsConfidence}
+              lockLabel={lockLabel}
+              isRevote={isRevote}
+            />
 
-          {/* Confidence Check */}
-          {needsConfidence && (
-            <div className="relative z-10 max-w-6xl mx-auto w-full mb-8">
-              <div className="bg-brand-bg/50 backdrop-blur-md rounded-[2.5rem] border-4 border-brand-dark/10 p-6 flex flex-col md:flex-row items-center gap-6">
-                <div className="shrink-0 flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-brand-purple border-4 border-brand-dark flex items-center justify-center">
-                    <Flame className="w-6 h-6 text-white" />
+            {needsConfidence && (
+              <div className="relative z-10 mx-auto mb-6 w-full max-w-6xl">
+                <div className="flex flex-col gap-5 rounded-[2rem] border-4 border-brand-dark/10 bg-brand-bg/50 p-5 backdrop-blur-md md:flex-row md:items-center">
+                  <div className="flex shrink-0 items-center gap-3">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full border-4 border-brand-dark bg-brand-purple">
+                      <Flame className="h-6 w-6 text-white" />
+                    </div>
+                    <span className="text-sm font-black uppercase tracking-widest">{t('game.student.confidence')}</span>
                   </div>
-                  <span className="font-black text-sm uppercase tracking-widest">{t('game.student.confidence')}</span>
-                </div>
-                <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
-                  {[
-                    { id: 1, label: t('game.student.guess'), icon: '🤔' },
-                    { id: 2, label: t('game.student.sure'), icon: '👍' },
-                    { id: 3, label: t('game.student.expert'), icon: '🧠' },
-                  ].map((option) => (
-                    <button
-                      key={option.id}
-                      onClick={() => setSelectedConfidence(option.id)}
-                      className={`px-6 py-4 rounded-2xl border-4 font-black flex items-center justify-center gap-3 transition-all ${
-                        selectedConfidence === option.id
-                          ? 'bg-brand-purple text-white border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] scale-105'
-                          : 'bg-white text-brand-dark border-brand-dark/10 hover:border-brand-dark'
-                      }`}
-                    >
-                      <span>{option.icon}</span>
-                      {option.label}
-                    </button>
-                  ))}
+                  <div className="grid w-full flex-1 grid-cols-1 gap-3 sm:grid-cols-3">
+                    {[
+                      { id: 1, label: t('game.student.guess'), icon: '🤔' },
+                      { id: 2, label: t('game.student.sure'), icon: '👍' },
+                      { id: 3, label: t('game.student.expert'), icon: '🧠' },
+                    ].map((option) => (
+                      <button
+                        key={option.id}
+                        onClick={() => setSelectedConfidence(option.id)}
+                        className={`rounded-2xl border-4 px-5 py-4 font-black transition-all flex items-center justify-center gap-3 ${
+                          selectedConfidence === option.id
+                            ? 'scale-[1.02] border-brand-dark bg-brand-purple text-white shadow-[4px_4px_0px_0px_#1A1A1A]'
+                            : 'border-brand-dark/10 bg-white text-brand-dark hover:border-brand-dark'
+                        }`}
+                      >
+                        <span>{option.icon}</span>
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Answers Grid */}
-          <div
-            className="relative z-10 grid gap-6 max-w-6xl mx-auto w-full mb-12"
-            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
-          >
-            <AnimatePresence mode="popLayout">
-              {question?.answers?.map((ans: string, i: number) => {
-                const isSelected = currentSelectedAnswer === i;
-                return (
-                  <motion.button
-                    key={`ans-${i}`}
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ 
-                      scale: isSelected ? 1.02 : 1, 
-                      opacity: 1,
-                      y: isSelected ? -4 : 0
-                    }}
-                    transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                    onClick={() => handleAnswerSelect(i)}
-                    onMouseEnter={() => beginHoverDwell(i)}
-                    onMouseLeave={() => flushHoverDwell()}
-                    className={`
-                      student-answer-button group relative flex min-h-[140px] md:min-h-[180px] items-center justify-center p-8 text-2xl md:text-4xl font-black rounded-[2.5rem] border-4 transition-all
-                      ${isSelected 
-                        ? 'bg-brand-dark text-white border-brand-dark shadow-[12px_12px_0px_0px_#FF5A36]' 
-                        : `${COLORS[i % 4].bg} ${COLORS[i % 4].text} border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] hover:translate-x-1 hover:translate-y-1 hover:shadow-none`
-                      }
-                    `}
-                  >
-                    <div className="absolute top-6 left-8 text-sm opacity-20 font-black tracking-widest">0{i + 1}</div>
-                    <span className="relative z-10">{ans}</span>
-                    
-                    {/* Selection Indicator */}
-                    {isSelected && (
-                      <motion.div 
-                        layoutId="choice-spark"
-                        className="absolute inset-0 border-8 border-brand-orange/30 rounded-[2.5rem] pointer-events-none"
-                      />
-                    )}
-                  </motion.button>
-                );
-              })}
-            </AnimatePresence>
+            <div
+              className="relative z-10 mx-auto mb-6 grid w-full max-w-6xl gap-4"
+              style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))' }}
+            >
+              <AnimatePresence mode="popLayout">
+                {question?.answers?.map((ans: string, i: number) => {
+                  const isSelected = currentSelectedAnswer === i;
+                  return (
+                    <motion.button
+                      key={`ans-${i}`}
+                      initial={{ scale: 0.94, opacity: 0 }}
+                      animate={{
+                        scale: isSelected ? 1.02 : 1,
+                        opacity: 1,
+                        y: isSelected ? -4 : 0,
+                      }}
+                      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                      onClick={() => handleAnswerSelect(i)}
+                      onMouseEnter={() => beginHoverDwell(i)}
+                      onMouseLeave={() => flushHoverDwell()}
+                      className={`
+                        student-answer-button group relative flex min-h-[132px] items-center justify-center rounded-[2rem] border-4 p-5 text-center text-lg font-black transition-all sm:min-h-[160px] sm:p-6 sm:text-2xl lg:min-h-[180px] lg:text-3xl
+                        ${isSelected
+                          ? 'border-brand-dark bg-brand-dark text-white shadow-[10px_10px_0px_0px_#FF5A36]'
+                          : `${COLORS[i % 4].bg} ${COLORS[i % 4].text} border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] hover:translate-x-1 hover:translate-y-1 hover:shadow-none`
+                        }
+                      `}
+                    >
+                      <div className="absolute left-5 top-4 text-xs font-black tracking-widest opacity-20 sm:left-6 sm:top-5">0{i + 1}</div>
+                      <span className="relative z-10 break-words text-balance">{ans}</span>
+
+                      {isSelected && (
+                        <motion.div
+                          layoutId="choice-spark"
+                          className="pointer-events-none absolute inset-0 rounded-[2rem] border-[6px] border-brand-orange/30 sm:border-8"
+                        />
+                      )}
+                    </motion.button>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
 
-        {/* Final Lock-in Action - Stays fixed but accounted for in internal scroll padding */}
         <AnimatePresence>
           {currentSelectedAnswer !== null && !hasAnswered && (
             <motion.div
               initial={{ y: 100, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 100, opacity: 0 }}
-              className="fixed bottom-6 left-0 right-0 flex justify-center z-[100] px-6 sm:bottom-10"
+              className="relative z-20 shrink-0 border-t-2 border-brand-dark/10 bg-brand-bg/95 px-4 py-4 backdrop-blur sm:px-6"
             >
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleLockIn}
-                className="w-full max-w-lg bg-brand-dark text-white py-6 rounded-full border-4 border-brand-dark shadow-[12px_12px_0px_0px_#FF5A36] flex items-center justify-center gap-5 group overflow-hidden relative"
-              >
-                <div className="absolute inset-0 bg-brand-orange/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-                <CheckCircle className="w-10 h-10 text-brand-yellow group-hover:scale-125 transition-transform relative z-10" />
-                <span className="text-2xl md:text-3xl font-black relative z-10">{lockLabel}</span>
-              </motion.button>
+              <div className="mx-auto flex w-full max-w-6xl justify-center">
+                <motion.button
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleLockIn}
+                  className="group relative flex w-full max-w-lg items-center justify-center gap-4 overflow-hidden rounded-full border-4 border-brand-dark bg-brand-dark px-6 py-4 text-white shadow-[10px_10px_0px_0px_#FF5A36] sm:py-5"
+                >
+                  <div className="absolute inset-0 translate-y-full bg-brand-orange/10 transition-transform duration-300 group-hover:translate-y-0" />
+                  <CheckCircle className="relative z-10 h-8 w-8 text-brand-yellow sm:h-10 sm:w-10" />
+                  <span className="relative z-10 text-xl font-black sm:text-2xl">{lockLabel}</span>
+                </motion.button>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -1321,18 +1324,17 @@ export default function StudentPlay() {
         ? String(question.answers[Number(question.correct_index)] || '')
         : '';
     return (
-      <div className="h-screen max-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-hidden">
-        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="relative z-20 w-full max-w-4xl mb-4">
-          <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
-        </div>
-        {/* Animated background patterns */}
-        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
-
+      <StudentStageViewport
+        status={status}
+        modeConfig={modeConfig}
+        banner={<StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />}
+        maxWidthClass="max-w-4xl"
+        patterned
+      >
         <motion.div
-          initial={{ scale: 0.8, opacity: 0, rotate: 10 }}
-          animate={{ scale: 1, opacity: 1, rotate: -2 }}
-          className="relative z-10 bg-white p-6 sm:p-10 lg:p-14 rounded-[2.2rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-3xl w-full"
+          initial={{ scale: 0.92, opacity: 0, rotate: 2 }}
+          animate={{ scale: 1, opacity: 1, rotate: 0 }}
+          className="relative z-10 mx-auto w-full max-w-3xl rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 text-center shadow-[12px_12px_0px_0px_#1A1A1A] sm:rounded-[3rem] sm:p-8 lg:p-10"
         >
           <div className="flex justify-center mb-6">
             <span className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
@@ -1342,7 +1344,7 @@ export default function StudentPlay() {
           <div className={`inline-flex items-center justify-center w-24 h-24 sm:w-32 sm:h-32 border-4 border-brand-dark rounded-full mb-8 sm:mb-10 shadow-[8px_8px_0px_0px_#1A1A1A] ${answeredCorrectly ? 'bg-emerald-100' : 'bg-brand-yellow'}`}>
             {answeredCorrectly ? <CheckCircle className="w-12 h-12 sm:w-16 sm:h-16 text-emerald-600" /> : <Flame className="w-12 h-12 sm:w-16 sm:h-16 text-brand-orange" />}
           </div>
-          <h2 className="text-4xl xs:text-5xl md:text-6xl font-black text-brand-dark mb-4 tracking-tight">
+          <h2 className="mb-4 text-3xl font-black tracking-tight text-brand-dark sm:text-5xl md:text-6xl">
             {answeredCorrectly ? t('game.feedback.correct') : chosenAnswer ? t('game.feedback.incorrect') : t('game.feedback.timesUp')}
           </h2>
           <p className="text-lg sm:text-2xl font-bold text-brand-dark/60 mb-8">
@@ -1366,7 +1368,7 @@ export default function StudentPlay() {
           {question?.explanation && (
             <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-bg p-6 text-left mb-6">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('game.feedback.explanation')}</p>
-              <p className="text-lg font-bold text-brand-dark/75">{question.explanation}</p>
+              <p className="text-base font-bold text-brand-dark/75 sm:text-lg">{question.explanation}</p>
             </div>
           )}
 
@@ -1374,25 +1376,24 @@ export default function StudentPlay() {
             <p className="text-xl sm:text-2xl font-bold">{t('game.feedback.watchScreen')}</p>
           </div>
         </motion.div>
-      </div>
+      </StudentStageViewport>
     );
   }
 
   if (status === 'LEADERBOARD') {
     return (
-      <div className="h-screen max-h-screen bg-brand-bg flex flex-col items-center justify-center p-4 sm:p-8 text-center selection:bg-brand-orange selection:text-white relative overflow-hidden">
-        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="relative z-20 w-full max-w-4xl mb-4">
-          <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
-        </div>
-        {/* Animated background patterns */}
-        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}></div>
-
+      <StudentStageViewport
+        status={status}
+        modeConfig={modeConfig}
+        banner={<StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />}
+        maxWidthClass="max-w-4xl"
+        patterned
+      >
         <motion.div
-          initial={{ y: 50, opacity: 0 }}
+          initial={{ y: 30, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ type: 'spring', bounce: 0.6 }}
-          className="relative z-10 bg-white p-6 sm:p-10 lg:p-16 rounded-[2.2rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-2xl w-full"
+          transition={{ type: 'spring', bounce: 0.4 }}
+          className="relative z-10 mx-auto w-full max-w-2xl rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 text-center shadow-[12px_12px_0px_0px_#1A1A1A] sm:rounded-[3rem] sm:p-8 lg:p-10"
         >
           <div className="flex justify-center mb-6">
             <span className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
@@ -1402,7 +1403,7 @@ export default function StudentPlay() {
           <div className="inline-flex items-center justify-center w-24 h-24 sm:w-32 sm:h-32 bg-brand-yellow border-4 border-brand-dark rounded-full mb-8 sm:mb-10 shadow-[8px_8px_0px_0px_#1A1A1A]">
             <Trophy className="w-12 h-12 sm:w-16 sm:h-16 text-brand-dark" />
           </div>
-          <h2 className="text-4xl xs:text-5xl md:text-7xl font-black mb-8 tracking-tight text-brand-dark">{t('game.leaderboard.title')}</h2>
+          <h2 className="mb-8 text-3xl font-black tracking-tight text-brand-dark sm:text-5xl md:text-7xl">{t('game.leaderboard.title')}</h2>
           <div className="grid grid-cols-2 gap-4 mb-8">
             <PlayerMetricCard label={t('game.metrics.currentScore')} value={score} tone="dark" />
             <PlayerMetricCard label={t('game.metrics.bestStreak')} value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
@@ -1412,7 +1413,7 @@ export default function StudentPlay() {
             <p className="text-lg sm:text-xl text-brand-dark/50 font-medium">{t('game.leaderboard.scoreLocked')}</p>
           </div>
         </motion.div>
-      </div>
+      </StudentStageViewport>
     );
   }
 
@@ -1423,6 +1424,44 @@ export default function StudentPlay() {
       onRetry={() => window.location.reload()}
       onExit={() => navigate(`/student/dashboard/${nickname}`)}
     />
+  );
+}
+
+function StudentStageViewport({
+  status,
+  modeConfig,
+  banner,
+  children,
+  maxWidthClass = 'max-w-4xl',
+  patterned = false,
+  center = true,
+}: {
+  status: string;
+  modeConfig?: Record<string, unknown> | null;
+  banner?: ReactNode;
+  children: ReactNode;
+  maxWidthClass?: string;
+  patterned?: boolean;
+  center?: boolean;
+}) {
+  return (
+    <div className="game-viewport-shell relative flex flex-col">
+      <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+      {patterned ? (
+        <div
+          className="pointer-events-none absolute inset-0 opacity-10"
+          style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}
+        />
+      ) : null}
+      <div className="game-viewport-scroll relative z-20">
+        <div className={`game-viewport-inner ${center ? 'justify-center' : ''}`}>
+          {banner ? <div className={`mx-auto mb-4 w-full ${maxWidthClass}`}>{banner}</div> : null}
+          <div className={`game-stage-card mx-auto w-full ${maxWidthClass} ${center ? 'my-auto' : ''}`}>
+            {children}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1536,12 +1575,12 @@ function SelectedAnswerSummaryCard({
               {selectedAnswerText || t('game.student.tapToPreview')}
             </p>
           </div>
-          <div className="flex flex-wrap gap-3 shrink-0">
-            <span className="px-4 py-3 rounded-full border-2 border-brand-dark bg-brand-bg font-black">
+          <div className="flex w-full flex-col gap-3 shrink-0 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
+            <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-3 text-center font-black">
               {lockLabel}
             </span>
             {needsConfidence && (
-              <span className="px-4 py-3 rounded-full border-2 border-brand-dark bg-brand-yellow font-black">
+              <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-3 text-center font-black">
                 {t('game.student.confidence')} {selectedConfidence}/3
               </span>
             )}
@@ -1615,30 +1654,32 @@ function StudentShellFallback({
 }) {
   const { t } = useAppLanguage();
   return (
-    <div className="min-h-screen bg-brand-bg flex items-center justify-center p-6 text-center selection:bg-brand-orange selection:text-white">
-      <div className="w-full max-w-2xl rounded-[2.6rem] border-4 border-brand-dark bg-white p-8 shadow-[12px_12px_0px_0px_#1A1A1A]">
-        <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-[2rem] border-4 border-brand-dark bg-brand-yellow">
-          {loading ? <LoaderCircle className="w-12 h-12 animate-spin text-brand-dark" /> : <AlertTriangle className="w-12 h-12 text-brand-dark" />}
-        </div>
-        <h2 className="text-4xl font-black text-brand-dark mb-4">{title}</h2>
-        <p className="text-lg font-bold text-brand-dark/65 mb-8">{body}</p>
-        <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
-          {onRetry && (
-            <button
-              onClick={onRetry}
-              className="px-6 py-4 rounded-2xl border-2 border-brand-dark bg-brand-dark text-white font-black shadow-[4px_4px_0px_0px_#FF5A36]"
-            >
-              {t('dash.action.tryAgain')}
-            </button>
-          )}
-          {onExit && (
-            <button
-              onClick={onExit}
-              className="px-6 py-4 rounded-2xl border-2 border-brand-dark bg-white font-black"
-            >
-              {t('game.action.next')}
-            </button>
-          )}
+    <div className="game-viewport-shell flex flex-col">
+      <div className="game-viewport-scroll flex items-center justify-center">
+        <div className="w-full max-w-2xl rounded-[2.6rem] border-4 border-brand-dark bg-white p-6 text-center shadow-[12px_12px_0px_0px_#1A1A1A] sm:p-8">
+          <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-[2rem] border-4 border-brand-dark bg-brand-yellow">
+            {loading ? <LoaderCircle className="w-12 h-12 animate-spin text-brand-dark" /> : <AlertTriangle className="w-12 h-12 text-brand-dark" />}
+          </div>
+          <h2 className="mb-4 text-4xl font-black text-brand-dark">{title}</h2>
+          <p className="mb-8 text-lg font-bold text-brand-dark/65">{body}</p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="rounded-2xl border-2 border-brand-dark bg-brand-dark px-6 py-4 font-black text-white shadow-[4px_4px_0px_0px_#FF5A36]"
+              >
+                {t('dash.action.tryAgain')}
+              </button>
+            )}
+            {onExit && (
+              <button
+                onClick={onExit}
+                className="rounded-2xl border-2 border-brand-dark bg-white px-6 py-4 font-black"
+              >
+                {t('game.action.next')}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
