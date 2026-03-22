@@ -13,7 +13,11 @@
     "test:security": "tsx scripts/securityRegression.ts",
     "seed:analytics-showcase": "tsx scripts/seedAnalyticsShowcase.ts",
     "db:bootstrap:supabase": "tsx scripts/bootstrapSupabase.ts",
-    "db:migrate:sqlite-to-supabase": "tsx scripts/migrateSqliteToSupabase.ts"
+    "db:migrate:sqlite-to-supabase": "tsx scripts/migrateSqliteToSupabase.ts",
+    "postinstall": "npm rebuild better-sqlite3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
