@@ -3441,18 +3441,31 @@ router.post('/sessions/:pin/join', async (req, res) => {
   if (!session) return res.status(404).json({ error: 'Session not found' });
   if (session.status !== 'LOBBY') return res.status(400).json({ error: 'Session already started' });
   if (nickname.length < 2) return res.status(400).json({ error: 'Nickname must be at least 2 characters' });
-
+  
   try {
     const joinResult = db.transaction(() => {
       const latestSession = hydrateSessionRow(db.prepare('SELECT * FROM sessions WHERE id = ?').get(session.id));
-      if (!latestSession || latestSession.status !== 'LOBBY') {
-        throw new Error('Session already started');
+      if (!latestSession || latestSession.status === 'ENDED') {
+        throw new Error('Session has ended');
       }
 
       const existing = db
-              .prepare('SELECT id FROM participants WHERE session_id = ? AND LOWER(nickname) = LOWER(?)')
+              .prepare('SELECT * FROM participants WHERE session_id = ? AND LOWER(nickname) = LOWER(?)')
               .get(session.id, nickname);
+      
       if (existing) {
+        // If identity key matches, allow re-join
+        if (existing.identity_key === identityKey) {
+          return {
+            participant_id: existing.id,
+            total: Number(db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id).count || 0),
+            assignedTeamId: existing.team_id,
+            assignedTeamName: existing.team_name,
+            seatIndex: existing.seat_index,
+            identityKey: existing.identity_key,
+            rejoined: true
+          };
+        }
         throw new Error('Nickname taken');
       }
 
@@ -3471,8 +3484,8 @@ router.post('/sessions/:pin/join', async (req, res) => {
         assignedTeamId > 0
           ? Number(
               db
-                              .prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ? AND team_id = ?')
-                              .get(session.id, assignedTeamId).count || 0,
+                               .prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ? AND team_id = ?')
+                               .get(session.id, assignedTeamId).count || 0,
             ) + 1
           : currentCount + 1;
 
@@ -3497,6 +3510,7 @@ router.post('/sessions/:pin/join', async (req, res) => {
         assignedTeamName,
         seatIndex,
         identityKey,
+        rejoined: false
       };
     })();
 

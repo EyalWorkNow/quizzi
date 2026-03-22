@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Users, Play, CheckCircle, XCircle, BarChart3, ChevronRight, Sparkles, Clock, AlertTriangle, Copy, Check, BookOpen, Rocket, Link2, Trophy, Medal, Crown, Award, ArrowLeft } from 'lucide-react';
+import { Users, Play, CheckCircle, XCircle, BarChart3, ChevronRight, Sparkles, Clock, AlertTriangle, Copy, Check, BookOpen, Rocket, Link2, Trophy, Medal, Crown, Award, ArrowLeft, Lightbulb, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { QRCodeSVG } from 'qrcode.react';
@@ -834,12 +834,13 @@ export default function TeacherHost() {
 
   if (status === 'LOBBY') {
     return (
-      <div className="min-h-screen bg-brand-bg text-brand-dark font-sans selection:bg-brand-orange selection:text-white relative overflow-hidden">
+      <div className="h-screen max-h-screen overflow-hidden bg-brand-bg text-brand-dark font-sans selection:bg-brand-orange selection:text-white relative">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="absolute top-[-8%] left-[-4%] w-96 h-96 border-[4px] border-brand-dark/5 rounded-full" />
-        <div className="absolute bottom-[-10%] right-[-6%] w-[460px] h-[460px] border-[4px] border-brand-dark/5 rounded-full" />
-        <div className="max-w-[1380px] mx-auto px-6 lg:px-10 py-8 relative z-10">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
+        <div className="absolute top-[-8%] left-[-4%] w-96 h-96 border-[4px] border-brand-dark/5 rounded-full pointer-events-none" />
+        <div className="absolute bottom-[-10%] right-[-6%] w-[460px] h-[460px] border-[4px] border-brand-dark/5 rounded-full pointer-events-none" />
+        
+        <div className="flex flex-col h-full max-w-[1380px] mx-auto px-6 lg:px-10 py-6 relative z-10">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 shrink-0">
             <div className="flex items-center gap-4">
               <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/teacher/dashboard')}>
                 <span className="text-brand-orange">Quiz</span>zi
@@ -865,306 +866,239 @@ export default function TeacherHost() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1.1fr)_360px] gap-8 mb-8">
-            <section className="space-y-8 min-w-0">
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-brand-dark text-white rounded-[3rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#FF5A36] p-8 lg:p-10 overflow-hidden relative"
-              >
-                <div className="absolute top-[-40px] right-[-30px] w-56 h-56 bg-white/10 rounded-full" />
-                <div className="absolute bottom-[-35px] right-32 w-28 h-28 bg-brand-yellow/15 rounded-full" />
-                <div className="relative z-10">
-                <div className="flex flex-wrap gap-3 mb-5">
-                  <span className="px-4 py-2 rounded-full bg-white/10 border border-white/15 text-xs font-black uppercase tracking-[0.2em]">Pack ready</span>
-                  <span className="px-4 py-2 rounded-full bg-brand-yellow text-brand-dark border-2 border-brand-dark text-xs font-black uppercase tracking-[0.2em]">Session #{sessionId || '...'}</span>
-                  <span className="px-4 py-2 rounded-full bg-white text-brand-dark border-2 border-brand-dark text-xs font-black uppercase tracking-[0.2em]">{gameMode.label}</span>
-                </div>
+          <div className="flex-1 min-h-0 overflow-auto custom-scrollbar pr-2 pb-6 space-y-8">
+            <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1.1fr)_360px] gap-8">
+              <section className="space-y-8 min-w-0">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-brand-dark text-white rounded-[3rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#FF5A36] p-8 lg:p-10 overflow-hidden relative"
+                >
+                  <div className="absolute top-[-40px] right-[-30px] w-56 h-56 bg-white/10 rounded-full" />
+                  <div className="absolute bottom-[-35px] right-32 w-28 h-28 bg-brand-yellow/15 rounded-full" />
+                  <div className="relative z-10">
+                  <div className="flex flex-wrap gap-3 mb-5">
+                    <span className="px-4 py-2 rounded-full bg-white/10 border border-white/15 text-xs font-black uppercase tracking-[0.2em]">Pack ready</span>
+                    <span className="px-4 py-2 rounded-full bg-brand-yellow text-brand-dark border-2 border-brand-dark text-xs font-black uppercase tracking-[0.2em]">Session #{sessionId || '...'}</span>
+                    <span className="px-4 py-2 rounded-full bg-white text-brand-dark border-2 border-brand-dark text-xs font-black uppercase tracking-[0.2em]">{gameMode.label}</span>
+                  </div>
 
-                  <h1 className="text-5xl lg:text-6xl font-black leading-[0.95] tracking-tight mb-4">
-                    {participants.length > 0 ? 'The room is warming up.' : 'Your live game is waiting for students.'}
-                  </h1>
-                  <p className="text-lg text-white/75 font-medium max-w-2xl mb-8">
-                    Share the PIN, watch students appear in real time, and launch only when the room feels settled.
-                  </p>
+                    <h1 className="text-4xl lg:text-5xl font-black leading-[0.95] tracking-tight mb-4">
+                      {participants.length > 0 ? 'The room is warming up.' : 'Your live game is waiting for students.'}
+                    </h1>
+                    <p className="text-lg text-white/75 font-medium max-w-2xl mb-8">
+                      Share the PIN, watch students appear in real time, and launch only when the room feels settled.
+                    </p>
 
-                  <div className="bg-white rounded-[2.2rem] border-4 border-brand-dark p-6 text-brand-dark mb-6">
-                    <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Join with PIN or scan</p>
-                        <p className="font-bold text-brand-dark/60">Students can still type the code, but the QR path now opens the room automatically on their device.</p>
+                    <div className="bg-white rounded-[2.2rem] border-4 border-brand-dark p-6 text-brand-dark mb-6">
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Join with PIN or scan</p>
+                          <p className="font-bold text-brand-dark/60 text-sm">Students can still type the code, but the QR path now opens the room automatically on their device.</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={copyPin}
+                            className="px-4 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark font-black text-sm flex items-center gap-2"
+                          >
+                            {isPinCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                            {isPinCopied ? 'Copied' : 'Copy PIN'}
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={copyPin}
-                          className="px-4 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark font-black text-sm flex items-center gap-2"
-                        >
-                          {isPinCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                          {isPinCopied ? 'Copied' : 'Copy PIN'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={copyJoinLink}
-                          className="px-4 py-2 rounded-full bg-white border-2 border-brand-dark font-black text-sm flex items-center gap-2"
-                        >
-                          {isJoinLinkCopied ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
-                          {isJoinLinkCopied ? 'Link copied' : 'Copy join link'}
-                        </button>
+
+                      <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-purple p-6 mb-6 overflow-hidden shadow-[12px_12px_0px_0px_#1A1A1A]">
+                        <div className="grid grid-cols-6 gap-3 w-full max-w-[600px] mx-auto">
+                          {String(pin || '').split('').map((digit, index) => (
+                            <motion.div
+                              key={`${digit}-${index}`}
+                              initial={{ y: 20, opacity: 0 }}
+                              animate={{ y: 0, opacity: 1 }}
+                              transition={{ delay: index * 0.1 }}
+                              className="aspect-square min-h-[70px] rounded-[1.2rem] bg-white border-4 border-brand-dark flex items-center justify-center text-4xl sm:text-5xl font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
+                            >
+                              {digit}
+                            </motion.div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_200px] gap-4 items-stretch">
+                        <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
+                          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-3">Join flow</p>
+                          <div className="grid grid-cols-3 gap-3">
+                            <JoinStep title="1. Scan" body="QR or link." />
+                            <JoinStep title="2. Identify" body="Add nickname." />
+                            <JoinStep title="3. Wait" body="Appear here." />
+                          </div>
+                        </div>
+                        <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-yellow p-4 flex flex-col items-center justify-center text-center">
+                          <div className="rounded-[1rem] border-2 border-brand-dark bg-white p-2 shadow-[2px_2px_0px_0px_#1A1A1A]">
+                            <QRCodeSVG value={joinUrl || String(pin || '')} size={110} level="M" includeMargin />
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="rounded-[2.5rem] border-4 border-brand-dark bg-brand-purple p-6 sm:p-8 mb-6 overflow-hidden shadow-[16px_16px_0px_0px_#1A1A1A]">
-                      <div className="grid grid-cols-6 gap-3 sm:gap-5 w-full max-w-[800px] mx-auto">
-                        {String(pin || '').split('').map((digit, index) => (
-                          <motion.div
-                            key={`${digit}-${index}`}
-                            initial={{ y: 20, opacity: 0 }}
-                            animate={{ y: 0, opacity: 1 }}
-                            transition={{ delay: index * 0.1 }}
-                            className="aspect-square min-h-[90px] sm:min-h-[120px] rounded-[1.5rem] bg-white border-4 border-brand-dark flex items-center justify-center text-5xl sm:text-7xl font-black shadow-[6px_6px_0px_0px_#1A1A1A]"
-                          >
-                            {digit}
-                          </motion.div>
+                    <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-5 bg-white/10 rounded-[2rem] border border-white/10 p-5 items-center">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-white/50 mb-1">Launch control</p>
+                        <p className="text-xl font-black">{participants.length > 0 ? `${participants.length} students joined.` : 'Waiting for students...'}</p>
+                      </div>
+                      <motion.button
+                        whileHover={{ scale: participants.length > 0 && !phaseTransitionPending ? 1.03 : 1 }}
+                        whileTap={{ scale: participants.length > 0 && !phaseTransitionPending ? 0.98 : 1 }}
+                        onClick={() => updateState('QUESTION_ACTIVE', 0)}
+                        disabled={participants.length === 0 || phaseTransitionPending}
+                        className="px-8 py-4 bg-brand-orange text-white border-4 border-brand-dark rounded-[1.5rem] font-black text-xl flex items-center justify-center gap-3 shadow-[6px_6px_0px_0px_#1A1A1A] disabled:opacity-50"
+                      >
+                        <Play className="w-5 h-5 fill-current" />
+                        {phaseTransitionPending ? 'Launching...' : 'Start Game'}
+                      </motion.button>
+                    </div>
+
+                    {hostMessage && (
+                      <div className="mt-5">
+                        <HostPhaseNotice message={hostMessage} />
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              </section>
+
+              <section className="space-y-6">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.05 }}
+                  className="bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6"
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <BarChart3 className="w-5 h-5 text-brand-purple" />
+                    <h2 className="text-2xl font-black">Summary</h2>
+                  </div>
+                  <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4 mb-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Room read</p>
+                    <p className="text-xl font-black mb-1">{roomReadTitle}</p>
+                    <p className="text-sm font-medium text-brand-dark/70">{roomReadBody}</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 mb-4">
+                    <LobbyMetric label="Players" value={participants.length} icon={<Users className="w-4 h-4" />} tone="light" />
+                    <LobbyMetric label="Questions" value={packQuestionCount} icon={<BookOpen className="w-4 h-4" />} tone="warm" />
+                  </div>
+
+                  <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-yellow/10 p-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-orange mb-1">Current pack</p>
+                    <p className="text-lg font-black truncate">{pack?.title || 'Loading...'}</p>
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 24 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.09 }}
+                  className="bg-brand-yellow rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6"
+                >
+                  <h2 className="text-2xl font-black mb-4">Checklist</h2>
+                  <div className="space-y-2">
+                    <TipRow title="PIN visible" body="Keep it on screen." />
+                    <TipRow title="Roster calm" body="Wait for settles." />
+                  </div>
+                </motion.div>
+              </section>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-8">
+              <section className="space-y-6">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.05 }}
+                  className="bg-white rounded-[2.4rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#1A1A1A] p-7"
+                >
+                  <div className="flex items-center justify-between gap-3 mb-5">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Waiting Room</p>
+                      <h2 className="text-3xl font-black">Students joining live</h2>
+                    </div>
+                    <div className="px-4 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark font-black">
+                      {participants.length}
+                    </div>
+                  </div>
+
+                  {participants.length > 0 ? (
+                    isTeamMode ? (
+                      <div className="space-y-4">
+                        {(Object.entries(groupedParticipants) as Array<[string, any[]]>).map(([teamName, members]) => (
+                          <div key={teamName} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-4">
+                            <div className="flex items-center justify-between gap-3 mb-4">
+                              <div>
+                                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Pod / Team</p>
+                                <p className="text-2xl font-black">{teamName}</p>
+                              </div>
+                              <div className="px-3 py-2 rounded-full border-2 border-brand-dark bg-white font-black">
+                                {members.length}
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <AnimatePresence>
+                                {members.map((participant: any, index: number) => (
+                                  <motion.div
+                                    initial={{ opacity: 0, scale: 0.9 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.9 }}
+                                    key={`${participant.nickname}-${index}`}
+                                    className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4"
+                                  >
+                                    <LobbyParticipantCard
+                                      participant={participant}
+                                      subtitle={`Seat ${participant.seat_index || index + 1}`}
+                                    />
+                                  </motion.div>
+                                ))}
+                              </AnimatePresence>
+                            </div>
+                          </div>
                         ))}
                       </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_260px] gap-4 items-stretch">
-                      <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
-                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-3">Student join flow</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          <JoinStep title="1. Scan" body="Students scan the host QR or open the join link." />
-                          <JoinStep title="2. Identify" body="The room PIN is filled automatically, then they add a nickname if needed." />
-                          <JoinStep title="3. Wait" body="They appear in the lobby as soon as the join completes." />
-                        </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <AnimatePresence>
+                          {participants.map((participant: any, index: number) => (
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.9 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.9 }}
+                              key={`${participant.nickname}-${index}`}
+                              className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-4"
+                            >
+                              <LobbyParticipantCard participant={participant} subtitle="Ready in lobby" />
+                            </motion.div>
+                          ))}
+                        </AnimatePresence>
                       </div>
-                      <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-yellow p-4 flex flex-col items-center text-center">
-                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/60 mb-3">Scan to join</p>
-                        <div className="rounded-[1.25rem] border-2 border-brand-dark bg-white p-3 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                          <QRCodeSVG value={joinUrl || String(pin || '')} size={152} level="M" includeMargin />
-                        </div>
-                        <p className="font-black text-sm mt-4 break-all">{joinUrl || 'Join link loading...'}</p>
-                        <p className="font-bold text-brand-dark/65 mt-2">Students land directly in the right session instead of typing the PIN by hand.</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-5 bg-white/10 rounded-[2rem] border border-white/10 p-5 items-center">
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-white/50 mb-2">Launch control</p>
-                      <p className="text-2xl font-black">{participants.length > 0 ? `${participants.length} student${participants.length === 1 ? '' : 's'} are in the room.` : 'Waiting for the first student to arrive.'}</p>
-                      <p className="font-medium text-white/65 mt-1">
-                        {participants.length > 0
-                          ? 'When the roster looks stable, start the game and move straight into question one.'
-                          : 'The launch button unlocks automatically as soon as one student joins.'}
-                      </p>
-                    </div>
-                    <motion.button
-                      whileHover={{ scale: participants.length > 0 && !phaseTransitionPending ? 1.03 : 1 }}
-                      whileTap={{ scale: participants.length > 0 && !phaseTransitionPending ? 0.98 : 1 }}
-                      onClick={() => updateState('QUESTION_ACTIVE', 0)}
-                      disabled={participants.length === 0 || phaseTransitionPending}
-                      className="px-8 py-5 bg-brand-orange text-white border-4 border-brand-dark rounded-[1.75rem] font-black text-2xl flex items-center justify-center gap-3 shadow-[8px_8px_0px_0px_#1A1A1A] disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Play className="w-6 h-6 fill-current" />
-                      {phaseTransitionPending ? 'Opening question...' : 'Start Game'}
-                    </motion.button>
-                  </div>
-
-                  {hostMessage && (
-                    <div className="mt-5">
-                      <HostPhaseNotice message={hostMessage} />
+                    )
+                  ) : (
+                    <div className="rounded-[2rem] border-2 border-dashed border-brand-dark/20 bg-brand-bg/70 p-12 text-center">
+                      <motion.div animate={{ rotate: 360 }} transition={{ duration: 6, repeat: Infinity, ease: 'linear' }} className="w-fit mx-auto mb-4">
+                        <Sparkles className="w-10 h-10 text-brand-purple/40" />
+                      </motion.div>
+                      <p className="text-2xl font-black mb-2">No students yet</p>
+                      <p className="font-bold text-brand-dark/55">Share the PIN above and the waiting room will populate automatically.</p>
                     </div>
                   )}
-                </div>
-              </motion.div>
-            </section>
-
-            <section className="space-y-6">
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.05 }}
-                className="bg-white rounded-[2.4rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#1A1A1A] p-7"
-              >
-                <div className="flex items-center gap-3 mb-5">
-                  <BarChart3 className="w-6 h-6 text-brand-purple" />
-                  <h2 className="text-3xl font-black">Launch Summary</h2>
-                </div>
-                <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4 mb-5">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Room read</p>
-                  <p className="text-2xl font-black mb-2">{roomReadTitle}</p>
-                  <p className="font-medium text-brand-dark/70">{roomReadBody}</p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 mb-5">
-                  <LobbyMetric label="Players" value={participants.length} icon={<Users className="w-5 h-5" />} tone="light" />
-                  <LobbyMetric label="Questions" value={packQuestionCount} icon={<BookOpen className="w-5 h-5" />} tone="warm" />
-                  <LobbyMetric label={isTeamMode ? 'Teams' : 'Pack'} value={isTeamMode ? (sessionMeta?.team_count || 0) : (pack?.title ? 'Loaded' : 'Loading')} icon={<Rocket className="w-5 h-5" />} tone="dark" />
-                  <LobbyMetric label="Status" value={participants.length > 0 ? 'Ready' : 'Waiting'} icon={<Clock className="w-5 h-5" />} tone="light" />
-                </div>
-
-                <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Current pack</p>
-                  <p className="text-xl font-black">{pack?.title || 'Loading pack...'}</p>
-                  <p className="font-medium text-brand-dark/65 mt-1">
-                    {packQuestionCount
-                      ? `${packQuestionCount} question${packQuestionCount === 1 ? '' : 's'} are loaded in ${gameMode.label}.`
-                      : 'Pack data is loading. Once it lands, the room can launch immediately.'}
-                  </p>
-                </div>
-
-                {recentParticipants.length > 0 && (
-                  <div className="mt-5">
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-3">Most recent joins</p>
-                    <div className="flex flex-wrap gap-2">
-                      {recentParticipants.map((participant: any) => (
-                        <span
-                          key={`recent-${participant.id || participant.nickname}`}
-                          className="px-3 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark font-black text-sm"
-                        >
-                          {extractNickname(participant.nickname || '')}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 24 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.09 }}
-                className="bg-brand-yellow rounded-[2.4rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#1A1A1A] p-7"
-              >
-                <div className="flex items-center gap-3 mb-5">
-                  <Sparkles className="w-6 h-6 text-brand-orange" />
-                  <h2 className="text-3xl font-black">Host Checklist</h2>
-                </div>
-                <div className="space-y-3">
-                  <TipRow title="PIN visible" body="Keep the code and QR in view until the roster stops changing." />
-                  <TipRow title="Roster calm" body="Start only after the last burst of joins settles down." />
-                  <TipRow title="Pack confirmed" body="Check that the pack title matches the lesson you intend to run." />
-                </div>
-              </motion.div>
-            </section>
-          </div>
-
-          <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-8">
-            <section className="space-y-6">
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.05 }}
-                className="bg-white rounded-[2.4rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#1A1A1A] p-7"
-              >
-                <div className="flex items-center justify-between gap-3 mb-5">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Waiting Room</p>
-                    <h2 className="text-3xl font-black">Students joining live</h2>
-                  </div>
-                  <div className="px-4 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark font-black">
-                    {participants.length}
-                  </div>
-                </div>
-
-                <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4 mb-5">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Room status</p>
-                  <p className="font-bold text-brand-dark/65">
-                    {participants.length > 0
-                      ? 'Names appear here in real time. Hovering over the room is enough to know when the class is settled.'
-                      : 'The room is empty right now. Keep the PIN visible and students will populate automatically once they join.'}
-                  </p>
-                </div>
-
-                {participants.length > 0 ? (
-                  isTeamMode ? (
-                    <div className="space-y-4">
-                      {(Object.entries(groupedParticipants) as Array<[string, any[]]>).map(([teamName, members]) => (
-                        <div key={teamName} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-4">
-                          <div className="flex items-center justify-between gap-3 mb-4">
-                            <div>
-                              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Pod / Team</p>
-                              <p className="text-2xl font-black">{teamName}</p>
-                            </div>
-                            <div className="px-3 py-2 rounded-full border-2 border-brand-dark bg-white font-black">
-                              {members.length}
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <AnimatePresence>
-                              {members.map((participant: any, index: number) => (
-                                <motion.div
-                                  initial={{ opacity: 0, scale: 0.9 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  exit={{ opacity: 0, scale: 0.9 }}
-                                  key={`${participant.nickname}-${index}`}
-                                  className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4"
-                                >
-                                  <LobbyParticipantCard
-                                    participant={participant}
-                                    subtitle={`Seat ${participant.seat_index || index + 1}`}
-                                  />
-                                </motion.div>
-                              ))}
-                            </AnimatePresence>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <AnimatePresence>
-                        {participants.map((participant: any, index: number) => (
-                          <motion.div
-                            initial={{ opacity: 0, scale: 0.9 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.9 }}
-                            key={`${participant.nickname}-${index}`}
-                            className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-4"
-                          >
-                            <LobbyParticipantCard participant={participant} subtitle="Ready in lobby" />
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
-                    </div>
-                  )
-                ) : (
-                  <div className="rounded-[2rem] border-2 border-dashed border-brand-dark/20 bg-brand-bg/70 p-12 text-center">
-                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 6, repeat: Infinity, ease: 'linear' }} className="w-fit mx-auto mb-4">
-                      <Sparkles className="w-10 h-10 text-brand-purple/40" />
-                    </motion.div>
-                    <p className="text-2xl font-black mb-2">No students yet</p>
-                    <p className="font-bold text-brand-dark/55">Share the PIN above and the waiting room will populate automatically.</p>
-                  </div>
-                )}
-              </motion.div>
-            </section>
-
-            <section className="space-y-6">
-              <motion.div
-                initial={{ opacity: 0, y: 24 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.08 }}
-                className="bg-white rounded-[2.4rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#1A1A1A] p-7"
-              >
-                <div className="flex items-center gap-3 mb-5">
-                  <AlertTriangle className="w-6 h-6 text-brand-orange" />
-                  <h2 className="text-3xl font-black">Before You Launch</h2>
-                </div>
-                <div className="space-y-3">
-                  <TipRow title="Share the PIN" body="Keep the lobby visible while students join from the homepage or QR link." />
-                  <TipRow title="Watch the room" body="New names appear instantly, so you can see when the class has settled." />
-                  <TipRow title="Launch cleanly" body="Start once the room looks calm. After the session, analytics open automatically." />
-                </div>
-              </motion.div>
-            </section>
+                </motion.div>
+              </section>
+            </div>
           </div>
         </div>
       </div>
     );
   }
+
+
 
   if (status === 'QUESTION_ACTIVE' || status === 'QUESTION_DISCUSSION' || status === 'QUESTION_REVOTE') {
     const isDiscussion = status === 'QUESTION_DISCUSSION';
@@ -1183,34 +1117,34 @@ export default function TeacherHost() {
       ? `${Object.keys(studentSelections).length} / ${participants.length} first votes recorded`
       : responseCountLabel;
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col">
+      <div className="h-screen max-h-screen bg-brand-bg flex flex-col overflow-hidden font-sans text-brand-dark">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="bg-white px-8 py-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between border-b-4 border-brand-dark z-10">
-          <div className="flex flex-wrap items-center gap-5">
+        <div className="bg-white px-6 py-4 shadow-sm flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b-4 border-brand-dark z-50 shrink-0">
+          <div className="flex flex-wrap items-center gap-4">
             <button
               onClick={handleEndSession}
-              className="flex items-center gap-3 text-brand-dark/40 hover:text-rose-500 font-black transition-colors text-lg"
+              className="flex items-center gap-2 text-brand-dark/30 hover:text-rose-500 font-black transition-colors"
             >
-              <XCircle className="w-7 h-7" />
+              <XCircle className="w-6 h-6" />
               End Game
             </button>
-            <div className="text-brand-dark font-black text-2xl bg-brand-bg px-8 py-3 rounded-2xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
+            <div className="text-brand-dark font-black text-xl bg-brand-bg px-5 py-2 rounded-xl border-2 border-brand-dark shadow-[3px_3px_0px_0px_#1A1A1A]">
               Question {questionIndex + 1} of {pack?.questions?.length}
             </div>
-            <div className={`px-6 py-3 rounded-full border-2 border-brand-dark font-black text-lg ${gameTone.pill}`}>
+            <div className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
               {gameMode.label}
             </div>
-            <div className="px-6 py-3 rounded-full bg-brand-dark text-white font-black text-lg border-2 border-brand-dark">
+            <div className="px-4 py-2 rounded-full bg-brand-dark text-white font-black text-sm border-2 border-brand-dark">
               {stageLabel}
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <div className="text-lg font-black text-slate-900 flex items-center gap-3 bg-slate-100 px-5 py-3 rounded-2xl">
+            <div className="text-lg font-black text-brand-dark flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
               <Clock className="w-6 h-6 text-brand-orange" />
               {phaseTimeLeft}s left
             </div>
-            <div className="text-lg font-black text-indigo-600 flex items-center gap-3 bg-indigo-50 px-5 py-3 rounded-2xl">
+            <div className="text-lg font-black text-brand-purple flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
               <Users className="w-6 h-6" />
               {stageCountLabel}
             </div>
@@ -1221,7 +1155,7 @@ export default function TeacherHost() {
             whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
             onClick={() => updateState(nextStatus, questionIndex)}
             disabled={phaseTransitionPending}
-            className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold text-lg hover:bg-slate-800 transition-colors shadow-[0_4px_0_0_rgba(15,23,42,1)] active:shadow-none active:translate-y-1"
+            className="bg-brand-dark text-white px-8 py-3 rounded-xl font-black text-lg shadow-[6px_6px_0px_0px_#FF5A36] disabled:opacity-50"
           >
             {phaseTransitionPending ? 'Working...' : nextButtonLabel}
           </motion.button>
@@ -1233,7 +1167,7 @@ export default function TeacherHost() {
           </div>
         )}
 
-        <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-6xl mx-auto w-full relative">
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-6 max-w-7xl mx-auto w-full relative overflow-hidden">
           <div className="absolute top-0 right-0 p-4 space-y-2 pointer-events-none z-50">
             <AnimatePresence>
               {Array.from(focusAlerts).map((nickname) => (
@@ -1254,43 +1188,44 @@ export default function TeacherHost() {
           <motion.div
             initial={{ scale: 0.98, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="w-full mb-10 rounded-[3.5rem] border-4 border-brand-dark bg-white p-8 sm:p-12 lg:p-16 relative overflow-hidden shadow-[20px_20px_0px_0px_#1A1A1A]"
+            className="w-full mb-6 rounded-[2.5rem] border-4 border-brand-dark bg-white p-6 sm:p-8 relative overflow-hidden shadow-[12px_12px_0px_0px_#1A1A1A] shrink-0"
           >
             {/* NEW: Engagement Progress Bar */}
-            <div className="absolute top-0 left-0 w-full h-4 bg-brand-dark/5">
+            <div className="absolute top-0 left-0 w-full h-3 bg-brand-dark/5">
               <motion.div 
                 initial={{ width: 0 }}
                 animate={{ width: `${participants.length > 0 ? (totalAnswers / participants.length) * 100 : 0}%` }}
-                className="h-full bg-brand-purple shadow-[0_0_20px_rgba(155,81,224,0.3)]"
+                className="h-full bg-brand-purple shadow-[0_0_15px_rgba(155,81,224,0.3)]"
                 transition={{ type: 'spring', stiffness: 50, damping: 15 }}
               />
             </div>
 
-            <div className="flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap gap-3 mb-6">
-                  <span className={`px-4 py-2 rounded-full text-sm font-black uppercase tracking-[0.2em] ${gameTone.pill}`}>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <span className={`px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-[0.2em] ${gameTone.pill}`}>
                     {gameMode.shortLabel}
                   </span>
-                  <span className="px-4 py-2 rounded-full bg-brand-bg text-brand-dark border-2 border-brand-dark text-sm font-black uppercase tracking-[0.2em]">
+                  <span className="px-3 py-1.5 rounded-full bg-brand-bg text-brand-dark border-2 border-brand-dark text-xs font-black uppercase tracking-[0.2em]">
                     {gameMode.researchCue}
                   </span>
                 </div>
-                <QuestionImageCard
-                  imageUrl={currentQuestion?.image_url}
-                  alt={currentQuestion?.prompt || 'Question image'}
-                  className="mb-8 max-w-4xl"
-                  imgClassName="max-h-[380px]"
-                />
-                <h2 className="text-5xl md:text-7xl lg:text-8xl font-black text-brand-dark leading-[1.1] mb-6 tracking-tight">
-                  {currentQuestion?.prompt}
-                </h2>
-                <p className="text-2xl text-brand-dark/50 font-black max-w-4xl">
-                  {stageBody}
-                </p>
+                <div className="flex flex-col lg:flex-row lg:items-center gap-6">
+                  {currentQuestion?.image_url && (
+                    <QuestionImageCard
+                      imageUrl={currentQuestion?.image_url}
+                      alt={currentQuestion?.prompt || 'Question image'}
+                      className="shrink-0"
+                      imgClassName="max-h-[18vh] w-auto rounded-2xl"
+                    />
+                  )}
+                  <h2 className="text-3xl lg:text-5xl font-black text-brand-dark leading-tight tracking-tight">
+                    {currentQuestion?.prompt}
+                  </h2>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 lg:grid-cols-1 gap-4 min-w-[280px]">
+              <div className="grid grid-cols-2 lg:grid-cols-2 gap-3 min-w-[320px] shrink-0">
                 <HostStageMetric label="Timer" value={`${phaseTimeLeft}s`} tone="dark" />
                 <HostStageMetric label={isDiscussion ? 'First votes' : isPeerMode && !isRevote ? 'Votes' : 'Answers'} value={isDiscussion ? Object.keys(studentSelections).length : isPeerMode && !isRevote ? Object.keys(studentSelections).length : totalAnswers} tone="light" />
                 <HostStageMetric label="Players" value={participants.length} tone="light" />
@@ -1299,22 +1234,24 @@ export default function TeacherHost() {
             </div>
           </motion.div>
 
-          <div className="grid w-full gap-4 mb-8 lg:grid-cols-[1.05fr_1.05fr_1.6fr]">
+          <div className="grid w-full gap-4 mb-6 lg:grid-cols-3 shrink-0">
             <HostInsightCard
               title="Room Pulse"
               accent="indigo"
+              compact
               value={`${liveHostInsights.participationPct}%`}
-              body={`${liveHostInsights.answeredCount} of ${participants.length || 0} students have committed in this phase.`}
+              body={`${liveHostInsights.answeredCount} students committed.`}
             />
             <HostInsightCard
               title="Lead Signal"
+              compact
               accent={
                 liveHostInsights.leader &&
                 currentQuestion &&
                 liveHostInsights.leader.index !== Number(currentQuestion.correct_index) &&
                 liveHostInsights.leader.pct >= 45
-                  ? 'amber'
-                  : 'emerald'
+                   ? 'amber'
+                   : 'emerald'
               }
               value={
                 liveHostInsights.leader
@@ -1323,12 +1260,13 @@ export default function TeacherHost() {
               }
               body={
                 liveHostInsights.runnerUp
-                  ? `Second place is ${formatAnswerSlotLabel(liveHostInsights.runnerUp.index)} at ${liveHostInsights.runnerUp.pct}%.`
-                  : 'No clear pattern has formed yet.'
+                  ? `Runner up: ${formatAnswerSlotLabel(liveHostInsights.runnerUp.index)} · ${liveHostInsights.runnerUp.pct}%`
+                  : 'No clear pattern yet.'
               }
             />
             <HostInsightCard
               title={liveHostInsights.primaryCue.title}
+              compact
               accent={
                 liveHostInsights.primaryCue.tone === 'warning'
                   ? 'amber'
@@ -1337,7 +1275,6 @@ export default function TeacherHost() {
                     : 'indigo'
               }
               body={liveHostInsights.primaryCue.body}
-              secondaryBody={liveHostInsights.secondaryCue?.body || ''}
             />
           </div>
 
@@ -1354,40 +1291,21 @@ export default function TeacherHost() {
                   animate={{ y: 0, opacity: 1 }}
                   transition={{ delay: i * 0.08 }}
                   key={i}
-                  className={`rounded-[2.5rem] p-10 sm:p-14 text-4xl sm:text-5xl font-black text-center shadow-[10px_10px_0px_0px_#1A1A1A] flex flex-col items-center justify-center min-h-[220px] relative overflow-hidden border-4 ${
+                  className={`rounded-[1.8rem] p-6 sm:p-8 text-2xl lg:text-3xl font-black text-center shadow-[8px_8px_0px_0px_#1A1A1A] flex flex-col items-center justify-center min-h-[140px] lg:min-h-[180px] relative overflow-hidden border-4 ${
                     isDiscussion ? 'bg-brand-dark text-white border-brand-dark' : 'bg-white text-brand-dark border-brand-dark'
                   }`}
                 >
                   <div className="absolute top-0 left-0 h-full bg-brand-orange/15" style={{ width: `${selectionPct}%` }} />
                   <div className="relative z-10 w-full">
-                    <p className="leading-tight">{ans}</p>
-                    <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
-                      <span className={`px-6 py-3 rounded-full text-xl font-black border-2 ${isDiscussion ? 'bg-white/10 text-white border-white/20' : 'bg-brand-bg text-brand-dark border-brand-dark/10'}`}>
-                        {selectionCount} {selectionCount === 1 ? 'student' : 'students'}
+                    <p className="leading-tight break-words">{ans}</p>
+                    <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+                      <span className={`px-4 py-2 rounded-full text-sm font-black border-2 ${isDiscussion ? 'bg-white/10 text-white border-white/20' : 'bg-brand-bg text-brand-dark border-brand-dark/10'}`}>
+                        {selectionCount}
                       </span>
-                      <span className={`px-6 py-3 rounded-full text-xl font-black border-2 ${isDiscussion ? 'bg-brand-yellow text-brand-dark border-brand-dark' : 'bg-brand-purple text-white border-brand-dark'}`}>
+                      <span className={`px-4 py-2 rounded-full text-sm font-black border-2 ${isDiscussion ? 'bg-brand-yellow text-brand-dark border-brand-dark' : 'bg-brand-purple text-white border-brand-dark'}`}>
                         {selectionPct}%
                       </span>
                     </div>
-                    {!isDiscussion && selectionCount > 0 && (
-                      <AnimatePresence>
-                        <motion.div
-                          initial={{ scale: 0, opacity: 0 }}
-                          animate={{ scale: 1, opacity: 1 }}
-                          exit={{ scale: 0, opacity: 0 }}
-                          className="mt-6 flex flex-wrap gap-3 justify-center"
-                        >
-                          {Array.from({ length: selectionCount }).map((_, idx) => (
-                            <motion.div
-                              key={idx}
-                              animate={{ scale: [1, 1.3, 1] }}
-                              transition={{ repeat: Infinity, duration: 1.2, delay: idx * 0.15 }}
-                              className="w-5 h-5 rounded-full bg-brand-purple shadow-[0_0_12px_rgba(155,81,224,0.4)]"
-                            />
-                          ))}
-                        </motion.div>
-                      </AnimatePresence>
-                    )}
                   </div>
                 </motion.div>
               );
@@ -1400,19 +1318,19 @@ export default function TeacherHost() {
 
   if (status === 'QUESTION_REVEAL') {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col">
+      <div className="h-screen max-h-screen overflow-hidden bg-brand-bg flex flex-col font-sans text-brand-dark">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="bg-white px-10 py-8 shadow-[0_8px_40px_rgba(0,0,0,0.06)] flex justify-between items-center border-b-4 border-brand-dark z-10">
+        <div className="bg-white px-8 py-4 shadow-sm flex justify-between items-center border-b-4 border-brand-dark z-50 shrink-0">
           <div className="flex items-center gap-6">
             <button
               onClick={handleEndSession}
-              className="flex items-center gap-3 text-brand-dark/30 hover:text-rose-500 font-black transition-colors text-xl"
+              className="flex items-center gap-3 text-brand-dark/30 hover:text-rose-500 font-black transition-colors text-lg"
             >
-              <XCircle className="w-8 h-8" />
+              <XCircle className="w-6 h-6" />
               End Game
             </button>
-            <div className="text-brand-dark font-black text-3xl bg-brand-bg px-8 py-3 rounded-2xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">Results</div>
-            <div className={`px-6 py-3 rounded-full border-2 border-brand-dark font-black text-xl shadow-[4px_4px_0px_0px_#1A1A1A] ${gameTone.pill}`}>
+            <div className="text-brand-dark font-black text-2xl bg-brand-bg px-6 py-2 rounded-xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">Results</div>
+            <div className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm shadow-[4px_4px_0px_0px_#1A1A1A] ${gameTone.pill}`}>
               {gameMode.label}
             </div>
           </div>
@@ -1421,69 +1339,87 @@ export default function TeacherHost() {
             whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
             onClick={() => updateState('LEADERBOARD', questionIndex)}
             disabled={phaseTransitionPending}
-            className="bg-brand-dark text-white px-12 py-5 rounded-[1.5rem] font-black text-2xl hover:bg-brand-dark/90 transition-all flex items-center gap-4 shadow-[8px_8px_0px_0px_#FF5A36] disabled:opacity-50"
+            className="bg-brand-dark text-white px-8 py-3 rounded-xl font-black text-xl hover:bg-brand-dark/90 transition-all flex items-center gap-3 shadow-[6px_6px_0px_0px_#FF5A36] disabled:opacity-50"
           >
-            {phaseTransitionPending ? 'Working...' : 'Next Phase'} <ChevronRight className="w-8 h-8" />
+            {phaseTransitionPending ? 'Working...' : 'Next Phase'} <ChevronRight className="w-6 h-6" />
           </motion.button>
         </div>
 
         {hostMessage && (
-          <div className="px-8 pt-4">
+          <div className="px-8 pt-4 shrink-0">
             <HostPhaseNotice message={hostMessage} />
           </div>
         )}
 
-        <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-6xl mx-auto w-full">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full mb-8">
-            <HostStageMetric label="Answered" value={`${totalAnswers}/${participants.length || 0}`} tone="light" />
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-6 max-w-7xl mx-auto w-full relative overflow-hidden">
+          <motion.div
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="w-full mb-6 rounded-[2rem] border-4 border-brand-dark bg-white p-6 relative overflow-hidden shadow-[10px_10px_0px_0px_#1A1A1A] shrink-0"
+          >
+            <div className="flex flex-col lg:flex-row lg:items-center gap-6">
+              {currentQuestion?.image_url && (
+                <QuestionImageCard
+                  imageUrl={currentQuestion?.image_url}
+                  alt={currentQuestion?.prompt || 'Question image'}
+                  className="shrink-0"
+                  imgClassName="max-h-[15vh] w-auto rounded-xl"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <span className={`inline-block px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-[0.2em] mb-2 ${gameTone.pill}`}>
+                  The Correct Answer
+                </span>
+                <h2 className="text-2xl lg:text-3xl font-black text-brand-dark leading-tight line-clamp-3">
+                  {currentQuestion?.prompt}
+                </h2>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Statistics Grid */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full mb-6 shrink-0">
+            <HostStageMetric label="Timer" value="Reveal" tone="dark" />
             <HostStageMetric label="Correct" value={correctSelectionCount} tone="warm" />
-            <HostStageMetric
-              label="Accuracy"
-              value={participants.length > 0 ? `${Math.round((correctSelectionCount / participants.length) * 100)}%` : 'N/A'}
-              tone="dark"
+            <HostStageMetric label="Total Votes" value={totalAnswers} tone="light" />
+            <HostStageMetric 
+              label="Accuracy" 
+              value={participants.length > 0 ? `${Math.round((correctSelectionCount / participants.length) * 100)}%` : '0%'} 
+              tone="light" 
             />
           </div>
 
-          <QuestionImageCard
-            imageUrl={currentQuestion?.image_url}
-            alt={currentQuestion?.prompt || 'Question image'}
-            className="w-full max-w-3xl mb-6"
-            imgClassName="max-h-[320px]"
-          />
-          <motion.h2
-            initial={{ y: -20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            className="text-5xl md:text-7xl lg:text-8xl font-black text-center text-brand-dark leading-[1.05] tracking-tight mb-14 bg-white px-12 py-10 rounded-[3.5rem] shadow-[24px_24px_0px_0px_#1A1A1A] border-4 border-brand-dark w-full"
-          >
-            {currentQuestion?.prompt}
-          </motion.h2>
-
-          <div
-            className="grid gap-8 w-full mb-16"
-            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}
-          >
-            {currentAnswers.map((ans: string, i: number) => {
-              const isCorrect = i === currentQuestion.correct_index;
-              const selectionStats = answerSelectionSummary[i] || { count: 0, pct: 0 };
+          <div className="grid w-full gap-4 mb-6 lg:grid-cols-2 flex-1 min-h-0 overflow-auto pr-2 custom-scrollbar">
+            {currentQuestion?.choices.map((choice, i) => {
+              const isCorrect = i === currentQuestion?.correct_index;
+              const choiceResult = answerSelectionSummary[i] || { count: 0, pct: 0 };
               return (
                 <motion.div
-                  initial={{ scale: 0.9, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ delay: i * 0.1 }}
                   key={i}
-                  className={`rounded-[2.8rem] p-12 text-4xl sm:text-5xl font-black text-center flex flex-col items-center justify-center gap-6 min-h-[200px] shadow-[12px_12px_0px_0px_#1A1A1A] ${isCorrect ? 'bg-emerald-100 border-4 border-emerald-500 text-emerald-900' : 'bg-white border-4 border-brand-dark/10 text-brand-dark/30'}`}
+                  initial={{ x: i % 2 === 0 ? -20 : 20, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  transition={{ delay: i * 0.1 }}
+                  className={`relative p-5 rounded-[1.8rem] border-4 flex flex-col gap-3 shadow-[8px_8px_0px_0px_#1A1A1A] ${
+                    isCorrect ? 'border-emerald-500 bg-emerald-50' : 'border-brand-dark/10 bg-white'
+                  }`}
                 >
-                  <div className="flex items-center justify-center gap-6 leading-tight">
-                    {isCorrect && <CheckCircle className="w-12 h-12 text-emerald-500 flex-shrink-0" />}
-                    <span>{ans}</span>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-4 min-w-0">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black shrink-0 ${isCorrect ? 'bg-emerald-500 text-white' : 'bg-brand-bg text-brand-dark/30'}`}>
+                        {isCorrect ? <CheckCircle2 className="w-6 h-6" /> : formatAnswerSlotLabel(i)}
+                      </div>
+                      <p className={`font-black text-lg lg:text-xl truncate ${isCorrect ? 'text-brand-dark' : 'text-brand-dark/40'}`}>{choice}</p>
+                    </div>
+                    {isCorrect && <CheckCircle2 className="w-8 h-8 text-emerald-500 shrink-0" />}
                   </div>
-                  <div className="flex flex-wrap items-center justify-center gap-4 text-xl">
-                    <span className={`px-6 py-3 rounded-full border-2 font-black ${isCorrect ? 'bg-white border-emerald-300 text-emerald-800' : 'bg-brand-bg border-brand-dark/10 text-brand-dark/60'}`}>
-                      {selectionStats.count} {selectionStats.count === 1 ? 'student' : 'students'}
-                    </span>
-                    <span className={`px-6 py-3 rounded-full border-2 font-black ${isCorrect ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-white border-brand-dark/10 text-brand-dark/40'}`}>
-                      {selectionStats.pct}%
-                    </span>
+                  
+                  <div className="flex items-center gap-3">
+                     <span className={`px-4 py-2 rounded-full text-sm font-black border-2 ${isCorrect ? 'bg-white border-emerald-300 text-emerald-800' : 'bg-brand-bg border-brand-dark/5 text-brand-dark/30'}`}>
+                        {choiceResult.count} {choiceResult.count === 1 ? 'student' : 'students'}
+                      </span>
+                      <span className={`px-4 py-2 rounded-full text-sm font-black border-2 ${isCorrect ? 'bg-emerald-500 text-white border-brand-dark' : 'bg-white border-brand-dark/5 text-brand-dark/20'}`}>
+                        {choiceResult.pct}%
+                      </span>
                   </div>
                 </motion.div>
               );
@@ -1495,14 +1431,12 @@ export default function TeacherHost() {
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.5 }}
-              className="bg-white rounded-[2rem] p-10 shadow-xl border border-slate-200 w-full max-w-3xl text-center relative overflow-hidden"
+              className="w-full bg-brand-purple/5 border-2 border-brand-purple/20 p-4 rounded-2xl flex items-start gap-3 shrink-0"
             >
-              <div className="absolute top-0 left-0 w-full h-2 bg-indigo-500"></div>
-              <h3 className="text-2xl font-black text-slate-900 mb-4 flex items-center justify-center gap-3">
-                <Sparkles className="w-6 h-6 text-indigo-500" />
-                Explanation
-              </h3>
-              <p className="text-slate-600 text-xl font-medium leading-relaxed">{currentQuestion?.explanation}</p>
+              <Lightbulb className="w-5 h-5 text-brand-purple shrink-0 mt-1" />
+              <p className="text-sm font-medium text-brand-dark/80 line-clamp-3">
+                <span className="font-black text-brand-purple">Insight:</span> {currentQuestion.explanation}
+              </p>
             </motion.div>
           )}
         </div>
@@ -1514,21 +1448,21 @@ export default function TeacherHost() {
     const isLast = questionIndex >= (pack?.questions?.length || 0) - 1;
 
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col">
+      <div className="h-screen max-h-screen overflow-hidden bg-brand-bg flex flex-col font-sans text-brand-dark">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="bg-white px-8 py-6 shadow-sm flex justify-between items-center border-b border-slate-200 z-10">
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="bg-white px-8 py-4 shadow-sm flex justify-between items-center border-b-4 border-brand-dark z-50 shrink-0">
+          <div className="flex flex-wrap items-center gap-4">
             <button
               onClick={handleEndSession}
-              className="flex items-center gap-2 text-slate-400 hover:text-rose-500 font-bold transition-colors"
+              className="flex items-center gap-2 text-brand-dark/30 hover:text-rose-500 font-black transition-colors text-lg"
             >
               <XCircle className="w-6 h-6" />
-              End Game Early
+              End Game
             </button>
-            <div className="text-slate-500 font-bold text-xl bg-slate-100 px-6 py-2 rounded-xl">
-              {isLast ? 'Final Standings' : 'Current Standings'}
+            <div className="text-brand-dark font-black text-2xl bg-brand-bg px-6 py-2 rounded-xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
+              {isLast ? 'Final Standings' : 'Standings'}
             </div>
-            <div className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
+            <div className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm shadow-[4px_4px_0px_0px_#1A1A1A] ${gameTone.pill}`}>
               {gameMode.label}
             </div>
           </div>
@@ -1546,139 +1480,136 @@ export default function TeacherHost() {
               }
             }}
             disabled={phaseTransitionPending}
-            className={`${isLast ? 'bg-emerald-500 hover:bg-emerald-600 shadow-[0_4px_0_0_#047857]' : 'bg-indigo-600 hover:bg-indigo-700 shadow-[0_4px_0_0_#4338ca]'} text-white px-8 py-3 rounded-xl font-bold text-lg transition-colors flex items-center gap-2 active:shadow-none active:translate-y-1`}
+            className={`${isLast ? 'bg-emerald-500 shadow-[6px_6px_0px_0px_#064e3b]' : 'bg-brand-dark shadow-[6px_6px_0px_0px_#FF5A36]'} text-white px-10 py-4 rounded-xl font-black text-xl hover:opacity-90 transition-all flex items-center gap-3 disabled:opacity-50`}
           >
-            {phaseTransitionPending ? 'Working...' : isLast ? 'End Game & View Analytics' : 'Next Question'} <ChevronRight className="w-6 h-6" />
+            {phaseTransitionPending ? 'Working...' : isLast ? 'End Game & Results' : 'Next Question'} <ChevronRight className="w-8 h-8" />
           </motion.button>
         </div>
 
         {hostMessage && (
-          <div className="px-8 pt-4">
+          <div className="px-8 pt-4 shrink-0">
             <HostPhaseNotice message={hostMessage} />
           </div>
         )}
 
-        <div className="flex-1 flex flex-col items-center justify-start p-8 max-w-[1400px] mx-auto w-full">
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-start p-6 max-w-[1400px] mx-auto w-full overflow-hidden">
           <motion.div
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: 'spring', bounce: 0.6 }}
-            className="mb-8"
+            initial={{ y: -20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="mb-6 shrink-0"
           >
-            <h2 className="text-6xl font-black text-slate-900 tracking-tight text-center">
-              {isLast ? 'Final Standings' : 'Current Standings'}
+            <h2 className="text-4xl lg:text-5xl font-black text-brand-dark tracking-tight text-center">
+              {isLast ? 'The Winners Circle' : 'Leaderboard'}
             </h2>
           </motion.div>
 
-          {isTeamMode && teamBoard.length > 0 ? (
-            <div className="w-full max-w-4xl space-y-6 mb-16">
-              {teamBoard.slice(0, 5).map((team: any, i: number) => (
-                <motion.div
-                  initial={{ x: -50, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  transition={{ delay: i * 0.1, type: 'spring' }}
-                  key={team.team_id || team.team_name}
-                  className={`p-8 rounded-[2.5rem] border-4 ${i === 0 ? 'bg-yellow-50 border-yellow-400 shadow-xl' : 'bg-white border-slate-200 shadow-sm'}`}
-                >
-                  <div className="flex items-center justify-between gap-6 mb-4">
-                    <div className="flex items-center gap-6">
-                      <div className={`w-16 h-16 rounded-full border-4 border-slate-900 flex items-center justify-center font-black text-3xl ${i === 0 ? 'bg-yellow-400 text-slate-900' : 'bg-slate-100 text-slate-500'}`}>
-                        {i + 1}
+          <div className="flex-1 w-full min-h-0 overflow-auto custom-scrollbar pr-2 pb-10">
+            {isTeamMode && teamBoard.length > 0 ? (
+              <div className="w-full max-w-4xl mx-auto space-y-6">
+                {teamBoard.slice(0, 5).map((team: any, i: number) => (
+                  <motion.div
+                    initial={{ x: -20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: i * 0.1 }}
+                    key={team.team_id || team.team_name}
+                    className={`p-6 rounded-[2rem] border-4 shadow-[8px_8px_0px_0px_#1A1A1A] ${i === 0 ? 'bg-brand-yellow border-brand-dark' : 'bg-white border-brand-dark/10'}`}
+                  >
+                    <div className="flex items-center justify-between gap-6">
+                      <div className="flex items-center gap-6">
+                        <div className={`w-14 h-14 rounded-full border-4 border-brand-dark flex items-center justify-center font-black text-2xl ${i === 0 ? 'bg-brand-orange text-white' : 'bg-brand-bg text-brand-dark/40'}`}>
+                          {i + 1}
+                        </div>
+                        <div>
+                          <span className="text-3xl font-black text-brand-dark">{team.team_name}</span>
+                          <p className="text-sm font-bold text-brand-dark/50">{team.student_count} members · {team.accuracy?.toFixed?.(0) || team.accuracy}% correct</p>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-4xl font-black text-slate-900">{team.team_name}</span>
-                        <p className="text-lg font-bold text-slate-500">{team.student_count} players · {team.accuracy?.toFixed?.(0) || team.accuracy}% accuracy</p>
-                      </div>
+                      <div className="text-4xl font-black text-brand-purple">{team.total_score || 0}</div>
                     </div>
-                    <div className="text-5xl font-black text-indigo-600">{team.total_score || 0}</div>
-                  </div>
-                  <p className="text-lg font-medium text-slate-400 italic">
-                    {(team.members || []).slice(0, 8).map((member: any) => extractNickname(member.nickname || member)).join(', ')}
-                    {(team.members || []).length > 8 && '...'}
-                  </p>
-                </motion.div>
-              ))}
-            </div>
-          ) : (
-            <>
-              <div className="w-full mb-16">
-                {leaderboard.length > 0 ? (
-                  <div className="flex flex-col md:flex-row items-end justify-center gap-4 md:gap-0 h-[450px]">
-                    {/* 2nd Place */}
-                    {leaderboard[1] && (
-                      <PodiumStep 
-                        participant={leaderboard[1]} 
-                        rank={2} 
-                        height="h-[70%]" 
-                        delay={0.2} 
-                        color="bg-slate-200"
-                        icon={<Medal className="w-10 h-10 text-slate-500" />}
-                      />
-                    )}
-                    
-                    {/* 1st Place */}
-                    {leaderboard[0] && (
-                      <PodiumStep 
-                        participant={leaderboard[0]} 
-                        rank={1} 
-                        height="h-[90%]" 
-                        delay={0.4} 
-                        color="bg-yellow-400"
-                        icon={<Crown className="w-14 h-14 text-yellow-800" />}
-                        isWinner
-                      />
-                    )}
+                  </motion.div>
+                ))}
+              </div>
+            ) : (
+              <div className="w-full flex flex-col items-center">
+                <div className="w-full mb-10 shrink-0">
+                  {leaderboard.length > 0 ? (
+                    <div className="flex flex-row items-end justify-center gap-4 h-[320px] lg:h-[400px]">
+                      {/* 2nd Place */}
+                      {leaderboard[1] && (
+                        <PodiumStep 
+                          participant={leaderboard[1]} 
+                          rank={2} 
+                          height="h-[65%]" 
+                          delay={0.2} 
+                          color="bg-brand-bg"
+                          icon={<Medal className="w-10 h-10 text-brand-dark/30" />}
+                        />
+                      )}
+                      
+                      {/* 1st Place */}
+                      {leaderboard[0] && (
+                        <PodiumStep 
+                          participant={leaderboard[0]} 
+                          rank={1} 
+                          height="h-[90%]" 
+                          delay={0.4} 
+                          color="bg-brand-yellow"
+                          icon={<Crown className="w-14 h-14 text-brand-orange" />}
+                          isWinner
+                        />
+                      )}
 
-                    {/* 3rd Place */}
-                    {leaderboard[2] && (
-                      <PodiumStep 
-                        participant={leaderboard[2]} 
-                        rank={3} 
-                        height="h-[55%]" 
-                        delay={0.6} 
-                        color="bg-amber-600"
-                        icon={<Award className="w-8 h-8 text-amber-200" />}
-                      />
-                    )}
+                      {/* 3rd Place */}
+                      {leaderboard[2] && (
+                        <PodiumStep 
+                          participant={leaderboard[2]} 
+                          rank={3} 
+                          height="h-[50%]" 
+                          delay={0.6} 
+                          color="bg-brand-orange/10"
+                          icon={<Award className="w-8 h-8 text-brand-orange" />}
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center text-brand-dark/40 py-12 text-xl font-black">Calculating standings...</div>
+                  )}
+                </div>
+
+                {leaderboard.length > 3 && (
+                  <div className="w-full max-w-5xl space-y-4">
+                    <h3 className="text-xl font-black text-brand-dark/30 uppercase tracking-[0.2em] mb-4 flex items-center justify-center gap-3">
+                      <BarChart3 className="w-5 h-5" />
+                      Challengers
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {leaderboard.slice(3, 12).map((p: any, i: number) => (
+                        <motion.div
+                          initial={{ y: 10, opacity: 0 }}
+                          animate={{ y: 0, opacity: 1 }}
+                          transition={{ delay: 0.8 + i * 0.05 }}
+                          key={p.id}
+                          className="flex items-center justify-between p-4 bg-white rounded-2xl border-2 border-brand-dark/5 shadow-sm hover:border-brand-dark/20 transition-all"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-8 h-8 rounded-full bg-brand-bg flex items-center justify-center font-black text-xs text-brand-dark/40">
+                              {i + 4}
+                            </div>
+                            <Avatar 
+                              nickname={p.nickname} 
+                              imgClassName="w-10 h-10 rounded-xl" 
+                              textClassName="text-base font-black text-brand-dark truncate" 
+                            />
+                          </div>
+                          <div className="text-xl font-black text-brand-purple">{p.total_score || 0}</div>
+                        </motion.div>
+                      ))}
+                    </div>
                   </div>
-                ) : (
-                  <div className="text-center text-slate-500 py-12 text-xl font-medium">Loading results...</div>
                 )}
               </div>
-
-              {leaderboard.length > 3 && (
-                <div className="w-full max-w-4xl space-y-4">
-                  <h3 className="text-2xl font-black text-slate-400 mb-6 flex items-center gap-3">
-                    <BarChart3 className="w-6 h-6" />
-                    Everyone Else
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {leaderboard.slice(3).map((p: any, i: number) => (
-                      <motion.div
-                        initial={{ y: 20, opacity: 0 }}
-                        animate={{ y: 0, opacity: 1 }}
-                        transition={{ delay: 1 + i * 0.05 }}
-                        key={p.id}
-                        className="flex items-center justify-between p-5 bg-white rounded-3xl border-2 border-slate-100 shadow-sm hover:border-indigo-200 transition-colors"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-black text-slate-500">
-                            {i + 4}
-                          </div>
-                          <Avatar 
-                            nickname={p.nickname} 
-                            imgClassName="w-10 h-10" 
-                            textClassName="text-xl font-black text-slate-900" 
-                          />
-                        </div>
-                        <div className="text-2xl font-black text-indigo-500">{p.total_score || 0}</div>
-                      </motion.div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
+            )}
+          </div>
         </div>
       </div>
     );
@@ -1841,12 +1772,14 @@ function HostInsightCard({
   body,
   secondaryBody,
   accent,
+  compact = false,
 }: {
   title: string;
   value?: string;
   body: string;
   secondaryBody?: string;
   accent: 'indigo' | 'amber' | 'emerald';
+  compact?: boolean;
 }) {
   const accentClass =
     accent === 'amber'
@@ -1856,11 +1789,11 @@ function HostInsightCard({
         : 'border-brand-dark bg-brand-bg text-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A]';
 
   return (
-    <div className={`rounded-[1.6rem] border-2 p-5 ${accentClass}`}>
-      <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-2">{title}</p>
-      {value && <p className="text-3xl font-black leading-none mb-3">{value}</p>}
-      <p className="font-bold leading-snug">{body}</p>
-      {secondaryBody ? <p className="mt-3 text-sm font-medium opacity-80">{secondaryBody}</p> : null}
+    <div className={`${compact ? 'p-3 rounded-[1.2rem]' : 'p-5 rounded-[1.6rem]'} border-2 ${accentClass}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-1">{title}</p>
+      {value && <p className={`${compact ? 'text-2xl' : 'text-3xl'} font-black leading-none mb-2`}>{value}</p>}
+      <p className={`${compact ? 'text-sm' : 'text-base'} font-bold leading-snug`}>{body}</p>
+      {secondaryBody && !compact ? <p className="mt-3 text-sm font-medium opacity-80">{secondaryBody}</p> : null}
     </div>
   );
 }
