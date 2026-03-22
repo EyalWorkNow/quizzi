@@ -235,6 +235,7 @@ async function startServer() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
     res.setHeader('Origin-Agent-Cluster', '?1');
     res.setHeader('X-DNS-Prefetch-Control', 'off');
     if (process.env.NODE_ENV === 'production') {
