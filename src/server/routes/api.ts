@@ -3171,6 +3171,52 @@ router.post('/sessions', requireTeacherSession, async (req, res) => {
   });
 });
 
+router.delete('/teacher/sessions/:id', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = await getTeacherUserIdFromRequest(req);
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-session-delete', 30, 10 * 60 * 1000, teacherUserId)) return;
+
+    const sessionId = parsePositiveInt(req.params.id);
+    if (!sessionId) return res.status(400).json({ error: 'Invalid session ID' });
+
+    // Verify ownership via pack
+    const session = await db
+      .prepare(`
+        SELECT s.id, s.status, s.quiz_pack_id, qp.teacher_id
+        FROM sessions s
+        JOIN quiz_packs qp ON qp.id = s.quiz_pack_id
+        WHERE s.id = ? AND qp.teacher_id = ?
+      `)
+      .get(sessionId, teacherUserId) as any;
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found or access denied' });
+    }
+
+    const sessionStatus = String(session.status || '').toUpperCase();
+    if (sessionStatus !== 'ENDED') {
+      return res.status(409).json({ error: 'End the live session before deleting it.' });
+    }
+
+    // Cascade delete
+    db.transaction(() => {
+      db.prepare('DELETE FROM student_behavior_logs WHERE session_id = ?').run(sessionId);
+      db.prepare('DELETE FROM answers WHERE session_id = ?').run(sessionId);
+      db.prepare('DELETE FROM participants WHERE session_id = ?').run(sessionId);
+      db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+    })();
+
+    res.json({ deleted: true, session_id: sessionId });
+  } catch (error: any) {
+    console.error('[ERROR] Delete session failed:', error);
+    respondWithServerError(res, 'Failed to delete session');
+  }
+});
+
 router.get('/teacher/sessions/pin/:pin', requireTeacherSession, async (req, res) => {
   try {
     const teacherUserId = (await getTeacherUserIdFromRequest(req));

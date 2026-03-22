@@ -5,9 +5,12 @@ import {
   ArrowUpRight,
   BrainCircuit,
   RefreshCw,
+  Trash2,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
-import { apiFetchJson } from '../lib/api.ts';
+import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { useTeacherLanguage } from '../lib/teacherLanguage.ts';
 
 const REPORTS_COPY = {
@@ -24,6 +27,12 @@ const REPORTS_COPY = {
     sessionsSubtitle: 'Each row is derived from stored answers, timings, and focus events.',
     noSessions: 'No completed sessions yet.',
     view: 'View',
+    delete: 'Delete',
+    confirmDeleteTitle: 'Delete this session?',
+    confirmDeleteBody: 'This will permanently remove all answers, participants, and behavior logs for this session. This cannot be undone.',
+    confirmDeleteAction: 'Yes, delete',
+    cancelAction: 'Cancel',
+    deleteError: 'Failed to delete session. Try again.',
     stats: {
       players: { title: 'Total Players', caption: 'Across hosted sessions' },
       accuracy: { title: 'Avg Accuracy', caption: 'Across tracked answers' },
@@ -52,6 +61,12 @@ const REPORTS_COPY = {
     sessionsSubtitle: 'כל שורה נגזרת מתשובות שמורות, זמני תגובה ואירועי פוקוס.',
     noSessions: 'עדיין אין סשנים שהושלמו.',
     view: 'לצפייה',
+    delete: 'מחיקה',
+    confirmDeleteTitle: 'למחוק את הסשן הזה?',
+    confirmDeleteBody: 'פעולה זו תמחק לצמיתות את כל התשובות, המשתתפים ויומני ההתנהגות של הסשן הזה. לא ניתן לבטל.',
+    confirmDeleteAction: 'כן, מחק',
+    cancelAction: 'ביטול',
+    deleteError: 'מחיקת הסשן נכשלה. נסה שוב.',
     stats: {
       players: { title: 'סך שחקנים', caption: 'בכלל הסשנים שהורצו' },
       accuracy: { title: 'דיוק ממוצע', caption: 'על פני כל התשובות שנמדדו' },
@@ -80,6 +95,12 @@ const REPORTS_COPY = {
     sessionsSubtitle: 'كل صف مشتق من الإجابات المخزنة وأزمنة الاستجابة وأحداث التركيز.',
     noSessions: 'لا توجد جلسات مكتملة بعد.',
     view: 'عرض',
+    delete: 'حذف',
+    confirmDeleteTitle: 'حذف هذه الجلسة؟',
+    confirmDeleteBody: 'سيؤدي هذا إلى حذف جميع الإجابات والمشاركين وسجلات السلوك لهذه الجلسة نهائيًا. لا يمكن التراجع.',
+    confirmDeleteAction: 'نعم، احذف',
+    cancelAction: 'إلغاء',
+    deleteError: 'فشل حذف الجلسة. حاول مرة أخرى.',
     stats: {
       players: { title: 'إجمالي اللاعبين', caption: 'عبر الجلسات المستضافة' },
       accuracy: { title: 'متوسط الدقة', caption: 'عبر الإجابات المتعقبة' },
@@ -103,6 +124,12 @@ export default function TeacherReports() {
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Delete state
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [pendingDeleteName, setPendingDeleteName] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
   const copy = REPORTS_COPY[language as keyof typeof REPORTS_COPY] || REPORTS_COPY.en;
   const isRtl = direction === 'rtl';
 
@@ -123,6 +150,34 @@ export default function TeacherReports() {
   useEffect(() => {
     void loadReport();
   }, [loadReport]);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!pendingDeleteId) return;
+    setIsDeleting(true);
+    setDeleteError('');
+    try {
+      await apiFetch(`/api/teacher/sessions/${pendingDeleteId}`, { method: 'DELETE' });
+      // Optimistically remove from local state
+      setReport((prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          recent_sessions: (prev.recent_sessions || []).filter(
+            (row: any) => Number(row.session_id) !== pendingDeleteId,
+          ),
+          summary: prev.summary
+            ? { ...prev.summary, quizzes_hosted: Math.max(0, (prev.summary.quizzes_hosted || 1) - 1) }
+            : prev.summary,
+        };
+      });
+      setPendingDeleteId(null);
+    } catch (deleteErr: any) {
+      console.error('[TeacherReports] Delete session failed:', deleteErr);
+      setDeleteError(deleteErr?.message || copy.deleteError);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [pendingDeleteId, copy.deleteError]);
 
   const stats = useMemo(
     () => [
@@ -278,13 +333,26 @@ export default function TeacherReports() {
                             </td>
                             <td className="p-4 font-bold">{(row.stress_index || 0).toFixed(0)}%</td>
                             <td className="p-4">
-                              <button
-                                onClick={() => navigate(`/teacher/analytics/class/${row.session_id}`)}
-                                className={`text-brand-purple hover:text-purple-700 font-black text-sm inline-flex items-center gap-1 ${isRtl ? 'flex-row-reverse' : ''}`}
-                              >
-                                {copy.view}
-                                {isRtl ? <ArrowUpLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
-                              </button>
+                              <div className={`flex items-center gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
+                                <button
+                                  onClick={() => navigate(`/teacher/analytics/class/${row.session_id}`)}
+                                  className={`text-brand-purple hover:text-purple-700 font-black text-sm inline-flex items-center gap-1 ${isRtl ? 'flex-row-reverse' : ''}`}
+                                >
+                                  {copy.view}
+                                  {isRtl ? <ArrowUpLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setPendingDeleteId(Number(row.session_id));
+                                    setPendingDeleteName(row.quiz_name || '');
+                                    setDeleteError('');
+                                  }}
+                                  className="text-brand-dark/40 hover:text-brand-orange transition-colors inline-flex items-center gap-1 font-black text-sm"
+                                  title={copy.delete}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))
@@ -303,6 +371,63 @@ export default function TeacherReports() {
           )}
         </div>
       </main>
+
+      {/* Delete confirmation modal */}
+      {pendingDeleteId !== null && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-brand-dark/40 backdrop-blur-sm"
+            onClick={() => !isDeleting && setPendingDeleteId(null)}
+          />
+          <div className={`relative z-10 w-full max-w-md rounded-[2rem] border-4 border-brand-dark bg-white p-8 shadow-[12px_12px_0px_0px_#1A1A1A] ${isRtl ? 'text-right' : ''}`}>
+            {/* Close */}
+            <button
+              onClick={() => !isDeleting && setPendingDeleteId(null)}
+              className={`absolute top-5 ${isRtl ? 'left-5' : 'right-5'} w-9 h-9 rounded-full border-2 border-brand-dark bg-brand-bg flex items-center justify-center hover:bg-brand-orange hover:text-white transition-colors`}
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Icon + title */}
+            <div className={`flex items-start gap-4 mb-5 ${isRtl ? 'flex-row-reverse' : ''}`}>
+              <div className="w-12 h-12 rounded-2xl bg-brand-orange/10 border-2 border-brand-orange flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 text-brand-orange" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black text-brand-dark mb-1">{copy.confirmDeleteTitle}</h2>
+                {pendingDeleteName && (
+                  <p className="text-sm font-bold text-brand-dark/50 truncate max-w-[260px]">"{pendingDeleteName}"</p>
+                )}
+              </div>
+            </div>
+
+            <p className="font-bold text-brand-dark/70 mb-6 leading-relaxed">{copy.confirmDeleteBody}</p>
+
+            {deleteError && (
+              <p className="mb-4 rounded-xl bg-brand-orange/10 border-2 border-brand-orange px-4 py-3 text-sm font-bold text-brand-orange">
+                {deleteError}
+              </p>
+            )}
+
+            <div className={`flex gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
+              <button
+                onClick={() => void handleDeleteConfirm()}
+                disabled={isDeleting}
+                className="flex-1 px-6 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black shadow-[4px_4px_0px_0px_#1A1A1A] hover:bg-orange-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isDeleting ? '...' : copy.confirmDeleteAction}
+              </button>
+              <button
+                onClick={() => !isDeleting && setPendingDeleteId(null)}
+                disabled={isDeleting}
+                className="flex-1 px-6 py-3 bg-white border-2 border-brand-dark rounded-full font-black hover:bg-slate-50 transition-colors disabled:opacity-60"
+              >
+                {copy.cancelAction}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
