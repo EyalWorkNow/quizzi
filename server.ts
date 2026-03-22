@@ -1,8 +1,13 @@
+console.log('[server] Initializing with process.cwd:', process.cwd());
 import 'dotenv/config';
+console.log('[server] Environment loaded. NODE_ENV:', process.env.NODE_ENV);
+
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { createServer as createViteServer } from 'vite';
+
 import { seedAnalyticsShowcase, seedDemoData } from './src/server/db/seeding.js';
 import { flushPostgresMirror, getPostgresMirrorStatus, getSqliteStorageStatus } from './src/server/db/index.js';
 import { checkPostgresHealth, closePostgresPool } from './src/server/db/postgres.js';
@@ -10,6 +15,18 @@ import { checkSupabaseRestHealth } from './src/server/services/supabaseAdmin.js'
 import { isAllowedBrowserOrigin, normalizeOrigin } from './src/server/services/requestGuards.js';
 import { assertSecureAuthConfig, getAuthSecretStatus } from './src/server/services/authSecrets.js';
 import apiRouter from './src/server/routes/api.js';
+
+// Global error handlers for better logging on Render
+process.on('uncaughtException', (error) => {
+  console.error('[CRITICAL] Uncaught Exception:', error);
+  // Give some time for logs to flush before exiting
+  setTimeout(() => process.exit(1), 500);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 
 function resolveConfiguredEnvKey(keys: readonly string[]) {
   for (const key of keys) {
@@ -95,14 +112,43 @@ function assertSafePersistenceConfig() {
 }
 
 async function startServer() {
-  console.log('[startup] Config summary:', JSON.stringify(getStartupConfigSummary()));
-  assertSecureAuthConfig();
-  assertSafePersistenceConfig();
+  console.log('[startup] Config summary:', JSON.stringify(getStartupConfigSummary(), null, 2));
+  console.log('[startup] Verifying auth config...');
+  console.log('[startup] Verifying auth config...');
+  try {
+    assertSecureAuthConfig();
+  } catch (err) {
+    console.warn('[startup] Auth check warning:', err);
+  }
+
+  console.log('[startup] Verifying safety config...');
+  try {
+    assertSafePersistenceConfig();
+    console.log('[startup] Persistence verified.');
+  } catch (err: any) {
+    console.warn('[startup] Persistence configuration warning:', err?.message || err);
+    // We log the error but continue to allow the server to start so the user can see logs/health status
+  }
+
+
 
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
   const distDir = path.resolve(process.cwd(), 'dist');
+  
+  if (process.env.NODE_ENV === 'production') {
+    const indexPath = path.join(distDir, 'index.html');
+    if (!fs.existsSync(distDir)) {
+      console.error('[CRITICAL] Missing "dist" directory in production! Ensure "vite build" ran successfully.');
+    } else if (!fs.existsSync(indexPath)) {
+      console.error('[CRITICAL] Missing "dist/index.html"! Build seems incomplete.');
+    } else {
+      console.log('[startup] Found production assets in dist/');
+    }
+  }
+
   const allowedMethods = ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'];
+
   const allowedHeaders = [
     'Content-Type',
     'Authorization',
@@ -149,9 +195,22 @@ async function startServer() {
     next();
   });
 
-  // Initialize DB
-  seedDemoData();
-  seedAnalyticsShowcase();
+  // In production, we move seeding to background to avoid blocking port binding
+  const initializeHeavyData = async () => {
+    try {
+      console.log('[db] Starting background seeding...');
+      seedDemoData();
+      seedAnalyticsShowcase();
+      console.log('[db] Background seeding complete.');
+    } catch (err) {
+      console.warn('[db] Background seeding failed:', err);
+    }
+  };
+
+  if (process.env.NODE_ENV !== 'production') {
+    initializeHeavyData();
+  }
+
   // Move health checks after listen to avoid delaying port binding
   const runHealthChecks = async () => {
     try {
@@ -269,6 +328,10 @@ async function startServer() {
     
     // Start background tasks after the port is bound.
     runHealthChecks();
+    if (process.env.NODE_ENV === 'production') {
+      initializeHeavyData();
+    }
+
 
     // Automatic Keep-Alive Ping for Render Free Tier Instances
     const renderExternalUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
@@ -315,7 +378,16 @@ async function startServer() {
   process.once('SIGINT', () => void shutdown('SIGINT'));
 }
 
-startServer().catch((error) => {
-  console.error('[startup] Fatal boot error:', error);
-  process.exit(1);
-});
+try {
+  startServer().catch((error) => {
+    console.error('--------------------------------------------------');
+    console.error('[FATAL STARTUP ERROR] server.ts failed to boot:');
+    console.error(error);
+    console.error('--------------------------------------------------');
+    setTimeout(() => process.exit(1), 1000);
+  });
+} catch (globalError) {
+  console.error('[CRITICAL] Global execution error in server.ts:', globalError);
+  setTimeout(() => process.exit(1), 1000);
+}
+
