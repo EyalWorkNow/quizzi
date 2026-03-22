@@ -9,16 +9,33 @@ function resolveSqliteDbPath() {
   const explicitPath = String(process.env.SQLITE_DB_PATH || process.env.QUIZZI_SQLITE_PATH || '').trim();
   const renderDiskPath = String(process.env.RENDER_DISK_PATH || '').trim();
   const varDataPath = fs.existsSync('/var/data') ? '/var/data/quizzi.db' : '';
-  const candidate = explicitPath
+
+  let candidate = explicitPath
     ? path.resolve(explicitPath)
     : renderDiskPath
       ? path.resolve(renderDiskPath, 'quizzi.db')
       : varDataPath || cwdDbPath;
 
   const targetDirectory = path.dirname(candidate);
-  if (targetDirectory && !fs.existsSync(targetDirectory)) {
-    fs.mkdirSync(targetDirectory, { recursive: true });
+
+  // If we decided to use a dedicated directory, verify we can actually use it
+  if (targetDirectory && targetDirectory !== process.cwd()) {
+    try {
+      if (!fs.existsSync(targetDirectory)) {
+        console.log(`[db] Attempting to create target directory: ${targetDirectory}`);
+        fs.mkdirSync(targetDirectory, { recursive: true });
+      }
+      // Quick write test
+      const testFile = path.join(targetDirectory, '.write-test');
+      fs.writeFileSync(testFile, 'test');
+      fs.unlinkSync(testFile);
+    } catch (error: any) {
+      console.warn(`[db] Target directory ${targetDirectory} is not writable: ${error.message}. Falling back to default.`);
+      candidate = cwdDbPath;
+    }
   }
+
+  console.log(`[db] Final SQLite candidate path: ${candidate}`);
 
   if (candidate !== cwdDbPath && !fs.existsSync(candidate) && fs.existsSync(cwdDbPath)) {
     try {
