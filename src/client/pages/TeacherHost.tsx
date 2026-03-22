@@ -914,15 +914,18 @@ export default function TeacherHost() {
                       </div>
                     </div>
 
-                    <div className="rounded-[1.8rem] border-2 border-brand-dark bg-brand-bg p-4 sm:p-5 mb-5 overflow-hidden">
-                      <div className="grid grid-cols-6 gap-2 sm:gap-3 w-full max-w-[560px] mx-auto">
+                    <div className="rounded-[2.5rem] border-4 border-brand-dark bg-brand-purple p-6 sm:p-8 mb-6 overflow-hidden shadow-[16px_16px_0px_0px_#1A1A1A]">
+                      <div className="grid grid-cols-6 gap-3 sm:gap-5 w-full max-w-[800px] mx-auto">
                         {String(pin || '').split('').map((digit, index) => (
-                          <div
+                          <motion.div
                             key={`${digit}-${index}`}
-                            className="aspect-square min-h-[72px] rounded-[1.2rem] bg-white border-2 border-brand-dark flex items-center justify-center text-3xl sm:text-4xl font-black shadow-[3px_3px_0px_0px_#1A1A1A]"
+                            initial={{ y: 20, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            transition={{ delay: index * 0.1 }}
+                            className="aspect-square min-h-[90px] sm:min-h-[120px] rounded-[1.5rem] bg-white border-4 border-brand-dark flex items-center justify-center text-5xl sm:text-7xl font-black shadow-[6px_6px_0px_0px_#1A1A1A]"
                           >
                             {digit}
-                          </div>
+                          </motion.div>
                         ))}
                       </div>
                     </div>
@@ -1182,22 +1185,22 @@ export default function TeacherHost() {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="bg-white px-6 py-5 shadow-sm flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-slate-200 z-10">
-          <div className="flex flex-wrap items-center gap-4">
+        <div className="bg-white px-8 py-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between border-b-4 border-brand-dark z-10">
+          <div className="flex flex-wrap items-center gap-5">
             <button
               onClick={handleEndSession}
-              className="flex items-center gap-2 text-slate-400 hover:text-rose-500 font-bold transition-colors"
+              className="flex items-center gap-3 text-brand-dark/40 hover:text-rose-500 font-black transition-colors text-lg"
             >
-              <XCircle className="w-6 h-6" />
+              <XCircle className="w-7 h-7" />
               End Game
             </button>
-            <div className="text-slate-500 font-bold text-xl bg-slate-100 px-6 py-2 rounded-xl">
+            <div className="text-brand-dark font-black text-2xl bg-brand-bg px-8 py-3 rounded-2xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
               Question {questionIndex + 1} of {pack?.questions?.length}
             </div>
-            <div className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
+            <div className={`px-6 py-3 rounded-full border-2 border-brand-dark font-black text-lg ${gameTone.pill}`}>
               {gameMode.label}
             </div>
-            <div className="px-4 py-2 rounded-full bg-slate-900 text-white font-black text-sm">
+            <div className="px-6 py-3 rounded-full bg-brand-dark text-white font-black text-lg border-2 border-brand-dark">
               {stageLabel}
             </div>
           </div>
@@ -1249,45 +1252,45 @@ export default function TeacherHost() {
           </div>
 
           <motion.div
-            initial={{ scale: 0.96, opacity: 0 }}
+            initial={{ scale: 0.98, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="w-full mb-8 rounded-[2.4rem] border-2 border-slate-200 bg-white p-6 sm:p-8 relative overflow-hidden"
+            className="w-full mb-10 rounded-[3.5rem] border-4 border-brand-dark bg-white p-8 sm:p-12 lg:p-16 relative overflow-hidden shadow-[20px_20px_0px_0px_#1A1A1A]"
           >
             {/* NEW: Engagement Progress Bar */}
-            <div className="absolute top-0 left-0 w-full h-2 bg-slate-100">
+            <div className="absolute top-0 left-0 w-full h-4 bg-brand-dark/5">
               <motion.div 
                 initial={{ width: 0 }}
                 animate={{ width: `${participants.length > 0 ? (totalAnswers / participants.length) * 100 : 0}%` }}
-                className="h-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]"
+                className="h-full bg-brand-purple shadow-[0_0_20px_rgba(155,81,224,0.3)]"
                 transition={{ type: 'spring', stiffness: 50, damping: 15 }}
               />
             </div>
 
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="min-w-0">
-                <div className="flex flex-wrap gap-2 mb-4">
-                  <span className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-[0.2em] ${gameTone.pill}`}>
+            <div className="flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap gap-3 mb-6">
+                  <span className={`px-4 py-2 rounded-full text-sm font-black uppercase tracking-[0.2em] ${gameTone.pill}`}>
                     {gameMode.shortLabel}
                   </span>
-                  <span className="px-3 py-2 rounded-full bg-slate-100 text-slate-700 text-xs font-black uppercase tracking-[0.2em]">
+                  <span className="px-4 py-2 rounded-full bg-brand-bg text-brand-dark border-2 border-brand-dark text-sm font-black uppercase tracking-[0.2em]">
                     {gameMode.researchCue}
                   </span>
                 </div>
                 <QuestionImageCard
                   imageUrl={currentQuestion?.image_url}
                   alt={currentQuestion?.prompt || 'Question image'}
-                  className="mb-4 max-w-3xl"
-                  imgClassName="max-h-[280px]"
+                  className="mb-8 max-w-4xl"
+                  imgClassName="max-h-[380px]"
                 />
-                <h2 className="text-4xl md:text-5xl font-black text-slate-900 leading-tight mb-3">
+                <h2 className="text-5xl md:text-7xl lg:text-8xl font-black text-brand-dark leading-[1.1] mb-6 tracking-tight">
                   {currentQuestion?.prompt}
                 </h2>
-                <p className="text-lg text-slate-600 font-medium max-w-3xl">
+                <p className="text-2xl text-brand-dark/50 font-black max-w-4xl">
                   {stageBody}
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 min-w-[260px]">
+              <div className="grid grid-cols-2 lg:grid-cols-1 gap-4 min-w-[280px]">
                 <HostStageMetric label="Timer" value={`${phaseTimeLeft}s`} tone="dark" />
                 <HostStageMetric label={isDiscussion ? 'First votes' : isPeerMode && !isRevote ? 'Votes' : 'Answers'} value={isDiscussion ? Object.keys(studentSelections).length : isPeerMode && !isRevote ? Object.keys(studentSelections).length : totalAnswers} tone="light" />
                 <HostStageMetric label="Players" value={participants.length} tone="light" />
@@ -1351,18 +1354,18 @@ export default function TeacherHost() {
                   animate={{ y: 0, opacity: 1 }}
                   transition={{ delay: i * 0.08 }}
                   key={i}
-                  className={`rounded-[2rem] p-8 sm:p-10 text-2xl sm:text-3xl font-bold text-center shadow-sm flex flex-col items-center justify-center min-h-[180px] relative overflow-hidden border-4 ${
-                    isDiscussion ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-200'
+                  className={`rounded-[2.5rem] p-10 sm:p-14 text-4xl sm:text-5xl font-black text-center shadow-[10px_10px_0px_0px_#1A1A1A] flex flex-col items-center justify-center min-h-[220px] relative overflow-hidden border-4 ${
+                    isDiscussion ? 'bg-brand-dark text-white border-brand-dark' : 'bg-white text-brand-dark border-brand-dark'
                   }`}
                 >
                   <div className="absolute top-0 left-0 h-full bg-brand-orange/15" style={{ width: `${selectionPct}%` }} />
-                  <div className="relative z-10">
-                    <p>{ans}</p>
-                    <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
-                      <span className={`px-4 py-2 rounded-full text-sm font-black border-2 ${isDiscussion ? 'bg-white text-slate-900 border-white' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                  <div className="relative z-10 w-full">
+                    <p className="leading-tight">{ans}</p>
+                    <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+                      <span className={`px-6 py-3 rounded-full text-xl font-black border-2 ${isDiscussion ? 'bg-white/10 text-white border-white/20' : 'bg-brand-bg text-brand-dark border-brand-dark/10'}`}>
                         {selectionCount} {selectionCount === 1 ? 'student' : 'students'}
                       </span>
-                      <span className={`px-4 py-2 rounded-full text-sm font-black border-2 ${isDiscussion ? 'bg-brand-yellow text-brand-dark border-brand-dark' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}>
+                      <span className={`px-6 py-3 rounded-full text-xl font-black border-2 ${isDiscussion ? 'bg-brand-yellow text-brand-dark border-brand-dark' : 'bg-brand-purple text-white border-brand-dark'}`}>
                         {selectionPct}%
                       </span>
                     </div>
@@ -1372,14 +1375,14 @@ export default function TeacherHost() {
                           initial={{ scale: 0, opacity: 0 }}
                           animate={{ scale: 1, opacity: 1 }}
                           exit={{ scale: 0, opacity: 0 }}
-                          className="mt-4 flex flex-wrap gap-2 justify-center"
+                          className="mt-6 flex flex-wrap gap-3 justify-center"
                         >
                           {Array.from({ length: selectionCount }).map((_, idx) => (
                             <motion.div
                               key={idx}
-                              animate={{ scale: [1, 1.2, 1] }}
-                              transition={{ repeat: Infinity, duration: 1, delay: idx * 0.18 }}
-                              className="w-4 h-4 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(79,70,229,0.5)]"
+                              animate={{ scale: [1, 1.3, 1] }}
+                              transition={{ repeat: Infinity, duration: 1.2, delay: idx * 0.15 }}
+                              className="w-5 h-5 rounded-full bg-brand-purple shadow-[0_0_12px_rgba(155,81,224,0.4)]"
                             />
                           ))}
                         </motion.div>
@@ -1399,17 +1402,17 @@ export default function TeacherHost() {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="bg-white px-8 py-6 shadow-sm flex justify-between items-center border-b border-slate-200 z-10">
-          <div className="flex items-center gap-4">
+        <div className="bg-white px-10 py-8 shadow-[0_8px_40px_rgba(0,0,0,0.06)] flex justify-between items-center border-b-4 border-brand-dark z-10">
+          <div className="flex items-center gap-6">
             <button
               onClick={handleEndSession}
-              className="flex items-center gap-2 text-slate-400 hover:text-rose-500 font-bold transition-colors"
+              className="flex items-center gap-3 text-brand-dark/30 hover:text-rose-500 font-black transition-colors text-xl"
             >
-              <XCircle className="w-6 h-6" />
+              <XCircle className="w-8 h-8" />
               End Game
             </button>
-            <div className="text-slate-500 font-bold text-xl bg-slate-100 px-6 py-2 rounded-xl">Results</div>
-            <div className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
+            <div className="text-brand-dark font-black text-3xl bg-brand-bg px-8 py-3 rounded-2xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">Results</div>
+            <div className={`px-6 py-3 rounded-full border-2 border-brand-dark font-black text-xl shadow-[4px_4px_0px_0px_#1A1A1A] ${gameTone.pill}`}>
               {gameMode.label}
             </div>
           </div>
@@ -1418,9 +1421,9 @@ export default function TeacherHost() {
             whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
             onClick={() => updateState('LEADERBOARD', questionIndex)}
             disabled={phaseTransitionPending}
-            className="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold text-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-[0_4px_0_0_#4338ca] active:shadow-none active:translate-y-1"
+            className="bg-brand-dark text-white px-12 py-5 rounded-[1.5rem] font-black text-2xl hover:bg-brand-dark/90 transition-all flex items-center gap-4 shadow-[8px_8px_0px_0px_#FF5A36] disabled:opacity-50"
           >
-            {phaseTransitionPending ? 'Working...' : 'Next'} <ChevronRight className="w-6 h-6" />
+            {phaseTransitionPending ? 'Working...' : 'Next Phase'} <ChevronRight className="w-8 h-8" />
           </motion.button>
         </div>
 
@@ -1450,14 +1453,14 @@ export default function TeacherHost() {
           <motion.h2
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className="text-4xl font-black text-center text-slate-900 mb-12 bg-white px-10 py-6 rounded-3xl shadow-sm border border-slate-200"
+            className="text-5xl md:text-7xl lg:text-8xl font-black text-center text-brand-dark leading-[1.05] tracking-tight mb-14 bg-white px-12 py-10 rounded-[3.5rem] shadow-[24px_24px_0px_0px_#1A1A1A] border-4 border-brand-dark w-full"
           >
             {currentQuestion?.prompt}
           </motion.h2>
 
           <div
-            className="grid gap-6 w-full mb-12"
-            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
+            className="grid gap-8 w-full mb-16"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}
           >
             {currentAnswers.map((ans: string, i: number) => {
               const isCorrect = i === currentQuestion.correct_index;
@@ -1468,17 +1471,17 @@ export default function TeacherHost() {
                   animate={{ scale: 1, opacity: 1 }}
                   transition={{ delay: i * 0.1 }}
                   key={i}
-                  className={`rounded-[2rem] p-10 text-3xl font-bold text-center shadow-sm flex flex-col items-center justify-center gap-4 min-h-[160px] ${isCorrect ? 'bg-emerald-100 border-4 border-emerald-500 text-emerald-900 shadow-emerald-500/20 shadow-xl' : 'bg-white border-4 border-slate-200 text-slate-500'}`}
+                  className={`rounded-[2.8rem] p-12 text-4xl sm:text-5xl font-black text-center flex flex-col items-center justify-center gap-6 min-h-[200px] shadow-[12px_12px_0px_0px_#1A1A1A] ${isCorrect ? 'bg-emerald-100 border-4 border-emerald-500 text-emerald-900' : 'bg-white border-4 border-brand-dark/10 text-brand-dark/30'}`}
                 >
-                  <div className="flex items-center justify-center gap-4">
-                    {isCorrect && <CheckCircle className="w-10 h-10 text-emerald-500 flex-shrink-0" />}
+                  <div className="flex items-center justify-center gap-6 leading-tight">
+                    {isCorrect && <CheckCircle className="w-12 h-12 text-emerald-500 flex-shrink-0" />}
                     <span>{ans}</span>
                   </div>
-                  <div className="flex flex-wrap items-center justify-center gap-3 text-sm">
-                    <span className={`px-4 py-2 rounded-full border-2 font-black ${isCorrect ? 'bg-white border-emerald-300 text-emerald-800' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
+                  <div className="flex flex-wrap items-center justify-center gap-4 text-xl">
+                    <span className={`px-6 py-3 rounded-full border-2 font-black ${isCorrect ? 'bg-white border-emerald-300 text-emerald-800' : 'bg-brand-bg border-brand-dark/10 text-brand-dark/60'}`}>
                       {selectionStats.count} {selectionStats.count === 1 ? 'student' : 'students'}
                     </span>
-                    <span className={`px-4 py-2 rounded-full border-2 font-black ${isCorrect ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-white border-slate-200 text-slate-700'}`}>
+                    <span className={`px-6 py-3 rounded-full border-2 font-black ${isCorrect ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-white border-brand-dark/10 text-brand-dark/40'}`}>
                       {selectionStats.pct}%
                     </span>
                   </div>
@@ -1758,22 +1761,22 @@ function PodiumStep({
             textClassName="hidden"
           />
         </motion.div>
-        <div className="mt-4 bg-white px-6 py-2 rounded-full border-2 border-slate-200 shadow-sm">
-          <p className="text-2xl font-black text-slate-900 whitespace-nowrap">{extractNickname(participant.nickname)}</p>
+        <div className="mt-6 bg-white px-8 py-3 rounded-full border-4 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
+          <p className="text-3xl font-black text-brand-dark whitespace-nowrap">{extractNickname(participant.nickname)}</p>
         </div>
-        <p className="text-3xl font-black text-indigo-600 mt-2">{participant.total_score || 0}</p>
+        <p className="text-5xl font-black text-brand-purple mt-4 drop-shadow-sm">{participant.total_score || 0}</p>
       </div>
 
       <motion.div 
         initial={{ height: 0 }}
         animate={{ height: height.match(/\d+/) ? `${height.match(/\d+/)[0]}%` : '50%' }}
         transition={{ delay: delay + 0.3, duration: 1, ease: 'circOut' }}
-        className={`w-full ${height} ${color} rounded-t-[3rem] border-x-4 border-t-4 border-slate-900 shadow-[12px_-4px_0px_0px_rgba(0,0,0,0.1)] flex flex-col items-center justify-start pt-8 relative`}
+        className={`w-full ${height} ${color} rounded-t-[3.5rem] border-x-4 border-t-4 border-brand-dark shadow-[16px_-4px_0px_0px_rgba(0,0,0,0.1)] flex flex-col items-center justify-start pt-12 relative`}
       >
-        <div className="absolute -top-12 drop-shadow-lg scale-125">
+        <div className="absolute -top-14 drop-shadow-xl scale-[1.5]">
           {icon}
         </div>
-        <div className="text-8xl font-black text-white/40 select-none">{rank}</div>
+        <div className="text-[10rem] font-black text-white/30 select-none leading-none mt-4">{rank}</div>
       </motion.div>
     </motion.div>
   );
@@ -1819,10 +1822,10 @@ function HostStageMetric({
 }) {
   const toneClass =
     tone === 'dark'
-      ? 'bg-slate-900 text-white border-slate-900'
+      ? 'bg-brand-dark text-white border-brand-dark'
       : tone === 'warm'
         ? 'bg-brand-yellow text-brand-dark border-brand-dark'
-        : 'bg-white text-brand-dark border-slate-200';
+        : 'bg-white text-brand-dark border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]';
 
   return (
     <div className={`rounded-[1.4rem] border-2 p-4 min-h-[94px] ${toneClass}`}>
@@ -1847,10 +1850,10 @@ function HostInsightCard({
 }) {
   const accentClass =
     accent === 'amber'
-      ? 'border-amber-300 bg-amber-50 text-amber-900'
+      ? 'border-brand-dark bg-brand-yellow text-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A]'
       : accent === 'emerald'
-        ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
-        : 'border-indigo-200 bg-indigo-50 text-indigo-900';
+        ? 'border-brand-dark bg-emerald-50 text-emerald-900 shadow-[8px_8px_0px_0px_#10b98144]'
+        : 'border-brand-dark bg-brand-bg text-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A]';
 
   return (
     <div className={`rounded-[1.6rem] border-2 p-5 ${accentClass}`}>

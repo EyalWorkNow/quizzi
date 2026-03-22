@@ -1313,7 +1313,7 @@ export default function StudentPlay() {
               initial={{ y: 100, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 100, opacity: 0 }}
-              className="fixed bottom-8 left-0 right-0 flex justify-center z-50 px-6"
+              className="fixed bottom-6 left-0 right-0 flex justify-center z-50 px-6 sm:bottom-10"
             >
               <motion.button
                 whileHover={{ scale: 1.02 }}
@@ -1328,6 +1328,9 @@ export default function StudentPlay() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Scroll Spacer to prevent fixed button overlap */}
+        <div className="h-40 sm:h-48 md:h-56 w-full shrink-0" />
       </div>
     );
   }
