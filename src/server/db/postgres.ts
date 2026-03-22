@@ -178,16 +178,13 @@ export async function bootstrapPostgresSchema() {
   const client = await pool.connect();
 
   try {
-    await client.query('BEGIN');
     await applyPostgresSchema(client);
-    await client.query('COMMIT');
     return {
       ok: true,
       ...describePostgresConnection({ preferDirect: true }),
       message: 'Supabase Postgres schema is ready.',
     };
   } catch (error: any) {
-    await client.query('ROLLBACK');
     throw error;
   } finally {
     client.release();
