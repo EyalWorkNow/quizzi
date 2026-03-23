@@ -1168,46 +1168,59 @@ export default function StudentPlay() {
           </div>
         </div>
 
-        <div className="game-viewport-scroll relative z-10 pt-0">
-          <div className="game-viewport-inner">
+        <div className="game-viewport-scroll relative z-10 pt-0 pb-32">
+          <div className="mx-auto w-full max-w-4xl px-4 sm:px-6">
+            
+            {/* Top Image + Floating Question Pill */}
             <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
-              className="relative z-10 mx-auto mb-6 w-full max-w-6xl overflow-hidden rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 text-center shadow-[12px_12px_0px_0px_#1A1A1A] sm:p-8 lg:p-10"
+              className="relative z-10 mx-auto mb-10 mt-2 w-full"
             >
-            {/* Progress Bar */}
-            <div className="absolute top-0 left-0 w-full h-3 bg-brand-dark/5">
-              <motion.div
-                className={`h-full ${timeLeft < 5 ? 'bg-brand-orange' : 'bg-brand-purple'}`}
-                initial={{ width: '100%' }}
-                animate={{ width: `${(timeLeft / Math.max(1, Number(question?.time_limit_seconds || 30))) * 100}%` }}
-                transition={{ duration: 1, ease: 'linear' }}
-              />
-            </div>
-
-            <div className="flex flex-wrap justify-center gap-3 mb-6">
-              <div className={`px-4 py-1.5 rounded-full border-2 border-brand-dark text-xs font-black uppercase tracking-widest ${gameTone.pill}`}>
-                {gameMode.shortLabel}
+              <div className="relative w-full overflow-hidden rounded-[2rem] sm:rounded-[3rem] bg-brand-bg shadow-[0px_8px_24px_-10px_rgba(0,0,0,0.2)]">
+                {/* Progress Bar inside image container */}
+                <div className="absolute top-0 left-0 w-full h-1.5 bg-black/20 z-20">
+                  <motion.div
+                    className={`h-full ${timeLeft < 5 ? 'bg-brand-orange' : 'bg-brand-purple'}`}
+                    initial={{ width: '100%' }}
+                    animate={{ width: `${(timeLeft / Math.max(1, Number(question?.time_limit_seconds || 30))) * 100}%` }}
+                    transition={{ duration: 1, ease: 'linear' }}
+                  />
+                </div>
+                
+                {question?.image_url ? (
+                  <img 
+                    src={question.image_url} 
+                    alt="Question" 
+                    className="w-full h-[26vh] sm:h-[340px] object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-[20vh] sm:h-[240px] bg-gradient-to-br from-brand-purple to-brand-orange opacity-80" />
+                )}
+                
+                {/* Overlay Tags */}
+                <div className="absolute top-4 left-4 z-20 flex gap-2">
+                  <div className={`px-3 py-1 rounded-full bg-white/90 backdrop-blur-md shadow-sm text-[10px] uppercase font-black tracking-widest ${gameTone.text}`}>
+                    {gameMode.shortLabel}
+                  </div>
+                  <motion.div 
+                    animate={timeLeft <= 5 ? { scale: [1, 1.05, 1], backgroundColor: ['#FFF0ED', '#FF5A36', '#FFF0ED'], color: ['#1A1A1A', '#FFFFFF', '#1A1A1A'] } : {}}
+                    transition={{ duration: 0.6, repeat: Infinity }}
+                    className="px-3 py-1 rounded-full bg-brand-dark/80 backdrop-blur-md text-white text-[10px] font-black uppercase tracking-widest shadow-sm"
+                  >
+                    {timeLeft}s
+                  </motion.div>
+                </div>
               </div>
-              <motion.div 
-                animate={timeLeft <= 5 ? { scale: [1, 1.1, 1], backgroundColor: ['#FFF0ED', '#FF5A36', '#FFF0ED'], color: ['#1A1A1A', '#FFFFFF', '#1A1A1A'] } : {}}
-                transition={{ duration: 0.6, repeat: Infinity }}
-                className="px-4 py-1.5 rounded-full bg-brand-bg border-2 border-brand-dark text-xs font-black uppercase tracking-widest text-brand-dark/60"
-              >
-                {stageTitle} - {timeLeft}s
-              </motion.div>
-            </div>
-            
-            <QuestionImageCard
-              imageUrl={question?.image_url}
-              alt={question?.prompt || t('game.question.imageAlt')}
-              className="relative z-10 max-w-4xl mx-auto w-full mb-6"
-              imgClassName="max-h-[28vh] sm:max-h-[340px]"
-            />
-            <h2 className="text-2xl font-black leading-tight tracking-tight text-brand-dark text-balance sm:text-4xl md:text-5xl">
-              {question?.prompt}
-            </h2>
-            <p className="text-lg sm:text-xl font-bold text-brand-dark/40 max-w-3xl mx-auto">{stageBody}</p>
+
+              {/* Floating Question Pill overlapping the bottom of the image */}
+              <div className="absolute left-0 right-0 -bottom-6 sm:-bottom-8 flex justify-center px-6 z-30">
+                <div className="w-full max-w-[95%] rounded-full bg-white shadow-[0px_12px_24px_-8px_rgba(0,0,0,0.15)] px-6 py-4 sm:py-6 sm:px-8 flex items-center justify-center">
+                  <h2 className="text-xl sm:text-3xl font-black leading-tight tracking-tight text-brand-dark text-center text-balance max-w-full">
+                    {question?.prompt}
+                  </h2>
+                </div>
+              </div>
             </motion.div>
 
             <SelectedAnswerSummaryCard
@@ -1220,15 +1233,9 @@ export default function StudentPlay() {
             />
 
             {needsConfidence && (
-              <div className="relative z-10 mx-auto mb-6 w-full max-w-6xl">
-                <div className="flex flex-col gap-5 rounded-[2rem] border-4 border-brand-dark/10 bg-brand-bg/50 p-5 backdrop-blur-md md:flex-row md:items-center">
-                  <div className="flex shrink-0 items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full border-4 border-brand-dark bg-brand-purple">
-                      <Flame className="h-6 w-6 text-white" />
-                    </div>
-                    <span className="text-sm font-black uppercase tracking-widest">{t('game.student.confidence')}</span>
-                  </div>
-                  <div className="grid w-full flex-1 grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="relative z-10 mx-auto mb-6 w-full max-w-4xl mt-6">
+                <div className="flex flex-col gap-4 rounded-[2rem] bg-brand-bg/50 p-4 md:flex-row md:items-center">
+                  <div className="grid w-full grid-cols-3 gap-2">
                     {[
                       { id: 1, label: t('game.student.guess'), icon: '🤔' },
                       { id: 2, label: t('game.student.sure'), icon: '👍' },
@@ -1237,13 +1244,13 @@ export default function StudentPlay() {
                       <button
                         key={option.id}
                         onClick={() => setSelectedConfidence(option.id)}
-                        className={`rounded-2xl border-4 px-5 py-4 font-black transition-all flex items-center justify-center gap-3 ${
+                        className={`rounded-2xl px-2 py-3 font-black transition-all flex flex-col items-center justify-center gap-1 text-sm ${
                           selectedConfidence === option.id
-                            ? 'scale-[1.02] border-brand-dark bg-brand-purple text-white shadow-[4px_4px_0px_0px_#1A1A1A]'
-                            : 'border-brand-dark/10 bg-white text-brand-dark hover:border-brand-dark'
+                            ? 'scale-[1.02] bg-brand-purple text-white shadow-md'
+                            : 'bg-white text-brand-dark hover:bg-gray-50'
                         }`}
                       >
-                        <span>{option.icon}</span>
+                        <span className="text-xl mb-1">{option.icon}</span>
                         {option.label}
                       </button>
                     ))}
@@ -1252,43 +1259,32 @@ export default function StudentPlay() {
               </div>
             )}
 
-            <div
-              className="relative z-10 mx-auto mb-6 grid w-full max-w-6xl gap-4"
-              style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))' }}
-            >
+            {/* Answers Stack (Gray Pills) */}
+            <div className="relative z-10 mx-auto flex w-full flex-col gap-3 sm:gap-4 mt-8">
               <AnimatePresence mode="popLayout">
                 {question?.answers?.map((ans: string, i: number) => {
                   const isSelected = currentSelectedAnswer === i;
                   return (
                     <motion.button
                       key={`ans-${i}`}
-                      initial={{ scale: 0.94, opacity: 0 }}
+                      initial={{ scale: 0.96, opacity: 0 }}
                       animate={{
                         scale: isSelected ? 1.02 : 1,
                         opacity: 1,
-                        y: isSelected ? -4 : 0,
                       }}
                       transition={{ type: 'spring', stiffness: 300, damping: 20 }}
                       onClick={() => handleAnswerSelect(i)}
                       onMouseEnter={() => beginHoverDwell(i)}
                       onMouseLeave={() => flushHoverDwell()}
                       className={`
-                        student-answer-button group relative flex min-h-[132px] items-center justify-center rounded-[2rem] border-4 p-5 text-center text-lg font-black transition-all sm:min-h-[160px] sm:p-6 sm:text-2xl lg:min-h-[180px] lg:text-3xl
+                        group relative flex min-h-[64px] sm:min-h-[80px] w-full items-center justify-center rounded-[2rem] px-6 py-4 text-center text-lg sm:text-2xl font-black transition-all
                         ${isSelected
-                          ? 'border-brand-dark bg-brand-dark text-white shadow-[10px_10px_0px_0px_#FF5A36]'
-                          : `${COLORS[i % 4].bg} ${COLORS[i % 4].text} border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] hover:translate-x-1 hover:translate-y-1 hover:shadow-none`
+                          ? 'bg-brand-dark text-white shadow-[0px_8px_20px_rgba(0,0,0,0.25)]'
+                          : 'bg-[#B0B5BE] text-white hover:bg-[#9CA3AF] shadow-sm'
                         }
                       `}
                     >
-                      <div className="absolute left-5 top-4 text-xs font-black tracking-widest opacity-20 sm:left-6 sm:top-5">0{i + 1}</div>
                       <span className="relative z-10 break-words text-balance">{ans}</span>
-
-                      {isSelected && (
-                        <motion.div
-                          layoutId="choice-spark"
-                          className="pointer-events-none absolute inset-0 rounded-[2rem] border-[6px] border-brand-orange/30 sm:border-8"
-                        />
-                      )}
                     </motion.button>
                   );
                 })}
@@ -1297,34 +1293,25 @@ export default function StudentPlay() {
           </div>
         </div>
 
+        {/* Floating Black Pill Action Button */}
         <AnimatePresence>
           {currentSelectedAnswer !== null && !hasAnswered && (
             <motion.div
               initial={{ y: 100, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 100, opacity: 0 }}
-              className="relative z-20 shrink-0 border-t-2 border-brand-dark/10 bg-brand-bg/95 px-4 py-4 backdrop-blur sm:px-6"
+              className="fixed bottom-6 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none"
             >
-              <div className="mx-auto flex w-full max-w-6xl justify-center">
-                <motion.button
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.96 }}
-                  animate={{ 
-                    boxShadow: [
-                      '10px 10px 0px 0px #FF5A36',
-                      '14px 14px 0px 0px #FFC800',
-                      '10px 10px 0px 0px #FF5A36'
-                    ]
-                  }}
-                  transition={{ boxShadow: { duration: 2, repeat: Infinity, ease: 'easeInOut' } }}
-                  onClick={handleLockIn}
-                  className="group relative flex w-full max-w-lg items-center justify-center gap-4 overflow-hidden rounded-full border-4 border-brand-dark bg-brand-dark px-6 py-4 text-white sm:py-5"
-                >
-                  <div className="absolute inset-0 translate-y-full bg-gradient-to-r from-brand-orange to-brand-yellow opacity-20 transition-transform duration-300 group-hover:translate-y-0" />
-                  <CheckCircle className="relative z-10 h-8 w-8 text-brand-yellow sm:h-10 sm:w-10 group-hover:scale-110 transition-transform" />
-                  <span className="relative z-10 text-xl font-black sm:text-2xl">{lockLabel}</span>
-                </motion.button>
-              </div>
+              <motion.button
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
+                onClick={handleLockIn}
+                className="pointer-events-auto relative flex h-[68px] sm:h-20 w-[85%] max-w-sm items-center justify-center rounded-full bg-black shadow-[0px_16px_32px_-8px_rgba(0,0,0,0.5)] transition-transform border border-black"
+              >
+                <div className="absolute inset-0 bg-brand-yellow/10 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="relative z-10 flex h-2 sm:h-2.5 w-24 sm:w-32 items-center justify-center rounded-full bg-white transition-all group-hover:bg-brand-yellow group-hover:w-28 sm:group-hover:w-36" />
+                <span className="sr-only">{lockLabel}</span>
+              </motion.button>
             </motion.div>
           )}
         </AnimatePresence>
