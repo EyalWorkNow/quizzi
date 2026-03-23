@@ -1052,31 +1052,72 @@ export default function TeacherHost() {
 
             {/* Student Grid */}
             <div className="w-full max-h-[400px] overflow-y-auto custom-scrollbar pr-2 mb-10">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <AnimatePresence>
-                  {participants.map((participant: any, index: number) => (
-                    <motion.div
-                      key={`${participant.nickname}-${index}`}
-                      initial={{ scale: 0, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      exit={{ scale: 0, opacity: 0 }}
-                      className="bg-[#E5E7EB] rounded-full border-4 border-brand-dark px-4 py-3 flex items-center gap-3 shadow-[4px_4px_0px_0px_#1A1A1A]"
-                    >
-                      <div className="w-8 h-8 rounded-full bg-white border-2 border-brand-dark flex-shrink-0" />
-                      <div className="w-full h-2 bg-brand-dark/20 rounded-full relative overflow-hidden">
-                        <span className="absolute inset-0 flex items-center px-1 text-[10px] font-black uppercase tracking-wider truncate">
-                          {participant.nickname}
-                        </span>
+              {participants.length > 0 ? (
+                isTeamMode ? (
+                  <div className="space-y-6">
+                    {(Object.entries(groupedParticipants) as Array<[string, any[]]>).map(([teamName, members]) => (
+                      <div key={teamName} className="rounded-[2.5rem] border-[6px] border-brand-dark bg-brand-bg/50 p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                        <div className="flex items-center justify-between mb-6 px-4">
+                          <div>
+                             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Pod / Team</p>
+                             <h3 className="text-3xl font-black text-brand-dark">{teamName}</h3>
+                          </div>
+                          <span className="px-5 py-2 rounded-full bg-white border-4 border-brand-dark font-black text-lg shadow-[4px_4px_0px_0px_#1A1A1A]">
+                            {members.length}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                          <AnimatePresence>
+                            {members.map((participant: any, index: number) => (
+                              <motion.div
+                                key={`${participant.nickname}-${index}`}
+                                initial={{ scale: 0, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0, opacity: 0 }}
+                                className="bg-[#E5E7EB] rounded-full border-4 border-brand-dark px-4 py-3 flex items-center gap-3 shadow-[4px_4px_0px_0px_#1A1A1A]"
+                              >
+                                <div className="w-8 h-8 rounded-full bg-white border-2 border-brand-dark flex-shrink-0 flex items-center justify-center font-black text-xs text-brand-dark">
+                                  {participant.seat_index || index + 1}
+                                </div>
+                                <div className="w-full h-2 bg-brand-dark/20 rounded-full relative overflow-hidden">
+                                  <span className="absolute inset-0 flex items-center px-1 text-[10px] font-black uppercase tracking-wider truncate text-brand-dark">
+                                    {participant.nickname}
+                                  </span>
+                                </div>
+                              </motion.div>
+                            ))}
+                          </AnimatePresence>
+                        </div>
                       </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-                {participants.length === 0 && (
-                  <div className="col-span-full py-10 text-center">
-                    <p className="text-xl font-black text-brand-dark/30 uppercase tracking-widest">Waiting for students...</p>
+                    ))}
                   </div>
-                )}
-              </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <AnimatePresence>
+                      {participants.map((participant: any, index: number) => (
+                        <motion.div
+                          key={`${participant.nickname}-${index}`}
+                          initial={{ scale: 0, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          exit={{ scale: 0, opacity: 0 }}
+                          className="bg-[#E5E7EB] rounded-full border-4 border-brand-dark px-4 py-3 flex items-center gap-3 shadow-[4px_4px_0px_0px_#1A1A1A]"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-white border-2 border-brand-dark flex-shrink-0" />
+                          <div className="w-full h-2 bg-brand-dark/20 rounded-full relative overflow-hidden">
+                            <span className="absolute inset-0 flex items-center px-1 text-[10px] font-black uppercase tracking-wider truncate text-brand-dark">
+                              {participant.nickname}
+                            </span>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
+                  </div>
+                )
+              ) : (
+                <div className="col-span-full py-10 text-center">
+                  <p className="text-xl font-black text-brand-dark/30 uppercase tracking-widest">Waiting for students...</p>
+                </div>
+              )}
             </div>
 
             {/* Action Bar */}
@@ -1248,6 +1289,53 @@ export default function TeacherHost() {
               );
             })}
           </div>
+
+          {/* Restored Host Insights Data Row */}
+          {liveHostInsights && !isDiscussion && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 mt-8 w-full shrink-0 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-16">
+              <HostInsightCard
+                title="Room Pulse"
+                accent="indigo"
+                compact
+                value={`${liveHostInsights.participationPct}%`}
+                body={`${liveHostInsights.answeredCount} students committed.`}
+              />
+              <HostInsightCard
+                title="Lead Signal"
+                compact
+                accent={
+                  liveHostInsights.leader &&
+                  currentQuestion &&
+                  liveHostInsights.leader.index !== Number(currentQuestion.correct_index) &&
+                  liveHostInsights.leader.pct >= 45
+                     ? 'amber'
+                     : 'emerald'
+                }
+                value={
+                  liveHostInsights.leader
+                    ? `${formatAnswerSlotLabel(liveHostInsights.leader.index)} · ${liveHostInsights.leader.pct}%`
+                    : 'Waiting'
+                }
+                body={
+                  liveHostInsights.runnerUp
+                    ? `Runner up: ${formatAnswerSlotLabel(liveHostInsights.runnerUp.index)} · ${liveHostInsights.runnerUp.pct}%`
+                    : 'No clear pattern yet.'
+                }
+              />
+              <HostInsightCard
+                title={liveHostInsights.primaryCue.title}
+                compact
+                accent={
+                  liveHostInsights.primaryCue.tone === 'warning'
+                    ? 'amber'
+                    : liveHostInsights.primaryCue.tone === 'success'
+                      ? 'emerald'
+                      : 'indigo'
+                }
+                body={liveHostInsights.primaryCue.body}
+              />
+            </div>
+          )}
         </div>
 
         {/* BOTTOM FLOATING ACTION BUTTON (Mapped to Next Phase) */}
