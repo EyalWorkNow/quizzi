@@ -2293,7 +2293,7 @@ export default function TeacherAnalytics() {
                   <p className="font-bold text-brand-dark/60 mt-1">{t('Jump to the next teaching decision instead of scanning the whole page.')}</p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {quickNavigationCards.map((card) => (
                   <React.Fragment key={card.id}>
                     <QuickNavCard
@@ -3077,7 +3077,7 @@ export default function TeacherAnalytics() {
                   </span>
                 ))}
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <SignalPill label="Teams" value={teams.length || data?.summary?.team_count || 0} />
                 <SignalPill label="Mode Type" value={gameMode.teamBased ? 'Group' : 'Solo'} />
                 <SignalPill label="Rows" value={researchRows.length} />
@@ -3264,7 +3264,7 @@ export default function TeacherAnalytics() {
                     </div>
                     <SignalPill label="Std Dev" value={metric.summary?.stddev ?? 0} />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <SignalPill label="Median" value={metric.summary?.median ?? 0} />
                     <SignalPill label="P25" value={metric.summary?.p25 ?? 0} />
                     <SignalPill label="P75" value={metric.summary?.p75 ?? 0} />
@@ -3319,13 +3319,13 @@ export default function TeacherAnalytics() {
 
               {selectedStudent ? (
                 <>
-                  <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                     <MiniMetric label="Accuracy" value={`${selectedStudent.accuracy.toFixed(0)}%`} />
                     <MiniMetric label="Stress" value={`${selectedStudent.stress_index.toFixed(0)}%`} />
                     <MiniMetric label="Confidence" value={`${selectedStudent.confidence_score || 0}`} />
                     <MiniMetric label="Focus" value={`${selectedStudent.focus_score || 0}`} />
                   </div>
-                  <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                     <MiniMetric label="1st Choice" value={`${Number(selectedStudent.first_choice_accuracy || 0).toFixed(0)}%`} />
                     <MiniMetric label="Recovery" value={`${Number(selectedStudent.recovery_rate || 0).toFixed(0)}%`} />
                     <MiniMetric label="Commit" value={formatMs(Number(selectedStudent.avg_commitment_latency_ms || 0))} />

@@ -714,7 +714,7 @@ export default function TeacherDashboard() {
                   <div key={`skeleton-${index}`} className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[6px_6px_0px_0px_#1A1A1A] min-h-[320px] animate-pulse">
                     <div className="h-6 w-24 rounded-full bg-brand-bg mb-4" />
                     <div className="h-12 rounded-2xl bg-brand-bg mb-5" />
-                    <div className="grid grid-cols-2 gap-3 mb-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
                       <div className="h-16 rounded-2xl bg-brand-bg" />
                       <div className="h-16 rounded-2xl bg-brand-bg" />
                       <div className="h-16 rounded-2xl bg-brand-bg" />

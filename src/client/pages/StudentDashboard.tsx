@@ -287,7 +287,7 @@ export default function StudentDashboard() {
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 mb-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
                 <InsightTile
                   label="Active Days"
                   value={`${engagement.active_days_7d || 0}/${engagement.weekly_goal?.active_days_target || 3}`}
@@ -367,7 +367,7 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <HeroMetric label="Total Score" value={totalScore} tone="orange" />
               <HeroMetric label="Accuracy" value={`${Number(overall?.stats?.accuracy || 0).toFixed(0)}%`} tone="yellow" />
               <HeroMetric label="Confidence" value={confidenceScore} tone="white" />
@@ -432,7 +432,7 @@ export default function StudentDashboard() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <InsightTile
                   label="Games Played"
                   value={sessionHistory.length || Number(overall?.stats?.total_answers ? 1 : 0)}
@@ -550,7 +550,7 @@ export default function StudentDashboard() {
                         <MiniPill label="Stress" value={`${Number(session.avg_stress || 0).toFixed(0)}%`} />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <MetricStrip label="Commit Window" value={`${(Number(session.avg_commit_window_ms || 0) / 1000).toFixed(1)}s`} />
                       <MetricStrip label="Focus Events" value={session.focus_events} />
                     </div>
@@ -668,7 +668,7 @@ export default function StudentDashboard() {
                       {question.status === 'missed' ? 'Immediate review' : 'Stabilize this answer'}
                     </p>
                     <p className="text-xl font-black mb-3">Q{question.question_index}. {question.prompt}</p>
-                    <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                       <MetricStrip label="Stress" value={`${Number(question.stress_index || 0).toFixed(0)}%`} />
                       <MetricStrip label="Swaps" value={question.total_swaps} />
                     </div>

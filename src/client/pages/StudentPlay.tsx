@@ -1151,10 +1151,16 @@ export default function StudentPlay() {
             )}
           </div>
 
-          <div className="flex items-center gap-3 rounded-2xl border-4 border-brand-dark bg-white px-5 py-3 shadow-[6px_6px_0px_0px_#1A1A1A] sm:px-8 sm:py-3.5">
+          <motion.div 
+            key={`score-${score}`}
+            initial={{ scale: 1.2, rotate: -5 }}
+            animate={{ scale: 1, rotate: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 15 }}
+            className="flex items-center gap-3 rounded-2xl border-4 border-brand-dark bg-white px-5 py-3 shadow-[6px_6px_0px_0px_#1A1A1A] sm:px-8 sm:py-3.5"
+          >
             <Trophy className="h-7 w-7 fill-current text-brand-yellow sm:h-8 sm:w-8" />
             <span className="font-black text-xl sm:text-2xl">{score}</span>
-          </div>
+          </motion.div>
 
           <div className={`flex min-w-0 items-center gap-3 rounded-2xl border-4 border-brand-dark px-4 py-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:px-6 sm:py-3.5 ${connectionState === 'live' ? 'bg-white' : 'bg-brand-yellow'}`}>
             {connectionState === 'live' ? <Wifi className="h-5 w-5 shrink-0 text-emerald-600 sm:h-6 sm:w-6" /> : connectionState === 'fallback' ? <WifiOff className="h-5 w-5 shrink-0 text-brand-dark sm:h-6 sm:w-6" /> : <LoaderCircle className="h-5 w-5 shrink-0 animate-spin text-brand-dark sm:h-6 sm:w-6" />}
@@ -1183,9 +1189,13 @@ export default function StudentPlay() {
               <div className={`px-4 py-1.5 rounded-full border-2 border-brand-dark text-xs font-black uppercase tracking-widest ${gameTone.pill}`}>
                 {gameMode.shortLabel}
               </div>
-              <div className="px-4 py-1.5 rounded-full bg-brand-bg border-2 border-brand-dark text-xs font-black uppercase tracking-widest text-brand-dark/60">
-                {stageTitle}
-              </div>
+              <motion.div 
+                animate={timeLeft <= 5 ? { scale: [1, 1.1, 1], backgroundColor: ['#FFF0ED', '#FF5A36', '#FFF0ED'], color: ['#1A1A1A', '#FFFFFF', '#1A1A1A'] } : {}}
+                transition={{ duration: 0.6, repeat: Infinity }}
+                className="px-4 py-1.5 rounded-full bg-brand-bg border-2 border-brand-dark text-xs font-black uppercase tracking-widest text-brand-dark/60"
+              >
+                {stageTitle} - {timeLeft}s
+              </motion.div>
             </div>
             
             <QuestionImageCard
@@ -1297,13 +1307,21 @@ export default function StudentPlay() {
             >
               <div className="mx-auto flex w-full max-w-6xl justify-center">
                 <motion.button
-                  whileHover={{ scale: 1.01 }}
-                  whileTap={{ scale: 0.98 }}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.96 }}
+                  animate={{ 
+                    boxShadow: [
+                      '10px 10px 0px 0px #FF5A36',
+                      '14px 14px 0px 0px #FFC800',
+                      '10px 10px 0px 0px #FF5A36'
+                    ]
+                  }}
+                  transition={{ boxShadow: { duration: 2, repeat: Infinity, ease: 'easeInOut' } }}
                   onClick={handleLockIn}
-                  className="group relative flex w-full max-w-lg items-center justify-center gap-4 overflow-hidden rounded-full border-4 border-brand-dark bg-brand-dark px-6 py-4 text-white shadow-[10px_10px_0px_0px_#FF5A36] sm:py-5"
+                  className="group relative flex w-full max-w-lg items-center justify-center gap-4 overflow-hidden rounded-full border-4 border-brand-dark bg-brand-dark px-6 py-4 text-white sm:py-5"
                 >
-                  <div className="absolute inset-0 translate-y-full bg-brand-orange/10 transition-transform duration-300 group-hover:translate-y-0" />
-                  <CheckCircle className="relative z-10 h-8 w-8 text-brand-yellow sm:h-10 sm:w-10" />
+                  <div className="absolute inset-0 translate-y-full bg-gradient-to-r from-brand-orange to-brand-yellow opacity-20 transition-transform duration-300 group-hover:translate-y-0" />
+                  <CheckCircle className="relative z-10 h-8 w-8 text-brand-yellow sm:h-10 sm:w-10 group-hover:scale-110 transition-transform" />
                   <span className="relative z-10 text-xl font-black sm:text-2xl">{lockLabel}</span>
                 </motion.button>
               </div>
