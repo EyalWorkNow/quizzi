@@ -4,9 +4,16 @@ import {
   ArrowUpLeft,
   ArrowUpRight,
   BrainCircuit,
+  Download,
   RefreshCw,
   Trash2,
   AlertTriangle,
+  FileSpreadsheet,
+  Clock3,
+  Gauge,
+  TrendingUp,
+  TrendingDown,
+  Users,
 } from 'lucide-react';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
 import { apiFetchJson } from '../lib/api.ts';
@@ -46,6 +53,19 @@ const REPORTS_COPY = {
       stress: 'Stress',
       action: 'Action',
     },
+    timelineTitle: 'Class Timeline',
+    timelineSubtitle: 'Read the sequence of your recent runs, not just the last one.',
+    exportTitle: 'Gradebook Export Center',
+    exportSubtitle: 'Download a clean LMS-ready gradebook for any completed session.',
+    exportSessionLabel: 'Session',
+    exportProviderLabel: 'Format',
+    exportButton: 'Download gradebook',
+    exportReady: 'Gradebook ready',
+    exportNotes: 'Import notes',
+    timelineRisk: 'Needs reteach',
+    timelineWatch: 'Watch closely',
+    timelineStrong: 'Strong run',
+    exportError: 'Failed to export the gradebook. Try again.',
   },
   he: {
     title: 'דוחות',
@@ -80,6 +100,19 @@ const REPORTS_COPY = {
       stress: 'לחץ',
       action: 'פעולה',
     },
+    timelineTitle: 'ציר זמן כיתתי',
+    timelineSubtitle: 'קריאת רצף הסשנים האחרונים, לא רק הסשן האחרון.',
+    exportTitle: 'מרכז ייצוא לציונים',
+    exportSubtitle: 'הורד קובץ ציונים נקי ומוכן ל־LMS לכל סשן שהושלם.',
+    exportSessionLabel: 'סשן',
+    exportProviderLabel: 'פורמט',
+    exportButton: 'הורד גיליון ציונים',
+    exportReady: 'קובץ הציונים מוכן',
+    exportNotes: 'הערות לייבוא',
+    timelineRisk: 'דורש הוראה מחדש',
+    timelineWatch: 'דורש מעקב',
+    timelineStrong: 'ריצה חזקה',
+    exportError: 'ייצוא גיליון הציונים נכשל. נסה שוב.',
   },
   ar: {
     title: 'التقارير',
@@ -114,8 +147,78 @@ const REPORTS_COPY = {
       stress: 'الضغط',
       action: 'إجراء',
     },
+    timelineTitle: 'الخط الزمني للفصل',
+    timelineSubtitle: 'اقرأ تسلسل الجلسات الأخيرة، وليس آخر جلسة فقط.',
+    exportTitle: 'مركز تصدير الدرجات',
+    exportSubtitle: 'نزّل ملف درجات جاهز للـ LMS لأي جلسة مكتملة.',
+    exportSessionLabel: 'الجلسة',
+    exportProviderLabel: 'الصيغة',
+    exportButton: 'تنزيل ملف الدرجات',
+    exportReady: 'ملف الدرجات جاهز',
+    exportNotes: 'ملاحظات الاستيراد',
+    timelineRisk: 'يحتاج إعادة شرح',
+    timelineWatch: 'يحتاج متابعة',
+    timelineStrong: 'جلسة قوية',
+    exportError: 'فشل تصدير ملف الدرجات. حاول مرة أخرى.',
   },
 } as const;
+
+const LMS_PROVIDER_OPTIONS = [
+  {
+    id: 'generic_csv',
+    label: { en: 'Generic CSV', he: 'CSV כללי', ar: 'CSV عام' },
+    hint: {
+      en: 'Best when you want the richest raw sheet for manual LMS mapping.',
+      he: 'הכי טוב כשצריך גיליון עשיר למיפוי ידני ל־LMS.',
+      ar: 'الأفضل عندما تحتاج ملفًا غنيًا للربط اليدوي مع نظام إدارة التعلم.',
+    },
+  },
+  {
+    id: 'canvas',
+    label: { en: 'Canvas', he: 'Canvas', ar: 'Canvas' },
+    hint: {
+      en: 'Canvas-shaped columns for lecturer import workflows.',
+      he: 'עמודות תואמות Canvas לזרימת ייבוא מרצה.',
+      ar: 'أعمدة مهيأة لتدفقات الاستيراد في Canvas.',
+    },
+  },
+  {
+    id: 'moodle',
+    label: { en: 'Moodle', he: 'Moodle', ar: 'Moodle' },
+    hint: {
+      en: 'Moodle-friendly grade and feedback columns.',
+      he: 'עמודות ציונים ומשוב מותאמות Moodle.',
+      ar: 'أعمدة درجات وملاحظات ملائمة لـ Moodle.',
+    },
+  },
+  {
+    id: 'blackboard',
+    label: { en: 'Blackboard', he: 'Blackboard', ar: 'Blackboard' },
+    hint: {
+      en: 'Grade Center style CSV for Blackboard workflows.',
+      he: 'CSV בסגנון Grade Center ל־Blackboard.',
+      ar: 'ملف CSV بأسلوب Grade Center لـ Blackboard.',
+    },
+  },
+] as const;
+
+function downloadTextFile(filename: string, content: string, mimeType = 'text/csv;charset=utf-8;') {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function getTimelineTone(row: any) {
+  const accuracy = Number(row?.avg_accuracy || 0);
+  const stress = Number(row?.stress_index || 0);
+  if (accuracy >= 80 && stress < 35) return 'strong';
+  if (accuracy < 60 || stress >= 55) return 'risk';
+  return 'watch';
+}
 
 export default function TeacherReports() {
   const navigate = useNavigate();
@@ -128,6 +231,11 @@ export default function TeacherReports() {
   const [pendingDeleteName, setPendingDeleteName] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [selectedExportSessionId, setSelectedExportSessionId] = useState<number | ''>('');
+  const [selectedExportProviderId, setSelectedExportProviderId] = useState('generic_csv');
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const [lastExportMeta, setLastExportMeta] = useState<null | { filename: string; providerLabel: string; notes: string[] }>(null);
 
   const copy = REPORTS_COPY[language as keyof typeof REPORTS_COPY] || REPORTS_COPY.en;
   const isRtl = direction === 'rtl';
@@ -149,6 +257,18 @@ export default function TeacherReports() {
   useEffect(() => {
     void loadReport();
   }, [loadReport]);
+
+  useEffect(() => {
+    const recentSessions = Array.isArray(report?.recent_sessions) ? report.recent_sessions : [];
+    if (!recentSessions.length) {
+      setSelectedExportSessionId('');
+      return;
+    }
+    if (selectedExportSessionId && recentSessions.some((row: any) => Number(row.session_id) === Number(selectedExportSessionId))) {
+      return;
+    }
+    setSelectedExportSessionId(Number(recentSessions[0].session_id));
+  }, [report, selectedExportSessionId]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!pendingDeleteId) return;
@@ -214,6 +334,55 @@ export default function TeacherReports() {
     ],
     [copy, report],
   );
+
+  const timelineRows = useMemo(
+    () =>
+      (Array.isArray(report?.recent_sessions) ? report.recent_sessions : []).map((row: any) => {
+        const tone = getTimelineTone(row);
+        return {
+          ...row,
+          tone,
+          toneLabel:
+            tone === 'strong'
+              ? copy.timelineStrong
+              : tone === 'risk'
+                ? copy.timelineRisk
+                : copy.timelineWatch,
+        };
+      }),
+    [copy.timelineRisk, copy.timelineStrong, copy.timelineWatch, report],
+  );
+
+  const selectedExportSession = useMemo(
+    () =>
+      timelineRows.find((row: any) => Number(row.session_id) === Number(selectedExportSessionId)) || timelineRows[0] || null,
+    [selectedExportSessionId, timelineRows],
+  );
+
+  const providerOption = useMemo(
+    () => LMS_PROVIDER_OPTIONS.find((option) => option.id === selectedExportProviderId) || LMS_PROVIDER_OPTIONS[0],
+    [selectedExportProviderId],
+  );
+
+  const handleDownloadGradebook = useCallback(async () => {
+    if (!selectedExportSession) return;
+    setIsExporting(true);
+    setExportError('');
+    try {
+      const payload = await apiFetchJson(`/api/teacher/sessions/${selectedExportSession.session_id}/lms-export?provider=${encodeURIComponent(selectedExportProviderId)}`);
+      downloadTextFile(payload.filename || `session-${selectedExportSession.session_id}.csv`, payload.csv || '');
+      setLastExportMeta({
+        filename: payload.filename || `session-${selectedExportSession.session_id}.csv`,
+        providerLabel: payload.provider_label || providerOption.label[language as keyof typeof providerOption.label] || providerOption.label.en,
+        notes: Array.isArray(payload.notes) ? payload.notes : [],
+      });
+    } catch (downloadError: any) {
+      console.error('[TeacherReports] Gradebook export failed:', downloadError);
+      setExportError(downloadError?.message || copy.exportError);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [copy.exportError, language, providerOption.label, selectedExportProviderId, selectedExportSession]);
 
   return (
     <div
@@ -289,6 +458,160 @@ export default function TeacherReports() {
                   ))}
                 </div>
               )}
+
+              <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6 mb-8">
+                <div className="bg-white border-2 border-brand-dark rounded-[2rem] shadow-[4px_4px_0px_0px_#1A1A1A] p-6">
+                  <div className={`flex items-start gap-3 mb-5 ${isRtl ? 'flex-row-reverse text-right' : ''}`}>
+                    <div className="w-12 h-12 rounded-2xl bg-brand-yellow border-2 border-brand-dark flex items-center justify-center shrink-0">
+                      <Clock3 className="w-6 h-6 text-brand-dark" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-black">{copy.timelineTitle}</h2>
+                      <p className="text-sm font-bold text-brand-dark/60 mt-1">{copy.timelineSubtitle}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {timelineRows.length > 0 ? (
+                      timelineRows.map((row: any, index: number) => (
+                        <div
+                          key={`timeline-${row.session_id}`}
+                          className={`rounded-[1.5rem] border-2 border-brand-dark p-4 ${
+                            row.tone === 'strong'
+                              ? 'bg-emerald-50'
+                              : row.tone === 'risk'
+                                ? 'bg-brand-orange/10'
+                                : 'bg-brand-bg'
+                          }`}
+                        >
+                          <div className={`flex items-start gap-4 ${isRtl ? 'flex-row-reverse text-right' : ''}`}>
+                            <div className="flex flex-col items-center shrink-0">
+                              <div className={`w-4 h-4 rounded-full border-2 border-brand-dark ${
+                                row.tone === 'strong' ? 'bg-emerald-500' : row.tone === 'risk' ? 'bg-brand-orange' : 'bg-brand-yellow'
+                              }`} />
+                              {index < timelineRows.length - 1 && <div className="mt-2 w-[2px] h-12 bg-brand-dark/20" />}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className={`flex items-start justify-between gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
+                                <div className="min-w-0">
+                                  <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-purple mb-1">{row.date}</p>
+                                  <p className="text-xl font-black break-words">{row.quiz_name}</p>
+                                  <p className="text-sm font-bold text-brand-dark/60 mt-1">{row.headline}</p>
+                                </div>
+                                <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] shrink-0">
+                                  {row.toneLabel}
+                                </span>
+                              </div>
+                              <div className={`mt-4 flex flex-wrap gap-2 ${isRtl ? 'justify-end' : ''}`}>
+                                <MetricPill icon={<Users className="w-3.5 h-3.5" />} label={`${row.players} ${copy.table.players}`} />
+                                <MetricPill icon={<TrendingUp className="w-3.5 h-3.5" />} label={`${Number(row.avg_accuracy || 0).toFixed(1)}%`} />
+                                <MetricPill icon={<Gauge className="w-3.5 h-3.5" />} label={`${Number(row.stress_index || 0).toFixed(0)}% ${copy.table.stress.toLowerCase()}`} />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="font-bold text-brand-dark/55">{copy.noSessions}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-white border-2 border-brand-dark rounded-[2rem] shadow-[4px_4px_0px_0px_#1A1A1A] p-6">
+                  <div className={`flex items-start gap-3 mb-5 ${isRtl ? 'flex-row-reverse text-right' : ''}`}>
+                    <div className="w-12 h-12 rounded-2xl bg-brand-purple text-white border-2 border-brand-dark flex items-center justify-center shrink-0">
+                      <FileSpreadsheet className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-black">{copy.exportTitle}</h2>
+                      <p className="text-sm font-bold text-brand-dark/60 mt-1">{copy.exportSubtitle}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">{copy.exportSessionLabel}</label>
+                      <select
+                        value={selectedExportSessionId}
+                        onChange={(event) => setSelectedExportSessionId(Number(event.target.value))}
+                        className="w-full rounded-2xl border-2 border-brand-dark bg-brand-bg px-4 py-3 font-black"
+                        disabled={timelineRows.length === 0}
+                      >
+                        {timelineRows.map((row: any) => (
+                          <option key={`export-session-${row.session_id}`} value={row.session_id}>
+                            {row.quiz_name} • {row.date}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">{copy.exportProviderLabel}</label>
+                      <select
+                        value={selectedExportProviderId}
+                        onChange={(event) => setSelectedExportProviderId(event.target.value)}
+                        className="w-full rounded-2xl border-2 border-brand-dark bg-brand-bg px-4 py-3 font-black"
+                      >
+                        {LMS_PROVIDER_OPTIONS.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label[language as keyof typeof option.label] || option.label.en}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {selectedExportSession && (
+                      <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
+                        <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-purple mb-2">
+                          {selectedExportSession.quiz_name}
+                        </p>
+                        <p className="font-black">{providerOption.hint[language as keyof typeof providerOption.hint] || providerOption.hint.en}</p>
+                        <div className={`mt-3 flex flex-wrap gap-2 ${isRtl ? 'justify-end' : ''}`}>
+                          <MetricPill icon={<Users className="w-3.5 h-3.5" />} label={`${selectedExportSession.players} ${copy.table.players}`} />
+                          <MetricPill icon={<TrendingDown className="w-3.5 h-3.5" />} label={`${Number(selectedExportSession.avg_accuracy || 0).toFixed(1)}% ${copy.table.accuracy.toLowerCase()}`} />
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => void handleDownloadGradebook()}
+                      disabled={!selectedExportSession || isExporting}
+                      className="w-full rounded-full border-2 border-brand-dark bg-brand-orange px-5 py-4 font-black text-white shadow-[3px_3px_0px_0px_#1A1A1A] disabled:opacity-50"
+                    >
+                      <span className={`inline-flex items-center gap-2 ${isRtl ? 'flex-row-reverse' : ''}`}>
+                        <Download className="w-4 h-4" />
+                        {isExporting ? '...' : copy.exportButton}
+                      </span>
+                    </button>
+
+                    {exportError && (
+                      <p className="rounded-2xl border-2 border-brand-dark bg-brand-orange/10 px-4 py-3 text-sm font-black text-brand-dark">
+                        {exportError}
+                      </p>
+                    )}
+
+                    {lastExportMeta && (
+                      <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
+                        <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-purple mb-2">{copy.exportReady}</p>
+                        <p className="font-black">{lastExportMeta.filename}</p>
+                        <p className="text-sm font-bold text-brand-dark/60 mt-1">{lastExportMeta.providerLabel}</p>
+                        {lastExportMeta.notes.length > 0 && (
+                          <div className="mt-4">
+                            <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">{copy.exportNotes}</p>
+                            <div className="space-y-2">
+                              {lastExportMeta.notes.map((note, index) => (
+                                <p key={`export-note-${index}`} className="text-sm font-bold text-brand-dark/65">
+                                  {note}
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               <div className="bg-white border-2 border-brand-dark rounded-[2rem] shadow-[4px_4px_0px_0px_#1A1A1A] overflow-hidden">
                 <div className={`p-6 border-b-2 border-brand-dark bg-slate-50 ${isRtl ? 'text-right' : ''}`}>
@@ -417,6 +740,15 @@ export default function TeacherReports() {
         </div>
       </main>
     </div>
+  );
+}
+
+function MetricPill({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-xs font-black">
+      {icon}
+      {label}
+    </span>
   );
 }
 

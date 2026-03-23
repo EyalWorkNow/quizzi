@@ -9,3 +9,4 @@ __pycache__/
 quizzi.db*
 .env*
 !.env.example
+.playwright-cli/

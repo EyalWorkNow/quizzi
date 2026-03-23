@@ -408,6 +408,12 @@ export const UI_STRINGS: Record<AppLanguage, Record<string, string>> = {
     'game.leaderboard.title': 'Leaderboard',
     'game.leaderboard.checkMainScreen': 'Check the main screen!',
     'game.leaderboard.scoreLocked': 'Your score is locked in. Watch to see how the room reshuffled.',
+    'game.ended.title': 'Game finished',
+    'game.ended.body': 'This live round is wrapped. Your score is saved and your dashboard is ready for the next step.',
+    'game.ended.primary': 'Open dashboard',
+    'game.ended.secondary': 'Back home',
+    'game.ended.finalScore': 'Final score',
+    'game.ended.finalStreak': 'Final streak',
     'game.fallback.unfamiliarState': 'This game state looks unfamiliar.',
     'game.fallback.unknownStatus': 'The session reached an unexpected state. Try refreshing the page.',
     'game.student.watchHostScreen': 'Watch the host screen',
@@ -844,6 +850,12 @@ export const UI_STRINGS: Record<AppLanguage, Record<string, string>> = {
     'game.leaderboard.title': 'לוח תוצאות',
     'game.leaderboard.checkMainScreen': 'בדקו את המסך הראשי!',
     'game.leaderboard.scoreLocked': 'הניקוד שלך נסגר. צפו איך הכיתה מסתדרת מחדש.',
+    'game.ended.title': 'המשחק הסתיים',
+    'game.ended.body': 'הסשן החי הסתיים. הניקוד נשמר והדשבורד שלך מוכן לשלב הבא.',
+    'game.ended.primary': 'מעבר לדשבורד',
+    'game.ended.secondary': 'חזרה לבית',
+    'game.ended.finalScore': 'ניקוד סופי',
+    'game.ended.finalStreak': 'רצף סופי',
     'game.fallback.unfamiliarState': 'מצב המשחק הזה נראה לא מוכר.',
     'game.fallback.unknownStatus': 'הסשן הגיע למצב בלתי צפוי. נסו לרענן את הדף.',
     'game.student.watchHostScreen': 'עקבו אחרי מסך המורה',
@@ -874,6 +886,11 @@ export const UI_STRINGS: Record<AppLanguage, Record<string, string>> = {
     'host.error.notReady': 'הסשן החי עדיין לא מוכן. רעננו את החדר ונסו שוב.',
   },
   ar: {
-    // TODO: Add Arabic translations if needed
+    'game.ended.title': 'انتهت اللعبة',
+    'game.ended.body': 'انتهت الجلسة الحية. تم حفظ نتيجتك ولوحة المتابعة جاهزة للخطوة التالية.',
+    'game.ended.primary': 'افتح لوحة المتابعة',
+    'game.ended.secondary': 'العودة للرئيسية',
+    'game.ended.finalScore': 'النتيجة النهائية',
+    'game.ended.finalStreak': 'السلسلة النهائية',
   } as any
 };

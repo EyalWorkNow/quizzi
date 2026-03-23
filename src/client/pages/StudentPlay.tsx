@@ -577,6 +577,7 @@ export default function StudentPlay() {
     if (!playStateKey || isBootstrapping) return;
     if (status === 'ENDED') {
       clearPersistedStudentPlayState(playStateKey);
+      clearPendingSubmissionState();
       return;
     }
     persistStudentPlayState(playStateKey, {
@@ -1411,6 +1412,58 @@ export default function StudentPlay() {
           <div className="bg-brand-bg p-5 sm:p-8 rounded-[2rem] border-4 border-brand-dark/10">
             <p className="text-2xl sm:text-3xl text-brand-dark/80 font-bold mb-4">{t('game.leaderboard.checkMainScreen')}</p>
             <p className="text-lg sm:text-xl text-brand-dark/50 font-medium">{t('game.leaderboard.scoreLocked')}</p>
+          </div>
+        </motion.div>
+      </StudentStageViewport>
+    );
+  }
+
+  if (status === 'ENDED') {
+    return (
+      <StudentStageViewport
+        status={status}
+        modeConfig={modeConfig}
+        banner={<StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />}
+        maxWidthClass="max-w-3xl"
+        patterned
+      >
+        <motion.div
+          initial={{ scale: 0.94, opacity: 0, y: 24 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          transition={{ type: 'spring', bounce: 0.24 }}
+          className="relative z-10 mx-auto w-full max-w-2xl rounded-[2.2rem] border-4 border-brand-dark bg-white p-6 text-center shadow-[12px_12px_0px_0px_#1A1A1A] sm:rounded-[3rem] sm:p-8 lg:p-10"
+        >
+          <div className="mx-auto mb-6 inline-flex h-24 w-24 items-center justify-center rounded-full border-4 border-brand-dark bg-brand-yellow shadow-[8px_8px_0px_0px_#1A1A1A] sm:h-28 sm:w-28">
+            <Trophy className="h-12 w-12 text-brand-dark sm:h-14 sm:w-14" />
+          </div>
+          <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-brand-purple">{t('game.status.ended')}</p>
+          <h2 className="mb-4 text-3xl font-black tracking-tight text-brand-dark sm:text-5xl">
+            {t('game.ended.title')}
+          </h2>
+          <p className="mb-8 text-base font-bold text-brand-dark/65 sm:text-xl">
+            {t('game.ended.body')}
+          </p>
+
+          <div className="mb-8 grid grid-cols-2 gap-4">
+            <PlayerMetricCard label={t('game.ended.finalScore')} value={score} tone="dark" />
+            <PlayerMetricCard label={t('game.ended.finalStreak')} value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => navigate(`/student/dashboard/${nickname}`)}
+              className="flex-1 rounded-full border-2 border-brand-dark bg-brand-orange px-5 py-4 font-black text-white shadow-[3px_3px_0px_0px_#1A1A1A] transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none"
+            >
+              {t('game.ended.primary')}
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="flex-1 rounded-full border-2 border-brand-dark bg-white px-5 py-4 font-black text-brand-dark shadow-[3px_3px_0px_0px_#1A1A1A] transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none"
+            >
+              {t('game.ended.secondary')}
+            </button>
           </div>
         </motion.div>
       </StudentStageViewport>

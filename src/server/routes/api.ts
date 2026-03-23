@@ -13,6 +13,7 @@ import { broadcastToSession, registerSseClient } from '../services/sseHub.js';
 import { buildRateLimitKey, checkRateLimit, isTrustedOrigin } from '../services/requestGuards.js';
 import { createBoundedTaskGate, defaultTaskConcurrency, envTaskConcurrency } from '../services/taskGate.js';
 import { getFirebaseAdminAuth } from '../services/firebaseAdmin.js';
+import { buildLmsExport } from '../services/lmsProviders.js';
 import { GAME_MODES, getGameMode, getTeamGameModeIds, type GameModeConfig } from '../../shared/gameModes.js';
 import { buildFollowUpEnginePreview, type FollowUpPlan } from '../../shared/followUpEngine.js';
 import { sanitizeSessionSoundtrackChoice } from '../../shared/sessionSoundtracks.js';
@@ -1553,6 +1554,48 @@ function summarizeFocusTags(tags: string[]) {
   return `${tags[0]}, ${tags[1]}, and ${tags[2]}`;
 }
 
+function takeLastRows<T>(rows: T[], limit: number) {
+  if (!Array.isArray(rows)) return [];
+  if (rows.length <= limit) return rows;
+  return rows.slice(rows.length - limit);
+}
+
+async function runStudentDashboardWithFallback(payload: Record<string, any>) {
+  try {
+    return await runPythonEngine<any>('student-dashboard', payload);
+  } catch (error: any) {
+    const message = String(error?.message || '');
+    if (!message.includes('payload is too large')) {
+      throw error;
+    }
+
+    const answerQuestionIds = uniqueNumbers((Array.isArray(payload.answers) ? payload.answers : []).map((row: any) => row?.question_id));
+    const packIds = uniqueNumbers([
+      ...(Array.isArray(payload.packs) ? payload.packs.map((row: any) => row?.id) : []),
+      ...(Array.isArray(payload.sessions) ? payload.sessions.map((row: any) => row?.quiz_pack_id) : []),
+    ]);
+    const reducedQuestions = takeLastRows(
+      (Array.isArray(payload.questions) ? payload.questions : []).filter((question: any) => {
+        const questionId = Number(question?.id || 0);
+        const packId = Number(question?.quiz_pack_id || 0);
+        return answerQuestionIds.includes(questionId) || packIds.includes(packId);
+      }),
+      320,
+    );
+
+    return runPythonEngine<any>('student-dashboard', {
+      ...payload,
+      mastery: takeLastRows(Array.isArray(payload.mastery) ? payload.mastery : [], 300),
+      answers: takeLastRows(Array.isArray(payload.answers) ? payload.answers : [], 500),
+      questions: reducedQuestions,
+      behavior_logs: takeLastRows(Array.isArray(payload.behavior_logs) ? payload.behavior_logs : [], 600),
+      practice_attempts: takeLastRows(Array.isArray(payload.practice_attempts) ? payload.practice_attempts : [], 200),
+      sessions: takeLastRows(Array.isArray(payload.sessions) ? payload.sessions : [], 36),
+      packs: takeLastRows(Array.isArray(payload.packs) ? payload.packs : [], 24),
+    });
+  }
+}
+
 function buildStudentEngagementEnvelope({
   analytics,
   answers,
@@ -1661,21 +1704,22 @@ async function getOverallStudentAnalytics({
   const sessionIds = uniqueNumbers(participants.map((row: any) => row.session_id));
   const sessions = (await getSessionsForIds(sessionIds));
   const packs = (await getPacksForIds(uniqueNumbers(sessions.map((row: any) => row.quiz_pack_id))));
+  const questions = (await getQuestionsForPackIds(uniqueNumbers(packs.map((row: any) => row.id))));
   const mastery = (await getMasteryRows(identityKey));
   const answers = (await db
         .prepare(`
       SELECT a.*
       FROM answers a
       JOIN participants p ON a.participant_id = p.id
-      WHERE p.identity_key = ?
+        WHERE p.identity_key = ?
     `)
         .all(identityKey)) as any[];
   const practiceAttempts = (await db.prepare('SELECT * FROM practice_attempts WHERE identity_key = ?').all(identityKey)) as any[];
-  const dashboard = (await runPythonEngine<any>('student-dashboard', {
+  const dashboard = (await runStudentDashboardWithFallback({
     nickname,
     mastery,
     answers,
-    questions: (await db.prepare('SELECT * FROM questions').all()),
+    questions,
     behavior_logs: (await getLogsForParticipantIds(participantIds)),
     practice_attempts: practiceAttempts,
     sessions,
@@ -1707,7 +1751,7 @@ async function getSessionStudentContext(sessionId: number, participantId: number
   const answers = classPayload.answers.filter((answer: any) => Number(answer.participant_id) === participantId);
   const behavior_logs = classPayload.behavior_logs.filter((log: any) => Number(log.participant_id) === participantId);
 
-  const sessionAnalytics = await runPythonEngine<any>('student-dashboard', {
+  const sessionAnalytics = await runStudentDashboardWithFallback({
     nickname: participant.nickname,
     mastery,
     answers,
@@ -3562,6 +3606,36 @@ router.delete('/teacher/sessions/:id', requireTeacherSession, async (req, res) =
   }
 });
 
+router.get('/teacher/sessions/:id/lms-export', requireTeacherSession, async (req, res) => {
+  try {
+    const teacherUserId = await getTeacherUserIdFromRequest(req);
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-session-lms-export', 60, 10 * 60 * 1000, teacherUserId, req.params.id)) return;
+
+    const sessionId = parsePositiveInt(req.params.id);
+    if (!sessionId) return res.status(400).json({ error: 'Invalid session ID' });
+
+    const ownedSession = await getTeacherOwnedSession(sessionId, teacherUserId);
+    if (!ownedSession) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const payload = await getSessionPayload(sessionId);
+    if (!payload) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const providerId = sanitizeLine(req.query?.provider, 40);
+    const exportPackage = buildLmsExport(payload, providerId || null);
+    res.json(exportPackage);
+  } catch (error: any) {
+    console.error('[ERROR] LMS export failed:', error);
+    respondWithServerError(res, 'Failed to export LMS gradebook');
+  }
+});
+
 router.get('/teacher/sessions/pin/:pin', requireTeacherSession, async (req, res) => {
   try {
     const teacherUserId = (await getTeacherUserIdFromRequest(req));
@@ -4720,14 +4794,27 @@ router.get('/reports/class/:session_id', async (req, res) => {
 // Get student personal power map & behavioral stats
 router.get('/reports/student/:participant_id', async (req, res) => {
   try {
-    const session = readTeacherSession(req);
-    if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
-    const teacherUserId = Number((await getTeacherUserByEmail(session.email))?.id || 0);
-    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
-    if (!enforceRateLimit(req, res, 'report-student', 60, 5 * 60 * 1000, teacherUserId, req.params.participant_id)) return;
     const participantId = parsePositiveInt(req.params.participant_id);
-    const participant = (await getTeacherOwnedParticipant(participantId, teacherUserId));
-    if (!participant) return res.status(404).json({ error: 'Participant not found' });
+    if (!participantId) return res.status(400).json({ error: 'participant_id is required' });
+
+    const teacherSession = readTeacherSession(req);
+    let participant: any = null;
+
+    if (teacherSession) {
+      const teacherUserId = Number((await getTeacherUserByEmail(teacherSession.email))?.id || 0);
+      if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+      if (!enforceRateLimit(req, res, 'report-student', 60, 5 * 60 * 1000, teacherUserId, participantId)) return;
+      participant = (await getTeacherOwnedParticipant(participantId, teacherUserId));
+      if (!participant) return res.status(404).json({ error: 'Participant not found' });
+    } else {
+      const authorized = await getAuthorizedParticipantAccess(req);
+      if (!authorized || Number(authorized.participant.id) !== participantId) {
+        return res.status(401).json({ error: 'Participant authentication required' });
+      }
+      if (!enforceRateLimit(req, res, 'report-student-self', 60, 5 * 60 * 1000, participantId)) return;
+      participant = authorized.participant;
+    }
+
     const liveSession = (await db.prepare('SELECT * FROM sessions WHERE id = ?').get(participant.session_id)) as any;
     const pack = liveSession
       ? (await db.prepare('SELECT * FROM quiz_packs WHERE id = ?').get(liveSession.quiz_pack_id))
@@ -4736,7 +4823,7 @@ router.get('/reports/student/:participant_id', async (req, res) => {
       ? (await db.prepare('SELECT * FROM questions WHERE quiz_pack_id = ? ORDER BY question_order ASC, id ASC').all(liveSession.quiz_pack_id))
       : (await db.prepare('SELECT * FROM questions').all());
 
-    const report = await runPythonEngine<any>('student-dashboard', {
+    const report = await runStudentDashboardWithFallback({
       nickname: participant.nickname,
       mastery: (await getMasteryRows(getParticipantIdentityKey(participant))),
       answers: (await db.prepare('SELECT * FROM answers WHERE participant_id = ?').all(participantId)),
