@@ -168,6 +168,10 @@ export default function TeacherHost() {
     createdPacks: any[];
     failedStudents: any[];
   }>(null);
+  const [questionReplay, setQuestionReplay] = useState<any>(null);
+  const [isQuestionReplayLoading, setIsQuestionReplayLoading] = useState(false);
+  const [questionReplayError, setQuestionReplayError] = useState('');
+  const [isLaunchingQuestionRematch, setIsLaunchingQuestionRematch] = useState(false);
   const [pendingStateKey, setPendingStateKey] = useState('');
   const participantCountRef = useRef(0);
   const questionIndexRef = useRef(0);
@@ -789,6 +793,78 @@ export default function TeacherHost() {
     }
   };
 
+  const handleLaunchQuestionRematch = async () => {
+    const normalizedSessionId = Number(sessionId || 0);
+    const normalizedQuestionId = Number(currentQuestion?.id || questionReplay?.question_id || 0);
+    if (!normalizedSessionId || !normalizedQuestionId || isLaunchingQuestionRematch) return;
+
+    try {
+      setIsLaunchingQuestionRematch(true);
+      setHostMessage({ tone: 'info', text: 'Building a targeted rematch from this question...' });
+      const payload = await apiFetchJson(`/api/analytics/class/${normalizedSessionId}/questions/${normalizedQuestionId}/rematch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          count: Number(questionReplay?.next_action?.recommended_count || 3),
+          launch_now: true,
+        }),
+      });
+
+      if (!payload?.pin || !payload?.session_id) {
+        throw new Error('The rematch pack was created, but the new room could not be opened.');
+      }
+
+      setHostMessage({ tone: 'info', text: `Rematch ready on PIN ${payload.pin}. Opening the new room now...` });
+      navigate(`/teacher/session/${payload.pin}/host`, {
+        state: {
+          sessionId: Number(payload.session_id),
+          packId: Number(payload.pack_id || 0),
+        },
+      });
+    } catch (error: any) {
+      console.error('[TeacherHost] Failed to launch question rematch:', error);
+      setHostMessage({
+        tone: 'error',
+        text: error?.message || 'Could not prepare the rematch from this question.',
+      });
+    } finally {
+      setIsLaunchingQuestionRematch(false);
+    }
+  };
+
+  useEffect(() => {
+    if (status !== 'QUESTION_REVEAL' || !sessionId || !currentQuestion?.id) {
+      setQuestionReplay(null);
+      setQuestionReplayError('');
+      setIsQuestionReplayLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsQuestionReplayLoading(true);
+    setQuestionReplayError('');
+    setQuestionReplay(null);
+
+    apiFetchJson(`/api/analytics/class/${sessionId}/questions/${currentQuestion.id}/replay`)
+      .then((payload) => {
+        if (cancelled) return;
+        setQuestionReplay(payload);
+      })
+      .catch((error: any) => {
+        if (cancelled) return;
+        console.error('[TeacherHost] Failed to load question replay:', error);
+        setQuestionReplayError(error?.message || 'Question replay is unavailable for this round.');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsQuestionReplayLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentQuestion?.id, sessionId, status]);
+
   useEffect(() => {
     if (!isPeerMode || status !== 'QUESTION_ACTIVE' || participants.length === 0) {
       return;
@@ -920,265 +996,118 @@ export default function TeacherHost() {
 
   if (status === 'LOBBY') {
     return (
-      <div className="game-viewport-shell relative text-brand-dark">
+      <div className="game-viewport-shell relative flex flex-col items-center justify-center p-4 sm:p-8 bg-brand-bg md:p-12">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="absolute top-[-8%] left-[-4%] w-96 h-96 border-[4px] border-brand-dark/5 rounded-full pointer-events-none" />
-        <div className="absolute bottom-[-10%] right-[-6%] w-[460px] h-[460px] border-[4px] border-brand-dark/5 rounded-full pointer-events-none" />
+        
+        {/* Background elements for depth */}
+        <div className="absolute top-[-10%] left-[-5%] w-[500px] h-[500px] border-[8px] border-brand-dark/[0.03] rounded-full pointer-events-none" />
+        <div className="absolute bottom-[-15%] right-[-10%] w-[600px] h-[600px] border-[8px] border-brand-dark/[0.03] rounded-full pointer-events-none" />
 
-        <div className="relative z-10 mx-auto flex h-full w-full max-w-[1380px] flex-col px-4 py-4 sm:px-6 lg:px-10 lg:py-6">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 shrink-0">
-            <div className="flex items-center gap-4">
-              <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/teacher/dashboard')}>
-                <span className="text-brand-orange">Quiz</span>zi
+        <div className="relative z-10 w-full max-w-5xl">
+          {/* Main Lobby Card */}
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-[4rem] border-[10px] border-brand-dark shadow-[24px_24px_0px_0px_#1A1A1A] p-8 md:p-16 flex flex-col items-center"
+          >
+            {/* Top decorative pill */}
+            <div className="w-48 h-10 bg-[#E5E7EB] rounded-full border-4 border-brand-dark mb-10 flex items-center justify-center">
+               <div className="w-16 h-1.5 bg-brand-dark rounded-full" />
+            </div>
+
+            {/* PIN Section */}
+            <motion.div 
+              whileHover={{ scale: 1.02 }}
+              onClick={copyPin}
+              className="w-full bg-[#B488FF] rounded-[2.5rem] border-[6px] border-brand-dark p-6 shadow-[12px_12px_0px_0px_#1A1A1A] mb-12 cursor-pointer relative group"
+            >
+              <div className="absolute -top-4 -right-4 bg-brand-yellow border-4 border-brand-dark rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                {isPinCopied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
               </div>
-              <span className="px-4 py-2 rounded-full bg-white border-2 border-brand-dark font-black text-sm">Live Host Lobby</span>
+              
+              <div className="flex justify-center items-center gap-3 sm:gap-4 overflow-hidden">
+                {String(pin || '000000').split('').map((digit, index) => (
+                  <motion.div
+                    key={`${digit}-${index}`}
+                    initial={{ y: 20, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: index * 0.05 }}
+                    className="aspect-square w-12 sm:w-20 rounded-2xl bg-white border-[5px] border-brand-dark flex items-center justify-center text-4xl sm:text-6xl font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
+                  >
+                    {digit}
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+
+            {/* QR Code Section */}
+            <div className="mb-12 p-6 bg-white rounded-[2.5rem] border-[6px] border-brand-dark shadow-[12px_12px_0px_0px_#1A1A1A] hover:rotate-1 transition-transform">
+              <QRCodeSVG value={joinUrl || String(pin || '')} size={220} level="H" includeMargin />
             </div>
 
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => navigate('/teacher/dashboard')}
-                className="w-fit px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-slate-50 transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5" />
-                Back to Dashboard
-              </button>
-              <button
-                onClick={handleEndSession}
-                className="w-fit px-5 py-3 bg-rose-50 border-2 border-rose-500 text-rose-600 rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#F43F5E] hover:bg-rose-100 transition-colors"
-              >
-                <XCircle className="w-5 h-5" />
-                Close Session
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 min-h-0 overflow-auto custom-scrollbar pr-2 pb-6 space-y-8">
-            <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1.1fr)_360px] gap-8">
-              <section className="space-y-8 min-w-0">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-brand-dark text-white rounded-[3rem] border-4 border-brand-dark shadow-[12px_12px_0px_0px_#FF5A36] p-8 lg:p-10 overflow-hidden relative"
-                >
-                  <div className="absolute top-[-40px] right-[-30px] w-56 h-56 bg-white/10 rounded-full" />
-                  <div className="absolute bottom-[-35px] right-32 w-28 h-28 bg-brand-yellow/15 rounded-full" />
-                  <div className="relative z-10">
-                  <div className="flex flex-wrap gap-3 mb-5">
-                    <span className="px-4 py-2 rounded-full bg-white/10 border border-white/15 text-xs font-black uppercase tracking-[0.2em]">Pack ready</span>
-                    <span className="px-4 py-2 rounded-full bg-brand-yellow text-brand-dark border-2 border-brand-dark text-xs font-black uppercase tracking-[0.2em]">Session #{sessionId || '...'}</span>
-                    <span className="px-4 py-2 rounded-full bg-white text-brand-dark border-2 border-brand-dark text-xs font-black uppercase tracking-[0.2em]">{gameMode.label}</span>
-                  </div>
-
-                    <h1 className="text-4xl lg:text-5xl font-black leading-[0.95] tracking-tight mb-4">
-                      {participants.length > 0 ? 'The room is warming up.' : 'Your live game is waiting for students.'}
-                    </h1>
-                    <p className="text-lg text-white/75 font-medium max-w-2xl mb-8">
-                      Share the PIN, watch students appear in real time, and launch only when the room feels settled.
-                    </p>
-
-                    <div className="bg-white rounded-[2.2rem] border-4 border-brand-dark p-6 text-brand-dark mb-6">
-                      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-                        <div>
-                          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Join with PIN or scan</p>
-                          <p className="font-bold text-brand-dark/60 text-sm">Students can still type the code, but the QR path now opens the room automatically on their device.</p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={copyPin}
-                            className="px-4 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark font-black text-sm flex items-center gap-2"
-                          >
-                            {isPinCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                            {isPinCopied ? 'Copied' : 'Copy PIN'}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-purple p-6 mb-6 overflow-hidden shadow-[12px_12px_0px_0px_#1A1A1A]">
-                        <div className="grid grid-cols-6 gap-3 w-full max-w-[600px] mx-auto">
-                          {String(pin || '').split('').map((digit, index) => (
-                            <motion.div
-                              key={`${digit}-${index}`}
-                              initial={{ y: 20, opacity: 0 }}
-                              animate={{ y: 0, opacity: 1 }}
-                              transition={{ delay: index * 0.1 }}
-                              className="aspect-square min-h-[70px] rounded-[1.2rem] bg-white border-4 border-brand-dark flex items-center justify-center text-4xl sm:text-5xl font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
-                            >
-                              {digit}
-                            </motion.div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_200px] gap-4 items-stretch">
-                        <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
-                          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-3">Join flow</p>
-                          <div className="grid grid-cols-3 gap-3">
-                            <JoinStep title="1. Scan" body="QR or link." />
-                            <JoinStep title="2. Identify" body="Add nickname." />
-                            <JoinStep title="3. Wait" body="Appear here." />
-                          </div>
-                        </div>
-                        <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-yellow p-4 flex flex-col items-center justify-center text-center">
-                          <div className="rounded-[1rem] border-2 border-brand-dark bg-white p-2 shadow-[2px_2px_0px_0px_#1A1A1A]">
-                            <QRCodeSVG value={joinUrl || String(pin || '')} size={110} level="M" includeMargin />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-5 bg-white/10 rounded-[2rem] border border-white/10 p-5 items-center">
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-[0.2em] text-white/50 mb-1">Launch control</p>
-                        <p className="text-xl font-black">{participants.length > 0 ? `${participants.length} students joined.` : 'Waiting for students...'}</p>
-                      </div>
-                      <motion.button
-                        whileHover={{ scale: participants.length > 0 && !phaseTransitionPending ? 1.03 : 1 }}
-                        whileTap={{ scale: participants.length > 0 && !phaseTransitionPending ? 0.98 : 1 }}
-                        onClick={() => updateState('QUESTION_ACTIVE', 0)}
-                        disabled={participants.length === 0 || phaseTransitionPending}
-                        className="px-8 py-4 bg-brand-orange text-white border-4 border-brand-dark rounded-[1.5rem] font-black text-xl flex items-center justify-center gap-3 shadow-[6px_6px_0px_0px_#1A1A1A] disabled:opacity-50"
-                      >
-                        <Play className="w-5 h-5 fill-current" />
-                        {phaseTransitionPending ? 'Launching...' : 'Start Game'}
-                      </motion.button>
-                    </div>
-
-                    {hostMessage && (
-                      <div className="mt-5">
-                        <HostPhaseNotice message={hostMessage} />
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              </section>
-
-              <section className="space-y-6">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.05 }}
-                  className="bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6"
-                >
-                  <div className="flex items-center gap-3 mb-4">
-                    <BarChart3 className="w-5 h-5 text-brand-purple" />
-                    <h2 className="text-2xl font-black">Summary</h2>
-                  </div>
-                  <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4 mb-4">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Room read</p>
-                    <p className="text-xl font-black mb-1">{roomReadTitle}</p>
-                    <p className="text-sm font-medium text-brand-dark/70">{roomReadBody}</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 mb-4">
-                    <LobbyMetric label="Players" value={participants.length} icon={<Users className="w-4 h-4" />} tone="light" />
-                    <LobbyMetric label="Questions" value={packQuestionCount} icon={<BookOpen className="w-4 h-4" />} tone="warm" />
-                  </div>
-
-                  <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-yellow/10 p-4">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-orange mb-1">Current pack</p>
-                    <p className="text-lg font-black truncate">{pack?.title || 'Loading...'}</p>
-                  </div>
-                </motion.div>
-
-                <motion.div
-                  initial={{ opacity: 0, y: 24 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.09 }}
-                  className="bg-brand-yellow rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6"
-                >
-                  <h2 className="text-2xl font-black mb-4">Checklist</h2>
-                  <div className="space-y-2">
-                    <TipRow title="PIN visible" body="Keep it on screen." />
-                    <TipRow title="Roster calm" body="Wait for settles." />
-                  </div>
-                </motion.div>
-              </section>
+            {/* Middle decorative pill */}
+            <div className="w-56 h-12 bg-[#E5E7EB] rounded-full border-4 border-brand-dark mb-10 flex items-center justify-center">
+               <div className="w-20 h-2 bg-brand-dark rounded-full" />
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-8">
-              <section className="space-y-6">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.05 }}
-                  className="bg-white rounded-[2.4rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#1A1A1A] p-7"
-                >
-                  <div className="flex items-center justify-between gap-3 mb-5">
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Waiting Room</p>
-                      <h2 className="text-3xl font-black">Students joining live</h2>
-                    </div>
-                    <div className="px-4 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark font-black">
-                      {participants.length}
-                    </div>
+            {/* Student Grid */}
+            <div className="w-full max-h-[400px] overflow-y-auto custom-scrollbar pr-2 mb-10">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <AnimatePresence>
+                  {participants.map((participant: any, index: number) => (
+                    <motion.div
+                      key={`${participant.nickname}-${index}`}
+                      initial={{ scale: 0, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0, opacity: 0 }}
+                      className="bg-[#E5E7EB] rounded-full border-4 border-brand-dark px-4 py-3 flex items-center gap-3 shadow-[4px_4px_0px_0px_#1A1A1A]"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-white border-2 border-brand-dark flex-shrink-0" />
+                      <div className="w-full h-2 bg-brand-dark/20 rounded-full relative overflow-hidden">
+                        <span className="absolute inset-0 flex items-center px-1 text-[10px] font-black uppercase tracking-wider truncate">
+                          {participant.nickname}
+                        </span>
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+                {participants.length === 0 && (
+                  <div className="col-span-full py-10 text-center">
+                    <p className="text-xl font-black text-brand-dark/30 uppercase tracking-widest">Waiting for students...</p>
                   </div>
-
-                  {participants.length > 0 ? (
-                    isTeamMode ? (
-                      <div className="space-y-4">
-                        {(Object.entries(groupedParticipants) as Array<[string, any[]]>).map(([teamName, members]) => (
-                          <div key={teamName} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-4">
-                            <div className="flex items-center justify-between gap-3 mb-4">
-                              <div>
-                                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Pod / Team</p>
-                                <p className="text-2xl font-black">{teamName}</p>
-                              </div>
-                              <div className="px-3 py-2 rounded-full border-2 border-brand-dark bg-white font-black">
-                                {members.length}
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                              <AnimatePresence>
-                                {members.map((participant: any, index: number) => (
-                                  <motion.div
-                                    initial={{ opacity: 0, scale: 0.9 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    exit={{ opacity: 0, scale: 0.9 }}
-                                    key={`${participant.nickname}-${index}`}
-                                    className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4"
-                                  >
-                                    <LobbyParticipantCard
-                                      participant={participant}
-                                      subtitle={`Seat ${participant.seat_index || index + 1}`}
-                                    />
-                                  </motion.div>
-                                ))}
-                              </AnimatePresence>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <AnimatePresence>
-                          {participants.map((participant: any, index: number) => (
-                            <motion.div
-                              initial={{ opacity: 0, scale: 0.9 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.9 }}
-                              key={`${participant.nickname}-${index}`}
-                              className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-4"
-                            >
-                              <LobbyParticipantCard participant={participant} subtitle="Ready in lobby" />
-                            </motion.div>
-                          ))}
-                        </AnimatePresence>
-                      </div>
-                    )
-                  ) : (
-                    <div className="rounded-[2rem] border-2 border-dashed border-brand-dark/20 bg-brand-bg/70 p-12 text-center">
-                      <motion.div animate={{ rotate: 360 }} transition={{ duration: 6, repeat: Infinity, ease: 'linear' }} className="w-fit mx-auto mb-4">
-                        <Sparkles className="w-10 h-10 text-brand-purple/40" />
-                      </motion.div>
-                      <p className="text-2xl font-black mb-2">No students yet</p>
-                      <p className="font-bold text-brand-dark/55">Share the PIN above and the waiting room will populate automatically.</p>
-                    </div>
-                  )}
-                </motion.div>
-              </section>
+                )}
+              </div>
             </div>
-          </div>
+
+            {/* Action Bar */}
+            <div className="w-full flex flex-col sm:flex-row gap-4 items-center justify-between border-t-8 border-brand-dark/10 pt-10">
+               <button
+                 onClick={() => navigate('/teacher/dashboard')}
+                 className="flex items-center gap-2 text-brand-dark/40 font-black hover:text-brand-orange transition-colors"
+               >
+                 <ArrowLeft className="w-5 h-5" />
+                 Back to Dashboard
+               </button>
+
+               <div className="flex gap-4">
+                 <button
+                   onClick={handleEndSession}
+                   className="px-6 py-3 bg-white border-4 border-brand-dark rounded-full font-black text-rose-500 shadow-[4px_4px_0px_0px_#1A1A1A] hover:bg-rose-50 transition-colors"
+                 >
+                   Stop
+                 </button>
+                 <motion.button
+                   whileHover={{ scale: participants.length > 0 ? 1.05 : 1 }}
+                   whileTap={{ scale: participants.length > 0 ? 0.95 : 1 }}
+                   onClick={() => updateState('QUESTION_ACTIVE', 0)}
+                   disabled={participants.length === 0 || phaseTransitionPending}
+                   className="px-10 py-5 bg-brand-orange text-white border-4 border-brand-dark rounded-[2rem] font-black text-2xl shadow-[10px_10px_0px_0px_#1A1A1A] disabled:opacity-40"
+                 >
+                   Launch Game
+                 </motion.button>
+               </div>
+            </div>
+          </motion.div>
         </div>
       </div>
     );
@@ -1190,184 +1119,103 @@ export default function TeacherHost() {
     const isDiscussion = status === 'QUESTION_DISCUSSION';
     const isRevote = status === 'QUESTION_REVOTE';
     const nextStatus = isDiscussion ? 'QUESTION_REVOTE' : isPeerMode && !isRevote ? 'QUESTION_DISCUSSION' : 'QUESTION_REVEAL';
-    const nextButtonLabel = isDiscussion ? 'Open Final Revote' : isPeerMode && !isRevote ? 'Start Discussion' : 'Reveal Answer';
-    const stageLabel = isDiscussion ? 'Pod Discussion' : isRevote ? 'Final Revote' : isPeerMode ? 'Silent Vote' : 'Question Live';
-    const stageBody = isDiscussion
-      ? 'Students compare reasoning inside their pod before the final revote window opens.'
-      : isRevote
-        ? 'Students can now keep or change their first answer and submit the final version.'
-        : isPeerMode
-          ? 'This is the first commit round. Students vote privately before they talk.'
-          : gameMode.quickSummary;
-    const stageCountLabel = isDiscussion
-      ? `${Object.keys(studentSelections).length} / ${participants.length} first votes recorded`
-      : responseCountLabel;
+    const nextButtonLabel = isDiscussion ? 'Final Revote' : isPeerMode && !isRevote ? 'Start Discussion' : 'Reveal Answer';
+
     return (
-      <div className="game-viewport-shell flex flex-col overflow-hidden text-brand-dark">
+      <div className="game-viewport-shell flex flex-col overflow-hidden text-brand-dark bg-white relative">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="z-50 shrink-0 flex flex-col gap-4 border-b-4 border-brand-dark bg-white px-4 py-4 shadow-sm sm:px-6 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap items-center gap-4">
-            <button
-              onClick={handleEndSession}
-              className="flex items-center gap-2 text-brand-dark/30 hover:text-rose-500 font-black transition-colors"
-            >
+        
+        {/* Top Minimal Action Bar */}
+        <div className="flex items-center justify-between px-6 lg:px-12 py-6 shrink-0 z-20">
+          <div className="flex items-center gap-4">
+            <div className="bg-[#B488FF] rounded-[1.2rem] border-4 border-brand-dark px-3 py-2 shadow-[4px_4px_0px_0px_#1A1A1A] flex items-center gap-1.5 cursor-pointer" onClick={copyPin}>
+              {String(pin || '000000').split('').map((digit, index) => (
+                <div key={index} className="w-6 h-8 lg:w-7 lg:h-9 bg-white rounded-lg border-[3px] border-brand-dark flex flex-col items-center justify-center font-black text-sm lg:text-base">
+                  {digit}
+                </div>
+              ))}
+            </div>
+            {isPinCopied && <span className="font-black text-brand-purple text-sm animate-pulse">Copied!</span>}
+            
+            {/* Host End Game logic hidden in a clean way, or placed on corner */}
+            <button onClick={handleEndSession} className="w-10 h-10 lg:w-12 lg:h-12 rounded-[1rem] border-4 border-rose-500 bg-rose-50 text-rose-500 flex items-center justify-center shadow-[4px_4px_0px_0px_#F43F5E] hover:bg-rose-100 transition-colors ml-4 sm:ml-0" title="Close Session">
               <XCircle className="w-6 h-6" />
-              End Game
             </button>
-            <div className="text-brand-dark font-black text-xl bg-brand-bg px-5 py-2 rounded-xl border-2 border-brand-dark shadow-[3px_3px_0px_0px_#1A1A1A]">
-              Question {questionIndex + 1} of {pack?.questions?.length}
-            </div>
-            <div className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
-              {gameMode.label}
-            </div>
-            <div className="px-4 py-2 rounded-full bg-brand-dark text-white font-black text-sm border-2 border-brand-dark">
-              {stageLabel}
-            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="text-lg font-black text-brand-dark flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
-              <Clock className="w-6 h-6 text-brand-orange" />
-              {phaseTimeLeft}s left
-            </div>
-            <div className="text-lg font-black text-brand-purple flex items-center gap-3 bg-white px-5 py-3 rounded-2xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
-              <Users className="w-6 h-6" />
-              {stageCountLabel}
-            </div>
+          <div className="hidden md:flex absolute left-1/2 top-10 -translate-x-1/2">
+             <div className="w-32 h-8 lg:w-48 lg:h-10 bg-[#E5E7EB] rounded-full border-4 border-brand-dark flex items-center justify-center">
+                <div className="w-12 h-1.5 lg:w-20 lg:h-2 bg-brand-dark rounded-full" />
+             </div>
           </div>
 
-          <motion.button
-            whileHover={{ scale: phaseTransitionPending ? 1 : 1.05 }}
-            whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
-            onClick={() => updateState(nextStatus, questionIndex)}
-            disabled={phaseTransitionPending}
-            className="bg-brand-dark text-white px-8 py-3 rounded-xl font-black text-lg shadow-[6px_6px_0px_0px_#FF5A36] disabled:opacity-50"
-          >
-            {phaseTransitionPending ? 'Working...' : nextButtonLabel}
-          </motion.button>
+          <div className="flex items-center gap-6">
+             <div className="hidden lg:block text-2xl font-black text-brand-dark/40 border-r-4 border-brand-dark/10 pr-6">
+               <span className="text-brand-dark">{totalAnswers}</span> / {participants.length || 0} Votes
+             </div>
+             <div className="text-4xl lg:text-5xl xl:text-6xl font-black tabular-nums tracking-tighter">
+               0:{phaseTimeLeft.toString().padStart(2, '0')}
+             </div>
+          </div>
         </div>
 
+        {/* Alerts / Notices (Floating) */}
         {hostMessage && (
-          <div className="px-6 pt-4">
+          <div className="absolute top-28 left-1/2 -translate-x-1/2 z-50">
             <HostPhaseNotice message={hostMessage} />
           </div>
         )}
+        <div className="absolute top-28 right-4 space-y-2 pointer-events-none z-50">
+          <AnimatePresence>
+            {Array.from(focusAlerts).map((nickname) => (
+              <motion.div
+                key={nickname}
+                initial={{ x: 100, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: 100, opacity: 0 }}
+                className="bg-brand-orange text-white px-6 py-3 rounded-[1.5rem] border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A] flex items-center gap-3 font-black"
+              >
+                <AlertTriangle className="w-5 h-5" />
+                {extractNickname(nickname as string)} focus loss!
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
 
-        <div className="relative mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-y-auto overflow-x-hidden px-4 pb-6 sm:px-6">
-          <div className="absolute top-0 right-0 p-4 space-y-2 pointer-events-none z-50">
-            <AnimatePresence>
-              {Array.from(focusAlerts).map((nickname) => (
-                <motion.div
-                  key={nickname}
-                  initial={{ x: 100, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: 100, opacity: 0 }}
-                  className="bg-brand-orange text-white px-6 py-3 rounded-2xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] flex items-center gap-3 font-black"
-                >
-                  <AlertTriangle className="w-5 h-5" />
-                  {extractNickname(nickname as string)} lost focus!
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
-
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col px-4 lg:px-12 pb-24 xl:pb-32 min-h-0 w-full max-w-[1800px] mx-auto">
+          
           <motion.div
             initial={{ scale: 0.98, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="w-full mb-6 rounded-[2.5rem] border-4 border-brand-dark bg-white p-6 sm:p-8 relative overflow-hidden shadow-[12px_12px_0px_0px_#1A1A1A] shrink-0"
+            className={`w-full h-full flex-[1.4] rounded-[2.5rem] lg:rounded-[3rem] border-8 border-brand-dark relative overflow-hidden shadow-[12px_12px_0px_0px_#1A1A1A] mb-8 bg-brand-purple flex items-center justify-center z-10 ${!currentQuestion?.image_url ? 'bg-gradient-to-br from-brand-orange to-brand-yellow' : ''}`}
           >
-            {/* NEW: Engagement Progress Bar */}
-            <div className="absolute top-0 left-0 w-full h-3 bg-brand-dark/5">
+            {/* Progress Bar mapped to top */}
+            <div className="absolute top-0 left-0 w-full h-3 z-30 bg-brand-dark/10">
               <motion.div 
                 initial={{ width: 0 }}
                 animate={{ width: `${participants.length > 0 ? (totalAnswers / participants.length) * 100 : 0}%` }}
-                className="h-full bg-brand-purple shadow-[0_0_15px_rgba(155,81,224,0.3)]"
+                className="h-full bg-brand-yellow"
                 transition={{ type: 'spring', stiffness: 50, damping: 15 }}
               />
             </div>
 
-            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap gap-2 mb-3">
-                  <span className={`px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-[0.2em] ${gameTone.pill}`}>
-                    {gameMode.shortLabel}
-                  </span>
-                  <span className="px-3 py-1.5 rounded-full bg-brand-bg text-brand-dark border-2 border-brand-dark text-xs font-black uppercase tracking-[0.2em]">
-                    {gameMode.researchCue}
-                  </span>
-                </div>
-                <div className="flex flex-col lg:flex-row lg:items-center gap-6">
-                  {currentQuestion?.image_url && (
-                    <QuestionImageCard
-                      imageUrl={currentQuestion?.image_url}
-                      alt={currentQuestion?.prompt || 'Question image'}
-                      className="shrink-0"
-                      imgClassName="max-h-[18vh] w-auto rounded-2xl"
-                    />
-                  )}
-                  <h2 className="text-3xl lg:text-5xl font-black text-brand-dark leading-tight tracking-tight">
-                    {currentQuestion?.prompt}
-                  </h2>
-                </div>
-              </div>
+            {currentQuestion?.image_url && (
+               <img src={currentQuestion.image_url} alt="Question Context" className="absolute inset-0 w-full h-full object-cover object-center" />
+            )}
+            
+            {/* Subtle overlay to ensure the prompt pill pops */}
+            <div className="absolute inset-0 bg-brand-dark/5 backdrop-blur-[2px]" />
 
-              <div className="grid min-w-0 shrink-0 grid-cols-2 gap-3 lg:min-w-[320px] lg:grid-cols-2">
-                <HostStageMetric label="Timer" value={`${phaseTimeLeft}s`} tone="dark" />
-                <HostStageMetric label={isDiscussion ? 'First votes' : isPeerMode && !isRevote ? 'Votes' : 'Answers'} value={isDiscussion ? Object.keys(studentSelections).length : isPeerMode && !isRevote ? Object.keys(studentSelections).length : totalAnswers} tone="light" />
-                <HostStageMetric label="Players" value={participants.length} tone="light" />
-                <HostStageMetric label="Phase" value={stageLabel} tone="warm" />
-              </div>
+            {/* Floating Overlaid Question */}
+            <div className="relative z-20 px-8 py-5 md:px-16 md:py-8 bg-white rounded-[2.5rem] md:rounded-[3.5rem] border-[6px] border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-[90%] md:max-w-5xl text-center">
+               <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black leading-tight text-brand-dark tracking-tight" dir="auto">
+                 {currentQuestion?.prompt}
+               </h2>
             </div>
           </motion.div>
 
-          <div className="grid w-full gap-4 mb-6 lg:grid-cols-3 shrink-0">
-            <HostInsightCard
-              title="Room Pulse"
-              accent="indigo"
-              compact
-              value={`${liveHostInsights.participationPct}%`}
-              body={`${liveHostInsights.answeredCount} students committed.`}
-            />
-            <HostInsightCard
-              title="Lead Signal"
-              compact
-              accent={
-                liveHostInsights.leader &&
-                currentQuestion &&
-                liveHostInsights.leader.index !== Number(currentQuestion.correct_index) &&
-                liveHostInsights.leader.pct >= 45
-                   ? 'amber'
-                   : 'emerald'
-              }
-              value={
-                liveHostInsights.leader
-                  ? `${formatAnswerSlotLabel(liveHostInsights.leader.index)} · ${liveHostInsights.leader.pct}%`
-                  : 'Waiting'
-              }
-              body={
-                liveHostInsights.runnerUp
-                  ? `Runner up: ${formatAnswerSlotLabel(liveHostInsights.runnerUp.index)} · ${liveHostInsights.runnerUp.pct}%`
-                  : 'No clear pattern yet.'
-              }
-            />
-            <HostInsightCard
-              title={liveHostInsights.primaryCue.title}
-              compact
-              accent={
-                liveHostInsights.primaryCue.tone === 'warning'
-                  ? 'amber'
-                  : liveHostInsights.primaryCue.tone === 'success'
-                    ? 'emerald'
-                    : 'indigo'
-              }
-              body={liveHostInsights.primaryCue.body}
-            />
-          </div>
-
-          <div
-            className="grid w-full gap-4 sm:gap-6"
-            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))' }}
-          >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-8 w-full shrink-0 flex-1 min-h-[160px] max-h-[40vh]">
             {currentAnswers.map((ans: string, i: number) => {
               const selectionCount = Object.values(studentSelections).filter((idx) => idx === i).length;
               const selectionPct = participants.length > 0 ? Math.round((selectionCount / participants.length) * 100) : 0;
@@ -1377,26 +1225,51 @@ export default function TeacherHost() {
                   animate={{ y: 0, opacity: 1 }}
                   transition={{ delay: i * 0.08 }}
                   key={i}
-                  className={`relative flex min-h-[132px] flex-col items-center justify-center overflow-hidden rounded-[1.8rem] border-4 p-5 text-center text-lg font-black shadow-[8px_8px_0px_0px_#1A1A1A] sm:min-h-[150px] sm:p-6 sm:text-2xl lg:min-h-[180px] lg:text-3xl ${
-                    isDiscussion ? 'bg-brand-dark text-white border-brand-dark' : 'bg-white text-brand-dark border-brand-dark'
-                  }`}
+                  className="relative flex items-center overflow-hidden rounded-[2.5rem] lg:rounded-[3rem] border-[6px] border-brand-dark bg-[#E5E7EB] px-8 lg:px-12 py-6 shadow-[10px_10px_0px_0px_#1A1A1A]"
                 >
-                  <div className="absolute top-0 left-0 h-full bg-brand-orange/15" style={{ width: `${selectionPct}%` }} />
-                  <div className="relative z-10 w-full">
-                    <p className="leading-tight break-words text-balance">{ans}</p>
-                    <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
-                      <span className={`px-4 py-2 rounded-full text-sm font-black border-2 ${isDiscussion ? 'bg-white/10 text-white border-white/20' : 'bg-brand-bg text-brand-dark border-brand-dark/10'}`}>
-                        {selectionCount}
-                      </span>
-                      <span className={`px-4 py-2 rounded-full text-sm font-black border-2 ${isDiscussion ? 'bg-brand-yellow text-brand-dark border-brand-dark' : 'bg-brand-purple text-white border-brand-dark'}`}>
-                        {selectionPct}%
-                      </span>
-                    </div>
+                  <div className="absolute top-0 left-0 h-full bg-[#D1D5DB] transition-all duration-300" style={{ width: `${selectionPct}%` }} />
+                  
+                  <div className="relative z-10 w-full flex flex-col justify-center h-full">
+                    <p className="leading-tight break-words text-brand-dark font-black text-2xl lg:text-4xl pr-8" dir="auto">{ans}</p>
+                    
+                    {/* Visual vote count mapped below the text elegantly */}
+                    {selectionCount > 0 && (
+                      <div className="mt-4 flex items-center gap-3">
+                         <div className="flex -space-x-2">
+                           {Array.from({ length: Math.min(3, selectionCount) }).map((_, idx) => (
+                             <div key={idx} className="w-6 h-6 rounded-full bg-white border-2 border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A]" />
+                           ))}
+                         </div>
+                         <span className="font-black text-brand-dark/50 text-lg">+{selectionCount} inside</span>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               );
             })}
           </div>
+        </div>
+
+        {/* BOTTOM FLOATING ACTION BUTTON (Mapped to Next Phase) */}
+        <div className="absolute bottom-[-20px] left-1/2 -translate-x-1/2 z-50">
+           <motion.button
+            whileHover={{ scale: phaseTransitionPending ? 1 : 1.05, y: -10 }}
+            whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
+            onClick={() => updateState(nextStatus, questionIndex)}
+            disabled={phaseTransitionPending}
+            className="w-48 lg:w-64 h-24 lg:h-32 bg-[#E5E7EB] border-[8px] border-brand-dark rounded-[3rem] flex flex-col items-center justify-start pt-6 font-black text-xl lg:text-3xl hover:bg-brand-yellow hover:text-brand-dark hover:border-brand-dark transition-all group overflow-hidden shadow-[0px_0px_30px_rgba(0,0,0,0.15)]"
+          >
+            {phaseTransitionPending ? (
+               <span>Working...</span>
+            ) : (
+               <>
+                 <span className="opacity-0 group-hover:opacity-100 absolute top-7 flex items-center justify-center font-black">
+                   {nextButtonLabel} <ChevronRight className="w-6 h-6 ml-1 stroke-[3px]" />
+                 </span>
+                 <div className="w-20 lg:w-28 h-2.5 lg:h-3 bg-brand-dark rounded-full group-hover:opacity-0 transition-opacity" />
+               </>
+            )}
+          </motion.button>
         </div>
       </div>
     );
@@ -1462,6 +1335,14 @@ export default function TeacherHost() {
               </div>
             </div>
           </motion.div>
+
+          <QuestionReplayShowcase
+            replay={questionReplay}
+            loading={isQuestionReplayLoading}
+            error={questionReplayError}
+            onLaunchRematch={() => void handleLaunchQuestionRematch()}
+            rematchBusy={isLaunchingQuestionRematch}
+          />
 
           {/* Statistics Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full mb-6 shrink-0">
@@ -1861,6 +1742,311 @@ export default function TeacherHost() {
         </div>
       </div>
     </div>
+  );
+}
+
+const REPLAY_CHOICE_COLORS = [
+  '#FF5A36',
+  '#9B51E0',
+  '#FFD233',
+  '#1A1A1A',
+  '#10B981',
+  '#0EA5E9',
+  '#F97316',
+  '#EF4444',
+];
+
+function getReplayChoiceColor(index: number) {
+  return REPLAY_CHOICE_COLORS[Math.abs(index) % REPLAY_CHOICE_COLORS.length];
+}
+
+function replayToneClasses(tone?: string) {
+  if (tone === 'danger') {
+    return 'border-brand-dark bg-brand-orange text-white';
+  }
+  if (tone === 'warning') {
+    return 'border-brand-dark bg-brand-yellow text-brand-dark';
+  }
+  if (tone === 'success') {
+    return 'border-emerald-400 bg-emerald-100 text-emerald-900';
+  }
+  return 'border-brand-dark bg-white text-brand-dark';
+}
+
+function QuestionReplayShowcase({
+  replay,
+  loading,
+  error,
+  onLaunchRematch,
+  rematchBusy,
+}: {
+  replay: any;
+  loading: boolean;
+  error: string;
+  onLaunchRematch: () => void;
+  rematchBusy: boolean;
+}) {
+  if (loading) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-6 rounded-[2rem] border-4 border-brand-dark bg-brand-dark p-6 text-white shadow-[10px_10px_0px_0px_#FF5A36]"
+      >
+        <div className="flex items-center gap-3 mb-4">
+          <div className="h-10 w-10 rounded-2xl border-2 border-white/20 border-t-white animate-spin" />
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60">Mind Replay</p>
+            <p className="text-2xl font-black">Building the question story from live telemetry...</p>
+          </div>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="h-28 rounded-[1.5rem] bg-white/10 animate-pulse" />
+          <div className="h-28 rounded-[1.5rem] bg-white/10 animate-pulse" />
+          <div className="h-28 rounded-[1.5rem] bg-white/10 animate-pulse" />
+        </div>
+      </motion.div>
+    );
+  }
+
+  if (error) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-6 rounded-[2rem] border-4 border-brand-dark bg-white p-5 shadow-[8px_8px_0px_0px_#1A1A1A]"
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border-2 border-rose-400 bg-rose-50">
+            <AlertTriangle className="w-6 h-6 text-rose-600" />
+          </div>
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Mind Replay</p>
+            <p className="text-2xl font-black mb-2">This round closed, but the replay could not load.</p>
+            <p className="font-medium text-brand-dark/70">{error}</p>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  if (!replay) return null;
+
+  const signals = Array.isArray(replay?.signals) ? replay.signals.slice(0, 4) : [];
+  const spotlightGroups = Array.isArray(replay?.spotlight_groups) ? replay.spotlight_groups : [];
+  const actionLabel = String(replay?.next_action?.cta_label || 'Launch targeted rematch');
+
+  return (
+    <div className="mb-6">
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-6 grid gap-6 xl:grid-cols-[minmax(0,1.12fr)_360px]"
+      >
+        <div className="rounded-[2.2rem] border-4 border-brand-dark bg-brand-dark p-6 text-white shadow-[10px_10px_0px_0px_#FF5A36]">
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <span className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[0.2em]">
+              Mind Replay
+            </span>
+            <span className="rounded-full border border-brand-dark bg-brand-yellow px-4 py-2 text-xs font-black uppercase tracking-[0.2em] text-brand-dark">
+              {replay?.story?.kicker || 'Question replay'}
+            </span>
+          </div>
+          <h3 className="text-3xl lg:text-4xl font-black leading-tight tracking-tight mb-3">
+            {replay?.story?.headline}
+          </h3>
+          <p className="max-w-3xl text-base lg:text-lg font-medium text-white/80 leading-relaxed">
+            {replay?.story?.body}
+          </p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {signals.map((signal: any) => (
+              <React.Fragment key={signal.id}>
+                <ReplaySignalPill signal={signal} />
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-[2.2rem] border-4 border-brand-dark bg-white p-6 shadow-[10px_10px_0px_0px_#1A1A1A]">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Next Move</p>
+          <h4 className="text-2xl font-black leading-tight mb-3">{actionLabel}</h4>
+          <p className="font-medium text-brand-dark/75 leading-relaxed mb-4">
+            {replay?.story?.next_move}
+          </p>
+          <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4 mb-5">
+            <p className="text-sm font-bold text-brand-dark/80">
+              {replay?.next_action?.body}
+            </p>
+          </div>
+          <motion.button
+            whileHover={{ scale: rematchBusy ? 1 : 1.03 }}
+            whileTap={{ scale: rematchBusy ? 1 : 0.97 }}
+            onClick={onLaunchRematch}
+            disabled={rematchBusy}
+            className="w-full rounded-[1.4rem] border-4 border-brand-dark bg-brand-orange px-5 py-4 text-lg font-black text-white shadow-[6px_6px_0px_0px_#1A1A1A] disabled:opacity-60 flex items-center justify-center gap-3"
+          >
+            <Rocket className="w-5 h-5" />
+            {rematchBusy ? 'Preparing Rematch...' : actionLabel}
+          </motion.button>
+        </div>
+      </motion.div>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+        <ReplayTimeline replay={replay} />
+
+        <div className="space-y-4">
+          {spotlightGroups.length > 0 ? (
+            spotlightGroups.map((group: any) => (
+              <React.Fragment key={group.id}>
+                <ReplaySpotlightCard group={group} />
+              </React.Fragment>
+            ))
+          ) : (
+            <div className="rounded-[2rem] border-4 border-brand-dark bg-white p-5 shadow-[8px_8px_0px_0px_#1A1A1A]">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Student Spotlights</p>
+              <p className="text-2xl font-black mb-2">The strongest pattern here is collective.</p>
+              <p className="font-medium text-brand-dark/70">
+                This question is better explained by the whole-room story than by one or two outlier students.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReplaySignalPill({ signal }: { signal: any }) {
+  const accentClass =
+    signal?.tone === 'danger'
+      ? 'bg-brand-orange text-white border-brand-dark'
+      : signal?.tone === 'warning'
+        ? 'bg-brand-yellow text-brand-dark border-brand-dark'
+        : signal?.tone === 'success'
+          ? 'bg-emerald-100 text-emerald-900 border-emerald-400'
+          : 'bg-white/10 text-white border-white/10';
+
+  return (
+    <div className={`rounded-[1.3rem] border-2 p-4 ${accentClass}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-75 mb-1">{signal?.label}</p>
+      <p className="text-2xl font-black leading-none mb-1">{signal?.value}</p>
+      <p className="text-sm font-bold leading-snug opacity-85">{signal?.detail}</p>
+    </div>
+  );
+}
+
+function ReplayTimeline({ replay }: { replay: any }) {
+  const timeline = Array.isArray(replay?.timeline) ? replay.timeline : [];
+  const finalDistribution = Array.isArray(replay?.final_distribution) ? replay.final_distribution : [];
+  const roomSize = Math.max(1, Number(replay?.participants || 0));
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-[2rem] border-4 border-brand-dark bg-white p-5 shadow-[8px_8px_0px_0px_#1A1A1A]"
+    >
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-5">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Timeline Replay</p>
+          <h4 className="text-2xl font-black leading-tight">How the room committed over time</h4>
+          <p className="font-medium text-brand-dark/70 mt-1">
+            Each column shows the room state at that time slice, including how many students had still not committed.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {finalDistribution
+            .filter((entry: any) => Number(entry?.count || 0) > 0 || Number(entry?.index || 0) === Number(replay?.correct_index || 0))
+            .map((entry: any) => {
+              const isCorrect = Number(entry?.index || 0) === Number(replay?.correct_index || 0);
+              const color = getReplayChoiceColor(Number(entry?.index || 0));
+              return (
+                <span
+                  key={`final-${entry.index}`}
+                  className={`rounded-full border-2 px-3 py-1.5 text-xs font-black ${isCorrect ? 'text-white border-brand-dark' : 'text-brand-dark border-brand-dark'}`}
+                  style={{ backgroundColor: isCorrect ? color : `${color}22` }}
+                >
+                  {formatAnswerSlotLabel(Number(entry.index || 0))} {entry.pct_of_room}%
+                </span>
+              );
+            })}
+          <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1.5 text-xs font-black text-brand-dark">
+            Pending
+          </span>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto pb-2">
+        <div className="flex min-w-[700px] items-end gap-3">
+          {timeline.map((bucket: any) => (
+            <div key={`replay-bucket-${bucket.bucket_index}`} className="flex-1 min-w-[80px]">
+              <div className="h-48 overflow-hidden rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg">
+                <div className="flex h-full flex-col">
+                  {Number(bucket?.unanswered_count || 0) > 0 && (
+                    <div
+                      className="border-b border-brand-dark/10 bg-white/80"
+                      style={{ height: `${(Number(bucket.unanswered_count || 0) / roomSize) * 100}%` }}
+                    />
+                  )}
+                  {Array.isArray(bucket?.answer_counts) && bucket.answer_counts.map((entry: any) => {
+                    const count = Number(entry?.count || 0);
+                    if (count <= 0) return null;
+                    return (
+                      <div
+                        key={`bucket-${bucket.bucket_index}-choice-${entry.index}`}
+                        style={{
+                          height: `${(count / roomSize) * 100}%`,
+                          backgroundColor: getReplayChoiceColor(Number(entry?.index || 0)),
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-2 text-center">
+                <p className="text-[11px] font-black uppercase tracking-[0.16em] text-brand-dark/55">{bucket.label}</p>
+                <p className="text-sm font-black text-brand-dark">{bucket.committed_count}/{replay.participants}</p>
+                <p className="text-[11px] font-bold text-brand-dark/60">
+                  {bucket.submission_count > 0 ? `${bucket.submission_count} locked` : ' '}
+                </p>
+                <p className="text-[11px] font-bold text-brand-dark/60">
+                  {bucket.switch_count > 0 ? `${bucket.switch_count} shifts` : ' '}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function ReplaySpotlightCard({ group }: { group: any }) {
+  const toneClass = replayToneClasses(group?.tone);
+  const students = Array.isArray(group?.students) ? group.students : [];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`rounded-[2rem] border-4 p-5 shadow-[8px_8px_0px_0px_#1A1A1A] ${toneClass}`}
+    >
+      <p className="text-xs font-black uppercase tracking-[0.2em] opacity-70 mb-2">Student Spotlights</p>
+      <h4 className="text-2xl font-black leading-tight mb-2">{group?.title}</h4>
+      <p className="font-medium leading-relaxed opacity-80 mb-4">{group?.body}</p>
+      <div className="space-y-3">
+        {students.map((student: any) => (
+          <div
+            key={`${group?.id}-${student?.participant_id}`}
+            className="rounded-[1.2rem] border-2 border-brand-dark/10 bg-white/70 p-3 text-brand-dark"
+          >
+            <p className="font-black">{extractNickname(String(student?.nickname || 'Student'))}</p>
+            <p className="text-sm font-medium text-brand-dark/70">{student?.detail}</p>
+          </div>
+        ))}
+      </div>
+    </motion.div>
   );
 }
 

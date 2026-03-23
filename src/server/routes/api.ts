@@ -1554,6 +1554,549 @@ function summarizeFocusTags(tags: string[]) {
   return `${tags[0]}, ${tags[1]}, and ${tags[2]}`;
 }
 
+function formatAnswerChoiceLabel(index: number) {
+  return String.fromCharCode(65 + (Math.max(0, index) % 26));
+}
+
+function roundPct(numerator: number, denominator: number) {
+  if (denominator <= 0) return 0;
+  return Math.round((numerator / denominator) * 100);
+}
+
+function parseAnswerPathEntries(value: unknown, maxTimestampMs: number) {
+  return parseJsonArray(typeof value === 'string' ? value : '')
+    .map((entry) => {
+      const raw = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : null;
+      if (!raw) return null;
+      const index = Number(raw.index);
+      if (!Number.isFinite(index) || index < 0) return null;
+      return {
+        index: Math.floor(index),
+        timestamp_ms: clampNumber(raw.timestamp_ms ?? raw.timestamp, 0, maxTimestampMs, 0),
+      };
+    })
+    .filter((entry): entry is { index: number; timestamp_ms: number } => Boolean(entry))
+    .sort((left, right) => left.timestamp_ms - right.timestamp_ms);
+}
+
+function describeReplayBucket(bucketIndex: number, bucketCount: number, timeLimitMs: number) {
+  const bucketStartMs = Math.floor((bucketIndex * timeLimitMs) / bucketCount);
+  const bucketEndMs = Math.min(timeLimitMs, Math.floor(((bucketIndex + 1) * timeLimitMs) / bucketCount));
+  const startSeconds = Math.floor(bucketStartMs / 1000);
+  const endSeconds = Math.max(startSeconds + 1, Math.ceil(bucketEndMs / 1000));
+  return `${startSeconds}-${endSeconds}s`;
+}
+
+function resolveChoiceAtBucketEnd({
+  pathEntries,
+  responseMs,
+  bucketEndMs,
+  fallbackChoiceIndex,
+}: {
+  pathEntries: Array<{ index: number; timestamp_ms: number }>;
+  responseMs: number;
+  bucketEndMs: number;
+  fallbackChoiceIndex: number | null;
+}) {
+  const cutoffMs = Math.min(bucketEndMs, responseMs);
+  let latestChoice: number | null = null;
+
+  for (const entry of pathEntries) {
+    if (entry.timestamp_ms > cutoffMs) break;
+    latestChoice = entry.index;
+  }
+
+  if (latestChoice === null && fallbackChoiceIndex !== null && responseMs <= bucketEndMs) {
+    return fallbackChoiceIndex;
+  }
+
+  return latestChoice;
+}
+
+function dedupeQuestionsById(questions: any[]) {
+  const seen = new Set<number>();
+  return questions.filter((question) => {
+    const questionId = Number(question?.id || 0);
+    if (!questionId || seen.has(questionId)) return false;
+    seen.add(questionId);
+    return true;
+  });
+}
+
+function ensurePriorityQuestions({
+  selectedQuestions,
+  sourceQuestions,
+  priorityQuestionIds,
+  desiredCount,
+}: {
+  selectedQuestions: any[];
+  sourceQuestions: any[];
+  priorityQuestionIds: number[];
+  desiredCount: number;
+}) {
+  const priorityIdSet = new Set(priorityQuestionIds.map((value) => Number(value)).filter((value) => value > 0));
+  const priorityQuestions = sourceQuestions.filter((question) => priorityIdSet.has(Number(question?.id || 0)));
+  return dedupeQuestionsById([...priorityQuestions, ...selectedQuestions]).slice(0, desiredCount);
+}
+
+function buildQuestionReplaySummary({
+  session,
+  question,
+  participants,
+  answers,
+  behaviorLogs,
+}: {
+  session: any;
+  question: any;
+  participants: any[];
+  answers: any[];
+  behaviorLogs: any[];
+}) {
+  const participantTotal = Array.isArray(participants) ? participants.length : 0;
+  const answerChoices = Array.isArray(question?.answers)
+    ? question.answers
+    : parseJsonArray(question?.answers_json);
+  const choiceCount = Math.max(
+    Array.isArray(answerChoices) ? answerChoices.length : 0,
+    Number(question?.correct_index || 0) + 1,
+    2,
+  );
+  const correctIndex = clampNumber(question?.correct_index, 0, Math.max(0, choiceCount - 1), 0);
+  const timeLimitSeconds = resolveQuestionTimeLimit(question, session);
+  const timeLimitMs = Math.max(10_000, timeLimitSeconds * 1000);
+  const bucketCount = timeLimitMs <= 12_000 ? 6 : timeLimitMs <= 25_000 ? 8 : 10;
+  const questionAnswers = (Array.isArray(answers) ? answers : []).filter(
+    (answer: any) => Number(answer?.question_id || 0) === Number(question?.id || 0),
+  );
+  const questionLogs = (Array.isArray(behaviorLogs) ? behaviorLogs : []).filter(
+    (log: any) => Number(log?.question_id || 0) === Number(question?.id || 0),
+  );
+  const answerByParticipant = new Map<number, any>(
+    questionAnswers.map((answer: any) => [Number(answer?.participant_id || 0), answer] as const),
+  );
+  const logByParticipant = new Map<number, any>(
+    questionLogs.map((log: any) => [Number(log?.participant_id || 0), log] as const),
+  );
+  const finalDistribution = Array.from({ length: choiceCount }, (_value, index) => ({
+    index,
+    count: 0,
+    pct_of_room: 0,
+    pct_of_answers: 0,
+  }));
+  const buckets = Array.from({ length: bucketCount }, (_value, bucketIndex) => ({
+    bucket_index: bucketIndex,
+    label: describeReplayBucket(bucketIndex, bucketCount, timeLimitMs),
+    answer_counts: Array.from({ length: choiceCount }, (_answerValue, choiceIndex) => ({
+      index: choiceIndex,
+      count: 0,
+      pct_of_room: 0,
+    })),
+    committed_count: 0,
+    unanswered_count: participantTotal,
+    submission_count: 0,
+    switch_count: 0,
+  }));
+
+  const stableWrongStudents: any[] = [];
+  const workedToCorrectStudents: any[] = [];
+  const latePanicStudents: any[] = [];
+  const focusDriftStudents: any[] = [];
+  const assignedSpotlights = new Set<number>();
+
+  let correctCount = 0;
+  let lateCommitCount = 0;
+  let panicSwapCount = 0;
+  let harmfulRevisionCount = 0;
+  let workedToCorrectCount = 0;
+  let focusDriftCount = 0;
+
+  const pushSpotlight = (
+    collection: any[],
+    participantId: number,
+    payload: { participant_id: number; nickname: string; detail: string },
+  ) => {
+    if (!participantId || assignedSpotlights.has(participantId)) return;
+    assignedSpotlights.add(participantId);
+    collection.push(payload);
+  };
+
+  for (const participant of Array.isArray(participants) ? participants : []) {
+    const participantId = Number(participant?.id || 0);
+    const answer = answerByParticipant.get(participantId) || null;
+    const log = logByParticipant.get(participantId) || null;
+    const chosenIndex = answer && Number.isFinite(Number(answer?.chosen_index))
+      ? clampNumber(answer?.chosen_index, 0, Math.max(0, choiceCount - 1), 0)
+      : null;
+    const responseMs = answer
+      ? clampNumber(answer?.response_ms, 0, timeLimitMs, timeLimitMs)
+      : timeLimitMs;
+    const pathEntries = parseAnswerPathEntries(log?.answer_path_json, timeLimitMs);
+    const pathChoiceIndexes = pathEntries.map((entry) => entry.index);
+    const effectivePathChoices = pathChoiceIndexes.length > 0
+      ? pathChoiceIndexes
+      : chosenIndex !== null
+        ? [chosenIndex]
+        : [];
+    const firstChoice = effectivePathChoices.length > 0 ? effectivePathChoices[0] : null;
+    const touchedCorrect = effectivePathChoices.includes(correctIndex);
+    const isCorrect = Boolean(answer && Number(answer?.is_correct || 0) === 1);
+    const totalSwaps = Number(log?.total_swaps || 0);
+    const panicSwaps = Number(log?.panic_swaps || 0);
+    const focusLossCount = Number(log?.focus_loss_count || 0);
+    const blurTimeMs = Number(log?.blur_time_ms || 0);
+    const finalDecisionBufferMs = Number(log?.final_decision_buffer_ms || 0);
+    const participantLabel = sanitizeLine(participant?.nickname || 'Student', 120);
+
+    if (chosenIndex !== null) {
+      finalDistribution[chosenIndex].count += 1;
+      if (isCorrect) {
+        correctCount += 1;
+      }
+    }
+
+    if (answer && responseMs >= Math.round(timeLimitMs * 0.75)) {
+      lateCommitCount += 1;
+    }
+
+    if (answer && (panicSwaps > 0 || (responseMs >= Math.round(timeLimitMs * 0.9) && totalSwaps > 0))) {
+      panicSwapCount += 1;
+    }
+
+    if (answer && !isCorrect && touchedCorrect) {
+      harmfulRevisionCount += 1;
+    }
+
+    if (answer && isCorrect && firstChoice !== null && firstChoice !== correctIndex && totalSwaps > 0) {
+      workedToCorrectCount += 1;
+    }
+
+    if (focusLossCount > 0 || blurTimeMs >= 1500) {
+      focusDriftCount += 1;
+    }
+
+    if (
+      answer &&
+      !isCorrect &&
+      chosenIndex !== null &&
+      totalSwaps === 0 &&
+      responseMs <= Math.round(timeLimitMs * 0.65)
+    ) {
+      pushSpotlight(stableWrongStudents, participantId, {
+        participant_id: participantId,
+        nickname: participantLabel,
+        detail: `Locked onto ${formatAnswerChoiceLabel(chosenIndex)} early and never moved.`,
+      });
+    } else if (
+      answer &&
+      isCorrect &&
+      firstChoice !== null &&
+      firstChoice !== correctIndex &&
+      totalSwaps > 0
+    ) {
+      pushSpotlight(workedToCorrectStudents, participantId, {
+        participant_id: participantId,
+        nickname: participantLabel,
+        detail: `Started on ${formatAnswerChoiceLabel(firstChoice)} and repaired into the right answer.`,
+      });
+    } else if (answer && (panicSwaps > 0 || (totalSwaps > 0 && responseMs >= Math.round(timeLimitMs * 0.85)))) {
+      pushSpotlight(latePanicStudents, participantId, {
+        participant_id: participantId,
+        nickname: participantLabel,
+        detail: 'Made late-stage changes under the clock.',
+      });
+    } else if (focusLossCount > 0 || blurTimeMs >= 1500) {
+      pushSpotlight(focusDriftStudents, participantId, {
+        participant_id: participantId,
+        nickname: participantLabel,
+        detail: 'Lost focus during the question window.',
+      });
+    }
+
+    if (answer) {
+      const submissionBucketIndex = Math.min(
+        bucketCount - 1,
+        Math.floor((Math.max(0, responseMs - 1) / timeLimitMs) * bucketCount),
+      );
+      buckets[submissionBucketIndex].submission_count += 1;
+    }
+
+    let previousPathChoice: number | null = null;
+    for (const entry of pathEntries) {
+      const bucketIndex = Math.min(
+        bucketCount - 1,
+        Math.floor((Math.max(0, entry.timestamp_ms) / timeLimitMs) * bucketCount),
+      );
+      if (previousPathChoice !== null && previousPathChoice !== entry.index) {
+        buckets[bucketIndex].switch_count += 1;
+      }
+      previousPathChoice = entry.index;
+    }
+
+    buckets.forEach((bucket, bucketIndex) => {
+      const bucketEndMs = Math.min(
+        timeLimitMs,
+        Math.floor(((bucketIndex + 1) * timeLimitMs) / bucketCount),
+      );
+      const resolvedChoice = resolveChoiceAtBucketEnd({
+        pathEntries,
+        responseMs,
+        bucketEndMs,
+        fallbackChoiceIndex: chosenIndex,
+      });
+      if (resolvedChoice === null || resolvedChoice < 0 || resolvedChoice >= choiceCount) {
+        return;
+      }
+      bucket.answer_counts[resolvedChoice].count += 1;
+      bucket.committed_count += 1;
+    });
+  }
+
+  const answersReceived = questionAnswers.length;
+  finalDistribution.forEach((entry) => {
+    entry.pct_of_room = roundPct(entry.count, participantTotal);
+    entry.pct_of_answers = roundPct(entry.count, answersReceived);
+  });
+
+  buckets.forEach((bucket) => {
+    bucket.answer_counts.forEach((entry) => {
+      entry.pct_of_room = roundPct(entry.count, participantTotal);
+    });
+    bucket.unanswered_count = Math.max(0, participantTotal - bucket.committed_count);
+  });
+
+  const sortedDistribution = [...finalDistribution].sort(
+    (left, right) => right.count - left.count || left.index - right.index,
+  );
+  const topChoice = sortedDistribution[0] || null;
+  const runnerUpChoice = sortedDistribution[1] || null;
+  const topDistractor = sortedDistribution.find(
+    (entry) => entry.index !== correctIndex && entry.count > 0,
+  ) || null;
+  const lateCommitPct = roundPct(lateCommitCount, Math.max(1, answersReceived));
+  const panicSwapPct = roundPct(panicSwapCount, Math.max(1, answersReceived));
+  const harmfulRevisionPct = roundPct(harmfulRevisionCount, Math.max(1, answersReceived));
+  const workedToCorrectPct = roundPct(workedToCorrectCount, Math.max(1, answersReceived));
+  const focusDriftPct = roundPct(focusDriftCount, Math.max(1, participantTotal));
+  const accuracyPct = roundPct(correctCount, Math.max(1, participantTotal));
+  const splitRoom = Boolean(
+    topChoice &&
+    runnerUpChoice &&
+    topChoice.count > 0 &&
+    runnerUpChoice.count > 0 &&
+    topChoice.pct_of_room - runnerUpChoice.pct_of_room <= 12,
+  );
+
+  const signalCandidates = [
+    topDistractor && topDistractor.pct_of_room >= 30
+      ? {
+          id: 'sticky_distractor',
+          tone: 'danger',
+          score: 100 + topDistractor.pct_of_room,
+          label: `Distractor ${formatAnswerChoiceLabel(topDistractor.index)} stuck`,
+          value: `${topDistractor.pct_of_room}%`,
+          detail: `${topDistractor.pct_of_room}% of the room landed on ${formatAnswerChoiceLabel(topDistractor.index)} instead of the correct answer.`,
+        }
+      : null,
+    lateCommitPct >= 35 || panicSwapPct >= 20
+      ? {
+          id: 'panic_wave',
+          tone: 'warning',
+          score: 85 + lateCommitPct + panicSwapPct,
+          label: 'Late panic wave',
+          value: `${lateCommitPct}%`,
+          detail: `${lateCommitPct}% of answers arrived late and ${panicSwapPct}% included last-second switching.`,
+        }
+      : null,
+    harmfulRevisionPct >= 15
+      ? {
+          id: 'confidence_wobble',
+          tone: 'warning',
+          score: 78 + harmfulRevisionPct,
+          label: 'Students revised away',
+          value: `${harmfulRevisionPct}%`,
+          detail: `${harmfulRevisionPct}% touched the correct answer before finishing wrong.`,
+        }
+      : null,
+    splitRoom
+      ? {
+          id: 'split_room',
+          tone: 'neutral',
+          score: 70 + Number(runnerUpChoice?.pct_of_room || 0),
+          label: 'Split room',
+          value: `${topChoice?.pct_of_room || 0}% / ${runnerUpChoice?.pct_of_room || 0}%`,
+          detail: `The room split between ${formatAnswerChoiceLabel(Number(topChoice?.index || 0))} and ${formatAnswerChoiceLabel(Number(runnerUpChoice?.index || 0))}.`,
+        }
+      : null,
+    workedToCorrectPct >= 20 && accuracyPct >= 60
+      ? {
+          id: 'productive_struggle',
+          tone: 'success',
+          score: 60 + workedToCorrectPct,
+          label: 'Recovered into correct',
+          value: `${workedToCorrectPct}%`,
+          detail: `${workedToCorrectPct}% repaired an initial mistake and still landed correctly.`,
+        }
+      : null,
+    focusDriftPct >= 20
+      ? {
+          id: 'focus_drag',
+          tone: 'warning',
+          score: 55 + focusDriftPct,
+          label: 'Focus drift',
+          value: `${focusDriftPct}%`,
+          detail: `${focusDriftPct}% of the room lost focus during this question.`,
+        }
+      : null,
+    {
+      id: 'accuracy_snapshot',
+      tone: accuracyPct >= 75 ? 'success' : accuracyPct >= 50 ? 'neutral' : 'warning',
+      score: 40 + accuracyPct,
+      label: 'Accuracy snapshot',
+      value: `${accuracyPct}%`,
+      detail: `${correctCount} of ${participantTotal} students finished on the correct answer.`,
+    },
+  ]
+    .filter(Boolean)
+    .sort((left: any, right: any) => Number(right.score || 0) - Number(left.score || 0))
+    .slice(0, 4)
+    .map(({ score: _score, ...signal }: any) => signal);
+
+  const primarySignal = signalCandidates[0] || null;
+  const focusTags = uniqueStrings(
+    parseJsonArray(question?.tags_json).map((tag) => sanitizeLine(tag, 40)),
+  ).slice(0, 4);
+
+  let story = {
+    kicker: 'Question replay',
+    headline: 'This question exposed a real reasoning pattern.',
+    body: `${correctCount} of ${participantTotal} students finished correctly, and the answer trail shows more than a simple right-vs-wrong split.`,
+    next_move: `Run a short rematch on ${summarizeFocusTags(focusTags)} while the misconception is still visible.`,
+  };
+
+  if (primarySignal?.id === 'sticky_distractor' && topDistractor) {
+    story = {
+      kicker: 'Distractor trap',
+      headline: `Choice ${formatAnswerChoiceLabel(topDistractor.index)} pulled the room off course.`,
+      body: `${topDistractor.pct_of_room}% of the room finished on ${formatAnswerChoiceLabel(topDistractor.index)}, while only ${accuracyPct}% landed correctly. This looked like a believable model, not random guessing.`,
+      next_move: `Run a short rematch and ask why ${formatAnswerChoiceLabel(topDistractor.index)} felt right before students answer again.`,
+    };
+  } else if (primarySignal?.id === 'panic_wave') {
+    story = {
+      kicker: 'Late pressure spike',
+      headline: 'A late panic wave hit this question.',
+      body: `${lateCommitPct}% of answers arrived in the late window and ${panicSwapPct}% showed last-second switching. The room may understand the content better than the final timing suggests.`,
+      next_move: 'Rerun the same concept with calmer pacing or an explicit early-commit prompt.',
+    };
+  } else if (primarySignal?.id === 'confidence_wobble') {
+    story = {
+      kicker: 'Confidence wobble',
+      headline: 'Students saw the right idea, then moved away from it.',
+      body: `${harmfulRevisionPct}% touched the correct answer path before finishing wrong. This was a trust-in-reasoning problem as much as a knowledge problem.`,
+      next_move: 'Pause on the reasoning behind the correct option, then re-ask the concept immediately.',
+    };
+  } else if (primarySignal?.id === 'split_room' && topChoice && runnerUpChoice) {
+    story = {
+      kicker: 'Split room',
+      headline: 'The class split between two competing explanations.',
+      body: `${topChoice.pct_of_room}% finished on ${formatAnswerChoiceLabel(topChoice.index)} and ${runnerUpChoice.pct_of_room}% on ${formatAnswerChoiceLabel(runnerUpChoice.index)}. This is perfect rematch material because both sides have a real story.`,
+      next_move: 'Invite both sides to justify their choice, then launch a short rematch while the comparison is still fresh.',
+    };
+  } else if (primarySignal?.id === 'productive_struggle') {
+    story = {
+      kicker: 'Productive struggle',
+      headline: 'Students fought their way into the correct answer.',
+      body: `${workedToCorrectPct}% started wrong and still repaired into the correct answer. The concept is teachable right now because the room is already close.`,
+      next_move: 'Keep the concept but change the surface form in a short rematch to confirm the gain is real.',
+    };
+  } else if (accuracyPct >= 75 && panicSwapPct < 15 && harmfulRevisionPct < 10) {
+    story = {
+      kicker: 'Clean mastery',
+      headline: 'This concept landed cleanly across the room.',
+      body: `${accuracyPct}% finished correctly with little late-stage noise. The room looks ready to move from this exact surface form to a transfer question.`,
+      next_move: 'Advance, or reuse the concept with a harder wrapper instead of a full reteach.',
+    };
+  }
+
+  const spotlightGroups = [
+    stableWrongStudents.length > 0
+      ? {
+          id: 'stable_wrong',
+          tone: 'danger',
+          title: 'Locked early on the wrong model',
+          body: 'These students committed quickly and never updated their model.',
+          students: stableWrongStudents.slice(0, 4),
+        }
+      : null,
+    workedToCorrectStudents.length > 0
+      ? {
+          id: 'worked_to_correct',
+          tone: 'success',
+          title: 'Worked through it',
+          body: 'These students revised their way into the correct answer.',
+          students: workedToCorrectStudents.slice(0, 4),
+        }
+      : null,
+    latePanicStudents.length > 0
+      ? {
+          id: 'late_panic',
+          tone: 'warning',
+          title: 'Late-stage pressure',
+          body: 'These students changed course late under the timer.',
+          students: latePanicStudents.slice(0, 4),
+        }
+      : null,
+    focusDriftStudents.length > 0
+      ? {
+          id: 'focus_drift',
+          tone: 'neutral',
+          title: 'Focus drift',
+          body: 'These students lost focus during the question window.',
+          students: focusDriftStudents.slice(0, 4),
+        }
+      : null,
+  ].filter(Boolean);
+
+  const recommendedCount = Math.min(3, Math.max(1, choiceCount));
+  const actionLabel =
+    recommendedCount === 1
+      ? 'Launch instant rematch'
+      : `Launch ${recommendedCount}-question rematch`;
+
+  return {
+    question_id: Number(question?.id || 0),
+    question_index: Number(question?.question_order || 0),
+    prompt: String(question?.prompt || ''),
+    participants: participantTotal,
+    answers_received: answersReceived,
+    accuracy_pct: accuracyPct,
+    correct_count: correctCount,
+    correct_index: correctIndex,
+    top_choice_index: topChoice?.index ?? null,
+    top_distractor_index: topDistractor?.index ?? null,
+    top_distractor_pct: topDistractor?.pct_of_room ?? 0,
+    late_commit_pct: lateCommitPct,
+    panic_swap_pct: panicSwapPct,
+    harmful_revision_pct: harmfulRevisionPct,
+    worked_to_correct_pct: workedToCorrectPct,
+    focus_drift_pct: focusDriftPct,
+    final_distribution: finalDistribution,
+    timeline: buckets,
+    signals: signalCandidates,
+    story,
+    spotlight_groups: spotlightGroups,
+    next_action: {
+      cta_label: actionLabel,
+      body:
+        topDistractor && topDistractor.count > 0
+          ? `Re-run ${summarizeFocusTags(focusTags)} and surface why distractor ${formatAnswerChoiceLabel(topDistractor.index)} felt tempting.`
+          : `Re-run ${summarizeFocusTags(focusTags)} while the class still remembers this moment.`,
+      recommended_count: recommendedCount,
+      focus_tags: focusTags,
+      priority_question_ids: [Number(question?.id || 0)],
+    },
+  };
+}
+
 function takeLastRows<T>(rows: T[], limit: number) {
   if (!Array.isArray(rows)) return [];
   if (rows.length <= limit) return rows;
@@ -4341,6 +4884,170 @@ router.get('/analytics/class/:sessionId', async (req, res) => {
   } catch (error: any) {
     console.error('[ERROR] Class analytics failed:', error);
     respondWithServerError(res, 'Failed to load class analytics');
+  }
+});
+
+router.get('/analytics/class/:sessionId/questions/:questionId/replay', async (req, res) => {
+  const session = readTeacherSession(req);
+  if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
+  try {
+    const teacherUserId = Number((await getTeacherUserByEmail(session.email))?.id || 0);
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceRateLimit(req, res, 'analytics-class-question-replay', 120, 5 * 60 * 1000, teacherUserId, req.params.sessionId, req.params.questionId)) return;
+
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const questionId = parsePositiveInt(req.params.questionId);
+    if (!sessionId || !questionId) {
+      return res.status(400).json({ error: 'sessionId and questionId are required' });
+    }
+
+    const ownedSession = (await getTeacherOwnedSession(sessionId, teacherUserId));
+    if (!ownedSession) return res.status(404).json({ error: 'Session not found' });
+    const payload = (await getSessionPayload(sessionId));
+    if (!payload) return res.status(404).json({ error: 'Session not found' });
+
+    const question = (Array.isArray(payload.questions) ? payload.questions : []).find(
+      (row: any) => Number(row?.id || 0) === questionId,
+    );
+    if (!question) {
+      return res.status(404).json({ error: 'Question replay not found' });
+    }
+
+    const replay = buildQuestionReplaySummary({
+      session: payload.session || ownedSession,
+      question,
+      participants: Array.isArray(payload.participants) ? payload.participants : [],
+      answers: Array.isArray(payload.answers) ? payload.answers : [],
+      behaviorLogs: Array.isArray(payload.behavior_logs) ? payload.behavior_logs : [],
+    });
+    const availableQuestionCount = Math.max(1, Array.isArray(payload.questions) ? payload.questions.length : 1);
+    const adjustedCount = Math.min(Number(replay?.next_action?.recommended_count || 3), availableQuestionCount);
+
+    replay.next_action = {
+      body: String(replay?.next_action?.body || ''),
+      focus_tags: Array.isArray(replay?.next_action?.focus_tags) ? replay.next_action.focus_tags : [],
+      priority_question_ids: Array.isArray(replay?.next_action?.priority_question_ids)
+        ? replay.next_action.priority_question_ids
+        : [],
+      recommended_count: adjustedCount,
+      cta_label: adjustedCount === 1 ? 'Launch instant rematch' : `Launch ${adjustedCount}-question rematch`,
+    };
+
+    res.json(replay);
+  } catch (error: any) {
+    console.error('[ERROR] Question replay failed:', error);
+    respondWithServerError(res, 'Failed to load question replay');
+  }
+});
+
+router.post('/analytics/class/:sessionId/questions/:questionId/rematch', async (req, res) => {
+  const session = readTeacherSession(req);
+  if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
+  try {
+    const teacherUserId = Number((await getTeacherUserByEmail(session.email))?.id || 0);
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceTrustedOrigin(req, res)) return;
+    if (!enforceRateLimit(req, res, 'analytics-class-question-rematch', 18, 10 * 60 * 1000, teacherUserId, req.params.sessionId, req.params.questionId)) return;
+
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const questionId = parsePositiveInt(req.params.questionId);
+    const requestedCount = clampNumber(req.body?.count, 1, 5, 3);
+    const launchNow = sanitizeBooleanFlag(req.body?.launch_now, true);
+    if (!sessionId || !questionId) {
+      return res.status(400).json({ error: 'sessionId and questionId are required' });
+    }
+
+    const ownedSession = (await getTeacherOwnedSession(sessionId, teacherUserId));
+    if (!ownedSession) return res.status(404).json({ error: 'Session not found' });
+    const classPayload = (await getSessionPayload(sessionId));
+    if (!classPayload) return res.status(404).json({ error: 'Session not found' });
+
+    const sourceQuestions = Array.isArray(classPayload.questions) ? classPayload.questions : [];
+    const question = sourceQuestions.find((row: any) => Number(row?.id || 0) === questionId);
+    if (!question) {
+      return res.status(404).json({ error: 'Question not found in this session' });
+    }
+
+    const desiredCount = Math.min(requestedCount, Math.max(1, sourceQuestions.length || 1));
+    const focusTags = uniqueStrings(
+      parseJsonArray(question?.tags_json).map((tag) => sanitizeLine(tag, 40)),
+    ).slice(0, 4);
+    const practiceSet = await runPythonEngine<any>('practice-set', {
+      questions: sourceQuestions,
+      count: desiredCount,
+      focus_tags: focusTags,
+      priority_question_ids: [questionId],
+    });
+
+    const rematchQuestions = ensurePriorityQuestions({
+      selectedQuestions: Array.isArray(practiceSet?.questions) ? practiceSet.questions : [],
+      sourceQuestions,
+      priorityQuestionIds: [questionId],
+      desiredCount,
+    });
+
+    if (!rematchQuestions.length) {
+      return res.status(400).json({ error: 'No rematch questions could be prepared for this prompt' });
+    }
+
+    const sourcePackTitle = String(classPayload.pack?.title || `Pack ${ownedSession.quiz_pack_id}`);
+    const questionOrder = Number(question?.question_order || 0);
+    const rematchTitle = `Rematch: Q${questionOrder || questionId} - ${sourcePackTitle}`;
+    const packNotes = [
+      `Question rematch trigger: Q${questionOrder || questionId}`,
+      `Prompt: ${sanitizeLine(question?.prompt, 140)}`,
+      focusTags.length > 0 ? `Focus tags: ${focusTags.join(', ')}` : '',
+      `Source session: ${sessionId}`,
+    ]
+      .filter(Boolean)
+      .join(' | ');
+
+    const createdPack = await createFollowUpPack({
+      teacherUserId,
+      sourceSession: ownedSession,
+      sourcePack: classPayload.pack || {},
+      questions: rematchQuestions,
+      title: rematchTitle,
+      packNotes,
+    });
+
+    let hostedSessionPayload: { id: number; pin: string } | null = null;
+    if (launchNow) {
+      const pin = (await createSessionPin());
+      const hostedSession = (await db
+            .prepare(`
+          INSERT INTO sessions (quiz_pack_id, teacher_class_id, pin, game_type, team_count, mode_config_json, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+            .run(
+              createdPack.packId,
+              createdPack.teacherClassId,
+              pin,
+              'classic_quiz',
+              0,
+              JSON.stringify(sanitizeModeConfig('classic_quiz', null)),
+              'LOBBY',
+            ));
+      hostedSessionPayload = {
+        id: Number(hostedSession.lastInsertRowid),
+        pin,
+      };
+    }
+
+    res.status(201).json({
+      pack_id: createdPack.packId,
+      title: rematchTitle,
+      question_count: rematchQuestions.length,
+      strategy: practiceSet?.strategy || null,
+      focus_tags: focusTags,
+      source_session_id: sessionId,
+      source_question_id: questionId,
+      session_id: hostedSessionPayload?.id || null,
+      pin: hostedSessionPayload?.pin || null,
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Question rematch creation failed:', error);
+    respondWithServerError(res, 'Failed to create question rematch');
   }
 });
 
