@@ -995,160 +995,267 @@ export default function TeacherHost() {
   }
 
   if (status === 'LOBBY') {
+    const lobbyRoomName = pack?.title || 'Live quiz room';
+    const lobbyTitle = participants.length > 0 ? 'Room ready for students.' : 'Waiting for students to join.';
+    const lobbySubtitle =
+      participants.length > 0
+        ? `${participants.length} ${participants.length === 1 ? 'student is' : 'students are'} already inside. Keep the PIN visible and launch when the room feels settled.`
+        : 'Keep the PIN visible so students can scan the QR or type the code and appear here in real time.';
+    const participantSectionCopy =
+      participants.length > 0
+        ? 'Students appear here the moment they join.'
+        : 'Once someone joins, the room will start to populate here automatically.';
+
     return (
-      <div className="game-viewport-shell relative flex flex-col items-center justify-center p-4 sm:p-8 bg-brand-bg md:p-12">
-        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        
-        {/* Background elements for depth */}
-        <div className="absolute top-[-10%] left-[-5%] w-[500px] h-[500px] border-[8px] border-brand-dark/[0.03] rounded-full pointer-events-none" />
-        <div className="absolute bottom-[-15%] right-[-10%] w-[600px] h-[600px] border-[8px] border-brand-dark/[0.03] rounded-full pointer-events-none" />
+      <div className="game-viewport-shell relative overflow-hidden text-brand-dark">
+        <div className="absolute top-[-8%] left-[-4%] w-96 h-96 border-[4px] border-brand-dark/5 rounded-full pointer-events-none" />
+        <div className="absolute bottom-[-10%] right-[-6%] w-[460px] h-[460px] border-[4px] border-brand-dark/5 rounded-full pointer-events-none" />
 
-        <div className="relative z-10 w-full max-w-5xl">
-          {/* Main Lobby Card */}
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-white rounded-[4rem] border-[10px] border-brand-dark shadow-[24px_24px_0px_0px_#1A1A1A] p-8 md:p-16 flex flex-col items-center"
-          >
-            {/* Top decorative pill */}
-            <div className="w-48 h-10 bg-[#E5E7EB] rounded-full border-4 border-brand-dark mb-10 flex items-center justify-center">
-               <div className="w-16 h-1.5 bg-brand-dark rounded-full" />
-            </div>
-
-            {/* PIN Section */}
-            <motion.div 
-              whileHover={{ scale: 1.02 }}
-              onClick={copyPin}
-              className="w-full bg-[#B488FF] rounded-[2.5rem] border-[6px] border-brand-dark p-6 shadow-[12px_12px_0px_0px_#1A1A1A] mb-12 cursor-pointer relative group"
-            >
-              <div className="absolute -top-4 -right-4 bg-brand-yellow border-4 border-brand-dark rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                {isPinCopied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+        <div className="relative z-10 mx-auto flex h-full w-full max-w-[1380px] min-h-0 flex-col px-4 py-4 sm:px-6 lg:px-10 lg:py-6">
+          <div className="mb-4 flex shrink-0 flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+              <div
+                className="flex cursor-pointer items-center gap-1 text-3xl font-black tracking-tight"
+                onClick={() => navigate('/teacher/dashboard')}
+              >
+                <span className="text-brand-orange">Quiz</span>zi
               </div>
-              
-              <div className="flex justify-center items-center gap-3 sm:gap-4 overflow-hidden">
-                {String(pin || '000000').split('').map((digit, index) => (
-                  <motion.div
-                    key={`${digit}-${index}`}
-                    initial={{ y: 20, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="aspect-square w-12 sm:w-20 rounded-2xl bg-white border-[5px] border-brand-dark flex items-center justify-center text-4xl sm:text-6xl font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
-                  >
-                    {digit}
-                  </motion.div>
-                ))}
-              </div>
-            </motion.div>
-
-            {/* QR Code Section */}
-            <div className="mb-12 p-6 bg-white rounded-[2.5rem] border-[6px] border-brand-dark shadow-[12px_12px_0px_0px_#1A1A1A] hover:rotate-1 transition-transform">
-              <QRCodeSVG value={joinUrl || String(pin || '')} size={220} level="H" includeMargin />
+              <span className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black shadow-[3px_3px_0px_0px_#1A1A1A]">
+                Live Host Lobby
+              </span>
+              <span className={`rounded-full border-2 border-brand-dark px-4 py-2 text-xs font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A] ${gameTone.pill}`}>
+                {gameMode.label}
+              </span>
             </div>
 
-            {/* Middle decorative pill */}
-            <div className="w-56 h-12 bg-[#E5E7EB] rounded-full border-4 border-brand-dark mb-10 flex items-center justify-center">
-               <div className="w-20 h-2 bg-brand-dark rounded-full" />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <button
+                onClick={() => navigate('/teacher/dashboard')}
+                className="flex w-full items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-white px-5 py-3 font-black shadow-[2px_2px_0px_0px_#1A1A1A] transition-colors hover:bg-slate-50 sm:w-fit"
+              >
+                <ArrowLeft className="w-5 h-5" />
+                Back to Dashboard
+              </button>
+              <button
+                onClick={handleEndSession}
+                className="flex w-full items-center justify-center gap-2 rounded-full border-2 border-rose-500 bg-rose-50 px-5 py-3 font-black text-rose-600 shadow-[2px_2px_0px_0px_#F43F5E] transition-colors hover:bg-rose-100 sm:w-fit"
+              >
+                <XCircle className="w-5 h-5" />
+                Close Session
+              </button>
             </div>
+          </div>
 
-            {/* Student Grid */}
-            <div className="w-full max-h-[400px] overflow-y-auto custom-scrollbar pr-2 mb-10">
-              {participants.length > 0 ? (
-                isTeamMode ? (
-                  <div className="space-y-6">
-                    {(Object.entries(groupedParticipants) as Array<[string, any[]]>).map(([teamName, members]) => (
-                      <div key={teamName} className="rounded-[2.5rem] border-[6px] border-brand-dark bg-brand-bg/50 p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
-                        <div className="flex items-center justify-between mb-6 px-4">
-                          <div>
-                             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Pod / Team</p>
-                             <h3 className="text-3xl font-black text-brand-dark">{teamName}</h3>
-                          </div>
-                          <span className="px-5 py-2 rounded-full bg-white border-4 border-brand-dark font-black text-lg shadow-[4px_4px_0px_0px_#1A1A1A]">
-                            {members.length}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                          <AnimatePresence>
-                            {members.map((participant: any, index: number) => (
-                              <motion.div
-                                key={`${participant.nickname}-${index}`}
-                                initial={{ scale: 0, opacity: 0 }}
-                                animate={{ scale: 1, opacity: 1 }}
-                                exit={{ scale: 0, opacity: 0 }}
-                                className="bg-[#E5E7EB] rounded-full border-4 border-brand-dark px-4 py-3 flex items-center gap-3 shadow-[4px_4px_0px_0px_#1A1A1A]"
-                              >
-                                <div className="w-8 h-8 rounded-full bg-white border-2 border-brand-dark flex-shrink-0 flex items-center justify-center font-black text-xs text-brand-dark">
-                                  {participant.seat_index || index + 1}
-                                </div>
-                                <div className="w-full h-2 bg-brand-dark/20 rounded-full relative overflow-hidden">
-                                  <span className="absolute inset-0 flex items-center px-1 text-[10px] font-black uppercase tracking-wider truncate text-brand-dark">
-                                    {participant.nickname}
-                                  </span>
-                                </div>
-                              </motion.div>
-                            ))}
-                          </AnimatePresence>
-                        </div>
-                      </div>
-                    ))}
+          <div className="flex-1 min-h-0 overflow-auto custom-scrollbar pb-6 pr-1">
+            <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4">
+              {hostMessage && <HostPhaseNotice message={hostMessage} />}
+
+              <motion.section
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-[2.8rem] border-4 border-brand-dark bg-white p-5 shadow-[14px_14px_0px_0px_#1A1A1A] sm:p-6 lg:p-7"
+              >
+                <div className="flex flex-col items-center text-center">
+                  <div className="mb-4 flex flex-wrap justify-center gap-2">
+                    <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A]">
+                      Room Ready
+                    </span>
+                    <span className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A]">
+                      {packQuestionCount} Questions
+                    </span>
+                    <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A]">
+                      {participants.length} {participants.length === 1 ? 'Player' : 'Players'}
+                    </span>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <AnimatePresence>
-                      {participants.map((participant: any, index: number) => (
+
+                  <p className="max-w-[22ch] text-balance text-[clamp(1.6rem,2.6vw,2.6rem)] font-black leading-[1.02] tracking-tight">
+                    {lobbyRoomName}
+                  </p>
+                  <h1 className="mt-3 max-w-[14ch] text-balance text-[clamp(1.85rem,3.5vw,3.8rem)] font-black leading-[0.95] tracking-tight">
+                    {lobbyTitle}
+                  </h1>
+                  <p className="mt-3 max-w-[54ch] text-balance text-sm font-bold text-brand-dark/65 sm:text-base">
+                    {lobbySubtitle}
+                  </p>
+                </div>
+
+                <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+                  <div className="order-1 rounded-[2.5rem] border-4 border-brand-dark bg-brand-purple p-4 shadow-[12px_12px_0px_0px_#1A1A1A] sm:p-6">
+                    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="text-left text-white">
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-white/80">Room PIN</p>
+                        <p className="mt-1 text-sm font-bold text-white/80 sm:text-base">
+                          Students can scan the QR or type this code to join.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={copyPin}
+                        className="flex w-full items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-3 font-black text-brand-dark shadow-[3px_3px_0px_0px_#1A1A1A] transition-transform hover:-translate-y-0.5 sm:w-auto"
+                      >
+                        {isPinCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                        {isPinCopied ? 'Copied' : 'Copy PIN'}
+                      </button>
+                    </div>
+
+                    <div className="mx-auto grid max-w-[720px] grid-cols-3 gap-3 sm:grid-cols-6 sm:gap-4">
+                      {String(pin || '').split('').map((digit, index) => (
                         <motion.div
-                          key={`${participant.nickname}-${index}`}
-                          initial={{ scale: 0, opacity: 0 }}
-                          animate={{ scale: 1, opacity: 1 }}
-                          exit={{ scale: 0, opacity: 0 }}
-                          className="bg-[#E5E7EB] rounded-full border-4 border-brand-dark px-4 py-3 flex items-center gap-3 shadow-[4px_4px_0px_0px_#1A1A1A]"
+                          key={`${digit}-${index}`}
+                          initial={{ y: 20, opacity: 0 }}
+                          animate={{ y: 0, opacity: 1 }}
+                          transition={{ delay: index * 0.08 }}
+                          className="flex aspect-square min-h-[78px] items-center justify-center rounded-[1.35rem] border-4 border-brand-dark bg-white text-[clamp(2.5rem,4vw,4.8rem)] font-black leading-none shadow-[4px_4px_0px_0px_#1A1A1A]"
                         >
-                          <div className="w-8 h-8 rounded-full bg-white border-2 border-brand-dark flex-shrink-0" />
-                          <div className="w-full h-2 bg-brand-dark/20 rounded-full relative overflow-hidden">
-                            <span className="absolute inset-0 flex items-center px-1 text-[10px] font-black uppercase tracking-wider truncate text-brand-dark">
-                              {participant.nickname}
-                            </span>
-                          </div>
+                          {digit}
                         </motion.div>
                       ))}
-                    </AnimatePresence>
+                    </div>
                   </div>
-                )
-              ) : (
-                <div className="col-span-full py-10 text-center">
-                  <p className="text-xl font-black text-brand-dark/30 uppercase tracking-widest">Waiting for students...</p>
+
+                  <div className="order-2 flex flex-col gap-4 lg:row-span-2">
+                    <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-yellow p-4 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                      <div className="mx-auto flex aspect-square w-full max-w-[220px] items-center justify-center rounded-[1.6rem] border-2 border-brand-dark bg-white p-4">
+                        <QRCodeSVG value={joinUrl || String(pin || '')} size={180} level="M" includeMargin />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      <LobbyQuickStat label="Players" value={participants.length} detail="Currently visible in the room." tone="light" />
+                      <LobbyQuickStat label="Questions" value={packQuestionCount} detail="Ready to launch when you are." tone="warm" />
+                      <LobbyQuickStat label="Room Read" value={roomReadTitle} detail={roomReadBody} tone="dark" />
+                    </div>
+                  </div>
+
+                  <div className="order-3 flex flex-col gap-4">
+                    <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-bg p-5">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">How players join</p>
+                      <p className="max-w-[42ch] text-balance text-lg font-black leading-snug sm:text-xl">
+                        Scan the QR or type the PIN, choose a nickname, and wait for your name to appear in the room.
+                      </p>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                        <JoinStep title="1. Scan" body="QR or code." />
+                        <JoinStep title="2. Identify" body="Pick a nickname." />
+                        <JoinStep title="3. Appear" body="Join the room live." />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 rounded-[1.8rem] border-2 border-brand-dark bg-white p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Launch control</p>
+                        <p className="text-lg font-black">
+                          {participants.length > 0 ? `${participants.length} joined and ready to go.` : 'Waiting for the first student to join.'}
+                        </p>
+                      </div>
+                      <motion.button
+                        whileHover={{ scale: participants.length > 0 && !phaseTransitionPending ? 1.03 : 1 }}
+                        whileTap={{ scale: participants.length > 0 && !phaseTransitionPending ? 0.98 : 1 }}
+                        onClick={() => updateState('QUESTION_ACTIVE', 0)}
+                        disabled={participants.length === 0 || phaseTransitionPending}
+                        className="flex w-full items-center justify-center gap-3 rounded-[1.5rem] border-4 border-brand-dark bg-brand-orange px-6 py-4 text-lg font-black text-white shadow-[6px_6px_0px_0px_#1A1A1A] disabled:opacity-50 lg:w-auto"
+                      >
+                        <Play className="w-5 h-5 fill-current" />
+                        {phaseTransitionPending ? 'Launching...' : 'Start Game'}
+                      </motion.button>
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
 
-            {/* Action Bar */}
-            <div className="w-full flex flex-col sm:flex-row gap-4 items-center justify-between border-t-8 border-brand-dark/10 pt-10">
-               <button
-                 onClick={() => navigate('/teacher/dashboard')}
-                 className="flex items-center gap-2 text-brand-dark/40 font-black hover:text-brand-orange transition-colors"
-               >
-                 <ArrowLeft className="w-5 h-5" />
-                 Back to Dashboard
-               </button>
+                <div className="mt-8 border-t-4 border-brand-dark/10 pt-6">
+                  <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Participants</p>
+                      <h2 className="text-3xl font-black leading-tight sm:text-4xl">Who is in the room</h2>
+                      <p className="mt-2 max-w-[44ch] font-medium text-brand-dark/65">
+                        {participantSectionCopy}
+                      </p>
+                    </div>
 
-               <div className="flex gap-4">
-                 <button
-                   onClick={handleEndSession}
-                   className="px-6 py-3 bg-white border-4 border-brand-dark rounded-full font-black text-rose-500 shadow-[4px_4px_0px_0px_#1A1A1A] hover:bg-rose-50 transition-colors"
-                 >
-                   Stop
-                 </button>
-                 <motion.button
-                   whileHover={{ scale: participants.length > 0 ? 1.05 : 1 }}
-                   whileTap={{ scale: participants.length > 0 ? 0.95 : 1 }}
-                   onClick={() => updateState('QUESTION_ACTIVE', 0)}
-                   disabled={participants.length === 0 || phaseTransitionPending}
-                   className="px-10 py-5 bg-brand-orange text-white border-4 border-brand-dark rounded-[2rem] font-black text-2xl shadow-[10px_10px_0px_0px_#1A1A1A] disabled:opacity-40"
-                 >
-                   Launch Game
-                 </motion.button>
-               </div>
+                    <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">
+                      <div className="rounded-full border-2 border-brand-dark bg-white px-4 py-3 text-sm font-black shadow-[3px_3px_0px_0px_#1A1A1A]">
+                        {participants.length} {participants.length === 1 ? 'player in room' : 'players in room'}
+                      </div>
+                      <SessionSoundtrackPlayer
+                        status={status}
+                        modeConfig={modeConfig}
+                        placement="inline"
+                        className="sm:max-w-[320px]"
+                      />
+                    </div>
+                  </div>
+
+                  {participants.length > 0 ? (
+                    isTeamMode ? (
+                      <div className="space-y-4">
+                        {(Object.entries(groupedParticipants) as Array<[string, any[]]>).map(([teamName, members]) => (
+                          <div key={teamName} className="rounded-[1.9rem] border-2 border-brand-dark bg-brand-bg p-4 sm:p-5">
+                            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Pod / Team</p>
+                                <p className="text-2xl font-black leading-none">{teamName}</p>
+                              </div>
+                              <div className="w-fit rounded-full border-2 border-brand-dark bg-white px-4 py-2 font-black shadow-[3px_3px_0px_0px_#1A1A1A]">
+                                {members.length}
+                              </div>
+                            </div>
+
+                            <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+                              <AnimatePresence>
+                                {members.map((participant: any, index: number) => (
+                                  <motion.div
+                                    initial={{ opacity: 0, scale: 0.94 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.94 }}
+                                    key={`${participant.nickname}-${index}`}
+                                    className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-3 shadow-[3px_3px_0px_0px_#1A1A1A]"
+                                  >
+                                    <LobbyParticipantCard
+                                      participant={participant}
+                                      subtitle={`Seat ${participant.seat_index || index + 1}`}
+                                    />
+                                  </motion.div>
+                                ))}
+                              </AnimatePresence>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+                        <AnimatePresence>
+                          {participants.map((participant: any, index: number) => (
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.94 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.94 }}
+                              key={`${participant.nickname}-${index}`}
+                              className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-3 shadow-[3px_3px_0px_0px_#1A1A1A]"
+                            >
+                              <LobbyParticipantCard participant={participant} subtitle="Ready in lobby" />
+                            </motion.div>
+                          ))}
+                        </AnimatePresence>
+                      </div>
+                    )
+                  ) : (
+                    <div className="rounded-[2rem] border-2 border-dashed border-brand-dark/20 bg-brand-bg/70 p-8 text-center sm:p-10">
+                      <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 6, repeat: Infinity, ease: 'linear' }}
+                        className="mx-auto mb-4 w-fit"
+                      >
+                        <Sparkles className="w-10 h-10 text-brand-purple/40" />
+                      </motion.div>
+                      <p className="text-2xl font-black mb-2">No students yet</p>
+                      <p className="mx-auto max-w-[32ch] font-bold text-brand-dark/55">
+                        Share the PIN above and the room will populate automatically as students join.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </motion.section>
             </div>
-          </motion.div>
+          </div>
         </div>
       </div>
     );
@@ -1160,204 +1267,304 @@ export default function TeacherHost() {
     const isDiscussion = status === 'QUESTION_DISCUSSION';
     const isRevote = status === 'QUESTION_REVOTE';
     const nextStatus = isDiscussion ? 'QUESTION_REVOTE' : isPeerMode && !isRevote ? 'QUESTION_DISCUSSION' : 'QUESTION_REVEAL';
-    const nextButtonLabel = isDiscussion ? 'Final Revote' : isPeerMode && !isRevote ? 'Start Discussion' : 'Reveal Answer';
-
+    const nextButtonLabel = isDiscussion ? 'Open Final Revote' : isPeerMode && !isRevote ? 'Start Discussion' : 'Reveal Answer';
+    const stageLabel = isDiscussion ? 'Pod Discussion' : isRevote ? 'Final Revote' : isPeerMode ? 'Silent Vote' : 'Question Live';
+    const stageBody = isDiscussion
+      ? 'Students compare reasoning inside their pod before the final revote window opens.'
+      : isRevote
+        ? 'Students can now keep or change their first answer and submit the final version.'
+        : isPeerMode
+          ? 'This is the first commit round. Students vote privately before they talk.'
+          : gameMode.quickSummary;
+    const stageCountLabel = isDiscussion
+      ? `${Object.keys(studentSelections).length} / ${participants.length} first votes recorded`
+      : responseCountLabel;
+    const currentPrompt = currentQuestion?.prompt || '';
+    const activePromptClassName =
+      currentPrompt.length > 140
+        ? 'text-[clamp(1.55rem,1.9vw,2.8rem)]'
+        : currentPrompt.length > 95
+          ? 'text-[clamp(1.8rem,2.3vw,3.4rem)]'
+          : currentPrompt.length > 55
+            ? 'text-[clamp(2rem,2.8vw,4rem)]'
+            : 'text-[clamp(2.2rem,3.2vw,4.6rem)]';
     return (
-      <div className="game-viewport-shell flex flex-col overflow-hidden text-brand-dark bg-white relative">
-        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        
-        {/* Top Minimal Action Bar */}
-        <div className="flex items-center justify-between px-6 lg:px-12 py-6 shrink-0 z-20">
-          <div className="flex items-center gap-4">
-            <div className="bg-[#B488FF] rounded-[1.2rem] border-4 border-brand-dark px-3 py-2 shadow-[4px_4px_0px_0px_#1A1A1A] flex items-center gap-1.5 cursor-pointer" onClick={copyPin}>
-              {String(pin || '000000').split('').map((digit, index) => (
-                <div key={index} className="w-6 h-8 lg:w-7 lg:h-9 bg-white rounded-lg border-[3px] border-brand-dark flex flex-col items-center justify-center font-black text-sm lg:text-base">
-                  {digit}
-                </div>
-              ))}
-            </div>
-            {isPinCopied && <span className="font-black text-brand-purple text-sm animate-pulse">Copied!</span>}
-            
-            {/* Host End Game logic hidden in a clean way, or placed on corner */}
-            <button onClick={handleEndSession} className="w-10 h-10 lg:w-12 lg:h-12 rounded-[1rem] border-4 border-rose-500 bg-rose-50 text-rose-500 flex items-center justify-center shadow-[4px_4px_0px_0px_#F43F5E] hover:bg-rose-100 transition-colors ml-4 sm:ml-0" title="Close Session">
-              <XCircle className="w-6 h-6" />
-            </button>
-          </div>
-
-          <div className="hidden md:flex absolute left-1/2 top-10 -translate-x-1/2">
-             <div className="w-32 h-8 lg:w-48 lg:h-10 bg-[#E5E7EB] rounded-full border-4 border-brand-dark flex items-center justify-center">
-                <div className="w-12 h-1.5 lg:w-20 lg:h-2 bg-brand-dark rounded-full" />
-             </div>
-          </div>
-
-          <div className="flex items-center gap-6">
-             <div className="hidden lg:block text-2xl font-black text-brand-dark/40 border-r-4 border-brand-dark/10 pr-6">
-               <span className="text-brand-dark">{totalAnswers}</span> / {participants.length || 0} Votes
-             </div>
-             <div className="text-4xl lg:text-5xl xl:text-6xl font-black tabular-nums tracking-tighter">
-               0:{phaseTimeLeft.toString().padStart(2, '0')}
-             </div>
-          </div>
-        </div>
-
-        {/* Alerts / Notices (Floating) */}
-        {hostMessage && (
-          <div className="absolute top-28 left-1/2 -translate-x-1/2 z-50">
-            <HostPhaseNotice message={hostMessage} />
-          </div>
-        )}
-        <div className="absolute top-28 right-4 space-y-2 pointer-events-none z-50">
-          <AnimatePresence>
-            {Array.from(focusAlerts).map((nickname) => (
-              <motion.div
-                key={nickname}
-                initial={{ x: 100, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: 100, opacity: 0 }}
-                className="bg-brand-orange text-white px-6 py-3 rounded-[1.5rem] border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A] flex items-center gap-3 font-black"
+      <div className="game-viewport-shell flex flex-col overflow-hidden text-brand-dark">
+        <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
+          <div className="mx-auto grid w-full max-w-[1500px] gap-3 px-4 py-4 sm:px-6 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-center">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleEndSession}
+                className="flex items-center gap-2 rounded-full border-2 border-brand-dark/10 px-3 py-2 font-black text-brand-dark/45 transition-colors hover:border-rose-300 hover:text-rose-500"
               >
-                <AlertTriangle className="w-5 h-5" />
-                {extractNickname(nickname as string)} focus loss!
-              </motion.div>
-            ))}
-          </AnimatePresence>
+                <XCircle className="h-5 w-5" />
+                End Game
+              </button>
+            </div>
+
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-xs font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A] sm:text-sm">
+                Question {questionIndex + 1} of {pack?.questions?.length}
+              </span>
+              <span className={`rounded-full border-2 border-brand-dark px-4 py-2 text-xs font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A] ${gameTone.pill}`}>
+                {gameMode.label}
+              </span>
+              <span className="rounded-full border-2 border-brand-dark bg-brand-dark px-4 py-2 text-xs font-black uppercase tracking-[0.2em] text-white shadow-[3px_3px_0px_0px_#FF5A36]">
+                {stageLabel}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+              <div className="flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-3 text-sm font-black shadow-[4px_4px_0px_0px_#1A1A1A] sm:text-base">
+                <Clock className="h-5 w-5 text-brand-orange" />
+                {phaseTimeLeft}s left
+              </div>
+              <div className="flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-3 text-sm font-black text-brand-purple shadow-[4px_4px_0px_0px_#1A1A1A] sm:text-base">
+                <Users className="h-5 w-5" />
+                {stageCountLabel}
+              </div>
+              <motion.button
+                whileHover={{ scale: phaseTransitionPending ? 1 : 1.03 }}
+                whileTap={{ scale: phaseTransitionPending ? 1 : 0.97 }}
+                onClick={() => updateState(nextStatus, questionIndex)}
+                disabled={phaseTransitionPending}
+                className="w-full rounded-[1.2rem] border-4 border-brand-dark bg-brand-dark px-6 py-3 text-lg font-black text-white shadow-[6px_6px_0px_0px_#FF5A36] disabled:opacity-50 sm:w-auto"
+              >
+                {phaseTransitionPending ? 'Working...' : nextButtonLabel}
+              </motion.button>
+            </div>
+          </div>
         </div>
 
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col px-4 lg:px-12 pb-24 xl:pb-32 min-h-0 w-full max-w-[1800px] mx-auto">
-          
-          <motion.div
-            initial={{ scale: 0.98, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className={`w-full h-full flex-[1.4] rounded-[2.5rem] lg:rounded-[3rem] border-8 border-brand-dark relative overflow-hidden shadow-[12px_12px_0px_0px_#1A1A1A] mb-8 bg-brand-purple flex items-center justify-center z-10 ${!currentQuestion?.image_url ? 'bg-gradient-to-br from-brand-orange to-brand-yellow' : ''}`}
-          >
-            {/* Progress Bar mapped to top */}
-            <div className="absolute top-0 left-0 w-full h-3 z-30 bg-brand-dark/10">
-              <motion.div 
-                initial={{ width: 0 }}
-                animate={{ width: `${participants.length > 0 ? (totalAnswers / participants.length) * 100 : 0}%` }}
-                className="h-full bg-brand-yellow"
-                transition={{ type: 'spring', stiffness: 50, damping: 15 }}
-              />
-            </div>
-
-            {currentQuestion?.image_url && (
-               <img src={currentQuestion.image_url} alt="Question Context" className="absolute inset-0 w-full h-full object-cover object-center" />
-            )}
-            
-            {/* Subtle overlay to ensure the prompt pill pops */}
-            <div className="absolute inset-0 bg-brand-dark/5 backdrop-blur-[2px]" />
-
-            {/* Floating Overlaid Question */}
-            <div className="relative z-20 px-8 py-5 md:px-16 md:py-8 bg-white rounded-[2.5rem] md:rounded-[3.5rem] border-[6px] border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-[90%] md:max-w-5xl text-center">
-               <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black leading-tight text-brand-dark tracking-tight" dir="auto">
-                 {currentQuestion?.prompt}
-               </h2>
-            </div>
-          </motion.div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-8 w-full shrink-0 flex-1 min-h-[160px] max-h-[40vh]">
-            {currentAnswers.map((ans: string, i: number) => {
-              const selectionCount = Object.values(studentSelections).filter((idx) => idx === i).length;
-              const selectionPct = participants.length > 0 ? Math.round((selectionCount / participants.length) * 100) : 0;
-              return (
+        <div className="relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden lg:overflow-hidden">
+          <div className="pointer-events-none absolute right-4 top-4 z-40 space-y-2 sm:right-6">
+            <AnimatePresence>
+              {Array.from(focusAlerts).map((nickname) => (
                 <motion.div
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: i * 0.08 }}
-                  key={i}
-                  className="relative flex items-center overflow-hidden rounded-[2.5rem] lg:rounded-[3rem] border-[6px] border-brand-dark bg-[#E5E7EB] px-8 lg:px-12 py-6 shadow-[10px_10px_0px_0px_#1A1A1A]"
+                  key={nickname}
+                  initial={{ x: 100, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: 100, opacity: 0 }}
+                  className="rounded-2xl border-2 border-brand-dark bg-brand-orange px-4 py-3 font-black text-white shadow-[4px_4px_0px_0px_#1A1A1A] sm:px-5"
                 >
-                  <div className="absolute top-0 left-0 h-full bg-[#D1D5DB] transition-all duration-300" style={{ width: `${selectionPct}%` }} />
-                  
-                  <div className="relative z-10 w-full flex flex-col justify-center h-full">
-                    <p className="leading-tight break-words text-brand-dark font-black text-2xl lg:text-4xl pr-8" dir="auto">{ans}</p>
-                    
-                    {/* Visual vote count mapped below the text elegantly */}
-                    {selectionCount > 0 && (
-                      <div className="mt-4 flex items-center gap-3">
-                         <div className="flex -space-x-2">
-                           {Array.from({ length: Math.min(3, selectionCount) }).map((_, idx) => (
-                             <div key={idx} className="w-6 h-6 rounded-full bg-white border-2 border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A]" />
-                           ))}
-                         </div>
-                         <span className="font-black text-brand-dark/50 text-lg">+{selectionCount} inside</span>
-                      </div>
-                    )}
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle className="h-5 w-5 shrink-0" />
+                    <span>{extractNickname(nickname as string)} lost focus!</span>
                   </div>
                 </motion.div>
-              );
-            })}
+              ))}
+            </AnimatePresence>
           </div>
 
-          {/* Restored Host Insights Data Row */}
-          {liveHostInsights && !isDiscussion && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 mt-8 w-full shrink-0 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-16">
-              <HostInsightCard
-                title="Room Pulse"
-                accent="indigo"
-                compact
-                value={`${liveHostInsights.participationPct}%`}
-                body={`${liveHostInsights.answeredCount} students committed.`}
-              />
-              <HostInsightCard
-                title="Lead Signal"
-                compact
-                accent={
-                  liveHostInsights.leader &&
-                  currentQuestion &&
-                  liveHostInsights.leader.index !== Number(currentQuestion.correct_index) &&
-                  liveHostInsights.leader.pct >= 45
-                     ? 'amber'
-                     : 'emerald'
-                }
-                value={
-                  liveHostInsights.leader
-                    ? `${formatAnswerSlotLabel(liveHostInsights.leader.index)} · ${liveHostInsights.leader.pct}%`
-                    : 'Waiting'
-                }
-                body={
-                  liveHostInsights.runnerUp
-                    ? `Runner up: ${formatAnswerSlotLabel(liveHostInsights.runnerUp.index)} · ${liveHostInsights.runnerUp.pct}%`
-                    : 'No clear pattern yet.'
-                }
-              />
-              <HostInsightCard
-                title={liveHostInsights.primaryCue.title}
-                compact
-                accent={
-                  liveHostInsights.primaryCue.tone === 'warning'
-                    ? 'amber'
-                    : liveHostInsights.primaryCue.tone === 'success'
-                      ? 'emerald'
-                      : 'indigo'
-                }
-                body={liveHostInsights.primaryCue.body}
-              />
-            </div>
-          )}
-        </div>
+          <div className="mx-auto flex h-full w-full max-w-[1500px] min-h-0 flex-col gap-4 px-4 py-4 sm:px-6 sm:py-5">
+            {hostMessage && <HostPhaseNotice message={hostMessage} />}
 
-        {/* BOTTOM FLOATING ACTION BUTTON (Mapped to Next Phase) */}
-        <div className="absolute bottom-[-20px] left-1/2 -translate-x-1/2 z-50">
-           <motion.button
-            whileHover={{ scale: phaseTransitionPending ? 1 : 1.05, y: -10 }}
-            whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
-            onClick={() => updateState(nextStatus, questionIndex)}
-            disabled={phaseTransitionPending}
-            className="w-48 lg:w-64 h-24 lg:h-32 bg-[#E5E7EB] border-[8px] border-brand-dark rounded-[3rem] flex flex-col items-center justify-start pt-6 font-black text-xl lg:text-3xl hover:bg-brand-yellow hover:text-brand-dark hover:border-brand-dark transition-all group overflow-hidden shadow-[0px_0px_30px_rgba(0,0,0,0.15)]"
-          >
-            {phaseTransitionPending ? (
-               <span>Working...</span>
-            ) : (
-               <>
-                 <span className="opacity-0 group-hover:opacity-100 absolute top-7 flex items-center justify-center font-black">
-                   {nextButtonLabel} <ChevronRight className="w-6 h-6 ml-1 stroke-[3px]" />
-                 </span>
-                 <div className="w-20 lg:w-28 h-2.5 lg:h-3 bg-brand-dark rounded-full group-hover:opacity-0 transition-opacity" />
-               </>
-            )}
-          </motion.button>
+            <div className="flex-1 min-h-0 lg:grid lg:grid-rows-[minmax(300px,1.08fr)_minmax(240px,0.92fr)] lg:gap-4">
+              <motion.section
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="min-h-0 mb-4 lg:mb-0"
+              >
+                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[2.4rem] border-4 border-brand-dark bg-white p-4 shadow-[10px_10px_0px_0px_#1A1A1A] sm:p-5 lg:p-6">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-1">Live Board</p>
+                      <p className="text-lg font-black text-brand-dark/70">{stageBody}</p>
+                    </div>
+                    <div className="hidden rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black shadow-[3px_3px_0px_0px_#1A1A1A] lg:block">
+                      {liveHostInsights.participationPct}% committed
+                    </div>
+                  </div>
+
+                  <div className="grid min-h-0 flex-1 gap-4 2xl:grid-cols-[minmax(0,1.08fr)_320px]">
+                    <div
+                      className={`grid min-h-0 gap-4 ${currentQuestion?.image_url ? 'lg:grid-cols-[minmax(240px,0.4fr)_minmax(0,0.6fr)]' : ''}`}
+                    >
+                      {currentQuestion?.image_url && (
+                        <QuestionImageCard
+                          imageUrl={currentQuestion?.image_url}
+                          alt={currentQuestion?.prompt || 'Question image'}
+                          className="h-full min-h-[220px] sm:min-h-[260px] lg:min-h-0"
+                          imgClassName="h-full w-full object-contain p-3 sm:p-4"
+                        />
+                      )}
+
+                      <div className="flex min-h-0 flex-col gap-4">
+                        <div className="flex flex-wrap gap-2">
+                          <span className={`rounded-full border-2 border-brand-dark px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.2em] ${gameTone.pill}`}>
+                            {gameMode.shortLabel}
+                          </span>
+                          <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.2em]">
+                            {gameMode.researchCue}
+                          </span>
+                        </div>
+
+                        <div className="min-h-0 flex-1 rounded-[2rem] border-4 border-brand-dark bg-brand-bg p-4 sm:p-5 lg:p-6">
+                          <div className="h-full min-h-0 overflow-y-auto pr-1 pb-1">
+                            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Current prompt</p>
+                            <h2 className={`${activePromptClassName} text-balance break-words font-black leading-[1.02] tracking-tight`}>
+                              {currentPrompt}
+                            </h2>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 2xl:hidden">
+                          <ActivePhaseMetricTile
+                            label="Timer"
+                            value={`${phaseTimeLeft}s`}
+                            tone="dark"
+                          />
+                          <ActivePhaseMetricTile
+                            label={isDiscussion ? 'First votes' : isPeerMode && !isRevote ? 'Votes' : 'Answers'}
+                            value={isDiscussion ? Object.keys(studentSelections).length : isPeerMode && !isRevote ? Object.keys(studentSelections).length : totalAnswers}
+                            tone="light"
+                          />
+                          <ActivePhaseMetricTile
+                            label="Players"
+                            value={participants.length}
+                            tone="light"
+                          />
+                          <ActivePhaseMetricTile
+                            label="Lead"
+                            value={
+                              liveHostInsights.leader
+                                ? `${formatAnswerSlotLabel(liveHostInsights.leader.index)} · ${liveHostInsights.leader.pct}%`
+                                : 'Waiting'
+                            }
+                            tone={
+                              liveHostInsights.leader &&
+                              currentQuestion &&
+                              liveHostInsights.leader.index !== Number(currentQuestion.correct_index) &&
+                              liveHostInsights.leader.pct >= 45
+                                ? 'warm'
+                                : 'success'
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="hidden min-h-0 flex-col gap-3 2xl:flex">
+                      <div className="grid grid-cols-2 gap-3">
+                        <ActivePhaseMetricTile label="Timer" value={`${phaseTimeLeft}s`} tone="dark" />
+                        <ActivePhaseMetricTile
+                          label={isDiscussion ? 'First votes' : isPeerMode && !isRevote ? 'Votes' : 'Answers'}
+                          value={isDiscussion ? Object.keys(studentSelections).length : isPeerMode && !isRevote ? Object.keys(studentSelections).length : totalAnswers}
+                          tone="light"
+                        />
+                        <ActivePhaseMetricTile label="Players" value={participants.length} tone="light" />
+                        <ActivePhaseMetricTile
+                          label="Lead"
+                          value={
+                            liveHostInsights.leader
+                              ? `${formatAnswerSlotLabel(liveHostInsights.leader.index)} · ${liveHostInsights.leader.pct}%`
+                              : 'Waiting'
+                          }
+                          tone={
+                            liveHostInsights.leader &&
+                            currentQuestion &&
+                            liveHostInsights.leader.index !== Number(currentQuestion.correct_index) &&
+                            liveHostInsights.leader.pct >= 45
+                              ? 'warm'
+                              : 'success'
+                          }
+                        />
+                      </div>
+
+                      <div className="flex min-h-0 flex-1 flex-col rounded-[2rem] border-4 border-brand-dark bg-brand-bg p-4 shadow-[6px_6px_0px_0px_#1A1A1A]">
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Room read</p>
+                        <p className="text-2xl font-black leading-tight mb-3">{liveHostInsights.primaryCue.title}</p>
+                        <p className="font-medium text-brand-dark/75 leading-relaxed mb-4">{liveHostInsights.primaryCue.body}</p>
+                        {liveHostInsights.secondaryCue && (
+                          <div className="rounded-[1.3rem] border-2 border-brand-dark/10 bg-white px-4 py-3 mb-4">
+                            <p className="text-sm font-black">{liveHostInsights.secondaryCue.title}</p>
+                            <p className="text-sm font-medium text-brand-dark/70">{liveHostInsights.secondaryCue.body}</p>
+                          </div>
+                        )}
+                        <div className="mt-auto">
+                          <SessionSoundtrackPlayer
+                            status={status}
+                            modeConfig={modeConfig}
+                            placement="inline"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.section>
+
+              <motion.section
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="min-h-0"
+              >
+                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[2.4rem] border-4 border-brand-dark bg-white p-4 shadow-[10px_10px_0px_0px_#1A1A1A] sm:p-5 lg:p-6">
+                  <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-1">Answer Board</p>
+                      <h3 className="text-2xl sm:text-3xl font-black leading-tight">
+                        {isDiscussion ? 'Silent vote spread' : isRevote ? 'Final answer spread' : 'Live answer spread'}
+                      </h3>
+                    </div>
+                    <div className={`rounded-full border-2 px-4 py-2 text-sm font-black shadow-[3px_3px_0px_0px_#1A1A1A] ${liveHostInsights.primaryCue.tone === 'warning' ? 'border-brand-dark bg-brand-yellow text-brand-dark' : liveHostInsights.primaryCue.tone === 'success' ? 'border-emerald-400 bg-emerald-100 text-emerald-900' : 'border-brand-dark bg-brand-bg text-brand-dark'}`}>
+                      {liveHostInsights.primaryCue.title}
+                    </div>
+                  </div>
+
+                  <div className={`grid flex-1 min-h-0 gap-3 ${currentAnswers.length > 1 ? 'md:grid-cols-2' : 'grid-cols-1'} ${currentAnswers.length > 2 ? 'md:grid-rows-2' : ''}`}>
+                    {currentAnswers.map((ans: string, i: number) => {
+                      const selectionCount = Object.values(studentSelections).filter((idx) => idx === i).length;
+                      const selectionPct = participants.length > 0 ? Math.round((selectionCount / participants.length) * 100) : 0;
+                      const toneColor = getReplayChoiceColor(i);
+
+                      return (
+                        <motion.div
+                          initial={{ y: 18, opacity: 0 }}
+                          animate={{ y: 0, opacity: 1 }}
+                          transition={{ delay: i * 0.08 }}
+                          key={i}
+                          className={`relative flex min-h-[118px] h-full flex-col overflow-hidden rounded-[1.9rem] border-4 p-4 shadow-[8px_8px_0px_0px_#1A1A1A] sm:min-h-[128px] sm:p-5 lg:min-h-0 ${
+                            isDiscussion ? 'border-brand-dark bg-brand-dark text-white' : 'border-brand-dark bg-white text-brand-dark'
+                          }`}
+                        >
+                          <div
+                            className={`absolute inset-y-0 left-0 ${isDiscussion ? 'bg-white/10' : 'bg-brand-orange/10'}`}
+                            style={{ width: `${selectionPct}%` }}
+                          />
+
+                          <div className="relative z-10 flex h-full flex-col gap-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div
+                                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 border-brand-dark text-lg font-black"
+                                style={{ backgroundColor: isDiscussion ? '#ffffff' : `${toneColor}1F`, color: isDiscussion ? '#1A1A1A' : toneColor }}
+                              >
+                                {formatAnswerSlotLabel(i)}
+                              </div>
+                              <div className="flex flex-wrap justify-end gap-2">
+                                <span className={`rounded-full border-2 px-3 py-1.5 text-xs font-black ${isDiscussion ? 'border-white/20 bg-white/10 text-white' : 'border-brand-dark bg-brand-bg text-brand-dark'}`}>
+                                  {selectionCount} {selectionCount === 1 ? 'vote' : 'votes'}
+                                </span>
+                                <span className={`rounded-full border-2 px-3 py-1.5 text-xs font-black ${isDiscussion ? 'border-brand-dark bg-brand-yellow text-brand-dark' : 'border-brand-dark text-white'}`} style={{ backgroundColor: isDiscussion ? undefined : toneColor }}>
+                                  {selectionPct}%
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex min-h-0 flex-1 items-center justify-center">
+                              <p className="text-balance break-words text-center text-xl font-black leading-tight sm:text-2xl lg:text-[clamp(1.7rem,2.2vw,2.9rem)]">
+                                {ans}
+                              </p>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </motion.section>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -2237,6 +2444,32 @@ function LobbyMetric({
   );
 }
 
+function ActivePhaseMetricTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  tone: 'light' | 'warm' | 'dark' | 'success';
+}) {
+  const toneClass =
+    tone === 'dark'
+      ? 'bg-brand-dark text-white border-brand-dark'
+      : tone === 'success'
+        ? 'bg-emerald-100 text-emerald-900 border-emerald-400 shadow-[4px_4px_0px_0px_#10b98144]'
+      : tone === 'warm'
+        ? 'bg-brand-yellow text-brand-dark border-brand-dark'
+        : 'bg-white text-brand-dark border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]';
+
+  return (
+    <div className={`rounded-[1.4rem] border-2 p-4 min-h-[94px] shadow-[4px_4px_0px_0px_#1A1A1A] ${toneClass}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-2">{label}</p>
+      <p className="text-2xl font-black break-words leading-tight">{value}</p>
+    </div>
+  );
+}
+
 function HostStageMetric({
   label,
   value,
@@ -2246,19 +2479,7 @@ function HostStageMetric({
   value: string | number;
   tone: 'light' | 'warm' | 'dark';
 }) {
-  const toneClass =
-    tone === 'dark'
-      ? 'bg-brand-dark text-white border-brand-dark'
-      : tone === 'warm'
-        ? 'bg-brand-yellow text-brand-dark border-brand-dark'
-        : 'bg-white text-brand-dark border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]';
-
-  return (
-    <div className={`rounded-[1.4rem] border-2 p-4 min-h-[94px] ${toneClass}`}>
-      <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-2">{label}</p>
-      <p className="text-2xl font-black break-words leading-tight">{value}</p>
-    </div>
-  );
+  return <ActivePhaseMetricTile label={label} value={value} tone={tone} />;
 }
 
 function HostInsightCard({
@@ -2313,9 +2534,37 @@ function HostPhaseNotice({
   );
 }
 
+function LobbyQuickStat({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  detail: string;
+  tone: 'light' | 'warm' | 'dark';
+}) {
+  const toneClass =
+    tone === 'dark'
+      ? 'border-brand-dark bg-brand-dark text-white shadow-[4px_4px_0px_0px_#1A1A1A]'
+      : tone === 'warm'
+        ? 'border-brand-dark bg-brand-yellow text-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]'
+        : 'border-brand-dark bg-white text-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]';
+  const detailClass = tone === 'dark' ? 'text-white/75' : 'text-brand-dark/65';
+
+  return (
+    <div className={`rounded-[1.5rem] border-2 p-4 ${toneClass}`}>
+      <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] opacity-70">{label}</p>
+      <p className="text-lg font-black leading-tight sm:text-xl">{value}</p>
+      <p className={`mt-2 text-sm font-medium leading-snug ${detailClass}`}>{detail}</p>
+    </div>
+  );
+}
+
 function JoinStep({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-3">
+    <div className="rounded-[1.2rem] border-2 border-brand-dark bg-white p-3 shadow-[3px_3px_0px_0px_#1A1A1A]">
       <p className="font-black mb-1">{title}</p>
       <p className="font-medium text-brand-dark/65 text-sm">{body}</p>
     </div>
@@ -2330,15 +2579,15 @@ function LobbyParticipantCard({
   subtitle: string;
 }) {
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex items-center gap-3">
       <Avatar
         nickname={participant.nickname}
-        imgClassName="w-12 h-12 rounded-2xl"
+        imgClassName="w-10 h-10 rounded-[1.1rem]"
         textClassName="hidden"
       />
       <div className="min-w-0">
-        <p className="font-black text-lg truncate">{extractNickname(participant.nickname || '')}</p>
-        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{subtitle}</p>
+        <p className="truncate text-base font-black sm:text-lg">{extractNickname(participant.nickname || '')}</p>
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/40">{subtitle}</p>
       </div>
     </div>
   );

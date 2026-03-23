@@ -18,7 +18,7 @@ import {
   Wifi,
   Zap,
 } from 'lucide-react';
-import { motion, useScroll, useMotionValueEvent } from 'motion/react';
+import { motion } from 'motion/react';
 import {
   MasteryBarChart,
   QuestionFlowChart,
@@ -133,18 +133,6 @@ export default function StudentDashboard() {
   const comebackMission = overall?.comebackMission || engagement?.comeback_mission || null;
   const primaryPracticePath = buildStudentPracticePath(nickname || displayNickname || 'student', comebackMission, focusTags);
 
-  const { scrollY } = useScroll();
-  const [headerHidden, setHeaderHidden] = useState(false);
-
-  useMotionValueEvent(scrollY, "change", (latest) => {
-    const previous = scrollY.getPrevious() || 0;
-    if (latest > previous && latest > 150) {
-      setHeaderHidden(true);
-    } else {
-      setHeaderHidden(false);
-    }
-  });
-
   const signalBaselines = useMemo(
     () => new Map(overallSignals.map((signal: any) => [signal.id, signal.score])),
     [overallSignals],
@@ -194,62 +182,50 @@ export default function StudentDashboard() {
     <div className="min-h-screen bg-brand-bg font-sans text-brand-dark pb-20 selection:bg-brand-orange selection:text-white">
       <div className="absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(circle_at_top_left,_rgba(255,90,54,0.18),_transparent_36%),radial-gradient(circle_at_top_right,_rgba(180,136,255,0.16),_transparent_34%)] pointer-events-none" />
 
-      <motion.nav 
-        variants={{
-          visible: { y: 0 },
-          hidden: { y: '-100%' },
-        }}
-        animate={headerHidden ? 'hidden' : 'visible'}
-        transition={{ duration: 0.35, ease: 'easeInOut' }}
-        className="sticky top-0 z-30 bg-white border-b-4 border-brand-dark shadow-[0_6px_0px_0px_#1A1A1A]"
-      >
-        <div className="max-w-[1400px] mx-auto px-6 py-6 flex flex-col gap-6">
-          <div className="flex items-center gap-5">
+      <nav className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b-4 border-brand-dark shadow-[0_4px_0px_0px_#1A1A1A]">
+        <div className="max-w-[1400px] mx-auto px-6 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
             <button
               onClick={() => navigate('/')}
-              className="w-16 h-16 rounded-full bg-brand-yellow border-4 border-brand-dark flex items-center justify-center shadow-[4px_4px_0px_0px_#1A1A1A] hover:bg-brand-orange transition-colors"
-              aria-label="Go back"
+              className="w-12 h-12 rounded-full bg-brand-yellow border-2 border-brand-dark flex items-center justify-center shadow-[2px_2px_0px_0px_#1A1A1A]"
             >
-              <ArrowRight className="w-7 h-7 rotate-180" />
+              <ArrowRight className="w-5 h-5 rotate-180" />
             </button>
             <div>
-              <p className="text-sm font-black uppercase tracking-[0.4em] text-[#B488FF] mb-1">Student Command Center</p>
-              <h1 className="text-4xl sm:text-6xl font-black tracking-tight leading-none mb-1">{displayNickname}</h1>
-              <p className="text-lg sm:text-2xl font-bold text-brand-dark/30">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Student Command Center</p>
+              <h1 className="text-3xl font-black tracking-tight">{displayNickname}</h1>
+              <p className="font-bold text-brand-dark/60">
                 {latestSessionTitle ? `Latest game: ${latestSessionTitle}` : 'Overall learning profile'}
               </p>
             </div>
           </div>
 
-          <div className="flex flex-col gap-5">
-            <div className="flex flex-wrap gap-4">
-              <button
-                onClick={() => navigate('/explore')}
-                className="px-8 py-4 bg-white border-4 border-brand-dark rounded-3xl font-black shadow-[6px_6px_0px_0px_#1A1A1A] active:translate-x-1 active:translate-y-1 active:shadow-none transition-all"
-              >
-                Explore Packs
-              </button>
-              <button
-                onClick={() => navigate(primaryPracticePath)}
-                className="px-8 py-4 bg-[#FF5A36] text-white border-4 border-brand-dark rounded-3xl font-black shadow-[6px_6px_0px_0px_#1A1A1A] flex items-center gap-3 active:translate-x-1 active:translate-y-1 active:shadow-none transition-all"
-              >
-                <Sparkles className="w-5 h-5" />
-                Start Adaptive Practice
-              </button>
-            </div>
-            
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => navigate('/explore')}
+              className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
+            >
+              Explore Packs
+            </button>
+            <button
+              onClick={() => navigate(primaryPracticePath)}
+              className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#1A1A1A] flex items-center gap-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              Start Adaptive Practice
+            </button>
             <button
               onClick={() => {
                 clearJoinedParticipantSession();
                 navigate('/');
               }}
-              className="self-start px-6 py-2.5 bg-brand-dark text-white border-4 border-brand-dark rounded-2xl font-black shadow-[6px_0px_0px_0px_#FF5A36] hover:bg-brand-orange transition-colors"
+              className="px-5 py-3 bg-brand-dark text-white border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#FF5A36]"
             >
               Log Out
             </button>
           </div>
         </div>
-      </motion.nav>
+      </nav>
 
       <main className="max-w-[1400px] mx-auto px-6 pt-10 relative z-10">
         {error && (
@@ -740,9 +716,9 @@ function SurfaceCard({
   children: ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-[2.8rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#1A1A1A] overflow-hidden">
-      <div className="p-7 border-b-4 border-brand-dark bg-white">
-        <div className="flex items-center gap-4 mb-2">
+    <div className="bg-white rounded-[2.4rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden">
+      <div className="p-7 border-b-4 border-brand-dark bg-slate-50">
+        <div className="flex items-center gap-3 mb-2">
           {icon}
           <h2 className="text-3xl font-black">{title}</h2>
         </div>
@@ -781,7 +757,7 @@ function InsightTile({
   icon: ReactNode;
 }) {
   return (
-    <div className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[6px_6px_0px_0px_#1A1A1A]">
+    <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45">{label}</span>
         {icon}

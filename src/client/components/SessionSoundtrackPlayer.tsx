@@ -10,6 +10,7 @@ type Props = {
   status: string;
   modeConfig?: Record<string, unknown> | null;
   className?: string;
+  placement?: 'fixed' | 'inline';
 };
 
 const DEFAULT_VOLUME = 0.34;
@@ -28,7 +29,12 @@ function resolveActiveTrackId(status: string, modeConfig?: Record<string, unknow
   return status === 'LOBBY' ? lobbyTrackId : gameplayTrackId;
 }
 
-export default function SessionSoundtrackPlayer({ status, modeConfig, className = '' }: Props) {
+export default function SessionSoundtrackPlayer({
+  status,
+  modeConfig,
+  className = '',
+  placement = 'fixed',
+}: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [muted, setMuted] = useState(false);
   const [needsInteraction, setNeedsInteraction] = useState(false);
@@ -135,6 +141,10 @@ export default function SessionSoundtrackPlayer({ status, modeConfig, className 
     : muted
       ? 'Music muted'
       : activeTrack.label;
+  const placementClassName =
+    placement === 'inline'
+      ? 'inline-flex w-full items-center gap-3 rounded-full border-4 border-brand-dark bg-white px-5 py-3 text-left shadow-[6px_6px_0px_0px_#1A1A1A] transition-colors hover:bg-brand-yellow'
+      : 'fixed bottom-5 right-5 z-40 hidden items-center gap-3 rounded-full border-4 border-brand-dark bg-white px-5 py-3 text-left shadow-[6px_6px_0px_0px_#1A1A1A] transition-colors hover:bg-brand-yellow md:flex';
 
   return (
     <button
@@ -160,7 +170,7 @@ export default function SessionSoundtrackPlayer({ status, modeConfig, className 
         setMuted(true);
         setIsPlaying(false);
       }}
-      className={`fixed bottom-5 right-5 z-40 hidden items-center gap-3 rounded-full border-4 border-brand-dark bg-white px-5 py-3 text-left shadow-[6px_6px_0px_0px_#1A1A1A] transition-colors hover:bg-brand-yellow md:flex ${className}`.trim()}
+      className={`${placementClassName} ${className}`.trim()}
       title={activeTrack.label}
     >
       <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-brand-dark bg-brand-bg">

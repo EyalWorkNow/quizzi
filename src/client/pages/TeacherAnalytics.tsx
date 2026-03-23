@@ -321,6 +321,7 @@ export default function TeacherAnalytics() {
   const [isHeaderCondensed, setIsHeaderCondensed] = useState(false);
   const [isHeaderPinnedOpen, setIsHeaderPinnedOpen] = useState(false);
   const [viewMode, setViewMode] = useState<TeacherBoardViewMode>(() => readTeacherBoardViewMode());
+  const [pendingAdvancedTarget, setPendingAdvancedTarget] = useState<string | null>(null);
   const [followUpBusyPlanId, setFollowUpBusyPlanId] = useState<string | null>(null);
   const [followUpNotice, setFollowUpNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [recoveryBuilderBusyKey, setRecoveryBuilderBusyKey] = useState<string | null>(null);
@@ -377,6 +378,36 @@ export default function TeacherAnalytics() {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(TEACHER_BOARD_VIEW_KEY, viewMode);
   }, [viewMode]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !pendingAdvancedTarget || viewMode !== 'advanced') return;
+
+    let timeoutId = 0;
+    let attempts = 0;
+    const tryScroll = () => {
+      if (scrollToBoardSection(pendingAdvancedTarget)) {
+        setPendingAdvancedTarget(null);
+        return;
+      }
+
+      if (attempts >= 10) {
+        setPendingAdvancedTarget(null);
+        return;
+      }
+
+      attempts += 1;
+      timeoutId = window.setTimeout(tryScroll, 120);
+    };
+
+    const frameId = window.requestAnimationFrame(() => {
+      tryScroll();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [pendingAdvancedTarget, viewMode]);
 
   useEffect(() => {
     if (!followUpNotice) return;
@@ -1120,18 +1151,20 @@ export default function TeacherAnalytics() {
   const showAdvancedPanels = viewMode === 'advanced';
 
   const scrollToBoardSection = (sectionId: string) => {
-    if (typeof document === 'undefined') return;
-    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (typeof document === 'undefined') return false;
+    const section = document.getElementById(sectionId);
+    if (!section) return false;
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return true;
   };
 
   const openAdvancedView = (targetSectionId = 'teacher-board-advanced') => {
+    if (showAdvancedPanels) {
+      scrollToBoardSection(targetSectionId);
+      return;
+    }
+    setPendingAdvancedTarget(targetSectionId);
     setViewMode('advanced');
-    if (typeof window === 'undefined') return;
-    window.requestAnimationFrame(() => {
-      window.setTimeout(() => {
-        scrollToBoardSection(targetSectionId);
-      }, 0);
-    });
   };
 
   const guidedWorkflowCards = useMemo(
@@ -1869,6 +1902,80 @@ export default function TeacherAnalytics() {
       .filter((target) => target.count > 0);
   }, [prioritizedParticipants, topAttentionStudents]);
 
+  const visibleKeyMetricCards = useMemo(
+    () => (showAdvancedPanels ? keyMetricCards : keyMetricCards.slice(0, 4)),
+    [keyMetricCards, showAdvancedPanels],
+  );
+
+  const questionPreviewLimit = showAdvancedPanels ? 4 : 3;
+  const visibleQuestionDiagnostics = useMemo(
+    () => filteredQuestionDiagnostics.slice(0, questionPreviewLimit),
+    [filteredQuestionDiagnostics, questionPreviewLimit],
+  );
+  const hiddenQuestionDiagnostics = useMemo(
+    () => filteredQuestionDiagnostics.slice(questionPreviewLimit),
+    [filteredQuestionDiagnostics, questionPreviewLimit],
+  );
+
+  const studentPreviewLimit = showAdvancedPanels ? filteredParticipants.length : 6;
+  const visibleStudentCards = useMemo(
+    () => filteredParticipants.slice(0, studentPreviewLimit),
+    [filteredParticipants, studentPreviewLimit],
+  );
+  const hiddenStudentCards = useMemo(
+    () => filteredParticipants.slice(studentPreviewLimit),
+    [filteredParticipants, studentPreviewLimit],
+  );
+
+  const simpleViewPreviewCards = useMemo(
+    () =>
+      showAdvancedPanels
+        ? []
+        : [
+            {
+              id: 'recovery',
+              label: 'Recovery Tools',
+              title:
+                recoveryBuilderTargets.length > 0
+                  ? `${recoveryBuilderTargets[0].count} students are ready for targeted recovery`
+                  : 'Targeted recovery tools stay available in full view',
+              body:
+                recoveryBuilderTargets[0]?.body ||
+                'Open full view to build personal recovery games and copy-ready intervention packets.',
+              badge: recoveryBuilderTargets.length > 0 ? `${recoveryBuilderTargets[0].count}` : 'Tooling',
+              targetId: 'teacher-board-recovery-tools',
+            },
+            {
+              id: 'replay',
+              label: 'Session Replay',
+              title:
+                sessionReplayTimeline.length > 0
+                  ? `${sessionReplayTimeline.length} question checkpoints are ready`
+                  : 'Question-by-question replay stays in full view',
+              body:
+                sessionReplayTimeline[0]?.move ||
+                'Open the full timeline when you need the exact moment the room held, slipped, or needed a reteach.',
+              badge: sessionReplayTimeline.length > 0 ? `Q${sessionReplayTimeline[0].questionIndex}` : 'Replay',
+              targetId: 'teacher-board-replay',
+            },
+            {
+              id: 'peer-support',
+              label: 'Peer Support',
+              title:
+                peerTutorMatches.length > 0
+                  ? `${peerTutorMatches.length} support matches were identified`
+                  : 'Peer tutoring suggestions stay in full view',
+              body:
+                peerTutorMatches[0]
+                  ? `${peerTutorMatches[0].tutor.nickname} can stabilize ${peerTutorMatches[0].learner.nickname} around ${peerTutorMatches[0].overlap.slice(0, 2).join(', ')}.`
+                  : 'Use full view for live peer-support pairings, richer cohorts, and extra classroom operations.',
+              badge: peerTutorMatches.length > 0 ? `${peerTutorMatches.length}` : 'Support',
+              targetId: 'teacher-board-peer-support',
+            },
+          ],
+    [peerTutorMatches, recoveryBuilderTargets, sessionReplayTimeline, showAdvancedPanels],
+  );
+
   const conceptClinics = useMemo(
     () =>
       topGapTags
@@ -2196,10 +2303,11 @@ export default function TeacherAnalytics() {
           </div>
         </motion.section>
 
-        <section className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4 mb-10">
-          {keyMetricCards.map((card) => (
+        <section className={`grid grid-cols-1 md:grid-cols-2 gap-4 mb-10 ${showAdvancedPanels ? 'xl:grid-cols-3' : 'xl:grid-cols-4'}`}>
+          {visibleKeyMetricCards.map((card) => (
             <React.Fragment key={card.id}>
               <MetricCard
+                metricId={card.id}
                 icon={card.icon}
                 title={card.title}
                 value={card.value}
@@ -2408,40 +2516,42 @@ export default function TeacherAnalytics() {
           </div>
         </section>
 
-        <section className="mb-10">
-          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
-            <div className="flex items-center gap-3 mb-4">
-              <Users className="w-6 h-6 text-brand-orange" />
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Peer Tutor Matching')}</p>
-                <h2 className="text-3xl font-black">{t('Who can stabilize whom right now')}</h2>
-                <p className="font-bold text-brand-dark/60 mt-1">{t('These matches pair a stable student with a learner who needs support on the same concept cluster.')}</p>
+        {showAdvancedPanels && (
+          <section id="teacher-board-peer-support" className="scroll-mt-40 mb-10">
+            <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+              <div className="flex items-center gap-3 mb-4">
+                <Users className="w-6 h-6 text-brand-orange" />
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Peer Tutor Matching')}</p>
+                  <h2 className="text-3xl font-black">{t('Who can stabilize whom right now')}</h2>
+                  <p className="font-bold text-brand-dark/60 mt-1">{t('These matches pair a stable student with a learner who needs support on the same concept cluster.')}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {peerTutorMatches.length > 0 ? (
+                  peerTutorMatches.map((match) => (
+                    <React.Fragment key={match.id}>
+                      <PeerTutorMatchCard
+                        tutorName={match.tutor.nickname}
+                        learnerName={match.learner.nickname}
+                        overlap={match.overlap}
+                        onTutorAction={() => openStudentDashboard(match.tutor.id)}
+                        onLearnerAction={() => openStudentDashboard(match.learner.id)}
+                      />
+                    </React.Fragment>
+                  ))
+                ) : (
+                  <div className="xl:col-span-2 rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                    <p className="font-black">{t('No clear peer-support pair emerged from this session')}</p>
+                    <p className="font-medium text-brand-dark/70 mt-2">
+                      {t('As soon as the board sees stable high performers and overlapping weak-tag patterns, it will suggest live peer pairings here.')}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              {peerTutorMatches.length > 0 ? (
-                peerTutorMatches.map((match) => (
-                  <React.Fragment key={match.id}>
-                    <PeerTutorMatchCard
-                      tutorName={match.tutor.nickname}
-                      learnerName={match.learner.nickname}
-                      overlap={match.overlap}
-                      onTutorAction={() => openStudentDashboard(match.tutor.id)}
-                      onLearnerAction={() => openStudentDashboard(match.learner.id)}
-                    />
-                  </React.Fragment>
-                ))
-              ) : (
-                <div className="xl:col-span-2 rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
-                  <p className="font-black">{t('No clear peer-support pair emerged from this session')}</p>
-                  <p className="font-medium text-brand-dark/70 mt-2">
-                    {t('As soon as the board sees stable high performers and overlapping weak-tag patterns, it will suggest live peer pairings here.')}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         <section className="grid grid-cols-1 xl:grid-cols-[0.92fr_1.08fr] gap-8 mb-10">
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
@@ -2514,162 +2624,166 @@ export default function TeacherAnalytics() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 xl:grid-cols-[0.98fr_1.02fr] gap-8 mb-10">
-          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
-            <div className="flex items-center justify-between gap-4 mb-4">
-              <div className="flex items-center gap-3">
-                <AlertTriangle className="w-6 h-6 text-brand-orange" />
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Office Hours Auto-Invite')}</p>
-                  <h2 className="text-3xl font-black">{t('Who should hear from you next')}</h2>
-                  <p className="font-bold text-brand-dark/60 mt-1">{t('Copy a ready-made invite for the students most likely to drift or underperform next.')}</p>
+        {showAdvancedPanels && (
+          <>
+            <section id="teacher-board-recovery-tools" className="scroll-mt-40 grid grid-cols-1 xl:grid-cols-[0.98fr_1.02fr] gap-8 mb-10">
+              <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+                <div className="flex items-center justify-between gap-4 mb-4">
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle className="w-6 h-6 text-brand-orange" />
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Office Hours Auto-Invite')}</p>
+                      <h2 className="text-3xl font-black">{t('Who should hear from you next')}</h2>
+                      <p className="font-bold text-brand-dark/60 mt-1">{t('Copy a ready-made invite for the students most likely to drift or underperform next.')}</p>
+                    </div>
+                  </div>
+                  {officeHoursQueue.length > 0 && (
+                    <button
+                      onClick={() => void handleCopyOfficeHours('office-hours-all', officeHoursPacketText)}
+                      className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black"
+                    >
+                      {copiedOfficeHoursKey === 'office-hours-all' ? t('Copied') : t('Copy full list')}
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-4">
+                  {officeHoursQueue.length > 0 ? (
+                    officeHoursQueue.map((student) => (
+                      <React.Fragment key={student.id}>
+                        <OfficeHoursInviteCard
+                          nickname={student.nickname}
+                          riskLevel={student.riskLevel}
+                          accuracy={student.accuracy}
+                          reason={student.reason}
+                          focusTags={student.focusTags}
+                          copied={copiedOfficeHoursKey === `invite-${student.id}`}
+                          onCopy={() => void handleCopyOfficeHours(`invite-${student.id}`, student.invite)}
+                          onOpen={() => openStudentDashboard(student.id)}
+                        />
+                      </React.Fragment>
+                    ))
+                  ) : (
+                    <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                      <p className="font-black">{t('No office-hours queue was generated for this session')}</p>
+                      <p className="font-medium text-brand-dark/70 mt-2">
+                        {t('Once the board detects risk, fatigue, or accuracy drops, this section will prepare the next outreach move for you.')}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
-              {officeHoursQueue.length > 0 && (
-                <button
-                  onClick={() => void handleCopyOfficeHours('office-hours-all', officeHoursPacketText)}
-                  className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black"
-                >
-                  {copiedOfficeHoursKey === 'office-hours-all' ? t('Copied') : t('Copy full list')}
-                </button>
-              )}
-            </div>
-            <div className="space-y-4">
-              {officeHoursQueue.length > 0 ? (
-                officeHoursQueue.map((student) => (
-                  <React.Fragment key={student.id}>
-                    <OfficeHoursInviteCard
-                      nickname={student.nickname}
-                      riskLevel={student.riskLevel}
-                      accuracy={student.accuracy}
-                      reason={student.reason}
-                      focusTags={student.focusTags}
-                      copied={copiedOfficeHoursKey === `invite-${student.id}`}
-                      onCopy={() => void handleCopyOfficeHours(`invite-${student.id}`, student.invite)}
-                      onOpen={() => openStudentDashboard(student.id)}
-                    />
-                  </React.Fragment>
-                ))
-              ) : (
-                <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
-                  <p className="font-black">{t('No office-hours queue was generated for this session')}</p>
-                  <p className="font-medium text-brand-dark/70 mt-2">
-                    {t('Once the board detects risk, fatigue, or accuracy drops, this section will prepare the next outreach move for you.')}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
 
-          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
-            <div className="flex items-center gap-3 mb-4">
-              <Rocket className="w-6 h-6 text-brand-purple" />
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Targeted Recovery Builder')}</p>
-                <h2 className="text-3xl font-black">{t('Build personal games for the right cohort')}</h2>
-                <p className="font-bold text-brand-dark/60 mt-1">{t('Instead of building for the whole class, create personal recovery games only for the students who need them most.')}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4">
-              {recoveryBuilderTargets.length > 0 ? (
-                recoveryBuilderTargets.map((target) => (
-                  <React.Fragment key={target.id}>
-                    <RecoveryBuilderCard
-                      label={target.label}
-                      body={target.body}
-                      count={target.count}
-                      busy={recoveryBuilderBusyKey === target.id}
-                      onBuild={() => void handleBuildRecoveryGames(target)}
-                    />
-                  </React.Fragment>
-                ))
-              ) : (
-                <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
-                  <p className="font-black">{t('No recovery cohort is ready yet')}</p>
-                  <p className="font-medium text-brand-dark/70 mt-2">
-                    {t('As soon as the session identifies an attention queue, high-risk cluster, or fatigue group, you will be able to build personal games for them here.')}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {recoveryBuilderSummary && (
-              <div className="mt-5 rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+                <div className="flex items-center gap-3 mb-4">
+                  <Rocket className="w-6 h-6 text-brand-purple" />
                   <div>
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Latest build')}</p>
-                    <p className="text-2xl font-black">{t(recoveryBuilderSummary.targetLabel)}</p>
-                    <p className="font-medium text-brand-dark/70 mt-2">
-                      {t('These packs are now waiting in My Quizzes and can be launched later or assigned in your next live block.')}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-3 py-2 text-sm font-black">
-                      {recoveryBuilderSummary.createdCount} {t('created')}
-                    </span>
-                    <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-sm font-black">
-                      {recoveryBuilderSummary.reusedCount} {t('reused')}
-                    </span>
-                    <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-3 py-2 text-sm font-black">
-                      {recoveryBuilderSummary.failedCount} {t('skipped')}
-                    </span>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Targeted Recovery Builder')}</p>
+                    <h2 className="text-3xl font-black">{t('Build personal games for the right cohort')}</h2>
+                    <p className="font-bold text-brand-dark/60 mt-1">{t('Instead of building for the whole class, create personal recovery games only for the students who need them most.')}</p>
                   </div>
                 </div>
-                {recoveryBuilderSummary.createdPacks.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    {recoveryBuilderSummary.createdPacks.slice(0, 4).map((packRow: any) => (
-                      <div key={`${packRow.pack_id}-${packRow.participant?.id}`} className="rounded-[1.1rem] border-2 border-brand-dark bg-white px-4 py-3">
-                        <p className="font-black">{packRow.participant?.nickname}</p>
-                        <p className="font-medium text-brand-dark/65">{packRow.title}</p>
+
+                <div className="grid grid-cols-1 gap-4">
+                  {recoveryBuilderTargets.length > 0 ? (
+                    recoveryBuilderTargets.map((target) => (
+                      <React.Fragment key={target.id}>
+                        <RecoveryBuilderCard
+                          label={target.label}
+                          body={target.body}
+                          count={target.count}
+                          busy={recoveryBuilderBusyKey === target.id}
+                          onBuild={() => void handleBuildRecoveryGames(target)}
+                        />
+                      </React.Fragment>
+                    ))
+                  ) : (
+                    <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                      <p className="font-black">{t('No recovery cohort is ready yet')}</p>
+                      <p className="font-medium text-brand-dark/70 mt-2">
+                        {t('As soon as the session identifies an attention queue, high-risk cluster, or fatigue group, you will be able to build personal games for them here.')}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {recoveryBuilderSummary && (
+                  <div className="mt-5 rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Latest build')}</p>
+                        <p className="text-2xl font-black">{t(recoveryBuilderSummary.targetLabel)}</p>
+                        <p className="font-medium text-brand-dark/70 mt-2">
+                          {t('These packs are now waiting in My Quizzes and can be launched later or assigned in your next live block.')}
+                        </p>
                       </div>
-                    ))}
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-3 py-2 text-sm font-black">
+                          {recoveryBuilderSummary.createdCount} {t('created')}
+                        </span>
+                        <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-sm font-black">
+                          {recoveryBuilderSummary.reusedCount} {t('reused')}
+                        </span>
+                        <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-3 py-2 text-sm font-black">
+                          {recoveryBuilderSummary.failedCount} {t('skipped')}
+                        </span>
+                      </div>
+                    </div>
+                    {recoveryBuilderSummary.createdPacks.length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        {recoveryBuilderSummary.createdPacks.slice(0, 4).map((packRow: any) => (
+                          <div key={`${packRow.pack_id}-${packRow.participant?.id}`} className="rounded-[1.1rem] border-2 border-brand-dark bg-white px-4 py-3">
+                            <p className="font-black">{packRow.participant?.nickname}</p>
+                            <p className="font-medium text-brand-dark/65">{packRow.title}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        </section>
+            </section>
 
-        <section className="mb-10">
-          <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
-            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-5">
-              <div className="flex items-center gap-3">
-                <Activity className="w-6 h-6 text-brand-purple" />
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Session Replay Timeline')}</p>
-                  <h2 className="text-3xl font-black">{t('Question by question, where the room held or slipped')}</h2>
-                  <p className="font-bold text-brand-dark/60 mt-1">{t('Use this when you need the exact lesson arc: where confidence held, where stress rose, and where the class needed a pivot.')}</p>
+            <section id="teacher-board-replay" className="scroll-mt-40 mb-10">
+              <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+                <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-5">
+                  <div className="flex items-center gap-3">
+                    <Activity className="w-6 h-6 text-brand-purple" />
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Session Replay Timeline')}</p>
+                      <h2 className="text-3xl font-black">{t('Question by question, where the room held or slipped')}</h2>
+                      <p className="font-bold text-brand-dark/60 mt-1">{t('Use this when you need the exact lesson arc: where confidence held, where stress rose, and where the class needed a pivot.')}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => void handleCopyReplayTimeline()}
+                    className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black"
+                  >
+                    {copiedReplayTimeline ? t('Copied') : t('Copy replay timeline')}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  {sessionReplayTimeline.map((row) => (
+                    <React.Fragment key={row.id}>
+                      <SessionReplayCard
+                        questionIndex={row.questionIndex}
+                        prompt={row.prompt}
+                        signal={row.signal}
+                        tone={row.tone}
+                        accuracy={row.accuracy}
+                        stress={row.stress}
+                        responseMs={row.responseMs}
+                        move={row.move}
+                        distractorLabel={row.distractorLabel}
+                        distractorRate={row.distractorRate}
+                        onOpen={() => focusQuestionBoard('teach-now', String(row.questionIndex))}
+                      />
+                    </React.Fragment>
+                  ))}
                 </div>
               </div>
-              <button
-                onClick={() => void handleCopyReplayTimeline()}
-                className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black"
-              >
-                {copiedReplayTimeline ? t('Copied') : t('Copy replay timeline')}
-              </button>
-            </div>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              {sessionReplayTimeline.map((row) => (
-                <React.Fragment key={row.id}>
-                  <SessionReplayCard
-                    questionIndex={row.questionIndex}
-                    prompt={row.prompt}
-                    signal={row.signal}
-                    tone={row.tone}
-                    accuracy={row.accuracy}
-                    stress={row.stress}
-                    responseMs={row.responseMs}
-                    move={row.move}
-                    distractorLabel={row.distractorLabel}
-                    distractorRate={row.distractorRate}
-                    onOpen={() => focusQuestionBoard('teach-now', String(row.questionIndex))}
-                  />
-                </React.Fragment>
-              ))}
-            </div>
-          </div>
-        </section>
+            </section>
+          </>
+        )}
 
         {followUpEngine?.plans?.length > 0 && (
           <section id="teacher-board-follow-up" className="scroll-mt-40 mb-10">
@@ -3717,13 +3831,15 @@ export default function TeacherAnalytics() {
                 </div>
               </div>
               <p className="font-bold text-brand-dark/60 mt-3">
-                {t(`Showing ${filteredQuestionDiagnostics.length} of ${questionDiagnostics.length} questions in the triage view.`)}
+                {showAdvancedPanels
+                  ? t(`Showing ${filteredQuestionDiagnostics.length} of ${questionDiagnostics.length} questions in the triage view.`)
+                  : t(`Simple view keeps ${visibleQuestionDiagnostics.length} highest-priority questions open out of ${filteredQuestionDiagnostics.length} matches.`)}
               </p>
             </div>
           </div>
 
           <div className="p-6 grid grid-cols-1 xl:grid-cols-2 gap-5">
-            {filteredQuestionDiagnostics.slice(0, 4).map((question: any) => (
+            {visibleQuestionDiagnostics.map((question: any) => (
               <div key={question.question_id} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
                 <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-4">
                   <div className="min-w-0">
@@ -3825,18 +3941,22 @@ export default function TeacherAnalytics() {
             </div>
           )}
 
-          {filteredQuestionDiagnostics.length > 4 && (
+          {hiddenQuestionDiagnostics.length > 0 && (
             <div className="px-6 pb-6">
               <details className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
                 <summary className="list-none cursor-pointer flex items-center justify-between gap-3">
                   <div>
-                    <p className="font-black">{t(`Show ${filteredQuestionDiagnostics.length - 4} more question diagnostics`)}</p>
-                    <p className="font-medium text-brand-dark/65">{t('Keep the top trouble spots visible by default, and open the rest only when you need item-level follow-up.')}</p>
+                    <p className="font-black">{t(`Show ${hiddenQuestionDiagnostics.length} more question diagnostics`)}</p>
+                    <p className="font-medium text-brand-dark/65">
+                      {showAdvancedPanels
+                        ? t('Keep the top trouble spots visible by default, and open the rest only when you need item-level follow-up.')
+                        : t('Simple view keeps only the most urgent question cards expanded so the triage stays fast.')}
+                    </p>
                   </div>
                   <ChevronDown className="w-5 h-5 shrink-0" />
                 </summary>
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-5">
-                  {filteredQuestionDiagnostics.slice(4).map((question: any) => (
+                  {hiddenQuestionDiagnostics.map((question: any) => (
                     <div key={`extra-${question.question_id}`} className="rounded-[1.75rem] border-2 border-brand-dark bg-white p-5">
                       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-4">
                         <div className="min-w-0">
@@ -4011,13 +4131,15 @@ export default function TeacherAnalytics() {
                 </div>
               </div>
               <p className="font-bold text-brand-dark/60 mt-3">
-                {t(`Showing ${filteredParticipants.length} of ${prioritizedParticipants.length} students in the command center.`)}
+                {showAdvancedPanels
+                  ? t(`Showing ${filteredParticipants.length} of ${prioritizedParticipants.length} students in the command center.`)
+                  : t(`Simple view keeps ${visibleStudentCards.length} students open out of ${filteredParticipants.length} matches.`)}
               </p>
             </div>
           </div>
 
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {filteredParticipants.map((student: any) => (
+            {visibleStudentCards.map((student: any) => (
               <button
                 key={student.id}
                 onMouseEnter={() => setSelectedStudentId(Number(student.id))}
@@ -4067,6 +4189,55 @@ export default function TeacherAnalytics() {
             ))}
           </div>
 
+          {hiddenStudentCards.length > 0 && (
+            <div className="px-6 pb-6">
+              <details className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
+                <summary className="list-none cursor-pointer flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-black">{t(`Show ${hiddenStudentCards.length} more students`)}</p>
+                    <p className="font-medium text-brand-dark/65">{t('Simple view keeps the highest-priority student cards expanded and tucks the rest into a lighter roster.')}</p>
+                  </div>
+                  <ChevronDown className="w-5 h-5 shrink-0" />
+                </summary>
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-5">
+                  {hiddenStudentCards.map((student: any) => (
+                    <button
+                      key={`hidden-student-${student.id}`}
+                      onMouseEnter={() => setSelectedStudentId(Number(student.id))}
+                      onFocus={() => setSelectedStudentId(Number(student.id))}
+                      onClick={() => openStudentDashboard(student.id)}
+                      className="rounded-[1.35rem] border-2 border-brand-dark bg-white p-4 text-left transition-colors hover:bg-brand-yellow/30"
+                    >
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="min-w-0">
+                          <p className="font-black text-lg leading-tight">{student.nickname}</p>
+                          <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mt-1">
+                            {t(`Rank #${student.rank}`)} • {t(student.decision_style)}
+                          </p>
+                        </div>
+                        <RiskBadge level={student.risk_level} compact />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 mb-3">
+                        <SignalPill label="Accuracy" value={`${student.accuracy.toFixed(0)}%`} tone={accuracyTone(student.accuracy)} />
+                        <SignalPill label="Stress" value={`${student.stress_index.toFixed(0)}%`} tone={student.stress_level} />
+                      </div>
+                      {(student.weak_tags || []).slice(0, 2).length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-3">
+                          {(student.weak_tags || []).slice(0, 2).map((tag: string) => (
+                            <span key={`hidden-${student.id}-${tag}`} className="px-3 py-1 rounded-full bg-brand-orange/10 border-2 border-brand-dark text-xs font-black capitalize">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <p className="font-medium text-brand-dark/70">{t(student.recommendation)}</p>
+                    </button>
+                  ))}
+                </div>
+              </details>
+            </div>
+          )}
+
           {filteredParticipants.length === 0 && (
             <div className="px-6 pb-6">
               <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-6">
@@ -4078,6 +4249,41 @@ export default function TeacherAnalytics() {
             </div>
           )}
         </section>
+
+        {!showAdvancedPanels && simpleViewPreviewCards.length > 0 && (
+          <section className="mb-10">
+            <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
+              <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-5">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Full View Preview')}</p>
+                  <h2 className="text-3xl font-black">{t('Keep the board light, then open deeper tools only when needed')}</h2>
+                  <p className="font-bold text-brand-dark/60 mt-2 max-w-3xl">
+                    {t('Simple view hides heavier operational tools until you ask for them. These previews preserve the signal without forcing every module onto the page at once.')}
+                  </p>
+                </div>
+                <button
+                  onClick={() => openAdvancedView()}
+                  className="w-fit rounded-full border-2 border-brand-dark bg-brand-dark px-5 py-3 font-black text-white"
+                >
+                  {t('Open full analytics')}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                {simpleViewPreviewCards.map((card) => (
+                  <React.Fragment key={card.id}>
+                    <SimpleModePreviewCard
+                      label={card.label}
+                      title={card.title}
+                      body={card.body}
+                      badge={card.badge}
+                      onClick={() => openAdvancedView(card.targetId)}
+                    />
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
       </main>
     </div>
   );
@@ -4303,6 +4509,44 @@ function QuickNavCard({
         <ArrowUpRight className="w-4 h-4 shrink-0" />
       </div>
       <p className="font-medium text-brand-dark/72 leading-relaxed">{t(body)}</p>
+    </button>
+  );
+}
+
+function SimpleModePreviewCard({
+  label,
+  title,
+  body,
+  badge,
+  onClick,
+}: {
+  label: string;
+  title: string;
+  body: string;
+  badge: string;
+  onClick: () => void;
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5 text-left transition-colors hover:bg-white"
+    >
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="min-w-0">
+          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-purple">{t(label)}</p>
+          <p className="text-xl font-black leading-tight mt-2">{t(title)}</p>
+        </div>
+        <span className="shrink-0 rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-xs font-black">
+          {t(badge)}
+        </span>
+      </div>
+      <p className="font-medium text-brand-dark/72">{t(body)}</p>
+      <div className="mt-4 inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black">
+        {t('Open in full view')}
+        <ArrowUpRight className="w-4 h-4" />
+      </div>
     </button>
   );
 }
@@ -5183,6 +5427,7 @@ function FlowSummaryCard({
 }
 
 function MetricCard({
+  metricId,
   icon,
   title,
   value,
@@ -5191,6 +5436,7 @@ function MetricCard({
   color,
   textColor = 'text-brand-dark',
 }: {
+  metricId?: string;
   icon: React.ReactNode;
   title: string;
   value: string | number;
@@ -5200,18 +5446,28 @@ function MetricCard({
   textColor?: string;
 }) {
   const { t } = useTeacherAnalyticsLanguage();
+  const accentClasses = `${color} ${textColor}`;
+
   return (
-    <div className={`${color} ${textColor} rounded-[1.75rem] border-4 border-brand-dark p-5 shadow-[6px_6px_0px_0px_#1A1A1A]`}>
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <div className="flex items-center">
-          <p className="text-sm font-black uppercase tracking-[0.15em] opacity-70">{t(title)}</p>
-          <InfoTooltip metricId={title.toLowerCase().replace(/\s+/g, '-')} />
+    <div className="rounded-[1.75rem] border-4 border-brand-dark bg-white p-5 shadow-[6px_6px_0px_0px_#1A1A1A]">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1">
+            <p className="text-sm font-black uppercase tracking-[0.15em] text-brand-dark/55">{t(title)}</p>
+            <InfoTooltip metricId={metricId || title.toLowerCase().replace(/\s+/g, '-')} />
+          </div>
         </div>
-        <div>{icon}</div>
+        <div className={`${accentClasses} w-11 h-11 shrink-0 rounded-[1rem] border-2 border-brand-dark flex items-center justify-center`}>
+          {icon}
+        </div>
       </div>
-      <p className="text-4xl font-black leading-none">{value}</p>
-      <p className="font-black mt-3">{t(status)}</p>
-      <p className="font-medium text-sm opacity-75 mt-2">{t(note)}</p>
+      <p className="text-4xl font-black leading-none text-brand-dark">{value}</p>
+      <div className="mt-3 inline-flex max-w-full">
+        <span className={`${accentClasses} rounded-full border-2 border-brand-dark px-3 py-2 text-xs font-black`}>
+          {t(status)}
+        </span>
+      </div>
+      <p className="font-medium text-sm text-brand-dark/72 mt-3">{t(note)}</p>
     </div>
   );
 }
