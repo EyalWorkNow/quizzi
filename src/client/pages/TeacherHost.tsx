@@ -18,6 +18,7 @@ import { buildSessionJoinUrl } from '../lib/joinCodes.ts';
 import { isPeerInstructionMode, resolveSessionQuestionTimeLimit } from '../lib/sessionModeRules.ts';
 import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
+import { getLiveQuestionDensity, formatAnswerSlotLabel } from '../../shared/liveQuestionDensity.ts';
 
 const HOST_STATUS_ALIASES: Record<string, string> = {
   QUESTION_RESULT: 'QUESTION_REVEAL',
@@ -37,9 +38,6 @@ function normalizeHostStatus(value: unknown) {
   return HOST_STATUS_ALIASES[raw] || raw;
 }
 
-function formatAnswerSlotLabel(index: number) {
-  return String.fromCharCode(65 + (index % 26));
-}
 
 function buildLiveHostInsights({
   status,
@@ -380,6 +378,31 @@ export default function TeacherHost() {
         console.error('[TeacherHost] Failed to fetch participants:', err);
       });
   }, [pin, sessionId]);
+  
+  // Polling Fallback: If SSE is unstable, we re-fetch participants every 5s while in LOBBY
+  useEffect(() => {
+    if (!pin || !sessionId || status !== 'LOBBY') return;
+
+    const intervalId = window.setInterval(() => {
+      apiFetchJson(`/api/teacher/sessions/pin/${pin}/participants`)
+        .then((data) => {
+          const nextParticipants = data.participants || [];
+          // Only update if count changed or identities are different to avoid unnecessary re-renders
+          setParticipants((current) => {
+            const hasChanged = 
+              current.length !== nextParticipants.length ||
+              nextParticipants.some((p: any, idx: number) => !current[idx] || String(current[idx].id) !== String(p.id));
+            
+            return hasChanged ? nextParticipants : current;
+          });
+        })
+        .catch(err => {
+          console.warn('[TeacherHost] Polling fallback failed:', err);
+        });
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, [pin, sessionId, status]);
 
   const loadLeaderboard = () => {
     if (!sessionId) return;
@@ -995,160 +1018,234 @@ export default function TeacherHost() {
   }
 
   if (status === 'LOBBY') {
+    const lobbyRoomName = pack?.title || 'Live quiz room';
+    const lobbyTitle = participants.length > 0 ? 'Room ready for students.' : 'Waiting for students to join.';
+    const lobbySubtitle =
+      participants.length > 0
+        ? `${participants.length} ${participants.length === 1 ? 'student is' : 'students are'} already inside. Keep the PIN visible and launch when the room feels settled.`
+        : 'Keep the PIN visible so students can scan the QR or type the code and appear here in real time.';
+    const participantSectionCopy =
+      participants.length > 0
+        ? 'Students appear here the moment they join.'
+        : 'Once someone joins, the room will start to populate here automatically.';
+
     return (
-      <div className="game-viewport-shell relative flex flex-col items-center justify-center p-4 sm:p-8 bg-brand-bg md:p-12">
+      <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         
-        {/* Background elements for depth */}
-        <div className="absolute top-[-10%] left-[-5%] w-[500px] h-[500px] border-[8px] border-brand-dark/[0.03] rounded-full pointer-events-none" />
-        <div className="absolute bottom-[-15%] right-[-10%] w-[600px] h-[600px] border-[8px] border-brand-dark/[0.03] rounded-full pointer-events-none" />
-
-        <div className="relative z-10 w-full max-w-5xl">
-          {/* Main Lobby Card */}
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-white rounded-[4rem] border-[10px] border-brand-dark shadow-[24px_24px_0px_0px_#1A1A1A] p-8 md:p-16 flex flex-col items-center"
-          >
-            {/* Top decorative pill */}
-            <div className="w-48 h-10 bg-[#E5E7EB] rounded-full border-4 border-brand-dark mb-10 flex items-center justify-center">
-               <div className="w-16 h-1.5 bg-brand-dark rounded-full" />
+        {/* Cinematic Header Consistency */}
+        <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
+          <div className="mx-auto flex w-full max-w-[1540px] items-center justify-between gap-3 px-4 py-2 sm:px-8">
+            <div className="flex items-center gap-4">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => navigate('/teacher/dashboard')}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-brand-dark/10 bg-white shadow-[2px_2px_0px_0px_#1A1A1A] transition-all hover:border-brand-purple hover:text-brand-purple sm:h-12 sm:w-12"
+              >
+                <ArrowLeft className="h-6 w-6 text-brand-dark/30" />
+              </motion.button>
+              <div className="flex h-10 items-center gap-3 rounded-2xl border-2 border-brand-dark bg-brand-bg px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                 <span className="text-xs font-black uppercase tracking-widest text-brand-dark/40">Lobby Phase</span>
+              </div>
             </div>
 
-            {/* PIN Section */}
-            <motion.div 
-              whileHover={{ scale: 1.02 }}
-              onClick={copyPin}
-              className="w-full bg-[#B488FF] rounded-[2.5rem] border-[6px] border-brand-dark p-6 shadow-[12px_12px_0px_0px_#1A1A1A] mb-12 cursor-pointer relative group"
-            >
-              <div className="absolute -top-4 -right-4 bg-brand-yellow border-4 border-brand-dark rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                {isPinCopied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
-              </div>
+            <div className="hidden min-w-0 flex-wrap items-center justify-center gap-3 lg:flex">
+                <LobbyMetric label="Ready" value={participants.length} tone="light" compact />
+                <LobbyMetric label="Questions" value={packQuestionCount} tone="light" compact />
+            </div>
+
+            <div className="flex items-center justify-end gap-3">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleEndSession}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-brand-dark/10 bg-white shadow-[2px_2px_0px_0px_#1A1A1A] transition-all hover:border-rose-300 hover:text-rose-600 sm:h-12 sm:w-12"
+              >
+                <XCircle className="h-6 w-6 text-brand-dark/30" />
+              </motion.button>
               
-              <div className="flex justify-center items-center gap-3 sm:gap-4 overflow-hidden">
-                {String(pin || '000000').split('').map((digit, index) => (
-                  <motion.div
-                    key={`${digit}-${index}`}
-                    initial={{ y: 20, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="aspect-square w-12 sm:w-20 rounded-2xl bg-white border-[5px] border-brand-dark flex items-center justify-center text-4xl sm:text-6xl font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
-                  >
-                    {digit}
-                  </motion.div>
-                ))}
-              </div>
-            </motion.div>
-
-            {/* QR Code Section */}
-            <div className="mb-12 p-6 bg-white rounded-[2.5rem] border-[6px] border-brand-dark shadow-[12px_12px_0px_0px_#1A1A1A] hover:rotate-1 transition-transform">
-              <QRCodeSVG value={joinUrl || String(pin || '')} size={220} level="H" includeMargin />
+              <motion.button
+                whileHover={{ scale: participants.length > 0 && !phaseTransitionPending ? 1.03 : 1 }}
+                whileTap={{ scale: participants.length > 0 && !phaseTransitionPending ? 0.97 : 1 }}
+                onClick={() => updateState('QUESTION_ACTIVE', 0)}
+                disabled={participants.length === 0 || phaseTransitionPending}
+                className="group relative rounded-2xl border-4 border-brand-dark bg-brand-dark px-6 py-3 text-base font-black text-white shadow-[6px_6px_0px_0px_#FF5A36] flex items-center gap-2 transition-all hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[8px_8px_0px_0px_#FF5A36] disabled:opacity-50"
+              >
+                {phaseTransitionPending ? '...' : (participants.length > 0 ? 'Launch Session' : 'Waiting...')}
+                <Rocket className="w-5 h-5 transition-transform group-hover:translate-x-1" />
+              </motion.button>
             </div>
+          </div>
+        </div>
 
-            {/* Middle decorative pill */}
-            <div className="w-56 h-12 bg-[#E5E7EB] rounded-full border-4 border-brand-dark mb-10 flex items-center justify-center">
-               <div className="w-20 h-2 bg-brand-dark rounded-full" />
-            </div>
+        <div className="relative flex-1 min-h-0 p-3 sm:p-5 lg:p-6 w-full max-w-[1600px] mx-auto">
+          <div className="absolute top-[-8%] left-[-4%] w-96 h-96 border-[4px] border-brand-dark/5 rounded-full pointer-events-none" />
+          <div className="absolute bottom-[-10%] right-[-6%] w-[460px] h-[460px] border-[4px] border-brand-dark/5 rounded-full pointer-events-none" />
+          
+          <div className="relative z-10 mx-auto flex h-full w-full min-h-0 flex-col gap-3">
+            {hostMessage && <HostPhaseNotice message={hostMessage} />}
 
-            {/* Student Grid */}
-            <div className="w-full max-h-[400px] overflow-y-auto custom-scrollbar pr-2 mb-10">
-              {participants.length > 0 ? (
-                isTeamMode ? (
-                  <div className="space-y-6">
-                    {(Object.entries(groupedParticipants) as Array<[string, any[]]>).map(([teamName, members]) => (
-                      <div key={teamName} className="rounded-[2.5rem] border-[6px] border-brand-dark bg-brand-bg/50 p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
-                        <div className="flex items-center justify-between mb-6 px-4">
-                          <div>
-                             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Pod / Team</p>
-                             <h3 className="text-3xl font-black text-brand-dark">{teamName}</h3>
-                          </div>
-                          <span className="px-5 py-2 rounded-full bg-white border-4 border-brand-dark font-black text-lg shadow-[4px_4px_0px_0px_#1A1A1A]">
-                            {members.length}
-                          </span>
+            <motion.section
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex h-full min-h-0 flex-col overflow-hidden rounded-[2.5rem] border-4 border-brand-dark bg-white p-4 shadow-[12px_12px_0px_0px_#1A1A1A] sm:p-5 lg:p-6"
+            >
+              <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
+                <div className="flex min-h-0 flex-col gap-4">
+                  <div className="rounded-[2rem] border-2 border-brand-dark bg-brand-bg px-4 py-4 sm:px-5 sm:py-5">
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      <span className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A]">
+                        Room Ready
+                      </span>
+                      <span className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A]">
+                        {packQuestionCount} Questions
+                      </span>
+                      <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A]">
+                        {participants.length} {participants.length === 1 ? 'Player' : 'Players'}
+                      </span>
+                    </div>
+
+                    <p className="max-w-[24ch] text-balance text-[clamp(1.2rem,1.8vw,2rem)] font-black leading-[1.06] tracking-tight">
+                      {lobbyRoomName}
+                    </p>
+                    <h1 className="mt-2 max-w-[12ch] text-balance text-[clamp(2.15rem,3.1vw,3.45rem)] font-black leading-[0.94] tracking-tight">
+                      {lobbyTitle}
+                    </h1>
+                    <p className="mt-2 max-w-[58ch] text-balance text-sm font-bold text-brand-dark/65 sm:text-[0.96rem]">
+                      {lobbySubtitle}
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_230px]">
+                    <div className="rounded-[2.2rem] border-4 border-brand-dark bg-brand-purple p-4 shadow-[10px_10px_0px_0px_#1A1A1A] sm:p-5">
+                      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="text-left text-white">
+                          <p className="text-xs font-black uppercase tracking-[0.2em] text-white/80">Room PIN</p>
+                          <p className="mt-1 text-sm font-bold text-white/80 sm:text-base">
+                            Keep this code visible so students can join.
+                          </p>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <button
+                          type="button"
+                          onClick={copyPin}
+                          className="flex w-full items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 font-black text-brand-dark shadow-[3px_3px_0px_0px_#1A1A1A] sm:w-auto"
+                        >
+                          {isPinCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                          {isPinCopied ? 'Copied' : 'Copy PIN'}
+                        </button>
+                      </div>
+
+                      <div className="mx-auto grid max-w-[700px] grid-cols-3 gap-2 sm:grid-cols-6 sm:gap-3">
+                        {String(pin || '').split('').map((digit, index) => (
+                          <motion.div
+                            key={`${digit}-${index}`}
+                            initial={{ y: 20, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            transition={{ delay: index * 0.08 }}
+                            className="flex aspect-square min-h-[58px] items-center justify-center rounded-[1rem] border-4 border-brand-dark bg-white text-[clamp(1.8rem,2.8vw,3.5rem)] font-black leading-none shadow-[4px_4px_0px_0px_#1A1A1A] sm:min-h-[72px]"
+                          >
+                            {digit}
+                          </motion.div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4">
+                      <div className="rounded-[1.8rem] border-4 border-brand-dark bg-brand-yellow p-4 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                        <div className="mx-auto flex aspect-square w-full max-w-[160px] items-center justify-center rounded-[1.4rem] border-2 border-brand-dark bg-white p-3">
+                          <QRCodeSVG value={joinUrl || String(pin || '')} size={160} level="M" includeMargin />
+                        </div>
+                        <p className="mt-3 text-center text-sm font-black">Scan to join instantly</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <aside className="flex min-h-0 flex-col overflow-hidden rounded-[2.2rem] border-2 border-brand-dark bg-white/95 p-4 shadow-[8px_8px_0px_0px_#1A1A1A] sm:p-5">
+                  <div className="mb-4 flex flex-col gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-brand-orange">Participants</p>
+                        <h2 className="text-[clamp(1.5rem,2vw,2.2rem)] font-black leading-tight">Who is in the room</h2>
+                      </div>
+                      <div className="w-fit rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black shadow-[3px_3px_0px_0px_#1A1A1A]">
+                        {participants.length}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="min-h-0 flex-1 overflow-auto custom-scrollbar pr-1">
+                    {participants.length > 0 ? (
+                      isTeamMode ? (
+                        <div className="space-y-3">
+                          {(Object.entries(groupedParticipants) as Array<[string, any[]]>).map(([teamName, members]) => (
+                            <div key={teamName} className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-4">
+                              <div className="mb-3 flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="mb-1 text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple">Pod / Team</p>
+                                  <p className="text-xl font-black leading-none">{teamName}</p>
+                                </div>
+                                <div className="rounded-full border-2 border-brand-dark bg-white px-3 py-1.5 text-sm font-black shadow-[3px_3px_0px_0px_#1A1A1A]">
+                                  {members.length}
+                                </div>
+                              </div>
+                              <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
+                                <AnimatePresence>
+                                  {members.map((participant: any, index: number) => (
+                                    <motion.div
+                                      initial={{ opacity: 0, scale: 0.94 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      key={`${participant.nickname}-${index}`}
+                                      className="rounded-[1.3rem] border-2 border-brand-dark bg-white p-3 shadow-[3px_3px_0px_0px_#1A1A1A]"
+                                    >
+                                      <LobbyParticipantCard participant={participant} subtitle="Team Ready" />
+                                    </motion.div>
+                                  ))}
+                                </AnimatePresence>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">
                           <AnimatePresence>
-                            {members.map((participant: any, index: number) => (
+                            {participants.map((participant: any, index: number) => (
                               <motion.div
+                                initial={{ opacity: 0, scale: 0.94 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.94 }}
                                 key={`${participant.nickname}-${index}`}
-                                initial={{ scale: 0, opacity: 0 }}
-                                animate={{ scale: 1, opacity: 1 }}
-                                exit={{ scale: 0, opacity: 0 }}
-                                className="bg-[#E5E7EB] rounded-full border-4 border-brand-dark px-4 py-3 flex items-center gap-3 shadow-[4px_4px_0px_0px_#1A1A1A]"
+                                className="rounded-[1.3rem] border-2 border-brand-dark bg-brand-bg p-3 shadow-[3px_3px_0px_0px_#1A1A1A]"
                               >
-                                <div className="w-8 h-8 rounded-full bg-white border-2 border-brand-dark flex-shrink-0 flex items-center justify-center font-black text-xs text-brand-dark">
-                                  {participant.seat_index || index + 1}
-                                </div>
-                                <div className="w-full h-2 bg-brand-dark/20 rounded-full relative overflow-hidden">
-                                  <span className="absolute inset-0 flex items-center px-1 text-[10px] font-black uppercase tracking-wider truncate text-brand-dark">
-                                    {participant.nickname}
-                                  </span>
-                                </div>
+                                <LobbyParticipantCard participant={participant} subtitle="Ready" />
                               </motion.div>
                             ))}
                           </AnimatePresence>
                         </div>
+                      )
+                    ) : (
+                      <div className="flex h-full min-h-[220px] flex-col items-center justify-center rounded-[1.8rem] border-2 border-dashed border-brand-dark/20 bg-brand-bg/70 p-8 text-center">
+                        <Sparkles className="w-10 h-10 text-brand-purple/40 mb-4" />
+                        <p className="mb-2 text-2xl font-black">No students yet</p>
+                        <p className="mx-auto max-w-[24ch] font-bold text-brand-dark/55">
+                          Share the PIN above and the room will populate.
+                        </p>
                       </div>
-                    ))}
+                    )}
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <AnimatePresence>
-                      {participants.map((participant: any, index: number) => (
-                        <motion.div
-                          key={`${participant.nickname}-${index}`}
-                          initial={{ scale: 0, opacity: 0 }}
-                          animate={{ scale: 1, opacity: 1 }}
-                          exit={{ scale: 0, opacity: 0 }}
-                          className="bg-[#E5E7EB] rounded-full border-4 border-brand-dark px-4 py-3 flex items-center gap-3 shadow-[4px_4px_0px_0px_#1A1A1A]"
-                        >
-                          <div className="w-8 h-8 rounded-full bg-white border-2 border-brand-dark flex-shrink-0" />
-                          <div className="w-full h-2 bg-brand-dark/20 rounded-full relative overflow-hidden">
-                            <span className="absolute inset-0 flex items-center px-1 text-[10px] font-black uppercase tracking-wider truncate text-brand-dark">
-                              {participant.nickname}
-                            </span>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
+
+                  <div className="pt-4 mt-auto">
+                    <SessionSoundtrackPlayer
+                      status={status}
+                      modeConfig={modeConfig}
+                      placement="inline"
+                    />
                   </div>
-                )
-              ) : (
-                <div className="col-span-full py-10 text-center">
-                  <p className="text-xl font-black text-brand-dark/30 uppercase tracking-widest">Waiting for students...</p>
-                </div>
-              )}
-            </div>
-
-            {/* Action Bar */}
-            <div className="w-full flex flex-col sm:flex-row gap-4 items-center justify-between border-t-8 border-brand-dark/10 pt-10">
-               <button
-                 onClick={() => navigate('/teacher/dashboard')}
-                 className="flex items-center gap-2 text-brand-dark/40 font-black hover:text-brand-orange transition-colors"
-               >
-                 <ArrowLeft className="w-5 h-5" />
-                 Back to Dashboard
-               </button>
-
-               <div className="flex gap-4">
-                 <button
-                   onClick={handleEndSession}
-                   className="px-6 py-3 bg-white border-4 border-brand-dark rounded-full font-black text-rose-500 shadow-[4px_4px_0px_0px_#1A1A1A] hover:bg-rose-50 transition-colors"
-                 >
-                   Stop
-                 </button>
-                 <motion.button
-                   whileHover={{ scale: participants.length > 0 ? 1.05 : 1 }}
-                   whileTap={{ scale: participants.length > 0 ? 0.95 : 1 }}
-                   onClick={() => updateState('QUESTION_ACTIVE', 0)}
-                   disabled={participants.length === 0 || phaseTransitionPending}
-                   className="px-10 py-5 bg-brand-orange text-white border-4 border-brand-dark rounded-[2rem] font-black text-2xl shadow-[10px_10px_0px_0px_#1A1A1A] disabled:opacity-40"
-                 >
-                   Launch Game
-                 </motion.button>
-               </div>
-            </div>
-          </motion.div>
+                </aside>
+              </div>
+            </motion.section>
+          </div>
         </div>
       </div>
     );
@@ -1160,670 +1257,724 @@ export default function TeacherHost() {
     const isDiscussion = status === 'QUESTION_DISCUSSION';
     const isRevote = status === 'QUESTION_REVOTE';
     const nextStatus = isDiscussion ? 'QUESTION_REVOTE' : isPeerMode && !isRevote ? 'QUESTION_DISCUSSION' : 'QUESTION_REVEAL';
-    const nextButtonLabel = isDiscussion ? 'Final Revote' : isPeerMode && !isRevote ? 'Start Discussion' : 'Reveal Answer';
+    const nextButtonLabel = isDiscussion ? 'Open Final Revote' : isPeerMode && !isRevote ? 'Start Discussion' : 'Reveal Answer';
+    const stageLabel = isDiscussion ? 'Pod Discussion' : isRevote ? 'Final Revote' : isPeerMode ? 'Silent Vote' : 'Question Live';
+    
+    const stageCountLabel = isDiscussion
+      ? `${Object.keys(studentSelections).length} / ${participants.length} first votes`
+      : responseCountLabel;
+      
+    const currentPrompt = currentQuestion?.prompt || '';
+    const liveQuestionDensity = getLiveQuestionDensity({
+      prompt: currentPrompt,
+      answers: currentAnswers,
+      hasImage: Boolean(currentQuestion?.image_url),
+    });
+
+    const questionHeroFlexClass = currentQuestion?.image_url
+      ? liveQuestionDensity.isUltraDense ? 'flex-[0.7]' : liveQuestionDensity.isDense ? 'flex-[0.85]' : 'flex-[1]'
+      : liveQuestionDensity.isUltraDense ? 'flex-[0.9]' : liveQuestionDensity.isDense ? 'flex-[1.1]' : 'flex-[1.4]';
+    
+    const questionHeroMinHeightClass = liveQuestionDensity.isUltraDense ? 'min-h-[140px]' : 'min-h-[180px]';
+    
+    const answerGridColumnsClass = liveQuestionDensity.preferredColumns === 3
+      ? 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+      : currentAnswers.length > 1 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1';
+      
+    const answerGridHeightClass = liveQuestionDensity.isUltraDense
+      ? 'min-h-[42vh]'
+      : liveQuestionDensity.isDense
+        ? 'min-h-[36vh]'
+        : 'min-h-[30vh]';
+
+    const answerTextClass = liveQuestionDensity.isUltraDense
+      ? 'text-xs sm:text-base lg:text-lg'
+      : liveQuestionDensity.isDense
+        ? 'text-sm sm:text-lg lg:text-xl'
+        : 'text-base sm:text-xl lg:text-3xl';
+
+    const activePromptClassName = liveQuestionDensity.isUltraDense
+      ? 'text-[clamp(1.25rem,1.6vw,2.1rem)]'
+      : liveQuestionDensity.isDense
+        ? 'text-[clamp(1.4rem,2vw,2.6rem)]'
+        : currentPrompt.length > 140
+          ? 'text-[clamp(1.6rem,2.4vw,3.2rem)]'
+          : 'text-[clamp(2.2rem,3.4vw,4.2rem)]';
 
     return (
-      <div className="game-viewport-shell flex flex-col overflow-hidden text-brand-dark bg-white relative">
+      <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
         
-        {/* Top Minimal Action Bar */}
-        <div className="flex items-center justify-between px-6 lg:px-12 py-6 shrink-0 z-20">
-          <div className="flex items-center gap-4">
-            <div className="bg-[#B488FF] rounded-[1.2rem] border-4 border-brand-dark px-3 py-2 shadow-[4px_4px_0px_0px_#1A1A1A] flex items-center gap-1.5 cursor-pointer" onClick={copyPin}>
-              {String(pin || '000000').split('').map((digit, index) => (
-                <div key={index} className="w-6 h-8 lg:w-7 lg:h-9 bg-white rounded-lg border-[3px] border-brand-dark flex flex-col items-center justify-center font-black text-sm lg:text-base">
-                  {digit}
-                </div>
-              ))}
-            </div>
-            {isPinCopied && <span className="font-black text-brand-purple text-sm animate-pulse">Copied!</span>}
-            
-            {/* Host End Game logic hidden in a clean way, or placed on corner */}
-            <button onClick={handleEndSession} className="w-10 h-10 lg:w-12 lg:h-12 rounded-[1rem] border-4 border-rose-500 bg-rose-50 text-rose-500 flex items-center justify-center shadow-[4px_4px_0px_0px_#F43F5E] hover:bg-rose-100 transition-colors ml-4 sm:ml-0" title="Close Session">
-              <XCircle className="w-6 h-6" />
-            </button>
-          </div>
-
-          <div className="hidden md:flex absolute left-1/2 top-10 -translate-x-1/2">
-             <div className="w-32 h-8 lg:w-48 lg:h-10 bg-[#E5E7EB] rounded-full border-4 border-brand-dark flex items-center justify-center">
-                <div className="w-12 h-1.5 lg:w-20 lg:h-2 bg-brand-dark rounded-full" />
-             </div>
-          </div>
-
-          <div className="flex items-center gap-6">
-             <div className="hidden lg:block text-2xl font-black text-brand-dark/40 border-r-4 border-brand-dark/10 pr-6">
-               <span className="text-brand-dark">{totalAnswers}</span> / {participants.length || 0} Votes
-             </div>
-             <div className="text-4xl lg:text-5xl xl:text-6xl font-black tabular-nums tracking-tighter">
-               0:{phaseTimeLeft.toString().padStart(2, '0')}
-             </div>
-          </div>
-        </div>
-
-        {/* Alerts / Notices (Floating) */}
-        {hostMessage && (
-          <div className="absolute top-28 left-1/2 -translate-x-1/2 z-50">
-            <HostPhaseNotice message={hostMessage} />
-          </div>
-        )}
-        <div className="absolute top-28 right-4 space-y-2 pointer-events-none z-50">
-          <AnimatePresence>
-            {Array.from(focusAlerts).map((nickname) => (
-              <motion.div
-                key={nickname}
-                initial={{ x: 100, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: 100, opacity: 0 }}
-                className="bg-brand-orange text-white px-6 py-3 rounded-[1.5rem] border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A] flex items-center gap-3 font-black"
+        {/* Cinematic Header */}
+        <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
+          <div className="mx-auto flex w-full max-w-[1540px] items-center justify-between gap-3 px-4 py-2 sm:px-8">
+            <div className="flex items-center gap-4">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleEndSession}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-brand-dark/10 bg-white shadow-[2px_2px_0px_0px_#1A1A1A] transition-all hover:border-rose-300 hover:text-rose-600 sm:h-12 sm:w-12"
               >
-                <AlertTriangle className="w-5 h-5" />
-                {extractNickname(nickname as string)} focus loss!
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col px-4 lg:px-12 pb-24 xl:pb-32 min-h-0 w-full max-w-[1800px] mx-auto">
-          
-          <motion.div
-            initial={{ scale: 0.98, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className={`w-full h-full flex-[1.4] rounded-[2.5rem] lg:rounded-[3rem] border-8 border-brand-dark relative overflow-hidden shadow-[12px_12px_0px_0px_#1A1A1A] mb-8 bg-brand-purple flex items-center justify-center z-10 ${!currentQuestion?.image_url ? 'bg-gradient-to-br from-brand-orange to-brand-yellow' : ''}`}
-          >
-            {/* Progress Bar mapped to top */}
-            <div className="absolute top-0 left-0 w-full h-3 z-30 bg-brand-dark/10">
-              <motion.div 
-                initial={{ width: 0 }}
-                animate={{ width: `${participants.length > 0 ? (totalAnswers / participants.length) * 100 : 0}%` }}
-                className="h-full bg-brand-yellow"
-                transition={{ type: 'spring', stiffness: 50, damping: 15 }}
-              />
+                <XCircle className="h-6 w-6" />
+              </motion.button>
+              <div className="flex flex-col">
+                 <span className="text-[10px] font-black uppercase tracking-widest text-brand-dark/30">Session PIN</span>
+                 <span className="text-lg font-black leading-none">{pin}</span>
+              </div>
             </div>
 
+            <div className="hidden min-w-0 flex-wrap items-center justify-center gap-3 md:flex">
+              <div className="flex items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 py-2 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <span className="text-xs font-black uppercase text-brand-orange">Q{questionIndex + 1}</span>
+                <span className="h-4 w-[2px] bg-brand-dark/10" />
+                <span className="text-sm font-black">{pack?.title}</span>
+              </div>
+              <div className={`rounded-2xl border-2 border-brand-dark px-4 py-2 text-xs font-black uppercase tracking-widest shadow-[4px_4px_0px_0px_#1A1A1A] ${gameTone.pill}`}>
+                {gameMode.label}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex flex-col items-end mr-2">
+                 <span className="text-[10px] font-black uppercase tracking-widest text-brand-dark/30">Submissions</span>
+                 <span className="text-lg font-black leading-none text-brand-purple">{stageCountLabel}</span>
+              </div>
+              <div className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-14">
+                <Clock className={`h-5 w-5 ${phaseTimeLeft <= 10 ? 'text-rose-500 animate-pulse' : 'text-brand-orange'}`} />
+                <span className={`text-xl font-black ${phaseTimeLeft <= 10 ? 'text-rose-600' : ''}`}>{phaseTimeLeft}s</span>
+              </div>
+              <motion.button
+                whileHover={{ scale: phaseTransitionPending ? 1 : 1.03 }}
+                whileTap={{ scale: phaseTransitionPending ? 1 : 0.97 }}
+                onClick={() => updateState(nextStatus, questionIndex)}
+                disabled={phaseTransitionPending}
+                className="rounded-2xl border-4 border-brand-dark bg-brand-dark px-6 py-3 text-base font-black text-white shadow-[6px_6px_0px_0px_#FF5A36] transition-all hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[8px_8px_0px_0px_#FF5A36] disabled:opacity-50 sm:px-8"
+              >
+                {phaseTransitionPending ? '...' : nextButtonLabel}
+              </motion.button>
+            </div>
+          </div>
+        </div>
+        <div className="relative flex-1 min-h-0 flex flex-col p-2 sm:p-4 lg:p-5 gap-2 sm:gap-4 overflow-hidden w-full max-w-[1600px] mx-auto">
+          
+          {/* Status Overlay Notifications */}
+          <div className="pointer-events-none absolute right-6 top-6 z-40 space-y-3 sm:right-10">
+            <AnimatePresence>
+              {Array.from(focusAlerts).map((nickname) => (
+                <motion.div
+                  key={nickname}
+                  initial={{ x: 100, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: 100, opacity: 0 }}
+                  className="flex items-center gap-4 rounded-[1.5rem] border-4 border-brand-dark bg-brand-orange p-3 sm:p-4 font-black text-white shadow-[4px_4px_0px_0px_#1A1A1A]"
+                >
+                  <AlertTriangle className="h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
+                  <span className="text-sm sm:text-lg">{extractNickname(nickname as string)} lost focus!</span>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+
+          {/* Unified Question Hero Area - Density Aware */}
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`relative ${questionHeroFlexClass} ${questionHeroMinHeightClass} min-h-0 w-full rounded-[2.5rem] sm:rounded-[3rem] border-4 border-brand-dark bg-white shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden`}
+          >
             {currentQuestion?.image_url && (
-               <img src={currentQuestion.image_url} alt="Question Context" className="absolute inset-0 w-full h-full object-cover object-center" />
+              <div className="absolute inset-0 z-0">
+                 <img 
+                   src={currentQuestion.image_url} 
+                   alt={currentPrompt} 
+                   className="w-full h-full object-cover" 
+                 />
+                 <div className="absolute inset-0 bg-gradient-to-t from-brand-dark/95 via-brand-dark/30 to-transparent" />
+              </div>
             )}
             
-            {/* Subtle overlay to ensure the prompt pill pops */}
-            <div className="absolute inset-0 bg-brand-dark/5 backdrop-blur-[2px]" />
-
-            {/* Floating Overlaid Question */}
-            <div className="relative z-20 px-8 py-5 md:px-16 md:py-8 bg-white rounded-[2.5rem] md:rounded-[3.5rem] border-[6px] border-brand-dark shadow-[16px_16px_0px_0px_#1A1A1A] max-w-[90%] md:max-w-5xl text-center">
-               <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black leading-tight text-brand-dark tracking-tight" dir="auto">
-                 {currentQuestion?.prompt}
-               </h2>
+            <div className={`relative z-10 flex h-full w-full flex-col items-center justify-center ${
+              liveQuestionDensity.isUltraDense ? 'p-4 sm:p-6' : 'p-6 sm:p-10 lg:p-14'
+            }`}>
+               <div className={`w-full max-w-5xl rounded-[2rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A] ${
+                 currentQuestion?.image_url ? 'bg-white/95 backdrop-blur-md' : 'bg-brand-bg/50'
+               } ${liveQuestionDensity.isUltraDense ? 'p-4 sm:p-6 lg:p-8' : 'p-6 sm:p-10 lg:p-12'}`}>
+                  <h2 className={`${activePromptClassName} text-balance font-black leading-[1.05] tracking-tight text-brand-dark text-center`}>
+                    {currentPrompt}
+                  </h2>
+               </div>
             </div>
           </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-8 w-full shrink-0 flex-1 min-h-[160px] max-h-[40vh]">
+          {/* Clean Answers Grid - Optimized for compression */}
+          <motion.div 
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`grid flex-1 min-h-0 ${answerGridHeightClass} w-full gap-3 sm:gap-4 auto-rows-fr ${answerGridColumnsClass}`}
+          >
             {currentAnswers.map((ans: string, i: number) => {
               const selectionCount = Object.values(studentSelections).filter((idx) => idx === i).length;
               const selectionPct = participants.length > 0 ? Math.round((selectionCount / participants.length) * 100) : 0;
+              const toneColor = getReplayChoiceColor(i);
+
               return (
-                <motion.div
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: i * 0.08 }}
+                <div
                   key={i}
-                  className="relative flex items-center overflow-hidden rounded-[2.5rem] lg:rounded-[3rem] border-[6px] border-brand-dark bg-[#E5E7EB] px-8 lg:px-12 py-6 shadow-[10px_10px_0px_0px_#1A1A1A]"
+                  className={`group relative flex h-full flex-col overflow-hidden rounded-[1.5rem] sm:rounded-[2rem] border-[3px] sm:border-4 border-brand-dark transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none shadow-[6px_6px_0px_0px_#1A1A1A] ${
+                    isDiscussion ? 'bg-brand-dark text-white' : 'bg-white text-brand-dark'
+                  } ${liveQuestionDensity.isUltraDense ? 'p-3 sm:p-4' : 'p-4 sm:p-6'}`}
                 >
-                  <div className="absolute top-0 left-0 h-full bg-[#D1D5DB] transition-all duration-300" style={{ width: `${selectionPct}%` }} />
-                  
-                  <div className="relative z-10 w-full flex flex-col justify-center h-full">
-                    <p className="leading-tight break-words text-brand-dark font-black text-2xl lg:text-4xl pr-8" dir="auto">{ans}</p>
+                  <div className="relative z-10 flex h-full gap-3 items-center">
+                    <div className={`flex ${
+                      liveQuestionDensity.isUltraDense ? 'h-9 w-9 text-base' : 'h-12 w-12 text-xl'
+                    } shrink-0 items-center justify-center rounded-xl border-2 border-brand-dark font-black shadow-[2px_2px_0px_0px_#1A1A1A] ${
+                      isDiscussion ? 'bg-white/10' : toneColor
+                    }`}>
+                      {formatAnswerSlotLabel(i)}
+                    </div>
                     
-                    {/* Visual vote count mapped below the text elegantly */}
-                    {selectionCount > 0 && (
-                      <div className="mt-4 flex items-center gap-3">
-                         <div className="flex -space-x-2">
-                           {Array.from({ length: Math.min(3, selectionCount) }).map((_, idx) => (
-                             <div key={idx} className="w-6 h-6 rounded-full bg-white border-2 border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A]" />
-                           ))}
-                         </div>
-                         <span className="font-black text-brand-dark/50 text-lg">+{selectionCount} inside</span>
-                      </div>
-                    )}
+                    <div className="flex-1 flex items-center justify-center px-1 min-w-0">
+                       <span className={`block flex-1 break-words font-black leading-tight ${liveQuestionDensity.isUltraDense ? 'text-xs sm:text-sm line-clamp-3' : answerTextClass}`}>
+                          {ans}
+                       </span>
+                    </div>
+
+                    <div className="flex flex-col items-end shrink-0">
+                       <span className={`${
+                         liveQuestionDensity.isUltraDense ? 'text-lg' : 'text-2xl'
+                       } font-black ${isDiscussion ? 'text-brand-yellow' : 'text-brand-purple'}`}>
+                         {selectionPct}%
+                       </span>
+                       <span className="text-[9px] font-black uppercase tracking-widest opacity-40">
+                         {selectionCount} votes
+                       </span>
+                    </div>
                   </div>
-                </motion.div>
+                  
+                  {/* Subtle Progress Background - Smaller in dense mode */}
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${selectionPct}%` }}
+                    className={`absolute bottom-0 left-0 ${
+                      liveQuestionDensity.isUltraDense ? 'h-1' : 'h-1.5'
+                    } opacity-20 ${isDiscussion ? 'bg-brand-yellow' : 'bg-brand-purple'}`}
+                  />
+                </div>
               );
             })}
+          </motion.div>
+
+          {/* Integrated Insights / Context Footer */}
+          <div className="shrink-0 flex items-center justify-between px-4 py-2 bg-white/40 backdrop-blur-sm rounded-2xl border-2 border-brand-dark/5">
+             <div className="flex items-center gap-6">
+                {liveHostInsights.primaryCue ? (
+                  <div className="flex items-center gap-2">
+                    <div className={`h-2 w-2 rounded-full animate-pulse ${liveHostInsights.primaryCue.tone === 'warning' ? 'bg-brand-yellow' : 'bg-emerald-500'}`} />
+                    <span className="text-xs font-black uppercase text-brand-dark/60">{liveHostInsights.primaryCue.title}</span>
+                  </div>
+                ) : (
+                  <div className="text-xs font-black uppercase text-brand-dark/30 tracking-[0.2em]">Mastery Insight active</div>
+                )}
+             </div>
+             
+             <div className="flex items-center gap-4">
+                <div className="h-4 w-[1px] bg-brand-dark/10" />
+                <div className="flex items-center gap-2 text-brand-dark/40 font-bold text-xs italic truncate max-w-md">
+                   {currentQuestion?.explanation || currentPrompt}
+                </div>
+             </div>
           </div>
-
-          {/* Restored Host Insights Data Row */}
-          {liveHostInsights && !isDiscussion && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 mt-8 w-full shrink-0 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-16">
-              <HostInsightCard
-                title="Room Pulse"
-                accent="indigo"
-                compact
-                value={`${liveHostInsights.participationPct}%`}
-                body={`${liveHostInsights.answeredCount} students committed.`}
-              />
-              <HostInsightCard
-                title="Lead Signal"
-                compact
-                accent={
-                  liveHostInsights.leader &&
-                  currentQuestion &&
-                  liveHostInsights.leader.index !== Number(currentQuestion.correct_index) &&
-                  liveHostInsights.leader.pct >= 45
-                     ? 'amber'
-                     : 'emerald'
-                }
-                value={
-                  liveHostInsights.leader
-                    ? `${formatAnswerSlotLabel(liveHostInsights.leader.index)} · ${liveHostInsights.leader.pct}%`
-                    : 'Waiting'
-                }
-                body={
-                  liveHostInsights.runnerUp
-                    ? `Runner up: ${formatAnswerSlotLabel(liveHostInsights.runnerUp.index)} · ${liveHostInsights.runnerUp.pct}%`
-                    : 'No clear pattern yet.'
-                }
-              />
-              <HostInsightCard
-                title={liveHostInsights.primaryCue.title}
-                compact
-                accent={
-                  liveHostInsights.primaryCue.tone === 'warning'
-                    ? 'amber'
-                    : liveHostInsights.primaryCue.tone === 'success'
-                      ? 'emerald'
-                      : 'indigo'
-                }
-                body={liveHostInsights.primaryCue.body}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* BOTTOM FLOATING ACTION BUTTON (Mapped to Next Phase) */}
-        <div className="absolute bottom-[-20px] left-1/2 -translate-x-1/2 z-50">
-           <motion.button
-            whileHover={{ scale: phaseTransitionPending ? 1 : 1.05, y: -10 }}
-            whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
-            onClick={() => updateState(nextStatus, questionIndex)}
-            disabled={phaseTransitionPending}
-            className="w-48 lg:w-64 h-24 lg:h-32 bg-[#E5E7EB] border-[8px] border-brand-dark rounded-[3rem] flex flex-col items-center justify-start pt-6 font-black text-xl lg:text-3xl hover:bg-brand-yellow hover:text-brand-dark hover:border-brand-dark transition-all group overflow-hidden shadow-[0px_0px_30px_rgba(0,0,0,0.15)]"
-          >
-            {phaseTransitionPending ? (
-               <span>Working...</span>
-            ) : (
-               <>
-                 <span className="opacity-0 group-hover:opacity-100 absolute top-7 flex items-center justify-center font-black">
-                   {nextButtonLabel} <ChevronRight className="w-6 h-6 ml-1 stroke-[3px]" />
-                 </span>
-                 <div className="w-20 lg:w-28 h-2.5 lg:h-3 bg-brand-dark rounded-full group-hover:opacity-0 transition-opacity" />
-               </>
-            )}
-          </motion.button>
         </div>
       </div>
     );
   }
 
+
   if (status === 'QUESTION_REVEAL') {
+    const currentPrompt = currentQuestion?.prompt || '';
+    const liveQuestionDensity = getLiveQuestionDensity({
+      prompt: currentPrompt,
+      explanation: currentQuestion?.explanation || currentAnswers[correctIndex],
+      answers: currentAnswers,
+      hasImage: Boolean(currentQuestion?.image_url),
+    });
+
+    const questionHeroFlexClass = liveQuestionDensity.isUltraDense ? 'flex-[0.28]' : 'flex-[0.5]';
+    const answerGridHeightClass = liveQuestionDensity.isUltraDense ? 'max-h-[62vh]' : 'max-h-[52vh]';
+    
+    const answerGridColumnsClass = liveQuestionDensity.preferredColumns === 3
+      ? 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+      : currentAnswers.length > 1 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1';
+
+    const totalVotes = Object.keys(studentSelections).length;
+    const correctVotes = Object.values(studentSelections).filter(idx => idx === currentQuestion?.correct_index).length;
+    const accuracyPct = totalVotes > 0 ? Math.round((correctVotes / totalVotes) * 100) : 0;
+    const correctIndex = currentQuestion?.correct_index ?? -1;
+    
+    const answerSelectionSummary = currentAnswers.reduce((acc: any, _, idx: number) => {
+      const count = Object.values(studentSelections).filter(v => v === idx).length;
+      acc[idx] = {
+        count,
+        pct: totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0
+      };
+      return acc;
+    }, {});
+
+    const answerTextClass = liveQuestionDensity.isUltraDense
+      ? 'text-sm sm:text-lg'
+      : liveQuestionDensity.isDense
+        ? 'text-base sm:text-xl'
+        : 'text-lg sm:text-2xl';
+
     return (
-      <div className="game-viewport-shell flex flex-col overflow-hidden text-brand-dark">
+      <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="z-50 shrink-0 flex flex-col gap-4 border-b-4 border-brand-dark bg-white px-4 py-4 shadow-sm sm:px-8 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-6">
-            <button
-              onClick={handleEndSession}
-              className="flex items-center gap-3 text-brand-dark/30 hover:text-rose-500 font-black transition-colors text-lg"
-            >
-              <XCircle className="w-6 h-6" />
-              End Game
-            </button>
-            <div className="text-brand-dark font-black text-2xl bg-brand-bg px-6 py-2 rounded-xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">Results</div>
-            <div className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm shadow-[4px_4px_0px_0px_#1A1A1A] ${gameTone.pill}`}>
-              {gameMode.label}
+        
+        {/* Cinematic Header Consistency */}
+        <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
+          <div className="mx-auto flex w-full max-w-[1540px] items-center justify-between gap-3 px-4 py-2 sm:px-8">
+            <div className="flex items-center gap-4">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleEndSession}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-brand-dark/10 bg-white shadow-[2px_2px_0px_0px_#1A1A1A] transition-all hover:border-rose-300 hover:text-rose-600 sm:h-12 sm:w-12"
+              >
+                <XCircle className="h-6 w-6 text-brand-dark/30" />
+              </motion.button>
+              <div className="flex h-10 items-center gap-3 rounded-2xl border-2 border-brand-dark bg-brand-bg px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                 <span className="text-xs font-black uppercase tracking-widest text-brand-dark/40">Results Phase</span>
+              </div>
+            </div>
+
+            <div className="hidden min-w-0 flex-wrap items-center justify-center gap-3 lg:flex">
+              <div className="flex items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 py-2 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <span className="text-xs font-black uppercase text-brand-dark/40">Class Accuracy</span>
+                <span className={`text-lg font-black ${accuracyPct >= 70 ? 'text-emerald-600' : accuracyPct >= 40 ? 'text-brand-orange' : 'text-rose-500'}`}>
+                  {accuracyPct}%
+                </span>
+              </div>
+              <HostStageMetric label="Correct" value={correctVotes} tone="light" compact />
+              <HostStageMetric label="Total" value={totalVotes} tone="light" compact />
+            </div>
+
+            <div className="flex items-center justify-end gap-3">
+              <motion.button
+                whileHover={{ scale: phaseTransitionPending ? 1 : 1.03 }}
+                whileTap={{ scale: phaseTransitionPending ? 1 : 0.97 }}
+                onClick={() => updateState('LEADERBOARD', questionIndex)}
+                disabled={phaseTransitionPending}
+                className="group relative rounded-2xl border-4 border-brand-dark bg-brand-dark px-6 py-3 text-base font-black text-white shadow-[6px_6px_0px_0px_#FF5A36] flex items-center gap-2 transition-all hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[8px_8px_0px_0px_#FF5A36] disabled:opacity-50"
+              >
+                {phaseTransitionPending ? '...' : 'Next Phase'}
+                <ChevronRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
+              </motion.button>
             </div>
           </div>
-          <motion.button
-            whileHover={{ scale: phaseTransitionPending ? 1 : 1.05 }}
-            whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
-            onClick={() => updateState('LEADERBOARD', questionIndex)}
-            disabled={phaseTransitionPending}
-            className="bg-brand-dark text-white px-8 py-3 rounded-xl font-black text-xl hover:bg-brand-dark/90 transition-all flex items-center gap-3 shadow-[6px_6px_0px_0px_#FF5A36] disabled:opacity-50"
-          >
-            {phaseTransitionPending ? 'Working...' : 'Next Phase'} <ChevronRight className="w-6 h-6" />
-          </motion.button>
         </div>
 
-        {hostMessage && (
-          <div className="px-8 pt-4 shrink-0">
-            <HostPhaseNotice message={hostMessage} />
-          </div>
-        )}
-
-        <div className="relative mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-y-auto overflow-x-hidden px-4 pb-6 sm:px-6">
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            className="w-full mb-6 rounded-[2rem] border-4 border-brand-dark bg-white p-6 relative overflow-hidden shadow-[10px_10px_0px_0px_#1A1A1A] shrink-0"
+      <div className="relative flex-1 min-h-0 flex flex-col p-2 sm:p-4 lg:p-5 gap-2 sm:gap-4 overflow-hidden w-full max-w-[1600px] mx-auto">
+          
+          {/* Simplified Emerald Unified Hero */}
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`relative ${questionHeroFlexClass} min-h-0 w-full rounded-[1.5rem] sm:rounded-[2rem] border-4 border-emerald-600 bg-emerald-500 shadow-[6px_6px_0px_0px_#064e3b] flex flex-col items-center justify-center overflow-hidden p-6 sm:p-10`}
+            style={{
+              backgroundImage: 'radial-gradient(rgba(255,255,255,0.15) 1px, transparent 1px)',
+              backgroundSize: '24px 24px'
+            }}
           >
-            <div className="flex flex-col lg:flex-row lg:items-center gap-6">
-              {currentQuestion?.image_url && (
-                <QuestionImageCard
-                  imageUrl={currentQuestion?.image_url}
-                  alt={currentQuestion?.prompt || 'Question image'}
-                  className="shrink-0"
-                  imgClassName="max-h-[15vh] w-auto rounded-xl"
-                />
-              )}
-              <div className="min-w-0 flex-1">
-                <span className={`inline-block px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-[0.2em] mb-2 ${gameTone.pill}`}>
-                  The Correct Answer
-                </span>
-                <h2 className="text-2xl lg:text-3xl font-black text-brand-dark leading-tight line-clamp-3">
-                  {currentQuestion?.prompt}
-                </h2>
+            <div className="relative z-10 w-full max-w-5xl flex flex-col items-center text-center">
+              <p className={`${
+                liveQuestionDensity.isUltraDense ? 'text-lg sm:text-xl' : 'text-2xl sm:text-4xl'
+              } font-black leading-tight text-white tracking-tight drop-shadow-md overflow-y-auto custom-scrollbar-thin max-h-[30vh]`}>
+                "{currentQuestion?.explanation || currentAnswers[correctIndex]}"
+              </p>
+              <div className="absolute -bottom-2 -right-2 opacity-10">
+                 <CheckCircle2 className="w-32 h-32 text-white" />
               </div>
             </div>
           </motion.div>
 
-          <QuestionReplayShowcase
-            replay={questionReplay}
-            loading={isQuestionReplayLoading}
-            error={questionReplayError}
-            onLaunchRematch={() => void handleLaunchQuestionRematch()}
-            rematchBusy={isLaunchingQuestionRematch}
-          />
-
-          {/* Statistics Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full mb-6 shrink-0">
-            <HostStageMetric label="Timer" value="Reveal" tone="dark" />
-            <HostStageMetric label="Correct" value={correctSelectionCount} tone="warm" />
-            <HostStageMetric label="Total Votes" value={totalAnswers} tone="light" />
-            <HostStageMetric 
-              label="Accuracy" 
-              value={participants.length > 0 ? `${Math.round((correctSelectionCount / participants.length) * 100)}%` : '0%'} 
-              tone="light" 
-            />
-          </div>
-
-          <div className="grid w-full gap-4 mb-6 lg:grid-cols-2 flex-1 min-h-0 overflow-auto pr-2 custom-scrollbar">
+          {/* Answer Distribution Grid - Optimized staggered layout */}
+          <div className={`grid flex-1 min-h-0 ${answerGridHeightClass} w-full gap-2 sm:gap-4 auto-rows-fr ${answerGridColumnsClass}`}>
             {currentAnswers.map((choice: string, i: number) => {
-              const isCorrect = i === currentQuestion?.correct_index;
+              const isCorrect = i === correctIndex;
               const choiceResult = answerSelectionSummary[i] || { count: 0, pct: 0 };
+              const selectionPct = choiceResult.pct;
+
               return (
                 <motion.div
                   key={i}
-                  initial={{ x: i % 2 === 0 ? -20 : 20, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  transition={{ delay: i * 0.1 }}
-                  className={`relative p-5 rounded-[1.8rem] border-4 flex flex-col gap-3 shadow-[8px_8px_0px_0px_#1A1A1A] ${
-                    isCorrect ? 'border-emerald-500 bg-emerald-50' : 'border-brand-dark/10 bg-white'
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.3 + (i * 0.08) }}
+                  className={`group relative flex items-center justify-between overflow-hidden rounded-[2.5rem] border-2 transition-all h-[4.5rem] sm:h-[5.8rem] px-5 sm:px-8 ${
+                    isCorrect 
+                      ? 'border-brand-dark bg-emerald-500 text-white shadow-[4px_4px_0px_0px_#1A1A1A]' 
+                      : 'border-brand-dark/10 bg-gray-100 text-brand-dark shadow-[2px_2px_0px_0px_rgba(0,0,0,0.05)]'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black shrink-0 ${isCorrect ? 'bg-emerald-500 text-white' : 'bg-brand-bg text-brand-dark/30'}`}>
-                        {isCorrect ? <CheckCircle2 className="w-6 h-6" /> : formatAnswerSlotLabel(i)}
-                      </div>
-                      <p className={`font-black text-lg lg:text-xl break-words ${isCorrect ? 'text-brand-dark' : 'text-brand-dark/40'}`}>{choice}</p>
-                    </div>
-                    {isCorrect && <CheckCircle2 className="w-8 h-8 text-emerald-500 shrink-0" />}
-                  </div>
-                  
-                  <div className="flex items-center gap-3">
-                     <span className={`px-4 py-2 rounded-full text-sm font-black border-2 ${isCorrect ? 'bg-white border-emerald-300 text-emerald-800' : 'bg-brand-bg border-brand-dark/5 text-brand-dark/30'}`}>
-                        {choiceResult.count} {choiceResult.count === 1 ? 'student' : 'students'}
-                      </span>
-                      <span className={`px-4 py-2 rounded-full text-sm font-black border-2 ${isCorrect ? 'bg-emerald-500 text-white border-brand-dark' : 'bg-white border-brand-dark/5 text-brand-dark/20'}`}>
-                        {choiceResult.pct}%
-                      </span>
-                  </div>
+                   {/* Centered Answer Text (Left-Center) */}
+                   <div className="flex-1 flex items-center justify-center text-center mr-6 sm:mr-10 min-w-0">
+                      <p className={`font-black leading-tight break-words ${
+                        choice.length > 50 ? 'text-[10px] sm:text-xs' : 
+                        choice.length > 30 ? 'text-xs sm:text-sm' : 
+                        'text-sm sm:text-lg lg:text-2xl'
+                      }`}>
+                        {choice}
+                      </p>
+                   </div>
+
+                   {/* Right Metrics Pill */}
+                   <div className={`flex shrink-0 items-center justify-center px-4 py-1.5 min-w-[3.5rem] sm:min-w-[4.8rem] rounded-xl border-2 font-black shadow-[2px_2px_0px_0px_rgba(0,0,0,0.05)] bg-white ${
+                     isCorrect ? 'border-emerald-700/30 text-emerald-600' : 'border-brand-dark/10 text-brand-dark/40'
+                   }`}>
+                      <span className="text-base sm:text-xl">{selectionPct}%</span>
+                   </div>
                 </motion.div>
               );
             })}
           </div>
 
-          {currentQuestion?.explanation && (
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.5 }}
-              className="w-full bg-brand-purple/5 border-2 border-brand-purple/20 p-4 rounded-2xl flex items-start gap-3 shrink-0"
-            >
-              <Lightbulb className="w-5 h-5 text-brand-purple shrink-0 mt-1" />
-              <p className="text-sm font-medium text-brand-dark/80 line-clamp-3">
-                <span className="font-black text-brand-purple">Insight:</span> {currentQuestion.explanation}
-              </p>
-            </motion.div>
-          )}
+          {/* Background Prompt Context Integration */}
+          <div className="shrink-0 flex items-center justify-between px-4 py-2 bg-white/40 backdrop-blur-sm rounded-2xl border-2 border-brand-dark/5 mt-auto">
+             <div className="flex items-center gap-4">
+                <span className="text-[10px] font-black uppercase text-brand-dark/30 tracking-[0.3em] whitespace-nowrap">Original Prompt</span>
+                <div className="h-4 w-[1.5px] bg-brand-dark/10" />
+                <div className="text-sm font-bold text-brand-dark/50 truncate italic max-w-2xl">{currentPrompt}</div>
+             </div>
+             
+             <div className="flex items-center gap-3 text-brand-dark/20 text-[10px] font-black uppercase tracking-widest">
+                <span>Apex Phase: Results</span>
+                <div className="h-1 w-1 rounded-full bg-brand-dark/20" />
+                <span>Quizzi Live</span>
+             </div>
+          </div>
         </div>
       </div>
     );
   }
 
   if (status === 'LEADERBOARD') {
+    const totalVotes = Object.keys(studentSelections).length;
+    const correctVotes = Object.values(studentSelections).filter(idx => idx === currentQuestion?.correct_index).length;
+    const accuracyPct = totalVotes > 0 ? Math.round((correctVotes / totalVotes) * 100) : 0;
+
     const isLast = questionIndex >= (pack?.questions?.length || 0) - 1;
 
     return (
-      <div className="game-viewport-shell flex flex-col overflow-hidden text-brand-dark">
+      <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="z-50 shrink-0 flex flex-col gap-4 border-b-4 border-brand-dark bg-white px-4 py-4 shadow-sm sm:px-8 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap items-center gap-4">
-            <button
-              onClick={handleEndSession}
-              className="flex items-center gap-2 text-brand-dark/30 hover:text-rose-500 font-black transition-colors text-lg"
-            >
-              <XCircle className="w-6 h-6" />
-              End Game
-            </button>
-            <div className="text-brand-dark font-black text-2xl bg-brand-bg px-6 py-2 rounded-xl border-2 border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]">
-              {isLast ? 'Final Standings' : 'Standings'}
-            </div>
-            <div className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm shadow-[4px_4px_0px_0px_#1A1A1A] ${gameTone.pill}`}>
-              {gameMode.label}
-            </div>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            {isLast && (
+        
+        {/* Cinematic Header Consistency */}
+        <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
+          <div className="mx-auto flex w-full max-w-[1540px] items-center justify-between gap-3 px-4 py-3 sm:px-8">
+            <div className="flex items-center gap-4">
               <motion.button
-                whileHover={{ scale: isCreatingPersonalizedGames ? 1 : 1.03 }}
-                whileTap={{ scale: isCreatingPersonalizedGames ? 1 : 0.97 }}
-                onClick={() => void handleCreatePersonalizedGames()}
-                disabled={isCreatingPersonalizedGames}
-                className="bg-brand-yellow text-brand-dark px-6 py-4 rounded-xl font-black text-lg hover:opacity-90 transition-all flex items-center justify-center gap-3 shadow-[6px_6px_0px_0px_#1A1A1A] disabled:opacity-60"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleEndSession}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-brand-dark/10 bg-white shadow-[2px_2px_0px_0px_#1A1A1A] transition-all hover:border-rose-300 hover:text-rose-600 sm:h-12 sm:w-12"
               >
-                <Sparkles className="w-6 h-6" />
-                {isCreatingPersonalizedGames
-                  ? 'Building Personal Games...'
-                  : personalizedGamesSummary
-                    ? 'Refresh Personal Games'
-                    : 'Build Personal Games For Everyone'}
+                <XCircle className="h-6 w-6 text-brand-dark/30" />
               </motion.button>
-            )}
-            <motion.button
-              whileHover={{ scale: phaseTransitionPending ? 1 : 1.05 }}
-              whileTap={{ scale: phaseTransitionPending ? 1 : 0.95 }}
-              onClick={async () => {
-                if (isLast) {
-                  const ended = await updateState('ENDED', questionIndex);
-                  if (ended) {
-                    navigate(`/teacher/analytics/class/${sessionId}`);
+              <div className="flex h-11 items-center gap-3 rounded-2xl border-2 border-brand-dark bg-brand-bg px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                 <span className="text-xs font-black uppercase tracking-widest text-brand-dark/40">
+                   {isLast ? 'Final Standings' : 'Current Standings'}
+                 </span>
+              </div>
+            </div>
+
+            <div className="hidden min-w-0 flex-wrap items-center justify-center gap-3 md:flex">
+              <div className="flex items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 py-2 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <span className="text-xs font-black uppercase text-brand-orange">Q{questionIndex + 1}/{pack?.questions?.length}</span>
+              </div>
+              <div className={`rounded-2xl border-2 border-brand-dark px-4 py-2 text-xs font-black uppercase tracking-widest shadow-[4px_4px_0px_0px_#1A1A1A] ${gameTone.pill}`}>
+                {gameMode.label}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {isLast && (
+                <motion.button
+                  whileHover={{ scale: isCreatingPersonalizedGames ? 1 : 1.03 }}
+                  whileTap={{ scale: isCreatingPersonalizedGames ? 1 : 0.97 }}
+                  onClick={() => void handleCreatePersonalizedGames()}
+                  disabled={isCreatingPersonalizedGames}
+                  className="hidden sm:flex items-center gap-2 rounded-2xl border-2 border-brand-dark bg-brand-yellow px-5 py-2.5 text-sm font-black shadow-[4px_4px_0px_0px_#1A1A1A] disabled:opacity-50"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  {isCreatingPersonalizedGames ? 'Building...' : 'Personal Games'}
+                </motion.button>
+              )}
+              <motion.button
+                whileHover={{ scale: phaseTransitionPending ? 1 : 1.03 }}
+                whileTap={{ scale: phaseTransitionPending ? 1 : 0.97 }}
+                onClick={async () => {
+                  if (isLast) {
+                    const ended = await updateState('ENDED', questionIndex);
+                    if (ended) {
+                      navigate(`/teacher/analytics/class/${sessionId}`);
+                    }
+                  } else {
+                    await updateState('QUESTION_ACTIVE', questionIndex + 1);
                   }
-                } else {
-                  await updateState('QUESTION_ACTIVE', questionIndex + 1);
-                }
-              }}
-              disabled={phaseTransitionPending}
-              className={`${isLast ? 'bg-emerald-500 shadow-[6px_6px_0px_0px_#064e3b]' : 'bg-brand-dark shadow-[6px_6px_0px_0px_#FF5A36]'} text-white px-10 py-4 rounded-xl font-black text-xl hover:opacity-90 transition-all flex items-center justify-center gap-3 disabled:opacity-50`}
-            >
-              {phaseTransitionPending ? 'Working...' : isLast ? 'End Game & Results' : 'Next Question'} <ChevronRight className="w-8 h-8" />
-            </motion.button>
+                }}
+                disabled={phaseTransitionPending}
+                className={`rounded-2xl border-4 border-brand-dark px-6 py-3 text-base font-black text-white shadow-[6px_6px_0px_0px_#FF5A36] flex items-center gap-2 disabled:opacity-50 transition-all ${
+                  isLast ? 'bg-emerald-600 shadow-[6px_6px_0px_0px_#065f46] hover:shadow-[8px_8px_0px_0px_#065f46]' : 'bg-brand-dark hover:shadow-[8px_8px_0px_0px_#FF5A36]'
+                }`}
+              >
+                {phaseTransitionPending ? '...' : isLast ? 'End & Analyze' : 'Next Question'}
+                <ChevronRight className="w-5 h-5" />
+              </motion.button>
+            </div>
           </div>
         </div>
 
-        {hostMessage && (
-          <div className="px-8 pt-4 shrink-0">
-            <HostPhaseNotice message={hostMessage} />
-          </div>
-        )}
-
-        <div className="mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col overflow-y-auto overflow-x-hidden px-4 pb-6 pt-4 sm:px-6">
+        <div className="relative flex-1 min-h-0 flex flex-col p-2 sm:p-4 lg:p-5 gap-2 sm:gap-4 overflow-hidden w-full max-w-[1540px] mx-auto">
+          
           <motion.div
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className="mb-6 shrink-0"
+            className="shrink-0 flex flex-col items-center"
           >
-            <h2 className="text-4xl lg:text-5xl font-black text-brand-dark tracking-tight text-center">
-              {isLast ? 'The Winners Circle' : 'Leaderboard'}
-            </h2>
+             <div className="mb-2 flex items-center gap-3">
+                <span className="h-[2px] w-12 bg-brand-purple/20" />
+                <span className="text-xs font-black uppercase tracking-[0.4em] text-brand-purple">Performance Board</span>
+                <span className="h-[2px] w-12 bg-brand-purple/20" />
+             </div>
+             <h2 className="text-4xl sm:text-5xl lg:text-7xl font-black text-brand-dark tracking-tighter text-center">
+               {isLast ? 'The Winners Circle' : 'Leaderboard'}
+             </h2>
           </motion.div>
 
-          {isLast && personalizedGamesSummary && (
-            <motion.div
-              initial={{ y: 16, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              className="mb-6 w-full shrink-0 rounded-[2rem] border-4 border-brand-dark bg-white p-5 shadow-[8px_8px_0px_0px_#1A1A1A]"
-            >
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Personal Adaptive Games</p>
-                  <h3 className="text-2xl font-black leading-tight">
-                    {personalizedGamesSummary.createdCount > 0
-                      ? `Prepared ${personalizedGamesSummary.createdCount} new personal games for this class`
-                      : 'Personal games were already prepared for this class'}
-                  </h3>
-                  <p className="font-medium text-brand-dark/70 mt-2">
-                    These packs are now available in My Quizzes, one per student, using the session analytics and each learner&apos;s weak areas.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black">
-                    {personalizedGamesSummary.createdCount} created
-                  </span>
-                  <span className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black">
-                    {personalizedGamesSummary.reusedCount} reused
-                  </span>
-                  <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black">
-                    {personalizedGamesSummary.failedCount} skipped
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                {personalizedGamesSummary.createdPacks.slice(0, 6).map((packRow: any) => (
-                  <div
-                    key={`${packRow.participant?.id}-${packRow.pack_id}`}
-                    className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4"
-                  >
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="min-w-0">
-                        <p className="text-lg font-black truncate">{packRow.participant?.nickname}</p>
-                        <p className="font-medium text-brand-dark/65 truncate">{packRow.title}</p>
+          <div className="flex-1 min-h-0 w-full flex flex-col lg:flex-row gap-6">
+             {/* Left Column: Metrics and Insights */}
+             <div className="hidden lg:flex flex-col gap-6 w-80 shrink-0 mt-4">
+                <div className="rounded-[2.5rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                   <p className="text-[10px] font-black uppercase tracking-widest text-brand-dark/40 mb-4">Class Pulse</p>
+                   <div className="space-y-4">
+                      <div className="flex items-end justify-between">
+                         <span className="text-sm font-bold text-brand-dark/60">Success Rate</span>
+                         <span className="text-2xl font-black text-brand-purple">{accuracyPct}%</span>
                       </div>
-                      <span className={`rounded-full border-2 border-brand-dark px-3 py-1 text-xs font-black ${packRow.reused ? 'bg-white' : 'bg-emerald-100 text-emerald-900'}`}>
-                        {packRow.reused ? 'Reused' : 'Ready'}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black">
-                        {packRow.question_count} questions
-                      </span>
-                      {Array.isArray(packRow.focus_tags) && packRow.focus_tags.slice(0, 2).map((tag: string) => (
-                        <span
-                          key={`${packRow.pack_id}-${tag}`}
-                          className="rounded-full border-2 border-brand-dark bg-brand-orange/10 px-3 py-1 text-xs font-black capitalize"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {personalizedGamesSummary.failedCount > 0 && personalizedGamesSummary.failedStudents.length > 0 && (
-                <p className="mt-4 font-medium text-brand-dark/70">
-                  Skipped students: {personalizedGamesSummary.failedStudents.slice(0, 4).map((row: any) => row?.participant?.nickname).filter(Boolean).join(', ')}
-                  {personalizedGamesSummary.failedStudents.length > 4 ? '...' : ''}
-                </p>
-              )}
-
-              <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                <button
-                  onClick={() => navigate('/teacher/dashboard')}
-                  className="rounded-full border-2 border-brand-dark bg-brand-dark px-5 py-3 font-black text-white transition-transform hover:-translate-y-0.5"
-                >
-                  Open My Quizzes
-                </button>
-                <button
-                  onClick={() => navigate(`/teacher/analytics/class/${sessionId}`)}
-                  className="rounded-full border-2 border-brand-dark bg-white px-5 py-3 font-black transition-transform hover:-translate-y-0.5"
-                >
-                  Open Class Analytics
-                </button>
-              </div>
-            </motion.div>
-          )}
-
-          <div className="flex-1 w-full min-h-0 overflow-auto custom-scrollbar pr-2 pb-10">
-            {isTeamMode && teamBoard.length > 0 ? (
-              <div className="w-full max-w-4xl mx-auto space-y-6">
-                {teamBoard.slice(0, 5).map((team: any, i: number) => (
-                  <motion.div
-                    initial={{ x: -20, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    transition={{ delay: i * 0.1 }}
-                    key={team.team_id || team.team_name}
-                    className={`p-6 rounded-[2rem] border-4 shadow-[8px_8px_0px_0px_#1A1A1A] ${i === 0 ? 'bg-brand-yellow border-brand-dark' : 'bg-white border-brand-dark/10'}`}
-                  >
-                    <div className="flex items-center justify-between gap-6">
-                      <div className="flex items-center gap-6">
-                        <div className={`w-14 h-14 rounded-full border-4 border-brand-dark flex items-center justify-center font-black text-2xl ${i === 0 ? 'bg-brand-orange text-white' : 'bg-brand-bg text-brand-dark/40'}`}>
-                          {i + 1}
-                        </div>
-                        <div>
-                          <span className="text-3xl font-black text-brand-dark">{team.team_name}</span>
-                          <p className="text-sm font-bold text-brand-dark/50">{team.student_count} members · {team.accuracy?.toFixed?.(0) || team.accuracy}% correct</p>
-                        </div>
+                      <div className="h-2 w-full bg-brand-bg rounded-full overflow-hidden">
+                         <div className="h-full bg-brand-purple" style={{ width: `${accuracyPct}%` }} />
                       </div>
-                      <div className="text-4xl font-black text-brand-purple">{team.total_score || 0}</div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            ) : (
-              <div className="w-full flex flex-col items-center">
-                <div className="w-full mb-10 shrink-0">
-                  {leaderboard.length > 0 ? (
-                    <div className="flex h-[260px] flex-row items-end justify-center gap-3 sm:h-[320px] lg:h-[400px] lg:gap-4">
-                      {/* 2nd Place */}
-                      {leaderboard[1] && (
-                        <PodiumStep 
-                          participant={leaderboard[1]} 
-                          rank={2} 
-                          height="h-[65%]" 
-                          delay={0.2} 
-                          color="bg-brand-bg"
-                          icon={<Medal className="w-10 h-10 text-brand-dark/30" />}
-                        />
-                      )}
-                      
-                      {/* 1st Place */}
-                      {leaderboard[0] && (
-                        <PodiumStep 
-                          participant={leaderboard[0]} 
-                          rank={1} 
-                          height="h-[90%]" 
-                          delay={0.4} 
-                          color="bg-brand-yellow"
-                          icon={<Crown className="w-14 h-14 text-brand-orange" />}
-                          isWinner
-                        />
-                      )}
-
-                      {/* 3rd Place */}
-                      {leaderboard[2] && (
-                        <PodiumStep 
-                          participant={leaderboard[2]} 
-                          rank={3} 
-                          height="h-[50%]" 
-                          delay={0.6} 
-                          color="bg-brand-orange/10"
-                          icon={<Award className="w-8 h-8 text-brand-orange" />}
-                        />
-                      )}
-                    </div>
-                  ) : (
-                    <div className="text-center text-brand-dark/40 py-12 text-xl font-black">Calculating standings...</div>
-                  )}
+                   </div>
                 </div>
 
-                {leaderboard.length > 3 && (
-                  <div className="w-full max-w-5xl space-y-4">
-                    <h3 className="text-xl font-black text-brand-dark/30 uppercase tracking-[0.2em] mb-4 flex items-center justify-center gap-3">
-                      <BarChart3 className="w-5 h-5" />
-                      Challengers
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {leaderboard.slice(3, 12).map((p: any, i: number) => (
-                        <motion.div
-                          initial={{ y: 10, opacity: 0 }}
-                          animate={{ y: 0, opacity: 1 }}
-                          transition={{ delay: 0.8 + i * 0.05 }}
-                          key={p.id}
-                          className="flex items-center justify-between p-4 bg-white rounded-2xl border-2 border-brand-dark/5 shadow-sm hover:border-brand-dark/20 transition-all"
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-8 h-8 rounded-full bg-brand-bg flex items-center justify-center font-black text-xs text-brand-dark/40">
-                              {i + 4}
+                <div className="flex-1 rounded-[2.5rem] border-4 border-brand-dark bg-brand-orange/5 p-6 shadow-[8px_8px_0px_0px_#FF5A36] border-dashed">
+                   <p className="text-[10px] font-black uppercase tracking-widest text-brand-orange mb-4">Host Tip</p>
+                   <p className="text-sm font-black leading-relaxed text-brand-dark/80 italic">
+                     "Most students struggled with Choice B. Consider a quick revision before the next pack!"
+                   </p>
+                </div>
+             </div>              {/* Right Column/Main Content: The Board */}
+              <div className="flex-1 min-h-0 flex flex-col">
+                 <div className="flex-1 min-h-0 w-full overflow-y-auto pr-2 custom-scrollbar">
+                    {participants.length === 0 ? (
+                      <div className="flex h-full items-center justify-center rounded-[3rem] border-4 border-brand-dark border-dashed bg-white/50 p-12">
+                         <div className="text-center">
+                            <Users className="mx-auto h-16 w-16 text-brand-dark/10 mb-4" />
+                            <p className="text-xl font-black text-brand-dark/30">Waiting for data sync...</p>
+                         </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-8 pb-12">
+                         {/* Winners Podium Section */}
+                         <div className="flex flex-col items-center justify-center gap-4 lg:flex-row lg:items-end lg:gap-8 lg:px-4 py-8">
+                            {/* 2nd Place */}
+                            {participants.sort((a, b) => (b.score || 0) - (a.score || 0))[1] && (
+                              <PodiumStep
+                                participant={participants.sort((a, b) => (b.score || 0) - (a.score || 0))[1]}
+                                rank={2}
+                                height="h-32 sm:h-48"
+                                delay={0.2}
+                                color="bg-zinc-200"
+                                icon={<div className="bg-zinc-100 p-2 rounded-xl border-2 border-brand-dark shadow-sm"><Medal className="w-8 h-8 text-zinc-400" /></div>}
+                              />
+                            )}
+                            
+                            {/* 1st Place */}
+                            {participants.sort((a, b) => (b.score || 0) - (a.score || 0))[0] && (
+                              <PodiumStep
+                                participant={participants.sort((a, b) => (b.score || 0) - (a.score || 0))[0]}
+                                rank={1}
+                                height="h-44 sm:h-64"
+                                delay={0}
+                                color="bg-brand-yellow"
+                                icon={<div className="bg-white p-3 rounded-2xl border-4 border-brand-dark shadow-xl"><Trophy className="w-12 h-12 text-brand-yellow-dark" /></div>}
+                                isWinner={true}
+                              />
+                            )}
+
+                            {/* 3rd Place */}
+                            {participants.sort((a, b) => (b.score || 0) - (a.score || 0))[2] && (
+                              <PodiumStep
+                                participant={participants.sort((a, b) => (b.score || 0) - (a.score || 0))[2]}
+                                rank={3}
+                                height="h-24 sm:h-36"
+                                delay={0.4}
+                                color="bg-orange-200"
+                                icon={<div className="bg-orange-50 p-2 rounded-xl border-2 border-brand-dark shadow-sm"><Award className="w-7 h-7 text-orange-400" /></div>}
+                              />
+                            )}
+                         </div>
+
+                         {/* The Rest of the Leaderboard */}
+                         <div className="space-y-3">
+                            <div className="flex items-center gap-3 px-4 mb-4">
+                               <span className="h-[2px] w-6 bg-brand-dark/10" />
+                               <span className="text-[10px] font-black uppercase tracking-widest text-brand-dark/30">Challengers Circle</span>
+                               <span className="h-[2px] w-6 bg-brand-dark/10" />
                             </div>
-                            <Avatar 
-                              nickname={p.nickname} 
-                              imgClassName="w-10 h-10 rounded-xl" 
-                              textClassName="text-base font-black text-brand-dark truncate" 
-                            />
-                          </div>
-                          <div className="text-xl font-black text-brand-purple">{p.total_score || 0}</div>
-                        </motion.div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                            
+                            {participants.sort((a, b) => (b.score || 0) - (a.score || 0)).slice(3, 12).map((p, i) => (
+                               <motion.div
+                                 key={p.id}
+                                 initial={{ x: -20, opacity: 0 }}
+                                 animate={{ x: 0, opacity: 1 }}
+                                 transition={{ delay: (i + 3) * 0.05 }}
+                                 className="flex items-center gap-4 rounded-3xl border-4 border-brand-dark p-4 sm:p-5 shadow-[6px_6px_0px_0px_#1A1A1A] bg-white transition-all hover:translate-x-1"
+                               >
+                                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border-2 border-brand-dark bg-brand-bg font-black text-xl text-brand-dark/30 shadow-[3px_3px_0px_0px_#1A1A1A]">
+                                    {i + 4}
+                                  </div>
+                                  
+                                  <div className="flex-1 min-w-0">
+                                     <div className="flex items-center gap-3">
+                                        <Avatar nickname={p.nickname} imgClassName="h-10 w-10 rounded-xl" />
+                                        <div className="flex flex-col min-w-0">
+                                           <span className="text-xl font-black truncate">{extractNickname(p.nickname)}</span>
+                                           <span className="text-xs font-bold text-brand-dark/40 uppercase tracking-widest">{p.correctCount || 0} Correct</span>
+                                        </div>
+                                     </div>
+                                  </div>
+
+                                  <div className="flex flex-col items-end">
+                                     <span className="text-3xl font-black tracking-tighter">
+                                       {p.score || 0}
+                                     </span>
+                                     <span className="text-[10px] font-black uppercase tracking-widest opacity-30">Points</span>
+                                  </div>
+                               </motion.div>
+                            ))}
+                         </div>
+                      </div>
+                    )}
+                 </div>
               </div>
-            )}
           </div>
+
+          {/* Personalized Games Success Banner */}
+          {isLast && personalizedGamesSummary && (
+             <motion.div
+               initial={{ y: 50, opacity: 0 }}
+               animate={{ y: 0, opacity: 1 }}
+               className="shrink-0 rounded-[2.5rem] border-4 border-emerald-500 bg-emerald-50 p-6 shadow-[8px_8px_0px_0px_#059669]"
+             >
+                <div className="flex items-center justify-between gap-6">
+                   <div className="flex items-center gap-4">
+                      <div className="bg-emerald-500 text-white p-3 rounded-2xl shadow-lg">
+                         <Sparkles className="w-6 h-6" />
+                      </div>
+                      <div>
+                         <h3 className="text-xl font-black text-emerald-900 leading-none mb-1">Adaptive Engine Success</h3>
+                         <p className="text-sm font-bold text-emerald-700/70">
+                           {personalizedGamesSummary.createdCount} new personal games ready for your students.
+                         </p>
+                      </div>
+                   </div>
+                   <div className="flex gap-2">
+                      <span className="bg-white border-2 border-emerald-200 px-4 py-1.5 rounded-full text-xs font-black text-emerald-800">
+                        {personalizedGamesSummary.createdCount} Created
+                      </span>
+                   </div>
+                </div>
+             </motion.div>
+          )}
         </div>
       </div>
     );
   }
+
 
   if (status === 'ENDED') {
     return (
-      <div className="game-viewport-shell flex flex-col items-center justify-center p-4 sm:p-8 text-brand-dark">
+      <div className="game-viewport-shell flex h-screen flex-col items-center justify-center overflow-hidden bg-brand-bg p-6 text-brand-dark">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="w-full max-w-xl rounded-[2rem] border-4 border-brand-dark bg-white p-8 text-center shadow-[8px_8px_0px_0px_#1A1A1A]">
-          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border-4 border-brand-dark bg-brand-yellow">
-            <Trophy className="h-8 w-8 text-brand-orange" />
+        
+        <motion.div 
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="relative w-full max-w-2xl rounded-[3rem] border-4 border-brand-dark bg-white p-10 text-center shadow-[16px_16px_0px_0px_#1A1A1A] sm:p-16"
+        >
+          <div className="absolute -top-12 left-1/2 -translate-x-1/2">
+             <div className="flex h-24 w-24 items-center justify-center rounded-[2rem] border-4 border-brand-dark bg-brand-yellow shadow-[6px_6px_0px_0px_#1A1A1A]">
+                <Trophy className="h-12 w-12 text-brand-orange" />
+             </div>
           </div>
-          <h2 className="mb-3 text-3xl font-black">Game complete</h2>
-          <p className="mb-6 font-medium text-brand-dark/70">
-            Quizzi is wrapping this room and opening the analytics report for the finished session.
+
+          <div className="mt-8 mb-6">
+             <div className="mb-2 flex items-center justify-center gap-3">
+                <span className="h-[2px] w-8 bg-brand-orange/30" />
+                <span className="text-xs font-black uppercase tracking-[0.3em] text-brand-orange">Mission Accomplished</span>
+                <span className="h-[2px] w-8 bg-brand-orange/30" />
+             </div>
+             <h2 className="text-4xl font-black tracking-tight sm:text-6xl">Game Complete</h2>
+          </div>
+
+          <p className="mx-auto mb-10 max-w-md text-lg font-bold leading-relaxed text-brand-dark/50">
+            Quizzi is wrapping up the classroom session and preparing your detailed mastery analytics.
           </p>
-          <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
-            <button
+
+          <div className="flex flex-col gap-4 sm:flex-row sm:justify-center">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => navigate(`/teacher/analytics/class/${sessionId}`)}
-              className="rounded-full border-2 border-brand-dark bg-brand-orange px-6 py-3 font-black text-white shadow-[4px_4px_0px_0px_#1A1A1A]"
+              className="rounded-2xl border-4 border-brand-dark bg-brand-dark px-8 py-4 text-lg font-black text-white shadow-[6px_6px_0px_0px_#FF5A36] transition-all hover:shadow-[8px_8px_0px_0px_#FF5A36]"
             >
               Open Analytics
-            </button>
-            <button
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => navigate('/teacher/dashboard')}
-              className="rounded-full border-2 border-brand-dark bg-white px-6 py-3 font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
+              className="rounded-2xl border-4 border-brand-dark bg-white px-8 py-4 text-lg font-black shadow-[6px_6px_0px_0px_#1A1A1A] transition-all"
             >
-              Back to Dashboard
-            </button>
+              Dashboard
+            </motion.button>
           </div>
-        </div>
+        </motion.div>
       </div>
     );
   }
 
-  console.warn('[TeacherHost] Unhandled game status or state reached. Rendering fallback.', { status, pin, sessionId, packId });
+  console.warn('[TeacherHost] Unhandled state reached.', { status, pin, sessionId, packId });
   return (
-    <div className="game-viewport-shell flex flex-col items-center justify-center p-4 sm:p-8">
-      <div className="bg-white rounded-[2rem] border-4 border-brand-dark p-8 shadow-[8px_8px_0px_0px_#1A1A1A] max-w-md text-center">
-        <h2 className="text-3xl font-black mb-4">{t('dash.error.requestFailed')}</h2>
-        <p className="font-medium text-brand-dark/70 mb-6">
-          {t('game.fallback.unfamiliarState')}
+    <div className="game-viewport-shell flex h-screen flex-col items-center justify-center overflow-hidden bg-brand-bg p-6">
+      <div className="w-full max-w-lg rounded-[2.5rem] border-4 border-brand-dark bg-white p-10 text-center shadow-[12px_12px_0px_0px_#1A1A1A]">
+        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border-4 border-brand-dark bg-rose-100">
+           <AlertTriangle className="h-8 w-8 text-rose-600" />
+        </div>
+        <h2 className="mb-4 text-3xl font-black tracking-tight">Something went wrong</h2>
+        <p className="mb-8 font-bold leading-relaxed text-brand-dark/50 italic">
+          We encountered an unfamiliar state. Let's get you back on track.
         </p>
         <div className="flex flex-col gap-3">
           <button 
             onClick={() => window.location.reload()}
-            className="w-full px-6 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
+            className="w-full rounded-2xl border-4 border-brand-dark bg-brand-orange py-4 text-lg font-black text-white shadow-[4px_4px_0px_0px_#1A1A1A]"
           >
             {t('dash.action.refresh')}
           </button>
           <button 
             onClick={() => navigate('/teacher/dashboard')}
-            className="w-full px-6 py-3 bg-white border-2 border-brand-dark rounded-full font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
+            className="w-full rounded-2xl border-4 border-brand-dark bg-white py-4 text-lg font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
           >
             {t('nav.dashboard')}
           </button>
@@ -2159,50 +2310,93 @@ function PodiumStep({
     if (isWinner) {
       const timer = setTimeout(() => {
         confetti({
-          particleCount: 150,
-          spread: 70,
+          particleCount: 200,
+          spread: 80,
           origin: { y: 0.6 },
-          colors: ['#FF5A36', '#B488FF', '#FFD233']
+          colors: ['#FF5A36', '#B488FF', '#FFD233', '#emerald-400']
         });
-      }, delay * 1000 + 500);
+      }, delay * 1000 + 1000);
       return () => clearTimeout(timer);
     }
   }, [isWinner, delay]);
 
+  const nickname = participant.nickname || '';
+
   return (
     <motion.div 
-      initial={{ y: 100, opacity: 0 }}
+      initial={{ y: 400, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
-      transition={{ delay, duration: 0.8, type: 'spring' }}
-      className={`flex flex-col items-center justify-end w-full max-w-[280px] h-full relative group`}
+      transition={{ delay: delay * 0.4, duration: 1.2, type: 'spring', bounce: 0.25 }}
+      className={`flex flex-col items-center justify-end w-full max-w-[280px] h-full relative group pb-1`}
     >
-      <div className="mb-6 flex flex-col items-center">
+      <div className="mb-4 flex flex-col items-center z-20">
         <motion.div
-          animate={isWinner ? { y: [0, -10, 0] } : {}}
-          transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+          initial={{ scale: 0, rotate: -20 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ delay: delay + 1.2, type: 'spring', stiffness: 260 }}
+          className="relative"
         >
-          <Avatar 
-            nickname={participant.nickname} 
-            imgClassName="w-24 h-24 ring-4 ring-white shadow-2xl" 
-            textClassName="hidden"
-          />
+          {isWinner && (
+            <motion.div
+              animate={{ y: [0, -8, 0], rotate: [0, 5, -5, 0] }}
+              transition={{ repeat: Infinity, duration: 4 }}
+              className="absolute -top-10 left-1/2 -translate-x-1/2 z-30"
+            >
+              <Crown className="w-10 h-10 text-brand-yellow drop-shadow-[0_0_15px_rgba(255,210,51,0.6)]" />
+            </motion.div>
+          )}
+
+          <div className={`w-20 h-20 sm:w-28 sm:h-28 rounded-[2rem] border-4 border-brand-dark bg-white overflow-hidden shadow-2xl ring-4 ${
+            isWinner ? 'ring-brand-yellow/30' : 'ring-white/50'
+          }`}>
+            <Avatar nickname={nickname} imgClassName="w-full h-full object-cover" />
+          </div>
+
+          {rank > 0 && (
+            <div className={`absolute -bottom-4 -right-4 w-12 h-12 rounded-2xl border-4 border-brand-dark flex items-center justify-center font-black text-xl shadow-[4px_4px_0px_0px_#1A1A1A] z-40 ${
+              isWinner ? 'bg-brand-yellow' : 'bg-white'
+            }`}>
+              {rank}
+            </div>
+          )}
         </motion.div>
-        <div className="mt-6 max-w-[220px] rounded-full border-4 border-brand-dark bg-white px-5 py-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:max-w-[260px] sm:px-8">
-          <p className="truncate text-xl font-black text-brand-dark sm:text-2xl lg:text-3xl">{extractNickname(participant.nickname)}</p>
-        </div>
-        <p className="text-5xl font-black text-brand-purple mt-4 drop-shadow-sm">{participant.total_score || 0}</p>
+
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: delay + 1.4 }}
+          className="mt-6 max-w-[200px] sm:max-w-[260px] rounded-2xl border-4 border-brand-dark bg-white px-5 py-2 shadow-[6px_6px_0px_0px_#1A1A1A]"
+        >
+          <p className="truncate text-base font-black text-brand-dark sm:text-xl">{extractNickname(nickname)}</p>
+        </motion.div>
+        
+        <motion.p 
+          initial={{ opacity: 0, scale: 0.5 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: delay + 1.6, type: 'spring' }}
+          className={`text-2xl sm:text-3xl font-black mt-2 drop-shadow-sm ${isWinner ? 'text-brand-orange' : 'text-brand-purple'}`}
+        >
+          {participant.score || 0}
+        </motion.p>
       </div>
 
       <motion.div 
         initial={{ height: 0 }}
         animate={{ height: height.match(/\d+/) ? `${height.match(/\d+/)[0]}%` : '50%' }}
-        transition={{ delay: delay + 0.3, duration: 1, ease: 'circOut' }}
-        className={`w-full ${height} ${color} rounded-t-[3.5rem] border-x-4 border-t-4 border-brand-dark shadow-[16px_-4px_0px_0px_rgba(0,0,0,0.1)] flex flex-col items-center justify-start pt-12 relative`}
+        transition={{ delay: delay + 0.6, duration: 1.5, ease: 'circOut' }}
+        className={`w-full ${color} rounded-t-[3rem] border-x-4 border-t-4 border-brand-dark shadow-[12px_-4px_0px_0px_rgba(0,0,0,0.1)] flex flex-col items-center justify-start pt-10 sm:pt-14 relative z-10 ${
+          rank > 1 ? 'border-dashed' : 'border-solid'
+        }`}
       >
-        <div className="absolute -top-14 drop-shadow-xl scale-[1.5]">
-          {icon}
+        <div className="absolute top-0 right-0 p-4 opacity-5">
+           <div className="text-[12rem] font-black leading-none pointer-events-none select-none">{rank}</div>
         </div>
-        <div className="text-[10rem] font-black text-white/30 select-none leading-none mt-4">{rank}</div>
+        
+        {!isWinner && (
+          <div className="absolute -top-6 drop-shadow-xl scale-[1.3] z-20 transition-transform group-hover:scale-[1.4]">
+            {icon}
+          </div>
+        )}
       </motion.div>
     </motion.div>
   );
@@ -2213,11 +2407,13 @@ function LobbyMetric({
   value,
   icon,
   tone,
+  compact = false,
 }: {
   label: string;
   value: string | number;
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   tone: 'light' | 'warm' | 'dark';
+  compact?: boolean;
 }) {
   const toneClass =
     tone === 'dark'
@@ -2226,8 +2422,18 @@ function LobbyMetric({
         ? 'bg-brand-yellow text-brand-dark border-brand-dark'
         : 'bg-white text-brand-dark border-brand-dark';
 
+  if (compact) {
+    return (
+      <div className={`flex items-center gap-3 rounded-xl border-2 px-3 py-1.5 shadow-[2px_2px_0px_0px_#1A1A1A] ${toneClass}`}>
+        <p className="text-[10px] font-black uppercase tracking-widest opacity-60">{label}</p>
+        <p className="text-lg font-black leading-none">{value}</p>
+        {icon && <div className="ml-1 opacity-40">{icon}</div>}
+      </div>
+    );
+  }
+
   return (
-    <div className={`rounded-[1.5rem] border-2 p-4 min-h-[128px] ${toneClass}`}>
+    <div className={`rounded-[1.5rem] border-2 p-4 min-h-[100px] ${toneClass}`}>
       <div className="flex items-center justify-between gap-3 mb-2">
         <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70">{label}</p>
         <div>{icon}</div>
@@ -2237,28 +2443,48 @@ function LobbyMetric({
   );
 }
 
-function HostStageMetric({
+function ActivePhaseMetricTile({
   label,
   value,
   tone,
+  compact = false,
 }: {
   label: string;
   value: string | number;
-  tone: 'light' | 'warm' | 'dark';
+  tone: 'light' | 'warm' | 'dark' | 'success';
+  compact?: boolean;
 }) {
   const toneClass =
     tone === 'dark'
       ? 'bg-brand-dark text-white border-brand-dark'
+      : tone === 'success'
+        ? 'bg-emerald-100 text-emerald-900 border-emerald-400 shadow-[2px_2px_0px_0px_#10b98144]'
       : tone === 'warm'
-        ? 'bg-brand-yellow text-brand-dark border-brand-dark'
-        : 'bg-white text-brand-dark border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]';
+        ? 'bg-brand-yellow text-brand-dark border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A]'
+        : 'bg-white text-brand-dark border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A]';
 
   return (
-    <div className={`rounded-[1.4rem] border-2 p-4 min-h-[94px] ${toneClass}`}>
-      <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-2">{label}</p>
-      <p className="text-2xl font-black break-words leading-tight">{value}</p>
+    <div className={`rounded-[1rem] border-2 ${
+      compact ? 'p-1.5 px-3 min-h-0' : 'p-3 min-h-[70px]'
+    } ${toneClass}`}>
+      <p className={`${compact ? 'mb-0 text-[10px] inline-block mr-2' : 'mb-1.5 text-[10px]'} font-black uppercase tracking-widest opacity-60`}>{label}</p>
+      <p className={`${compact ? 'text-lg inline-block' : 'text-xl sm:text-2xl'} font-black break-words leading-tight`}>{value}</p>
     </div>
   );
+}
+
+function HostStageMetric({
+  label,
+  value,
+  tone,
+  compact = false,
+}: {
+  label: string;
+  value: string | number;
+  tone: 'light' | 'warm' | 'dark';
+  compact?: boolean;
+}) {
+  return <ActivePhaseMetricTile label={label} value={value} tone={tone} compact={compact} />;
 }
 
 function HostInsightCard({
@@ -2313,9 +2539,37 @@ function HostPhaseNotice({
   );
 }
 
+function LobbyQuickStat({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  detail: string;
+  tone: 'light' | 'warm' | 'dark';
+}) {
+  const toneClass =
+    tone === 'dark'
+      ? 'border-brand-dark bg-brand-dark text-white shadow-[4px_4px_0px_0px_#1A1A1A]'
+      : tone === 'warm'
+        ? 'border-brand-dark bg-brand-yellow text-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]'
+        : 'border-brand-dark bg-white text-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A]';
+  const detailClass = tone === 'dark' ? 'text-white/75' : 'text-brand-dark/65';
+
+  return (
+    <div className={`rounded-[1.3rem] border-2 p-3.5 ${toneClass}`}>
+      <p className="mb-1.5 text-[10px] font-black uppercase tracking-[0.2em] opacity-70">{label}</p>
+      <p className="text-base font-black leading-tight sm:text-lg">{value}</p>
+      <p className={`mt-1.5 text-sm font-medium leading-snug ${detailClass}`}>{detail}</p>
+    </div>
+  );
+}
+
 function JoinStep({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-3">
+    <div className="rounded-[1.1rem] border-2 border-brand-dark bg-white p-3 shadow-[3px_3px_0px_0px_#1A1A1A]">
       <p className="font-black mb-1">{title}</p>
       <p className="font-medium text-brand-dark/65 text-sm">{body}</p>
     </div>
@@ -2330,15 +2584,15 @@ function LobbyParticipantCard({
   subtitle: string;
 }) {
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex items-center gap-3">
       <Avatar
         nickname={participant.nickname}
-        imgClassName="w-12 h-12 rounded-2xl"
+        imgClassName="w-9 h-9 rounded-[1rem] sm:w-10 sm:h-10"
         textClassName="hidden"
       />
       <div className="min-w-0">
-        <p className="font-black text-lg truncate">{extractNickname(participant.nickname || '')}</p>
-        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{subtitle}</p>
+        <p className="truncate text-base font-black">{extractNickname(participant.nickname || '')}</p>
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/40">{subtitle}</p>
       </div>
     </div>
   );
