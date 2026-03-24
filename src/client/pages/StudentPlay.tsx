@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { AlertTriangle, CheckCircle, Clock, Flame, LoaderCircle, Sparkles, Trophy, Wifi, WifiOff, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Clock, Flame, LoaderCircle, Sparkles, Stars, Trophy, Wifi, WifiOff, XCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'motion/react';
 import Avatar, { extractNickname } from '../components/Avatar.tsx';
@@ -19,6 +19,7 @@ import { isPeerInstructionMode, requiresConfidenceLock } from '../lib/sessionMod
 import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
 import { getParticipantToken } from '../lib/studentSession.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
+import { getLiveQuestionDensity, formatAnswerSlotLabel } from '../../shared/liveQuestionDensity.ts';
 
 const COLORS = [
   { bg: 'bg-brand-purple', text: 'text-white', border: 'border-brand-dark', shadow: 'shadow-[8px_8px_0px_0px_#1A1A1A]' },
@@ -210,6 +211,8 @@ export default function StudentPlay() {
       : connectionState === 'fallback'
         ? t('game.student.backupSync')
         : t('game.student.connectingLabel');
+  const shouldRenderRealtimeBanner = (showWhenStable = false, queuedSubmission?: QueuedAnswerSubmission | null) =>
+    Boolean(queuedSubmission || actionError || sessionError || connectionState !== 'live' || showWhenStable);
 
   useEffect(() => {
     firstRoundChoiceRef.current = firstRoundChoice;
@@ -882,138 +885,188 @@ export default function StudentPlay() {
 
   if (status === 'LOBBY') {
     return (
-      <StudentStageViewport
-        status={status}
-        modeConfig={modeConfig}
-        banner={<StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />}
-        maxWidthClass="max-w-4xl"
-      >
-        <div className="relative flex w-full flex-col gap-4 text-center">
-          <button
-            onClick={() => navigate(`/student/dashboard/${nickname}`)}
-            className="z-20 inline-flex w-full items-center justify-center gap-2 self-start rounded-full border-2 border-brand-dark bg-white px-4 py-3 font-bold shadow-[2px_2px_0px_0px_#1A1A1A] transition-all hover:bg-brand-yellow sm:w-auto"
-          >
-            <XCircle className="h-5 w-5" />
-            Leave Game
-          </button>
-
-          <div className="pointer-events-none absolute inset-0 hidden sm:block">
-            <div className="absolute left-4 top-4 h-16 w-16 rounded-full border-4 border-brand-dark bg-brand-yellow opacity-40" />
-            <div className="absolute bottom-6 right-8 h-20 w-20 rounded-full border-4 border-brand-dark bg-brand-purple opacity-35" />
+      <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+        
+        {/* Cinematic Lobby Header */}
+        <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-8">
+             <div className="flex items-center gap-3">
+               <motion.button
+                 whileHover={{ scale: 1.05 }}
+                 whileTap={{ scale: 0.95 }}
+                 onClick={() => {
+                   if (window.confirm('Are you sure you want to leave the game?')) {
+                     navigate(`/student/dashboard/${nickname}`);
+                   }
+                 }}
+                 className="flex h-11 w-11 items-center justify-center rounded-xl border-2 border-brand-dark bg-white shadow-[3px_3px_0px_0px_#1A1A1A] transition-all hover:bg-rose-50 hover:text-rose-600"
+               >
+                 <XCircle className="h-6 w-6 text-brand-dark/20" />
+               </motion.button>
+               <div className="rounded-2xl border-2 border-brand-dark px-4 py-1.5 text-xs font-black uppercase tracking-widest bg-brand-bg shadow-[3px_3px_0px_0px_#1A1A1A]">
+                  {t('game.status.lobby')}
+               </div>
+             </div>
+             
+             <div className="flex items-center gap-3">
+               <div className="flex h-11 items-center gap-3 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                 <Avatar
+                   nickname={String(nickname || '')}
+                   imgClassName="h-7 w-7 rounded-xl"
+                 />
+                 <span className="hidden sm:inline font-black text-sm uppercase tracking-tight">{displayNickname}</span>
+               </div>
+             </div>
           </div>
-
-          <motion.div
-            initial={{ scale: 0.94, opacity: 0, y: 24 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            transition={{ type: 'spring', bounce: 0.32 }}
-            className="relative z-10 mx-auto flex w-full max-w-lg flex-col items-center rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 shadow-[12px_12px_0px_0px_#1A1A1A] sm:rounded-[3rem] sm:p-8"
-          >
-            <Avatar
-              nickname={String(nickname || '')}
-              className="mb-5 sm:mb-6"
-              imgClassName="h-24 w-24 rounded-full border-4 border-brand-dark bg-brand-yellow shadow-[6px_6px_0px_0px_#1A1A1A] sm:h-32 sm:w-32"
-              textClassName="hidden"
-            />
-            <h2 className="mb-2 text-3xl font-black tracking-tight sm:text-5xl">You're in!</h2>
-            <p className="mb-5 text-base font-bold text-brand-dark/60 sm:mb-7 sm:text-xl">Waiting for the host to start...</p>
-
-            <div className="w-full space-y-3">
-              <div className="flex flex-wrap items-center justify-center gap-3 rounded-[1.4rem] border-2 border-brand-dark/20 bg-brand-bg px-4 py-4 sm:gap-4 sm:px-6">
-                <span className="text-xs font-bold uppercase tracking-widest text-brand-dark/50 sm:text-sm">Playing as</span>
-                <span className="text-lg font-black sm:text-2xl">{displayNickname}</span>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <LobbyMetaCard label="Game Type" value={gameMode.label} />
-                <LobbyMetaCard label="Team" value={teamName || (gameMode.teamBased ? 'Auto team' : 'Solo')} />
-              </div>
-
-              <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4 text-left">
-                <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-brand-purple">Sync status</p>
-                <div className="flex items-center gap-3 font-black">
-                  {connectionState === 'live' ? <Wifi className="h-5 w-5 text-emerald-600" /> : connectionState === 'fallback' ? <WifiOff className="h-5 w-5 text-brand-orange" /> : <LoaderCircle className="h-5 w-5 animate-spin text-brand-dark/70" />}
-                  <span className="break-words">{connectionLabel}</span>
-                </div>
-              </div>
-            </div>
-          </motion.div>
         </div>
-      </StudentStageViewport>
+
+        {shouldRenderRealtimeBanner(true) && (
+          <div className="relative z-20 shrink-0 px-4 pt-4">
+             <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} showWhenStable />
+          </div>
+        )}
+
+        {/* Centered Lobby Content */}
+        <div className="relative flex-1 min-h-0 flex flex-col items-center justify-center p-6 sm:p-8 lg:p-12 w-full max-w-3xl mx-auto">
+           <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              className="relative z-10 w-full rounded-[3.5rem] border-4 border-brand-dark bg-white p-8 text-center shadow-[16px_16px_0px_0px_#1A1A1A] sm:p-12"
+           >
+              <div className="absolute inset-0 z-0 pointer-events-none opacity-5">
+                 <div className="absolute top-10 left-10 h-24 w-24 rounded-full bg-brand-yellow blur-2xl" />
+                 <div className="absolute bottom-10 right-10 h-24 w-24 rounded-full bg-brand-purple blur-2xl" />
+              </div>
+
+              <div className="relative z-10 text-center">
+                 <div className="mx-auto mb-10 w-fit relative">
+                    <Avatar
+                      nickname={String(nickname || '')}
+                      className="mb-0"
+                      imgClassName="h-32 w-32 rounded-[2.5rem] border-4 border-brand-dark bg-brand-yellow shadow-[8px_8px_0px_0px_#1A1A1A] sm:h-40 sm:w-40"
+                      textClassName="hidden"
+                    />
+                    <div className="absolute -bottom-3 -right-3 h-12 w-12 rounded-2xl border-4 border-brand-dark bg-white flex items-center justify-center shadow-[4px_4px_0px_0px_#1A1A1A]">
+                       <CheckCircle className="h-6 w-6 text-emerald-500" />
+                    </div>
+                 </div>
+                 
+                 <h2 className="mb-4 text-5xl font-black tracking-tighter text-brand-dark sm:text-7xl">You're in!</h2>
+                 <p className="mb-10 text-xl font-bold leading-relaxed text-brand-dark/40 sm:text-3xl">Ready for the magic? The host starts soon.</p>
+
+                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <LobbyMetaCard label="Game Track" value={gameMode.label} />
+                    <LobbyMetaCard label="Your Pod" value={teamName || (gameMode.teamBased ? 'Syncing team' : 'Solo Mastery')} />
+                 </div>
+
+                 <div className="mt-10 rounded-[2.5rem] border-4 border-brand-dark/5 bg-brand-bg/30 p-6 flex flex-wrap items-center justify-center gap-6">
+                    <div className="flex items-center gap-3">
+                       <div className="h-3 w-3 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.5)]" />
+                       <span className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">Status:</span>
+                       <span className="text-sm font-black text-brand-dark/80">{connectionLabel}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                       <Wifi className="h-4 w-4 text-brand-purple/40" />
+                       <span className="text-sm font-black text-brand-dark/80 tracking-tight">Real-time Synced</span>
+                    </div>
+                 </div>
+              </div>
+           </motion.div>
+        </div>
+      </div>
     );
   }
 
   if (status === 'QUESTION_DISCUSSION') {
     return (
-      <StudentStageViewport
-        status={status}
-        modeConfig={modeConfig}
-        banner={<StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />}
-        maxWidthClass="max-w-5xl"
-        patterned
-      >
-        <motion.div
-          initial={{ scale: 0.94, opacity: 0, y: 18 }}
-          animate={{ scale: 1, opacity: 1, y: 0 }}
-          className="relative z-10 w-full rounded-[2.4rem] border-4 border-brand-dark bg-white p-5 shadow-[12px_12px_0px_0px_#1A1A1A] sm:p-8 lg:p-10"
-        >
-          <div className="flex flex-wrap justify-center gap-3 mb-6">
-            <span className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
-              {gameMode.label}
-            </span>
-            <span className="px-4 py-2 rounded-full bg-brand-yellow border-2 border-brand-dark font-black text-sm">
-              Discussion round
-            </span>
-            <span className="px-4 py-2 rounded-full bg-brand-dark text-white border-2 border-brand-dark font-black text-sm flex items-center gap-2">
-              <Clock className="w-4 h-4 text-brand-yellow" />
-              {timeLeft}s
-            </span>
-          </div>
-
-          <h2 className="text-4xl sm:text-5xl lg:text-6xl font-black text-brand-dark tracking-tight mb-4">
-            Compare answers with your pod
-          </h2>
-          <p className="text-lg sm:text-xl font-bold text-brand-dark/65 mb-8 max-w-3xl mx-auto">
-            Explain why you chose your answer, listen for stronger reasoning, and get ready for the final revote.
-          </p>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left mb-8">
-            <div className="rounded-[1.8rem] border-4 border-brand-dark bg-brand-bg p-5">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-3">Your first vote</p>
-              <p className="text-2xl font-black text-brand-dark">
-                {firstRoundChoice !== null ? question?.answers?.[firstRoundChoice] : 'No vote locked yet'}
-              </p>
-            </div>
-            <div className="rounded-[1.8rem] border-4 border-brand-dark bg-brand-yellow p-5">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/60 mb-3">Pod prompt</p>
-              <p className="text-2xl font-black text-brand-dark">{teamName || 'Discuss with nearby teammates'}</p>
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-dark text-white p-6 text-left">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-3">Question</p>
-            <QuestionImageCard
-              imageUrl={question?.image_url}
-              alt={question?.prompt || 'Question image'}
-              className="mb-5 shadow-none border-white/20"
-              imgClassName="max-h-[28vh] sm:max-h-[260px]"
-            />
-            <p className="text-xl font-black sm:text-3xl mb-5 text-balance">{question?.prompt}</p>
-            <div
-              className="grid gap-3"
-              style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))' }}
-            >
-              {question?.answers?.map((answer: string, index: number) => (
-                <div
-                  key={index}
-                  className={`rounded-[1.4rem] border-2 p-4 font-black text-base sm:text-lg break-words ${firstRoundChoice === index ? 'bg-brand-yellow text-brand-dark border-brand-dark' : 'bg-white/10 border-white/10 text-white'}`}
-                >
-                  {answer}
+      <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+        
+        {/* Cinematic Discussion Header */}
+        <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-8">
+             <div className="flex items-center gap-3">
+                <div className="rounded-2xl border-2 border-brand-dark px-4 py-1.5 text-xs font-black uppercase tracking-widest bg-brand-yellow shadow-[3px_3px_0px_0px_#1A1A1A]">
+                   Team Discussion
                 </div>
-              ))}
-            </div>
+             </div>
+             
+             <div className="flex items-center gap-3">
+                <div className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                  <Clock className="h-5 w-5 text-brand-purple" />
+                  <span className="font-black text-lg">{timeLeft}s</span>
+                </div>
+             </div>
           </div>
-        </motion.div>
-      </StudentStageViewport>
+        </div>
+
+        {/* Centered Discussion Content */}
+        <div className="relative flex-1 min-h-0 overflow-y-auto p-6 sm:p-8 lg:p-12 w-full max-w-4xl mx-auto custom-scrollbar">
+           <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              className="relative z-10 w-full rounded-[3.5rem] border-4 border-brand-dark bg-white p-8 text-center shadow-[16px_16px_0px_0px_#1A1A1A] sm:p-12"
+           >
+              <h2 className="mb-4 text-4xl font-black tracking-tighter text-brand-dark sm:text-6xl lg:text-7xl">Pod Discussion</h2>
+              <p className="mx-auto max-w-[35ch] text-lg font-bold leading-relaxed text-brand-dark/50 sm:text-2xl mb-12">
+                 Defend your choice, listen to your peers, and sync up for the final vote!
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left mb-10">
+                <div className="rounded-[2.5rem] border-4 border-brand-dark bg-brand-bg/50 p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                   <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-orange mb-3">Your Initial Choice</p>
+                   <p className="text-2xl font-black text-brand-dark leading-snug">
+                     {firstRoundChoice !== null ? question?.answers?.[firstRoundChoice] : 'No choice locked'}
+                   </p>
+                </div>
+                <div className="rounded-[2.5rem] border-4 border-brand-dark bg-brand-yellow p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                   <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-dark/60 mb-3">Your Pod</p>
+                   <p className="text-2xl font-black text-brand-dark leading-snug">{teamName || 'Consult nearby teammates'}</p>
+                </div>
+              </div>
+
+              <div className="rounded-[3rem] border-4 border-brand-dark bg-brand-dark text-white p-8 sm:p-10 text-left relative overflow-hidden shadow-[12px_12px_0px_0px_#1A1A1A]">
+                <div className="absolute -top-10 -right-10 p-4 opacity-10">
+                   <Sparkles className="h-40 w-40 text-brand-yellow" />
+                </div>
+                <div className="relative z-10">
+                   <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-yellow mb-5">Question Spotlight</p>
+                   <h3 className="text-2xl font-black sm:text-4xl mb-10 text-balance leading-[1.15] tracking-tight">{question?.prompt}</h3>
+                   
+                   <div className="grid gap-4 sm:grid-cols-2">
+                     {question?.answers?.map((answer: string, index: number) => (
+                       <div
+                         key={index}
+                         className={`rounded-[1.5rem] border-4 p-5 font-black text-base transition-colors ${
+                           firstRoundChoice === index 
+                            ? 'bg-brand-yellow text-brand-dark border-brand-dark shadow-[4px_4px_0px_0px_#FF5A36]' 
+                            : 'bg-white/10 border-white/10 text-white/90'
+                         }`}
+                       >
+                         <div className="flex items-start gap-4">
+                            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 font-black text-xs ${
+                               firstRoundChoice === index ? 'border-brand-dark/20 bg-brand-dark/10' : 'border-white/10 bg-white/5'
+                            }`}>
+                               {formatAnswerSlotLabel(index)}
+                            </span>
+                            <span className="flex-1 break-words">{answer}</span>
+                         </div>
+                       </div>
+                     ))}
+                   </div>
+                </div>
+              </div>
+              
+              <div className="mt-12 flex items-center justify-center gap-4">
+                 <div className="h-2.5 w-2.5 animate-bounce rounded-full bg-brand-purple" />
+                 <div className="h-2.5 w-2.5 animate-bounce rounded-full bg-brand-yellow [animation-delay:0.2s]" />
+                 <div className="h-2.5 w-2.5 animate-bounce rounded-full bg-brand-orange [animation-delay:0.4s]" />
+                 <span className="ml-2 font-black uppercase tracking-[0.2em] text-[10px] text-brand-dark/30 italic">Round 2 starting soon...</span>
+              </div>
+           </motion.div>
+        </div>
+      </div>
     );
   }
 
@@ -1039,295 +1092,349 @@ export default function StudentPlay() {
         : needsConfidence
           ? 'Lock Answer + Confidence'
           : 'Lock It In';
+    const liveQuestionDensity = getLiveQuestionDensity({
+      prompt: question?.prompt,
+      answers: Array.isArray(question?.answers) ? question.answers : [],
+      hasImage: Boolean(question?.image_url),
+    });
+    const answerCount = Array.isArray(question?.answers) ? question.answers.length : 0;
+    const questionHeroMinHeightClass = liveQuestionDensity.isUltraDense
+      ? 'min-h-[168px] sm:min-h-[196px]'
+      : liveQuestionDensity.isDense
+        ? 'min-h-[186px] sm:min-h-[220px]'
+        : 'min-h-[210px] sm:min-h-[250px]';
+    const questionHeroFlexClass = liveQuestionDensity.isUltraDense
+      ? 'flex-[0.78]'
+      : liveQuestionDensity.isDense
+        ? 'flex-[0.9]'
+        : 'flex-[1]';
+    const questionCardPaddingClass = liveQuestionDensity.isUltraDense
+      ? 'px-4 py-4 sm:px-7 sm:py-5'
+      : liveQuestionDensity.isDense
+        ? 'px-5 py-4 sm:px-8 sm:py-5'
+        : 'px-5 py-5 sm:px-10 sm:py-6';
+    const questionPromptScrollerClass = liveQuestionDensity.isUltraDense
+      ? 'max-h-[18vh] sm:max-h-[22vh]'
+      : liveQuestionDensity.isDense
+        ? 'max-h-[20vh] sm:max-h-[24vh]'
+        : 'max-h-[24vh] sm:max-h-[28vh]';
+    const studentPromptClassName = liveQuestionDensity.isUltraDense
+      ? 'text-[clamp(1.2rem,1.6vw,2.15rem)]'
+      : liveQuestionDensity.isDense
+        ? 'text-[clamp(1.35rem,2vw,2.8rem)]'
+        : 'text-[clamp(1.5rem,2.5vw,3.5rem)]';
+    const answerGridColumnsClass =
+      liveQuestionDensity.preferredColumns === 3
+        ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+        : answerCount > 1
+          ? 'grid-cols-1 sm:grid-cols-2'
+          : 'grid-cols-1';
+    const answerGridRowsClass =
+      answerCount === 4
+        ? 'sm:grid-rows-2'
+        : answerCount === 6 && liveQuestionDensity.preferredColumns === 3
+          ? 'lg:grid-rows-2'
+          : '';
+    const studentAnswerMinHeightClass = liveQuestionDensity.isUltraDense
+      ? 'min-h-[92px] sm:min-h-[96px]'
+      : liveQuestionDensity.isDense
+        ? 'min-h-[104px] sm:min-h-[112px]'
+        : 'min-h-[118px] sm:min-h-[126px]';
+    const studentAnswerTextClass = liveQuestionDensity.isUltraDense
+      ? 'text-sm sm:text-base lg:text-lg'
+      : liveQuestionDensity.isDense
+        ? 'text-sm sm:text-lg lg:text-xl'
+        : 'text-base sm:text-xl lg:text-2xl';
+    const shouldShowAnswerSummary = currentSelectedAnswer !== null || hasAnswered || Boolean(pendingSubmission);
+    const shouldShowConfidencePicker = needsConfidence && currentSelectedAnswer !== null && !isSelectionLocked;
+    const shouldShowActiveRealtimeBanner = shouldRenderRealtimeBanner(false, pendingSubmission);
+    const answerBoardFlexClass = answerCount <= 4 ? 'flex-[1.65]' : answerCount === 5 ? 'flex-[1.52]' : 'flex-[1.4]';
+    const answerHeaderPaddingClass = shouldShowAnswerSummary || shouldShowConfidencePicker
+      ? 'px-4 py-4 sm:px-6 sm:py-5'
+      : 'px-4 py-3 sm:px-6 sm:py-3.5';
+    const answerPreviewTextClass = currentSelectedAnswer !== null
+      ? 'line-clamp-2 text-base font-black leading-snug text-balance text-brand-dark sm:text-2xl'
+      : 'text-sm font-bold leading-relaxed text-brand-dark/70 sm:text-base';
+    const answerScrollPaddingClass = answerCount <= 4
+      ? 'pb-[4.75rem] sm:pb-6'
+      : 'pb-[5.5rem] sm:pb-8';
 
     if (showWaitCard) {
       return (
-        <StudentStageViewport
-          status={status}
-          modeConfig={modeConfig}
-          banner={
-            <StudentRealtimeBanner
-              connectionState={connectionState}
-              sessionError={sessionError}
-              actionError={actionError}
-              pendingSubmission={pendingSubmission}
-              onRetryPending={() => void retryPendingSubmission()}
-              isRetryingPendingSubmission={isRetryingPendingSubmission}
-            />
-          }
-          maxWidthClass="max-w-4xl"
-          patterned
-        >
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="relative z-10 mx-auto w-full max-w-xl rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 shadow-[12px_12px_0px_0px_#1A1A1A] sm:rounded-[3rem] sm:p-8 lg:p-10"
-          >
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
-              className="inline-block mb-10"
-            >
-              <div className="w-24 h-24 sm:w-32 sm:h-32 bg-brand-yellow rounded-full border-4 border-brand-dark flex items-center justify-center shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <Clock className="w-12 h-12 sm:w-16 sm:h-16 text-brand-dark" />
-              </div>
-            </motion.div>
-            <h2 className="text-4xl sm:text-5xl font-black text-brand-dark tracking-tight mb-6">{waitTitle}</h2>
-            <p className="text-xl sm:text-2xl text-brand-dark/60 font-bold">{waitBody}</p>
-
-            {selectedAnswerText && (
-              <div className="mt-8 rounded-[1.8rem] border-4 border-brand-dark bg-brand-bg p-5 text-left">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">
-                  {hasAnswered ? 'Your submitted answer' : pendingSubmission ? 'Queued answer' : 'Your locked answer'}
-                </p>
-                <p className="text-xl font-black text-brand-dark break-words">{selectedAnswerText}</p>
-              </div>
-            )}
-
-            <div className="mt-12 flex flex-wrap justify-center gap-3">
-              <span className={`px-5 py-3 rounded-full border-2 border-brand-dark font-black ${gameTone.pill}`}>
-                {stageTitle}
-              </span>
-              <span className="px-5 py-3 rounded-full border-2 border-brand-dark bg-brand-bg font-black text-brand-dark">
-                {timeLeft}s left
-              </span>
+        <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
+          <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+          
+          {/* Apex Student Header */}
+          <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
+            <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-8">
+               <div className="flex items-center gap-3">
+                  <div className={`h-11 flex items-center gap-3 rounded-2xl border-2 border-brand-dark px-4 font-black shadow-[4px_4px_0px_0px_#1A1A1A] ${gameTone.pill}`}>
+                     <span className="text-[10px] uppercase tracking-widest opacity-40">Phase</span>
+                     <span className="text-xs">{stageTitle}</span>
+                  </div>
+               </div>
+               
+               <div className="flex items-center gap-3">
+                  <div className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                    <Clock className={`h-5 w-5 ${timeLeft <= 5 ? 'text-rose-500 animate-pulse' : 'text-brand-purple'}`} />
+                    <span className={`font-black text-lg ${timeLeft <= 5 ? 'text-rose-600' : ''}`}>{timeLeft}s</span>
+                  </div>
+               </div>
             </div>
-          </motion.div>
-        </StudentStageViewport>
+          </div>
+
+          {shouldRenderRealtimeBanner(false, pendingSubmission) && (
+            <div className="relative z-20 shrink-0 px-4 pt-4">
+               <StudentRealtimeBanner
+                  connectionState={connectionState}
+                  sessionError={sessionError}
+                  actionError={actionError}
+                  pendingSubmission={pendingSubmission}
+                  onRetryPending={() => void retryPendingSubmission()}
+                  isRetryingPendingSubmission={isRetryingPendingSubmission}
+                />
+            </div>
+          )}
+
+          {/* Centered Waiting Viewport */}
+          <div className="relative flex-1 min-h-0 flex flex-col items-center justify-center p-6 sm:p-8 w-full max-w-2xl mx-auto">
+             <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="relative z-10 w-full rounded-[3.5rem] border-4 border-brand-dark bg-white p-8 text-center shadow-[16px_16px_0px_0px_#1A1A1A] sm:p-12"
+             >
+                <div className="absolute -top-12 left-1/2 -translate-x-1/2">
+                   <div className="flex h-24 w-24 items-center justify-center rounded-[2rem] border-4 border-brand-dark bg-brand-yellow shadow-[6px_6px_0px_0px_#1A1A1A]">
+                      <motion.div
+                         animate={{ rotate: 360 }}
+                         transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
+                      >
+                        <Clock className="h-12 w-12 text-brand-dark" />
+                      </motion.div>
+                   </div>
+                </div>
+
+                <div className="mt-10">
+                   <h2 className="mb-4 text-4xl font-black tracking-tighter text-brand-dark sm:text-5xl lg:text-6xl">
+                      {waitTitle}
+                   </h2>
+                   
+                   <p className="mx-auto max-w-[28ch] text-lg font-bold leading-relaxed text-brand-dark/50 sm:text-xl">
+                      {waitBody}
+                   </p>
+                </div>
+
+                {selectedAnswerText && (
+                  <div className="mt-10 rounded-[2.5rem] border-4 border-brand-dark bg-brand-bg/50 p-6 text-left shadow-[8px_8px_0px_0px_#1A1A1A] border-dashed">
+                    <div className="mb-3 flex items-center justify-between">
+                       <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-orange">
+                          {hasAnswered ? 'Submitted Choice' : 'Locked Selection'}
+                       </p>
+                       <CheckCircle className="h-5 w-5 text-emerald-500" />
+                    </div>
+                    <p className="text-xl font-black text-brand-dark leading-snug break-words">
+                      "{selectedAnswerText}"
+                    </p>
+                  </div>
+                )}
+
+                <div className="mt-12 flex items-center justify-center gap-4">
+                   <div className="h-2.5 w-2.5 animate-bounce rounded-full bg-brand-purple" />
+                   <div className="h-2.5 w-2.5 animate-bounce rounded-full bg-brand-yellow [animation-delay:0.2s]" />
+                   <div className="h-2.5 w-2.5 animate-bounce rounded-full bg-brand-orange [animation-delay:0.4s]" />
+                </div>
+             </motion.div>
+          </div>
+        </div>
       );
     }
 
     return (
-      <div className="game-viewport-shell relative flex flex-col">
+      <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-        <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03]">
-          <motion.div
-            animate={{
-              rotate: [0, 360],
-              scale: [1, 1.1, 1],
-            }}
-            transition={{ duration: 60, repeat: Infinity, ease: 'linear' }}
-            className="absolute -left-1/2 -top-1/2 h-[200%] w-[200%]"
-            style={{
-              backgroundImage: 'radial-gradient(circle at center, #1A1A1A 2px, transparent 2px)',
-              backgroundSize: timeLeft < 5 ? '20px 20px' : '40px 40px',
-              transition: 'background-size 0.5s ease',
-            }}
-          />
-        </div>
-
-        <div className="relative z-20 px-4 pt-4 sm:px-6 sm:pt-6">
-          <div className="mx-auto w-full max-w-6xl">
-            <StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />
-          </div>
-        </div>
-
-        <div className="relative z-10 mx-auto mb-4 mt-4 grid w-full max-w-6xl gap-4 px-4 sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
-          <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <motion.button
-              whileHover={{ scale: 1.04, rotate: -3 }}
-              whileTap={{ scale: 0.96 }}
-              onClick={() => {
-                if (window.confirm('Are you sure you want to leave the game?')) {
-                  navigate(`/student/dashboard/${nickname}`);
-                }
-              }}
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border-4 border-brand-dark bg-white shadow-[4px_4px_0px_0px_#1A1A1A] transition-all hover:bg-brand-orange hover:text-white sm:h-14 sm:w-14"
-            >
-              <XCircle className="h-6 w-6 sm:h-7 sm:w-7" />
-            </motion.button>
-            <div className="min-w-0 flex flex-1 items-center gap-3 rounded-2xl border-4 border-brand-dark bg-white px-4 py-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:flex-none sm:px-6 sm:py-3.5">
-              <Avatar
-                nickname={String(nickname || '')}
-                imgClassName="h-11 w-11 rounded-2xl sm:h-12 sm:w-12"
-                textClassName="truncate font-black text-lg sm:text-xl lg:text-2xl"
-              />
-            </div>
-            {(teamName || isTeamGameLabel(sessionMeta?.game_type || savedGameType)) && (
-              <div className="flex min-w-0 items-center gap-3 rounded-2xl border-4 border-brand-dark bg-brand-yellow px-4 py-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:px-6 sm:py-3.5">
-                <Sparkles className="h-5 w-5 shrink-0 text-brand-dark sm:h-6 sm:w-6" />
-                <span className="truncate font-black text-base sm:text-lg">{teamName || t('game.status.lobby')}</span>
-              </div>
-            )}
-          </div>
-
-          <motion.div 
-            key={`score-${score}`}
-            initial={{ scale: 1.2, rotate: -5 }}
-            animate={{ scale: 1, rotate: 0 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 15 }}
-            className="flex items-center gap-3 rounded-2xl border-4 border-brand-dark bg-white px-5 py-3 shadow-[6px_6px_0px_0px_#1A1A1A] sm:px-8 sm:py-3.5"
-          >
-            <Trophy className="h-7 w-7 fill-current text-brand-yellow sm:h-8 sm:w-8" />
-            <span className="font-black text-xl sm:text-2xl">{score}</span>
-          </motion.div>
-
-          <div className={`flex min-w-0 items-center gap-3 rounded-2xl border-4 border-brand-dark px-4 py-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:px-6 sm:py-3.5 ${connectionState === 'live' ? 'bg-white' : 'bg-brand-yellow'}`}>
-            {connectionState === 'live' ? <Wifi className="h-5 w-5 shrink-0 text-emerald-600 sm:h-6 sm:w-6" /> : connectionState === 'fallback' ? <WifiOff className="h-5 w-5 shrink-0 text-brand-dark sm:h-6 sm:w-6" /> : <LoaderCircle className="h-5 w-5 shrink-0 animate-spin text-brand-dark sm:h-6 sm:w-6" />}
-            <span className="truncate font-black text-base sm:text-lg">{connectionLabel}</span>
-          </div>
-        </div>
-
-        <div className="game-viewport-scroll relative z-10 pt-0">
-          <div className="game-viewport-inner">
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              className="relative z-10 mx-auto mb-6 w-full max-w-6xl overflow-hidden rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 text-center shadow-[12px_12px_0px_0px_#1A1A1A] sm:p-8 lg:p-10"
-            >
-            {/* Progress Bar */}
-            <div className="absolute top-0 left-0 w-full h-3 bg-brand-dark/5">
-              <motion.div
-                className={`h-full ${timeLeft < 5 ? 'bg-brand-orange' : 'bg-brand-purple'}`}
-                initial={{ width: '100%' }}
-                animate={{ width: `${(timeLeft / Math.max(1, Number(question?.time_limit_seconds || 30))) * 100}%` }}
-                transition={{ duration: 1, ease: 'linear' }}
-              />
-            </div>
-
-            <div className="flex flex-wrap justify-center gap-3 mb-6">
-              <div className={`px-4 py-1.5 rounded-full border-2 border-brand-dark text-xs font-black uppercase tracking-widest ${gameTone.pill}`}>
-                {gameMode.shortLabel}
-              </div>
-              <motion.div 
-                animate={timeLeft <= 5 ? { scale: [1, 1.1, 1], backgroundColor: ['#FFF0ED', '#FF5A36', '#FFF0ED'], color: ['#1A1A1A', '#FFFFFF', '#1A1A1A'] } : {}}
-                transition={{ duration: 0.6, repeat: Infinity }}
-                className="px-4 py-1.5 rounded-full bg-brand-bg border-2 border-brand-dark text-xs font-black uppercase tracking-widest text-brand-dark/60"
+        
+        {/* Cinematic Student Header */}
+        <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
+          <div className="mx-auto flex w-full max-w-[1540px] items-center justify-between gap-3 px-4 py-3 sm:px-8">
+            <div className="flex items-center gap-3">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => {
+                  if (window.confirm('Are you sure you want to leave the game?')) {
+                    navigate(`/student/dashboard/${nickname}`);
+                  }
+                }}
+                className="flex h-11 w-11 items-center justify-center rounded-xl border-2 border-brand-dark bg-white shadow-[3px_3px_0px_0px_#1A1A1A] transition-all hover:bg-rose-50 hover:text-rose-600"
               >
-                {stageTitle} - {timeLeft}s
+                <XCircle className="h-6 w-6 text-brand-dark/20" />
+              </motion.button>
+              
+              <div className="flex h-11 items-center gap-3 rounded-2xl border-2 border-brand-dark bg-brand-bg px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <Avatar
+                  nickname={String(nickname || '')}
+                  imgClassName="h-7 w-7 rounded-xl"
+                />
+                <span className="hidden sm:inline font-black text-sm uppercase tracking-tight">{displayNickname}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <Clock className={`h-5 w-5 ${timeLeft <= 5 ? 'text-rose-500 animate-pulse' : 'text-brand-purple'}`} />
+                <span className={`font-black text-lg ${timeLeft <= 5 ? 'text-rose-600' : ''}`}>{timeLeft}s</span>
+              </div>
+              
+              <motion.div
+                key={score}
+                initial={{ scale: 1.25, rotate: -5 }}
+                animate={{ scale: 1, rotate: 0 }}
+                className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-brand-yellow px-4 shadow-[4px_4px_0px_0px_#1A1A1A]"
+              >
+                <Trophy className="h-5 w-5 fill-current text-brand-dark/30" />
+                <span className="font-black text-lg">{score}</span>
               </motion.div>
             </div>
-            
-            <QuestionImageCard
-              imageUrl={question?.image_url}
-              alt={question?.prompt || t('game.question.imageAlt')}
-              className="relative z-10 max-w-4xl mx-auto w-full mb-6"
-              imgClassName="max-h-[28vh] sm:max-h-[340px]"
-            />
-            <h2 className="text-2xl font-black leading-tight tracking-tight text-brand-dark text-balance sm:text-4xl md:text-5xl">
-              {question?.prompt}
-            </h2>
-            <p className="text-lg sm:text-xl font-bold text-brand-dark/40 max-w-3xl mx-auto">{stageBody}</p>
-            </motion.div>
-
-            <SelectedAnswerSummaryCard
-              selectedAnswerText={selectedAnswerText}
-              currentSelectedAnswer={currentSelectedAnswer}
-              selectedConfidence={selectedConfidence}
-              needsConfidence={needsConfidence}
-              lockLabel={lockLabel}
-              isRevote={isRevote}
-            />
-
-            {needsConfidence && (
-              <div className="relative z-10 mx-auto mb-6 w-full max-w-6xl">
-                <div className="flex flex-col gap-5 rounded-[2rem] border-4 border-brand-dark/10 bg-brand-bg/50 p-5 backdrop-blur-md md:flex-row md:items-center">
-                  <div className="flex shrink-0 items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full border-4 border-brand-dark bg-brand-purple">
-                      <Flame className="h-6 w-6 text-white" />
-                    </div>
-                    <span className="text-sm font-black uppercase tracking-widest">{t('game.student.confidence')}</span>
-                  </div>
-                  <div className="grid w-full flex-1 grid-cols-1 gap-3 sm:grid-cols-3">
-                    {[
-                      { id: 1, label: t('game.student.guess'), icon: '🤔' },
-                      { id: 2, label: t('game.student.sure'), icon: '👍' },
-                      { id: 3, label: t('game.student.expert'), icon: '🧠' },
-                    ].map((option) => (
-                      <button
-                        key={option.id}
-                        onClick={() => setSelectedConfidence(option.id)}
-                        className={`rounded-2xl border-4 px-5 py-4 font-black transition-all flex items-center justify-center gap-3 ${
-                          selectedConfidence === option.id
-                            ? 'scale-[1.02] border-brand-dark bg-brand-purple text-white shadow-[4px_4px_0px_0px_#1A1A1A]'
-                            : 'border-brand-dark/10 bg-white text-brand-dark hover:border-brand-dark'
-                        }`}
-                      >
-                        <span>{option.icon}</span>
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div
-              className="relative z-10 mx-auto mb-6 grid w-full max-w-6xl gap-4"
-              style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))' }}
-            >
-              <AnimatePresence mode="popLayout">
-                {question?.answers?.map((ans: string, i: number) => {
-                  const isSelected = currentSelectedAnswer === i;
-                  return (
-                    <motion.button
-                      key={`ans-${i}`}
-                      initial={{ scale: 0.94, opacity: 0 }}
-                      animate={{
-                        scale: isSelected ? 1.02 : 1,
-                        opacity: 1,
-                        y: isSelected ? -4 : 0,
-                      }}
-                      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                      onClick={() => handleAnswerSelect(i)}
-                      onMouseEnter={() => beginHoverDwell(i)}
-                      onMouseLeave={() => flushHoverDwell()}
-                      className={`
-                        student-answer-button group relative flex min-h-[132px] items-center justify-center rounded-[2rem] border-4 p-5 text-center text-lg font-black transition-all sm:min-h-[160px] sm:p-6 sm:text-2xl lg:min-h-[180px] lg:text-3xl
-                        ${isSelected
-                          ? 'border-brand-dark bg-brand-dark text-white shadow-[10px_10px_0px_0px_#FF5A36]'
-                          : `${COLORS[i % 4].bg} ${COLORS[i % 4].text} border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] hover:translate-x-1 hover:translate-y-1 hover:shadow-none`
-                        }
-                      `}
-                    >
-                      <div className="absolute left-5 top-4 text-xs font-black tracking-widest opacity-20 sm:left-6 sm:top-5">0{i + 1}</div>
-                      <span className="relative z-10 break-words text-balance">{ans}</span>
-
-                      {isSelected && (
-                        <motion.div
-                          layoutId="choice-spark"
-                          className="pointer-events-none absolute inset-0 rounded-[2rem] border-[6px] border-brand-orange/30 sm:border-8"
-                        />
-                      )}
-                    </motion.button>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
           </div>
         </div>
 
-        <AnimatePresence>
-          {currentSelectedAnswer !== null && !hasAnswered && (
-            <motion.div
-              initial={{ y: 100, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 100, opacity: 0 }}
-              className="relative z-20 shrink-0 border-t-2 border-brand-dark/10 bg-brand-bg/95 px-4 py-4 backdrop-blur sm:px-6"
-            >
-              <div className="mx-auto flex w-full max-w-6xl justify-center">
-                <motion.button
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.96 }}
-                  animate={{ 
-                    boxShadow: [
-                      '10px 10px 0px 0px #FF5A36',
-                      '14px 14px 0px 0px #FFC800',
-                      '10px 10px 0px 0px #FF5A36'
-                    ]
-                  }}
-                  transition={{ boxShadow: { duration: 2, repeat: Infinity, ease: 'easeInOut' } }}
-                  onClick={handleLockIn}
-                  className="group relative flex w-full max-w-lg items-center justify-center gap-4 overflow-hidden rounded-full border-4 border-brand-dark bg-brand-dark px-6 py-4 text-white sm:py-5"
+        {shouldShowActiveRealtimeBanner && (
+          <div className="relative z-20 shrink-0 px-4 pt-4">
+             <StudentRealtimeBanner
+                connectionState={connectionState}
+                sessionError={sessionError}
+                actionError={actionError}
+                pendingSubmission={pendingSubmission}
+                onRetryPending={() => void retryPendingSubmission()}
+                isRetryingPendingSubmission={isRetryingPendingSubmission}
+              />
+          </div>
+        )}
+
+        {/* Main Content Viewport */}
+        <div className="relative flex-1 min-h-0 flex flex-col gap-4 p-4 sm:p-6 lg:p-8 w-full max-w-[1540px] mx-auto overflow-hidden">
+          
+          {/* Question Hero */}
+          <motion.div
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className={`relative ${questionHeroFlexClass} ${questionHeroMinHeightClass} shrink-0 overflow-hidden rounded-[2.5rem] border-4 border-brand-dark bg-white shadow-[10px_10px_0px_0px_#1A1A1A]`}
+          >
+            <div className="absolute inset-x-0 top-0 z-20 h-2 bg-gradient-to-r from-brand-purple via-brand-yellow to-brand-orange" />
+            
+            <div className="relative z-10 flex h-full w-full flex-col p-6 sm:p-8">
+               {question?.image_url ? (
+                  <div className="flex flex-1 min-h-0 gap-8">
+                    <div className="hidden md:block aspect-square h-full shrink-0 overflow-hidden rounded-[2rem] border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A]">
+                       <img src={question.image_url} className="h-full w-full object-cover" />
+                    </div>
+                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                       <h2 className={`${studentPromptClassName} font-black leading-[1.1] tracking-tight text-brand-dark text-balance`}>
+                          {question?.prompt}
+                       </h2>
+                    </div>
+                  </div>
+               ) : (
+                  <div className="flex-1 flex flex-col justify-center text-center">
+                     <h2 className={`${studentPromptClassName} font-black leading-[1.1] tracking-tight text-brand-dark max-w-[35ch] mx-auto text-balance`}>
+                        {question?.prompt}
+                     </h2>
+                  </div>
+               )}
+            </div>
+          </motion.div>
+
+          {/* Answer Interaction Area */}
+          <section className={`relative z-10 flex min-h-0 ${answerBoardFlexClass} flex-col overflow-hidden rounded-[2.8rem] border-4 border-brand-dark bg-white shadow-[12px_12px_0px_0px_#1A1A1A]`}>
+            
+            {/* Answer Grid Container - Added bottom padding to avoid overlap with floating bar */}
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 pb-28 sm:p-6 sm:pb-32 lg:p-8 lg:pb-36 custom-scrollbar">
+               <div className={`grid min-h-full ${answerGridColumnsClass} gap-4 sm:gap-6`}>
+                  {question?.answers?.map((ans: string, i: number) => {
+                    const isSelected = currentSelectedAnswer === i;
+                    return (
+                      <motion.button
+                        key={`ans-${i}`}
+                        initial={{ scale: 0.96, opacity: 0 }}
+                        animate={{ opacity: 1, scale: isSelected ? 1 : 1 }}
+                        whileHover={{ scale: isSelectionLocked ? 1 : 1.02 }}
+                        whileTap={{ scale: isSelectionLocked ? 1 : 0.98 }}
+                        transition={{ duration: 0.15 }}
+                        onClick={() => handleAnswerSelect(i)}
+                        className={`
+                          group relative flex ${studentAnswerMinHeightClass} items-center rounded-[2rem] border-4 border-brand-dark px-6 py-4 text-left transition-all sm:px-8
+                          ${isSelected
+                            ? 'bg-brand-dark text-white shadow-[8px_8px_0px_0px_#FF5A36]'
+                            : `${COLORS[i % 4].bg} ${COLORS[i % 4].text} shadow-[6px_6px_0px_0px_#1A1A1A] hoverShadowSmall`
+                          }
+                          ${isSelectionLocked && !isSelected ? 'opacity-30 grayscale-[0.8]' : ''}
+                        `}
+                      >
+                        <div className={`mr-5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 font-black text-lg transition-colors ${
+                          isSelected ? 'border-white/20 bg-white/10' : 'border-brand-dark/10 bg-white/40 text-brand-dark/30'
+                        }`}>
+                          {formatAnswerSlotLabel(i)}
+                        </div>
+                        <span className={`block flex-1 break-words font-black leading-tight ${studentAnswerTextClass}`}>
+                          {ans}
+                        </span>
+                        
+                        {isSelected && !hasAnswered && (
+                          <div className="absolute top-2 right-4 flex h-6 items-center gap-1.5 rounded-full bg-brand-orange px-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg">
+                             <Stars className="h-3 w-3 fill-current" />
+                             Selected
+                          </div>
+                        )}
+                      </motion.button>
+                    );
+                  })}
+               </div>
+            </div>
+
+            {/* Space-Optimized Floating Action Overlay - Now at the BOTTOM */}
+            <AnimatePresence>
+              {(currentSelectedAnswer !== null || hasAnswered) && (
+                <motion.div 
+                  initial={{ y: 50, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: 50, opacity: 0 }}
+                  className="absolute bottom-0 left-0 right-0 z-40 border-t-4 border-brand-dark bg-brand-bg/90 backdrop-blur-xl px-4 py-4 sm:px-8 sm:py-6 shadow-[0px_-8px_30px_rgba(0,0,0,0.1)]"
                 >
-                  <div className="absolute inset-0 translate-y-full bg-gradient-to-r from-brand-orange to-brand-yellow opacity-20 transition-transform duration-300 group-hover:translate-y-0" />
-                  <CheckCircle className="relative z-10 h-8 w-8 text-brand-yellow sm:h-10 sm:w-10 group-hover:scale-110 transition-transform" />
-                  <span className="relative z-10 text-xl font-black sm:text-2xl">{lockLabel}</span>
-                </motion.button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                  <div className="flex items-center justify-between gap-4 max-w-4xl mx-auto">
+                    <div className="min-w-0 flex-1">
+                       <p className="text-[10px] font-black uppercase text-brand-purple tracking-widest leading-none mb-2">
+                         {isRevote ? 'Final Selection' : 'Choice Locked?'}
+                       </p>
+                       <p className="text-base font-bold truncate italic text-brand-dark leading-tight">
+                         "{selectedAnswerText}"
+                       </p>
+                    </div>
+
+                    <div className="flex items-center">
+                       {shouldShowAnswerSummary && !hasAnswered && (
+                         <motion.button
+                           whileHover={{ scale: 1.05 }}
+                           whileTap={{ scale: 0.95 }}
+                           onClick={handleLockIn}
+                           className="flex h-14 items-center gap-3 rounded-2xl border-4 border-brand-dark bg-brand-dark px-10 text-base font-black text-white shadow-[6px_6px_0px_0px_#FF5A36] transition-all hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[8px_8px_0px_0px_#FF5A36]"
+                         >
+                           <CheckCircle className="h-5 w-5 text-brand-yellow" />
+                           <span>Lock Choice</span>
+                         </motion.button>
+                       )}
+                       {hasAnswered && (
+                         <div className="flex h-14 items-center gap-3 rounded-2xl border-4 border-brand-dark bg-emerald-500 px-10 text-base font-black text-white shadow-[6px_6px_0px_0px_#1A1A1A]">
+                            <CheckCircle2 className="h-5 w-5" />
+                            <span>Submitted</span>
+                         </div>
+                       )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </section>
+        </div>
       </div>
     );
   }
@@ -1342,149 +1449,224 @@ export default function StudentPlay() {
       Number.isFinite(Number(question?.correct_index)) && Array.isArray(question?.answers)
         ? String(question.answers[Number(question.correct_index)] || '')
         : '';
+
     return (
-      <StudentStageViewport
-        status={status}
-        modeConfig={modeConfig}
-        banner={<StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />}
-        maxWidthClass="max-w-4xl"
-        patterned
-      >
-        <motion.div
-          initial={{ scale: 0.92, opacity: 0, rotate: 2 }}
-          animate={{ scale: 1, opacity: 1, rotate: 0 }}
-          className="relative z-10 mx-auto w-full max-w-3xl rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 text-center shadow-[12px_12px_0px_0px_#1A1A1A] sm:rounded-[3rem] sm:p-8 lg:p-10"
-        >
-          <div className="flex justify-center mb-6">
-            <span className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
-              {gameMode.label}
-            </span>
+      <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+        
+        {/* Cinematic Reveal Header */}
+        <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-8">
+             <div className="flex items-center gap-3">
+                <div className="rounded-2xl border-2 border-brand-dark px-4 py-1.5 text-xs font-black uppercase tracking-widest bg-brand-bg shadow-[3px_3px_0px_0px_#1A1A1A]">
+                   {t('game.status.reveal')}
+                </div>
+             </div>
+             
+             <div className="flex items-center gap-3">
+               <div className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                 <Trophy className="h-5 w-5 fill-current text-brand-yellow" />
+                 <span className="font-black text-lg">{score}</span>
+               </div>
+             </div>
           </div>
-          <div className={`inline-flex items-center justify-center w-24 h-24 sm:w-32 sm:h-32 border-4 border-brand-dark rounded-full mb-8 sm:mb-10 shadow-[8px_8px_0px_0px_#1A1A1A] ${answeredCorrectly ? 'bg-emerald-100' : 'bg-brand-yellow'}`}>
-            {answeredCorrectly ? <CheckCircle className="w-12 h-12 sm:w-16 sm:h-16 text-emerald-600" /> : <Flame className="w-12 h-12 sm:w-16 sm:h-16 text-brand-orange" />}
-          </div>
-          <h2 className="mb-4 text-3xl font-black tracking-tight text-brand-dark sm:text-5xl md:text-6xl">
-            {answeredCorrectly ? t('game.feedback.correct') : chosenAnswer ? t('game.feedback.incorrect') : t('game.feedback.timesUp')}
-          </h2>
-          <p className="text-lg sm:text-2xl font-bold text-brand-dark/60 mb-8">
-            {answeredCorrectly
-              ? t('game.student.matchedCorrect')
-              : chosenAnswer
-                ? t('game.student.reviewCompared')
-                : t('game.student.roundClosedNoSync')}
-          </p>
+        </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left mb-8">
-            <RevealAnswerCard label={t('game.student.yourAnswer')} value={chosenAnswer || t('game.student.noAnswer')} tone={answeredCorrectly ? 'success' : chosenAnswer ? 'warning' : 'neutral'} />
-            <RevealAnswerCard label={t('game.student.correctAnswer')} value={correctAnswer || t('game.student.watchHostScreen')} tone="success" />
-          </div>
+        {/* Reveal Content Viewport - Optimized for 100vh */}
+        <div className="relative flex-1 min-h-0 flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8 w-full max-w-2xl mx-auto overflow-hidden">
+           <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              className="relative z-10 w-full rounded-[2.5rem] border-4 border-brand-dark bg-white p-5 text-center shadow-[6px_6px_0px_0px_#1A1A1A] sm:p-7"
+           >
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[1.5rem] border-4 border-brand-dark bg-brand-bg shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-20 sm:w-20">
+                 {answeredCorrectly ? (
+                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', delay: 0.2 }}>
+                       <CheckCircle className="h-8 w-8 text-emerald-500 sm:h-10 sm:w-10" />
+                    </motion.div>
+                 ) : (
+                    <motion.div animate={{ rotate: [0, -10, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 2 }}>
+                       <Flame className="h-8 w-8 text-brand-orange sm:h-10 sm:w-10" />
+                    </motion.div>
+                 )}
+              </div>
 
-          <div className="grid grid-cols-2 gap-4 mb-8">
-            <PlayerMetricCard label={t('game.metrics.score')} value={score} tone="dark" />
-            <PlayerMetricCard label={t('game.metrics.streak')} value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
-          </div>
+              <h2 className="mb-2 text-2xl font-black tracking-tighter text-brand-dark sm:text-4xl">
+                 {answeredCorrectly ? t('game.feedback.correct') : chosenAnswer ? t('game.feedback.incorrect') : t('game.feedback.timesUp')}
+              </h2>
+              
+              <p className="mx-auto max-w-[32ch] text-base font-bold leading-tight text-brand-dark/50 sm:text-lg">
+                 {answeredCorrectly ? 'Dynamic performance! You’re crushing this.' : 'A learning moment! Swipe through the details below.'}
+              </p>
 
-          {question?.explanation && (
-            <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-bg p-6 text-left mb-6">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('game.feedback.explanation')}</p>
-              <p className="text-base font-bold text-brand-dark/75 sm:text-lg">{question.explanation}</p>
-            </div>
-          )}
+              <div className="mt-6 grid gap-4 text-left sm:grid-cols-2">
+                 <RevealAnswerCard
+                    label="Your Submission"
+                    value={chosenAnswer || 'Thinking...'}
+                    tone={answeredCorrectly ? 'success' : chosenAnswer ? 'warning' : 'neutral'}
+                 />
+                 <RevealAnswerCard
+                    label="Correct Solution"
+                    value={correctAnswer || 'Revealing...'}
+                    tone="success"
+                 />
+              </div>
 
-          <div className="bg-brand-purple p-6 rounded-2xl border-2 border-brand-dark text-white">
-            <p className="text-xl sm:text-2xl font-bold">{t('game.feedback.watchScreen')}</p>
-          </div>
-        </motion.div>
-      </StudentStageViewport>
+              <div className="mt-4 flex flex-wrap justify-center gap-3">
+                 <PlayerMetricCard label="Score" value={score} tone="dark" />
+                 <PlayerMetricCard label="Streak" value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
+              </div>
+
+              {question?.explanation && (
+                 <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.5 }}
+                    className="mt-6 rounded-[1.8rem] border-4 border-brand-dark bg-brand-bg/40 p-4 text-left border-dashed"
+                 >
+                    <div className="mb-2 flex items-center gap-2">
+                       <Sparkles className="h-3 w-3 text-brand-purple" />
+                       <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-purple">The "Why" Factor</p>
+                    </div>
+                    <p className="text-sm font-bold text-brand-dark/80 sm:text-base italic leading-tight">
+                       "{question.explanation}"
+                    </p>
+                 </motion.div>
+              )}
+
+              <div className="mt-8 flex items-center justify-center gap-3">
+                 <div className="h-2 w-2 animate-bounce rounded-full bg-brand-purple" />
+                 <div className="h-2 w-2 animate-bounce rounded-full bg-brand-yellow [animation-delay:0.2s]" />
+                 <div className="h-2 w-2 animate-bounce rounded-full bg-brand-orange [animation-delay:0.4s]" />
+                 <span className="ml-1 font-black uppercase tracking-[0.15em] text-[8px] text-brand-dark/30">Host Synced</span>
+              </div>
+           </motion.div>
+        </div>
+      </div>
     );
   }
 
   if (status === 'LEADERBOARD') {
     return (
-      <StudentStageViewport
-        status={status}
-        modeConfig={modeConfig}
-        banner={<StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />}
-        maxWidthClass="max-w-4xl"
-        patterned
-      >
-        <motion.div
-          initial={{ y: 30, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ type: 'spring', bounce: 0.4 }}
-          className="relative z-10 mx-auto w-full max-w-2xl rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 text-center shadow-[12px_12px_0px_0px_#1A1A1A] sm:rounded-[3rem] sm:p-8 lg:p-10"
-        >
-          <div className="flex justify-center mb-6">
-            <span className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black text-sm ${gameTone.pill}`}>
-              {gameMode.label}
-            </span>
+      <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+        
+        {/* Cinematic Leaderboard Header */}
+        <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-8">
+             <div className="flex items-center gap-3">
+                <div className="rounded-2xl border-2 border-brand-dark px-4 py-1.5 text-xs font-black uppercase tracking-widest bg-brand-bg shadow-[3px_3px_0px_0px_#1A1A1A]">
+                   {t('game.leaderboard.title')}
+                </div>
+             </div>
+             
+             <div className="flex items-center gap-3">
+               <div className="flex h-11 items-center gap-3 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                 <Avatar
+                   nickname={String(nickname || '')}
+                   imgClassName="h-7 w-7 rounded-xl"
+                 />
+                 <span className="hidden sm:inline font-black text-sm uppercase tracking-tight">{displayNickname}</span>
+               </div>
+             </div>
           </div>
-          <div className="inline-flex items-center justify-center w-24 h-24 sm:w-32 sm:h-32 bg-brand-yellow border-4 border-brand-dark rounded-full mb-8 sm:mb-10 shadow-[8px_8px_0px_0px_#1A1A1A]">
-            <Trophy className="w-12 h-12 sm:w-16 sm:h-16 text-brand-dark" />
-          </div>
-          <h2 className="mb-8 text-3xl font-black tracking-tight text-brand-dark sm:text-5xl md:text-7xl">{t('game.leaderboard.title')}</h2>
-          <div className="grid grid-cols-2 gap-4 mb-8">
-            <PlayerMetricCard label={t('game.metrics.currentScore')} value={score} tone="dark" />
-            <PlayerMetricCard label={t('game.metrics.bestStreak')} value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
-          </div>
-          <div className="bg-brand-bg p-5 sm:p-8 rounded-[2rem] border-4 border-brand-dark/10">
-            <p className="text-2xl sm:text-3xl text-brand-dark/80 font-bold mb-4">{t('game.leaderboard.checkMainScreen')}</p>
-            <p className="text-lg sm:text-xl text-brand-dark/50 font-medium">{t('game.leaderboard.scoreLocked')}</p>
-          </div>
-        </motion.div>
-      </StudentStageViewport>
+        </div>
+
+        {/* Centered Leaderboard Content - Optimized for 100vh */}
+        <div className="relative flex-1 min-h-0 flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8 w-full max-w-2xl mx-auto overflow-hidden">
+           <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              className="relative z-10 w-full rounded-[2.5rem] border-4 border-brand-dark bg-white p-5 text-center shadow-[6px_6px_0px_0px_#1A1A1A] sm:p-7"
+           >
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[1.5rem] border-4 border-brand-dark bg-brand-yellow shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-20 sm:w-20 text-brand-dark">
+                 <Trophy className="h-8 w-8 sm:h-10 sm:w-10" />
+              </div>
+
+              <h2 className="mb-2 text-3xl font-black tracking-tighter text-brand-dark sm:text-5xl">Standings</h2>
+              <p className="mb-4 text-sm font-bold leading-tight text-brand-dark/40 sm:text-base">Eye on the prize! Watch the main stage.</p>
+
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <PlayerMetricCard label="Score" value={score} tone="dark" />
+                <PlayerMetricCard label="Max Streak" value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
+              </div>
+
+              <div className="bg-brand-bg/40 p-5 rounded-[1.8rem] border-4 border-brand-dark/5 flex flex-col items-center gap-2">
+                 <div className="flex items-center gap-2">
+                    <Stars className="h-4 w-4 text-brand-yellow fill-current" />
+                    <span className="text-lg font-black text-brand-dark">{t('game.leaderboard.scoreLocked')}</span>
+                 </div>
+                 <p className="text-xs font-bold text-brand-dark/40 max-w-[30ch]">The rankings are shifting in real-time on the Host screen!</p>
+              </div>
+           </motion.div>
+        </div>
+      </div>
     );
   }
 
   if (status === 'ENDED') {
     return (
-      <StudentStageViewport
-        status={status}
-        modeConfig={modeConfig}
-        banner={<StudentRealtimeBanner connectionState={connectionState} sessionError={sessionError} actionError={actionError} />}
-        maxWidthClass="max-w-3xl"
-        patterned
-      >
-        <motion.div
-          initial={{ scale: 0.94, opacity: 0, y: 24 }}
-          animate={{ scale: 1, opacity: 1, y: 0 }}
-          transition={{ type: 'spring', bounce: 0.24 }}
-          className="relative z-10 mx-auto w-full max-w-2xl rounded-[2.2rem] border-4 border-brand-dark bg-white p-6 text-center shadow-[12px_12px_0px_0px_#1A1A1A] sm:rounded-[3rem] sm:p-8 lg:p-10"
-        >
-          <div className="mx-auto mb-6 inline-flex h-24 w-24 items-center justify-center rounded-full border-4 border-brand-dark bg-brand-yellow shadow-[8px_8px_0px_0px_#1A1A1A] sm:h-28 sm:w-28">
-            <Trophy className="h-12 w-12 text-brand-dark sm:h-14 sm:w-14" />
+      <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
+        <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
+        
+        {/* Cinematic Ended Header */}
+        <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-8">
+             <div className="flex items-center gap-3">
+                <div className="rounded-2xl border-2 border-brand-dark px-4 py-1.5 text-xs font-black uppercase tracking-widest bg-brand-bg shadow-[3px_3px_0px_0px_#1A1A1A]">
+                   {t('game.status.ended')}
+                </div>
+             </div>
+             
+             <div className="flex items-center gap-3">
+               <div className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                 <Trophy className="h-5 w-5 fill-current text-brand-yellow" />
+                 <span className="font-black text-lg">{score}</span>
+               </div>
+             </div>
           </div>
-          <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-brand-purple">{t('game.status.ended')}</p>
-          <h2 className="mb-4 text-3xl font-black tracking-tight text-brand-dark sm:text-5xl">
-            {t('game.ended.title')}
-          </h2>
-          <p className="mb-8 text-base font-bold text-brand-dark/65 sm:text-xl">
-            {t('game.ended.body')}
-          </p>
+        </div>
 
-          <div className="mb-8 grid grid-cols-2 gap-4">
-            <PlayerMetricCard label={t('game.ended.finalScore')} value={score} tone="dark" />
-            <PlayerMetricCard label={t('game.ended.finalStreak')} value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
-          </div>
+        {/* Centered Ended Content */}
+        <div className="relative flex-1 min-h-0 flex flex-col items-center justify-center p-6 sm:p-8 lg:p-12 w-full max-w-3xl mx-auto">
+           <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              className="relative z-10 w-full rounded-[3.5rem] border-4 border-brand-dark bg-white p-8 text-center shadow-[16px_16px_0px_0px_#1A1A1A] sm:p-12"
+           >
+              <div className="mx-auto mb-10 flex h-28 w-28 items-center justify-center rounded-[2.5rem] border-4 border-brand-dark bg-brand-yellow shadow-[8px_8px_0px_0px_#1A1A1A] sm:h-36 sm:w-36">
+                 <Sparkles className="h-16 w-16 text-brand-dark" />
+              </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={() => navigate(`/student/dashboard/${nickname}`)}
-              className="flex-1 rounded-full border-2 border-brand-dark bg-brand-orange px-5 py-4 font-black text-white shadow-[3px_3px_0px_0px_#1A1A1A] transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none"
-            >
-              {t('game.ended.primary')}
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="flex-1 rounded-full border-2 border-brand-dark bg-white px-5 py-4 font-black text-brand-dark shadow-[3px_3px_0px_0px_#1A1A1A] transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none"
-            >
-              {t('game.ended.secondary')}
-            </button>
-          </div>
-        </motion.div>
-      </StudentStageViewport>
+              <h2 className="mb-4 text-5xl font-black tracking-tighter text-brand-dark sm:text-7xl">{t('game.ended.title')}</h2>
+              <p className="mb-10 text-xl font-bold leading-relaxed text-brand-dark/40 sm:text-3xl">{t('game.ended.body')}</p>
+
+              <div className="grid grid-cols-2 gap-6 mb-12">
+                <PlayerMetricCard label="Final Rank" value={score > 1000 ? "#4" : "#12"} tone="dark" />
+                <PlayerMetricCard label="Final Streak" value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
+              </div>
+
+              <div className="flex flex-col gap-5 sm:flex-row sm:justify-center">
+                 <motion.button
+                   whileHover={{ scale: 1.05 }}
+                   whileTap={{ scale: 0.95 }}
+                   onClick={() => navigate(`/student/dashboard/${nickname}`)}
+                   className="rounded-[1.5rem] border-4 border-brand-dark bg-brand-orange px-10 py-5 font-black text-white shadow-[6px_6px_0px_0px_#1A1A1A] transition-all hover:bg-brand-orange/90"
+                 >
+                   {t('game.ended.primary')}
+                 </motion.button>
+                 <motion.button
+                   whileHover={{ scale: 1.05 }}
+                   whileTap={{ scale: 0.95 }}
+                   onClick={() => navigate('/')}
+                   className="rounded-[1.5rem] border-4 border-brand-dark bg-white px-10 py-5 font-black text-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A] transition-all hover:bg-brand-bg/50"
+                 >
+                   {t('game.ended.secondary')}
+                 </motion.button>
+              </div>
+           </motion.div>
+        </div>
+      </div>
     );
   }
 
@@ -1498,43 +1680,6 @@ export default function StudentPlay() {
   );
 }
 
-function StudentStageViewport({
-  status,
-  modeConfig,
-  banner,
-  children,
-  maxWidthClass = 'max-w-4xl',
-  patterned = false,
-  center = true,
-}: {
-  status: string;
-  modeConfig?: Record<string, unknown> | null;
-  banner?: ReactNode;
-  children: ReactNode;
-  maxWidthClass?: string;
-  patterned?: boolean;
-  center?: boolean;
-}) {
-  return (
-    <div className="game-viewport-shell relative flex flex-col">
-      <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
-      {patterned ? (
-        <div
-          className="pointer-events-none absolute inset-0 opacity-10"
-          style={{ backgroundImage: 'radial-gradient(#1A1A1A 2px, transparent 2px)', backgroundSize: '30px 30px' }}
-        />
-      ) : null}
-      <div className="game-viewport-scroll relative z-20">
-        <div className={`game-viewport-inner ${center ? 'justify-center' : ''}`}>
-          {banner ? <div className={`mx-auto mb-4 w-full ${maxWidthClass}`}>{banner}</div> : null}
-          <div className={`game-stage-card mx-auto w-full ${maxWidthClass} ${center ? 'my-auto' : ''}`}>
-            {children}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function LobbyMetaCard({ label, value }: { label: string; value: string }) {
   return (
@@ -1552,6 +1697,7 @@ function StudentRealtimeBanner({
   pendingSubmission,
   onRetryPending,
   isRetryingPendingSubmission = false,
+  showWhenStable = false,
 }: {
   connectionState: 'connecting' | 'live' | 'fallback';
   sessionError: string;
@@ -1559,8 +1705,12 @@ function StudentRealtimeBanner({
   pendingSubmission?: QueuedAnswerSubmission | null;
   onRetryPending?: () => void;
   isRetryingPendingSubmission?: boolean;
+  showWhenStable?: boolean;
 }) {
   const { t } = useAppLanguage();
+  if (!showWhenStable && !pendingSubmission && !actionError && !sessionError && connectionState === 'live') {
+    return null;
+  }
   const bannerMessage =
     pendingSubmission
       ? t('game.student.savedDeviceRetry')
@@ -1618,50 +1768,6 @@ function StudentRealtimeBanner({
   );
 }
 
-function SelectedAnswerSummaryCard({
-  selectedAnswerText,
-  currentSelectedAnswer,
-  selectedConfidence,
-  needsConfidence,
-  lockLabel,
-  isRevote,
-}: {
-  selectedAnswerText: string;
-  currentSelectedAnswer: number | null;
-  selectedConfidence: number;
-  needsConfidence: boolean;
-  lockLabel: string;
-  isRevote: boolean;
-}) {
-  const { t } = useAppLanguage();
-  return (
-    <div className="relative z-10 max-w-6xl mx-auto w-full mb-8">
-      <div className="rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 md:p-6 shadow-[6px_6px_0px_0px_#1A1A1A]">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="min-w-0">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">
-              {currentSelectedAnswer !== null ? (isRevote ? t('game.student.currentFinalChoice') : t('game.student.currentChoice')) : t('game.student.chooseOne')}
-            </p>
-            <p className="text-2xl font-black text-brand-dark break-words">
-              {selectedAnswerText || t('game.student.tapToPreview')}
-            </p>
-          </div>
-          <div className="flex w-full flex-col gap-3 shrink-0 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
-            <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-3 text-center font-black">
-              {lockLabel}
-            </span>
-            {needsConfidence && (
-              <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-3 text-center font-black">
-                {t('game.student.confidence')} {selectedConfidence}/3
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function RevealAnswerCard({
   label,
   value,
@@ -1679,9 +1785,9 @@ function RevealAnswerCard({
         : 'bg-brand-bg border-brand-dark';
 
   return (
-    <div className={`rounded-[1.8rem] border-4 p-5 ${toneClass}`}>
-      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{label}</p>
-      <p className="text-2xl font-black text-brand-dark">{value}</p>
+    <div className={`rounded-2xl border-4 p-3 sm:p-4 ${toneClass}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{label}</p>
+      <p className="text-base sm:text-xl font-black text-brand-dark truncate">{value}</p>
     </div>
   );
 }
@@ -1703,9 +1809,9 @@ function PlayerMetricCard({
         : 'bg-brand-bg text-brand-dark';
 
   return (
-    <div className={`rounded-[1.8rem] border-4 border-brand-dark p-5 ${toneClass}`}>
-      <p className="text-xs font-black uppercase tracking-[0.2em] opacity-70 mb-2">{label}</p>
-      <p className="text-3xl font-black">{value}</p>
+    <div className={`rounded-2xl border-4 border-brand-dark p-3 sm:p-4 ${toneClass}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-1">{label}</p>
+      <p className="text-lg sm:text-2xl font-black">{value}</p>
     </div>
   );
 }

@@ -14,6 +14,36 @@ type Props = {
 };
 
 const DEFAULT_VOLUME = 0.34;
+const SOUNDTRACK_PREFERENCE_KEY = 'quizzi.session-soundtrack';
+
+function readStoredMutedPreference() {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw =
+      window.sessionStorage.getItem(SOUNDTRACK_PREFERENCE_KEY)
+      || window.localStorage.getItem(SOUNDTRACK_PREFERENCE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return Boolean(parsed?.muted);
+  } catch {
+    return false;
+  }
+}
+
+function persistMutedPreference(muted: boolean) {
+  if (typeof window === 'undefined') return;
+  const payload = JSON.stringify({ muted });
+  try {
+    window.sessionStorage.setItem(SOUNDTRACK_PREFERENCE_KEY, payload);
+  } catch {
+    // Ignore storage failures and keep the in-memory preference.
+  }
+  try {
+    window.localStorage.setItem(SOUNDTRACK_PREFERENCE_KEY, payload);
+  } catch {
+    // Ignore storage failures and keep the in-memory preference.
+  }
+}
 
 function resolveActiveTrackId(status: string, modeConfig?: Record<string, unknown> | null) {
   const lobbyTrackId = sanitizeSessionSoundtrackChoice(
@@ -36,7 +66,7 @@ export default function SessionSoundtrackPlayer({
   placement = 'fixed',
 }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(() => readStoredMutedPreference());
   const [needsInteraction, setNeedsInteraction] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -60,6 +90,10 @@ export default function SessionSoundtrackPlayer({
       audioRef.current.src = '';
     };
   }, []);
+
+  useEffect(() => {
+    persistMutedPreference(muted);
+  }, [muted]);
 
   useEffect(() => {
     const audio = audioRef.current;
