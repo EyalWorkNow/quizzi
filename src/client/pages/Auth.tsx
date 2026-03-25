@@ -38,7 +38,7 @@ export default function Auth() {
   const teacherSettings = loadTeacherSettings();
   const targetPath = typeof location.state?.from === 'string' ? location.state.from : '/teacher/dashboard';
 
-  const { t, direction } = useAppLanguage();
+  const { t, direction, language } = useAppLanguage();
   const [mode, setMode] = useState<AccessMode>('login');
   const [name, setName] = useState(`${teacherSettings.profile.firstName} ${teacherSettings.profile.lastName}`.trim());
   const [school, setSchool] = useState(teacherSettings.profile.school);
@@ -50,6 +50,23 @@ export default function Auth() {
   const [existingSession, setExistingSession] = useState<TeacherAuthSession | null>(() => loadTeacherAuth());
   const [restoringSession, setRestoringSession] = useState(true);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const authFallbackCopy = {
+    he: {
+      demoUnavailable: 'גישה לחשבון הדמו אינה זמינה בסביבה הזאת.',
+      demoTeacher: 'מורת דמו',
+      demoSchool: 'אקדמיית Quizzi',
+    },
+    ar: {
+      demoUnavailable: 'الوصول إلى الحساب التجريبي غير متاح في هذه البيئة.',
+      demoTeacher: 'معلّمة تجريبية',
+      demoSchool: 'أكاديمية Quizzi',
+    },
+    en: {
+      demoUnavailable: 'Demo access is unavailable in this environment.',
+      demoTeacher: 'Demo Teacher',
+      demoSchool: 'Quizzi Academy',
+    },
+  }[language];
 
   const socialLabel = useMemo(() => (mode === 'login' ? t('auth.social.label') : t('auth.social.label')), [mode, t]);
 
@@ -206,7 +223,7 @@ export default function Auth() {
 
   const handleDemoAccess = async () => {
     if (!DEMO_AUTH_ENABLED) {
-      setError('Demo access is unavailable in this environment.');
+      setError(authFallbackCopy.demoUnavailable);
       return;
     }
     applyDemoCredentials();
@@ -222,8 +239,8 @@ export default function Auth() {
       const session = await signInTeacherWithPassword({
         email: DEMO_TEACHER_EMAIL,
         password: DEMO_TEACHER_PASSWORD,
-        name: name.trim() || 'Demo Teacher',
-        school: school.trim() || 'Quizzi Academy',
+        name: name.trim() || authFallbackCopy.demoTeacher,
+        school: school.trim() || authFallbackCopy.demoSchool,
       });
       completeAccess({
         session,

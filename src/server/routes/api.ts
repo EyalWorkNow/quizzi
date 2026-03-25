@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import { handleContactSubmission } from '../api/contact.js';
-import { randomInt } from 'crypto';
+import { createHash, randomInt } from 'crypto';
 import db from '../db/index.js';
 import { seedDemoDataForTeacher } from '../db/seeding.js';
-import { GoogleGenAI } from '@google/genai';
 import multer from 'multer';
 import mammoth from 'mammoth';
 import { createRequire } from 'module';
@@ -48,16 +47,14 @@ import {
   sanitizeTeacherClassColor,
 } from '../services/teacherClasses.js';
 import {
-  buildGenerationSource,
-  getCachedQuestionGeneration,
   getHydratedPackWithQuestions,
   getOrCreateMaterialProfile,
   hydratePack,
   listHydratedPacks,
   normalizeGeneratedQuestions,
-  saveCachedQuestionGeneration,
   syncPackDerivedData,
 } from '../services/materialIntel.js';
+import { generateQuestionsFromSource } from '../services/questionGeneration.js';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
 
@@ -86,14 +83,6 @@ const upload = multer({
 const router = Router();
 
 router.post('/contact', handleContactSubmission);
-
-if (!process.env.GEMINI_API_KEY) {
-  console.error('⚠️  [CRITICAL] GEMINI_API_KEY is NOT set! AI question generation will fail.');
-  console.error('    → Set it in Render Dashboard: Environment → Add Environment Variable');
-  console.error('    → Key: GEMINI_API_KEY   Value: your Google AI Studio API key');
-}
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || 'MISSING_KEY' });
 const TEAM_GAME_TYPES = new Set(getTeamGameModeIds());
 const TEAM_NAME_BANK = [
   'Alpha',
@@ -261,6 +250,11 @@ function sanitizeTelemetry(value: unknown) {
     touch_activity_count: clampNumber(telemetry.touch_activity_count, 0, 10_000, 0),
     same_answer_reclicks: clampNumber(telemetry.same_answer_reclicks, 0, 10_000, 0),
     option_dwell_json: sanitizeJsonBlob(telemetry.option_dwell_json, 4_000, '{}'),
+    submission_retry_count: clampNumber(telemetry.submission_retry_count, 0, 100, 0),
+    reconnect_count: clampNumber(telemetry.reconnect_count, 0, 100, 0),
+    visibility_interruptions: clampNumber(telemetry.visibility_interruptions, 0, 100, 0),
+    network_degraded: sanitizeBooleanFlag(telemetry.network_degraded, false),
+    device_profile: sanitizeLine(telemetry.device_profile, 40),
   };
 }
 
@@ -300,6 +294,15 @@ function sanitizeAcademicMeta(value: any) {
     learning_objectives: sanitizeStringList(raw.learning_objectives, 8, 120),
     bloom_levels: sanitizeStringList(raw.bloom_levels, 6, 40),
     pack_notes: sanitizeMultiline(raw.pack_notes, 1200),
+  };
+}
+
+function sanitizeGenerationMeta(value: any) {
+  const raw = value && typeof value === 'object' ? value : {};
+  return {
+    provider: sanitizeLine(raw.provider || raw.provider_id, 32),
+    model: sanitizeLine(raw.model || raw.model_id, 80),
+    contract_version: sanitizeLine(raw.contract_version || raw.contract, 80),
   };
 }
 
@@ -377,6 +380,10 @@ function sanitizeModeConfig(gameType: string, value: unknown): GameModeConfig {
     modeConfig.max_time_limit_seconds = clampNumber(raw.max_time_limit_seconds, 5, 90, 30);
   }
 
+  if (raw.timer_mode === 'countdown' || raw.timer_mode === 'unlimited') {
+    modeConfig.timer_mode = raw.timer_mode;
+  }
+
   if (typeof raw.requires_confidence === 'boolean') {
     modeConfig.requires_confidence = raw.requires_confidence;
   }
@@ -397,9 +404,26 @@ function sanitizeModeConfig(gameType: string, value: unknown): GameModeConfig {
     raw.scoring_profile === 'standard' ||
     raw.scoring_profile === 'speed' ||
     raw.scoring_profile === 'confidence' ||
-    raw.scoring_profile === 'coverage'
+    raw.scoring_profile === 'coverage' ||
+    raw.scoring_profile === 'accuracy'
   ) {
     modeConfig.scoring_profile = raw.scoring_profile;
+  }
+
+  if (raw.leaderboard_style === 'standard' || raw.leaderboard_style === 'accuracy') {
+    modeConfig.leaderboard_style = raw.leaderboard_style;
+  }
+
+  if (raw.rejoin_policy === 'restore' || raw.rejoin_policy === 'strict') {
+    modeConfig.rejoin_policy = raw.rejoin_policy;
+  }
+
+  if (typeof raw.sound_fx_enabled === 'boolean') {
+    modeConfig.sound_fx_enabled = raw.sound_fx_enabled;
+  }
+
+  if (typeof raw.reveal_duration_seconds === 'number' || typeof raw.reveal_duration_seconds === 'string') {
+    modeConfig.reveal_duration_seconds = clampNumber(raw.reveal_duration_seconds, 3, 15, 6);
   }
 
   if (raw.lobby_track_id !== undefined) {
@@ -421,8 +445,11 @@ function getSessionModeConfig(session: any): GameModeConfig {
 }
 
 function resolveQuestionTimeLimit(question: any, session: any) {
-  const baseSeconds = clampNumber(question?.time_limit_seconds, 8, 90, 20);
   const modeConfig = getSessionModeConfig(session);
+  if (modeConfig.timer_mode === 'unlimited') {
+    return 0;
+  }
+  const baseSeconds = clampNumber(question?.time_limit_seconds, 8, 90, 20);
   const timerMultiplier = Number(modeConfig.timer_multiplier || 1);
   const minSeconds = clampNumber(modeConfig.min_time_limit_seconds, 5, 90, 8);
   const maxSeconds = clampNumber(modeConfig.max_time_limit_seconds, minSeconds, 120, Math.max(minSeconds, 30));
@@ -497,6 +524,37 @@ const applyMasteryUpdates = db.transaction((
     upsertMastery.run(identityKey, nickname, update.tag, update.score);
   }
 });
+
+async function getParticipantSessionScoreState(sessionId: number, participantId: number) {
+  const totalScore = Number(
+    (
+      await db
+        .prepare('SELECT COALESCE(SUM(score_awarded), 0) as total FROM answers WHERE session_id = ? AND participant_id = ?')
+        .get(sessionId, participantId)
+    )?.total || 0,
+  );
+  const recentAnswers = (await db
+        .prepare(`
+      SELECT a.is_correct
+      FROM answers a
+      JOIN questions q ON q.id = a.question_id
+      WHERE a.session_id = ? AND a.participant_id = ?
+      ORDER BY q.question_order DESC, a.id DESC
+      LIMIT 25
+    `)
+        .all(sessionId, participantId)) as any[];
+
+  let streak = 0;
+  for (const answer of recentAnswers) {
+    if (!Number(answer?.is_correct)) break;
+    streak += 1;
+  }
+
+  return {
+    score: totalScore,
+    streak,
+  };
+}
 
 async function getSessionPayload(sessionId: number) {
   const session = (await db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId));
@@ -635,6 +693,32 @@ function runInFlightQuestionGeneration<T>(key: string, task: () => Promise<T>) {
 
   inFlightQuestionGenerations.set(key, promise);
   return promise;
+}
+
+function buildQuestionGenerationInFlightKey(input: {
+  sourceText: string;
+  count: number;
+  difficulty: string;
+  language: string;
+  questionFormat: string;
+  cognitiveLevel: string;
+  explanationDetail: string;
+  providerId?: string | null;
+  modelId?: string | null;
+}) {
+  const normalizedPayload = JSON.stringify({
+    source_hash: createHash('sha1').update(String(input.sourceText || '')).digest('hex'),
+    count: Number(input.count || 0),
+    difficulty: String(input.difficulty || '').trim().toLowerCase(),
+    language: String(input.language || '').trim().toLowerCase(),
+    question_format: String(input.questionFormat || '').trim().toLowerCase(),
+    cognitive_level: String(input.cognitiveLevel || '').trim().toLowerCase(),
+    explanation_detail: String(input.explanationDetail || '').trim().toLowerCase(),
+    provider_id: String(input.providerId || 'default-provider').trim().toLowerCase(),
+    model_id: String(input.modelId || 'default-model').trim().toLowerCase(),
+  });
+
+  return createHash('sha1').update(normalizedPayload).digest('hex');
 }
 
 async function getTeacherUserIdFromRequest(req: any) {
@@ -793,6 +877,7 @@ async function preparePackWritePayload(body: any) {
   const incomingQuestions = Array.isArray(body?.questions) ? body.questions : [];
   const academicMeta = sanitizeAcademicMeta(body?.academic_meta || body);
   const isPublic = sanitizeBooleanFlag(body?.is_public, false);
+  const generationMeta = sanitizeGenerationMeta(body?.generation_meta);
   const materialProfile = (await getOrCreateMaterialProfile(sourceText || ''));
   const sourceLanguage = sanitizeLine(body?.language || materialProfile.source_language || 'English', 24);
   const normalizedQuestions = normalizeGeneratedQuestions(
@@ -806,6 +891,7 @@ async function preparePackWritePayload(body: any) {
     sourceLanguage,
     academicMeta,
     isPublic,
+    generationMeta,
     materialProfile,
     normalizedQuestions,
   };
@@ -873,13 +959,16 @@ async function createTeacherPackFromPreparedPayload(
       learning_objectives_json,
       bloom_levels_json,
       pack_notes,
+      generation_contract,
+      generation_provider,
+      generation_model,
       is_public,
       source_hash,
       source_excerpt,
       source_language,
       source_word_count,
       material_profile_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
         teacherUserId,
         resolvedTitle,
@@ -892,6 +981,9 @@ async function createTeacherPackFromPreparedPayload(
         JSON.stringify(payload.academicMeta.learning_objectives),
         JSON.stringify(payload.academicMeta.bloom_levels),
         payload.academicMeta.pack_notes,
+        payload.generationMeta.contract_version,
+        payload.generationMeta.provider,
+        payload.generationMeta.model,
         payload.isPublic ? 1 : 0,
         payload.materialProfile.source_hash,
         payload.materialProfile.source_excerpt,
@@ -3735,7 +3827,7 @@ router.post('/extract-text', requireTeacherSession, (req, res, next) => {
   }
 });
 
-// Generate questions from text using Gemini
+// Generate questions from text using the configured AI provider
 router.post('/packs/generate', requireTeacherSession, async (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
   const teacherUserId = (await getTeacherUserIdFromRequest(req));
@@ -3750,143 +3842,38 @@ router.post('/packs/generate', requireTeacherSession, async (req, res) => {
   const questionFormat = sanitizeLine(req.body?.question_format || 'Multiple Choice', 32);
   const cognitiveLevel = sanitizeLine(req.body?.cognitive_level || 'Mixed', 32);
   const explanationDetail = sanitizeLine(req.body?.explanation_detail || 'Concise', 32);
+  const providerId = sanitizeLine(req.body?.provider_id || req.body?.providerId, 24) || null;
+  const modelId = sanitizeLine(req.body?.model_id || req.body?.modelId, 80) || null;
 
   console.log(`[AI GEN] Request: ${count} questions, ${difficulty} difficulty, ${language} language, text length: ${source_text?.length}`);
 
   if (!source_text) return res.status(400).json({ error: 'Source text is required' });
 
   try {
-    const materialProfile = (await getOrCreateMaterialProfile(source_text));
-    const generationSource = (await buildGenerationSource(materialProfile));
-    const cached = (await getCachedQuestionGeneration(
-          Number(materialProfile.id),
-          Number(count),
-          String(difficulty),
-          String(language),
-        ));
-
-    if (cached?.response?.questions?.length) {
-      return res.json({
-        ...cached.response,
-        generation_meta: {
-          cached: true,
-          source_mode: generationSource.source_mode,
-          estimated_original_tokens: generationSource.estimated_original_tokens,
-          estimated_prompt_tokens: generationSource.estimated_prompt_tokens,
-          token_savings_pct: generationSource.token_savings_pct,
-        },
-        material_profile: {
-          id: Number(materialProfile.id),
-          source_language: materialProfile.source_language,
-          source_excerpt: materialProfile.source_excerpt,
-          teaching_brief: materialProfile.teaching_brief,
-          key_points: materialProfile.key_points,
-          topic_fingerprint: materialProfile.topic_fingerprint,
-        },
-      });
-    }
-
-    const generationKey = [
-      Number(materialProfile.id),
+    const generationKey = buildQuestionGenerationInFlightKey({
+      sourceText: source_text,
       count,
-      difficulty.toLowerCase(),
-      language.toLowerCase(),
-      questionFormat.toLowerCase(),
-      cognitiveLevel.toLowerCase(),
-      explanationDetail.toLowerCase(),
-    ].join(':');
-
-    const responsePayload = await runInFlightQuestionGeneration(generationKey, async () => {
-      const isHebrew = language.toLowerCase() === 'hebrew';
-      const langInstruction = isHebrew
-        ? "CRITICAL: ALL output text (prompt, answers, explanation, tags) MUST be in HEBREW (עברית). This is an absolute requirement. Do not use English for anything."
-        : "The output MUST be in English.";
-
-      const prompt = `Task: Generate exactly ${count} multiple-choice questions from the provided educational material.
-Difficulty Level: ${difficulty}
-Output Language: ${language}
-Question Format: ${questionFormat}
-Cognitive Depth: ${cognitiveLevel}
-Explanation Style: ${explanationDetail}
-${langInstruction}
-
-Constraint: Return ONLY a raw JSON object matching the schema below. No markdown formatting, no preamble.
-If "True/False" is selected, generate questions with only two "answers" (True and False).
-If "Higher Order" is selected, focus on analysis, evaluation, and complex application rather than simple facts.
-Use the compact course brief and supporting excerpts below as the authoritative source. Prefer high-signal concepts, chronology, causal links, definitions, and tricky confusions from the material.
-
-Schema:
-{
-  "questions": [
-    {
-      "prompt": "The question text",
-      "answers": ["Choice A", "Choice B", "Choice C", "Choice D"],
-      "correct_index": 0,
-      "explanation": "Why the answer is correct",
-      "tags": ["topic"],
-      "time_limit_seconds": 20
-    }
-  ]
-}
-
-Educational Material:
-${generationSource.material}`;
-
-      let response;
-      try {
-        response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-          },
-        });
-      } catch (modelError: any) {
-        console.error('[CRITICAL] Gemini Model Error:', modelError);
-        throw new Error(`AI Model failed: ${modelError.message}`);
-      }
-
-      const text = response.text;
-      console.log('[DEBUG] Gemini Raw Response Received');
-
-      try {
-        const cleanJson = text?.replace(/```json\n?|\n?```/g, '').trim() || '{}';
-        const data = JSON.parse(cleanJson);
-        const normalizedQuestions = normalizeGeneratedQuestions(
-          data?.questions || [],
-          materialProfile.topic_fingerprint || [],
-        );
-        const payload = {
-          questions: normalizedQuestions,
-          generation_meta: {
-            cached: false,
-            source_mode: generationSource.source_mode,
-            estimated_original_tokens: generationSource.estimated_original_tokens,
-            estimated_prompt_tokens: generationSource.estimated_prompt_tokens,
-            token_savings_pct: generationSource.token_savings_pct,
-          },
-          material_profile: {
-            id: Number(materialProfile.id),
-            source_language: materialProfile.source_language,
-            source_excerpt: materialProfile.source_excerpt,
-            teaching_brief: materialProfile.teaching_brief,
-            key_points: materialProfile.key_points,
-            topic_fingerprint: materialProfile.topic_fingerprint,
-          },
-        };
-        (await saveCachedQuestionGeneration(
-                    Number(materialProfile.id),
-                    Number(count),
-                    String(difficulty),
-                    String(language),
-                    payload,
-                  ));
-        return payload;
-      } catch (parseError: any) {
-        console.error('[ERROR] Failed to parse Gemini response:', text);
-        throw new Error('Failed to parse AI response');
-      }
+      difficulty,
+      language,
+      questionFormat,
+      cognitiveLevel,
+      explanationDetail,
+      providerId,
+      modelId,
     });
+
+    const responsePayload = await runInFlightQuestionGeneration(generationKey, async () =>
+      generateQuestionsFromSource({
+        sourceText: source_text,
+        count,
+        difficulty,
+        language,
+        questionFormat,
+        cognitiveLevel,
+        explanationDetail,
+        providerId,
+        modelId,
+      }));
 
     res.json(responsePayload);
   } catch (error: any) {
@@ -3999,6 +3986,9 @@ router.put('/teacher/packs/:id', requireTeacherSession, async (req, res) => {
         learning_objectives_json = ?,
         bloom_levels_json = ?,
         pack_notes = ?,
+        generation_contract = ?,
+        generation_provider = ?,
+        generation_model = ?,
         is_public = ?,
         source_hash = ?,
         source_excerpt = ?,
@@ -4017,6 +4007,9 @@ router.put('/teacher/packs/:id', requireTeacherSession, async (req, res) => {
       JSON.stringify(payload.academicMeta.learning_objectives),
       JSON.stringify(payload.academicMeta.bloom_levels),
       payload.academicMeta.pack_notes,
+      payload.generationMeta.contract_version,
+      payload.generationMeta.provider,
+      payload.generationMeta.model,
       payload.isPublic ? 1 : 0,
       payload.materialProfile.source_hash,
       payload.materialProfile.source_excerpt,
@@ -4215,7 +4208,24 @@ router.get('/teacher/sessions/pin/:pin/participants', requireTeacherSession, asy
     }
 
     const participants = (await db
-        .prepare('SELECT id, nickname, team_id, team_name, seat_index, created_at FROM participants WHERE session_id = ? ORDER BY created_at ASC, id ASC')
+        .prepare(`
+      SELECT
+        p.id,
+        p.nickname,
+        p.team_id,
+        p.team_name,
+        p.seat_index,
+        p.created_at,
+        COALESCE(SUM(a.score_awarded), 0) AS score,
+        COALESCE(SUM(CASE WHEN a.is_correct = 1 THEN 1 ELSE 0 END), 0) AS correct_count
+      FROM participants p
+      LEFT JOIN answers a
+        ON a.session_id = p.session_id
+       AND a.participant_id = p.id
+      WHERE p.session_id = ?
+      GROUP BY p.id, p.nickname, p.team_id, p.team_name, p.seat_index, p.created_at
+      ORDER BY p.created_at ASC, p.id ASC
+    `)
         .all(session.id));
 
     res.json({
@@ -4270,11 +4280,7 @@ router.get('/sessions/:pin/student-state', async (req, res) => {
   }
 
   const participantId = Number(authorized.participant.id);
-  const totalScore = Number(
-    (await db
-          .prepare('SELECT COALESCE(SUM(score_awarded), 0) as total FROM answers WHERE session_id = ? AND participant_id = ?')
-          .get(session.id, participantId))?.total || 0,
-  );
+  const participantScoreState = await getParticipantSessionScoreState(session.id, participantId);
   const currentAnswer = currentQuestionRow
     ? (await db
           .prepare(`
@@ -4285,21 +4291,6 @@ router.get('/sessions/:pin/student-state', async (req, res) => {
       `)
           .get(session.id, participantId, currentQuestionRow.id)) as any
     : null;
-  const recentAnswers = (await db
-        .prepare(`
-      SELECT a.is_correct
-      FROM answers a
-      JOIN questions q ON q.id = a.question_id
-      WHERE a.session_id = ? AND a.participant_id = ?
-      ORDER BY q.question_order DESC, a.id DESC
-      LIMIT 25
-    `)
-        .all(session.id, participantId)) as any[];
-  let streak = 0;
-  for (const answer of recentAnswers) {
-    if (!Number(answer?.is_correct)) break;
-    streak += 1;
-  }
 
   res.json({
     session: hydrateSessionRow(session),
@@ -4310,8 +4301,8 @@ router.get('/sessions/:pin/student-state', async (req, res) => {
       team_name: authorized.participant.team_name || null,
     },
     participant_state: {
-      score: totalScore,
-      streak,
+      score: participantScoreState.score,
+      streak: participantScoreState.streak,
       current_answer: currentAnswer
         ? {
           question_id: Number(currentAnswer.question_id),
@@ -4331,7 +4322,24 @@ router.get('/sessions/:pin/participants', async (req, res) => {
   if (!session) return res.status(404).json({ error: 'Session not found' });
 
   const participants = (await db
-      .prepare('SELECT id, nickname, team_id, team_name, seat_index, created_at FROM participants WHERE session_id = ? ORDER BY created_at ASC, id ASC')
+      .prepare(`
+    SELECT
+      p.id,
+      p.nickname,
+      p.team_id,
+      p.team_name,
+      p.seat_index,
+      p.created_at,
+      COALESCE(SUM(a.score_awarded), 0) AS score,
+      COALESCE(SUM(CASE WHEN a.is_correct = 1 THEN 1 ELSE 0 END), 0) AS correct_count
+    FROM participants p
+    LEFT JOIN answers a
+      ON a.session_id = p.session_id
+     AND a.participant_id = p.id
+    WHERE p.session_id = ?
+    GROUP BY p.id, p.nickname, p.team_id, p.team_name, p.seat_index, p.created_at
+    ORDER BY p.created_at ASC, p.id ASC
+  `)
       .all(session.id));
 
   res.json({
@@ -4602,10 +4610,13 @@ router.post('/sessions/:pin/answer', async (req, res) => {
       const totalParticipants = Number(
         (await db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id)).count || 0,
       );
+      const participantScoreState = await getParticipantSessionScoreState(session.id, participant_id);
       return res.json({
         success: true,
         duplicate: true,
         score_awarded: Number(existingAnswer.score_awarded || 0),
+        participant_score_total: participantScoreState.score,
+        participant_streak: participantScoreState.streak,
         total_answers: totalAnswers,
         expected: totalParticipants,
       });
@@ -4635,6 +4646,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
     if (!participant) return res.status(404).json({ error: 'Participant not found' });
 
     const isCorrect = Number(chosen_index) === Number(question.correct_index);
+    const modeConfig = getSessionModeConfig(session);
     const effectiveTimeLimitSeconds = resolveQuestionTimeLimit(question, session);
     const outcome = await runPythonEngine<{
       score_awarded: number;
@@ -4644,6 +4656,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
       is_correct: isCorrect,
       response_ms,
       time_limit_seconds: effectiveTimeLimitSeconds,
+      scoring_profile: modeConfig.scoring_profile || getGameMode(session.game_type).defaultModeConfig.scoring_profile || 'standard',
       tags: parseJsonArray(question.tags_json),
       current_mastery: (await getMasteryRows(getParticipantIdentityKey(participant))),
     });
@@ -4655,8 +4668,10 @@ router.post('/sessions/:pin/answer', async (req, res) => {
         tfi_ms, final_decision_buffer_ms, total_swaps, panic_swaps,
         answer_path_json, focus_loss_count, idle_time_ms, blur_time_ms,
         longest_idle_streak_ms, pointer_activity_count, keyboard_activity_count,
-        touch_activity_count, same_answer_reclicks, option_dwell_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        touch_activity_count, same_answer_reclicks, option_dwell_json,
+        submission_retry_count, reconnect_count, visibility_interruptions,
+        network_degraded, device_profile
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const writeResult = db.transaction(() => {
@@ -4711,6 +4726,11 @@ router.post('/sessions/:pin/answer', async (req, res) => {
           telemetry.touch_activity_count,
           telemetry.same_answer_reclicks,
           telemetry.option_dwell_json,
+          telemetry.submission_retry_count,
+          telemetry.reconnect_count,
+          telemetry.visibility_interruptions,
+          telemetry.network_degraded ? 1 : 0,
+          telemetry.device_profile,
         );
       }
 
@@ -4731,6 +4751,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
     const totalParticipants = Number(
       (await db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id)).count || 0,
     );
+    const participantScoreState = await getParticipantSessionScoreState(session.id, participant_id);
 
     broadcastToSession(session.id, 'ANSWER_RECEIVED', {
       total_answers: totalAnswers,
@@ -4740,6 +4761,8 @@ router.post('/sessions/:pin/answer', async (req, res) => {
       success: true,
       duplicate: writeResult.duplicate,
       score_awarded: writeResult.score_awarded,
+      participant_score_total: participantScoreState.score,
+      participant_streak: participantScoreState.streak,
       total_answers: totalAnswers,
       expected: totalParticipants,
       confidence_level,

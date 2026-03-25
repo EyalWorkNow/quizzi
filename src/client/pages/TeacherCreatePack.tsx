@@ -6,6 +6,7 @@ import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
 import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
 import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from '../../shared/sessionSoundtracks.ts';
+import { useAppLanguage } from '../lib/appLanguage.tsx';
 
 function recommendModesForDraft(questionCount: number, topicCount: number) {
   if (questionCount <= 5) {
@@ -98,6 +99,7 @@ function getQuestionReuseSignal(item: any) {
 }
 
 export default function TeacherCreatePack() {
+  const { language: appLanguage } = useAppLanguage();
   const navigate = useNavigate();
   const { id } = useParams();
   const editPackId = Number(id || 0);
@@ -151,6 +153,56 @@ export default function TeacherCreatePack() {
     DEFAULT_SESSION_SOUNDTRACKS.gameplay_track_id,
   );
   const [creationStep, setCreationStep] = useState<'CONTENT' | 'QUESTIONS'>('CONTENT');
+  const createPackCopy = {
+    he: {
+      extractFailed: 'חילוץ הטקסט מהקובץ נכשל',
+      editPack: 'עריכת חבילת חידון',
+      createPack: 'יצירת חבילת חידון',
+      editBody: 'חדד שאלות, שמור על זרימת הכיתה ופרסם גרסה בטוחה יותר בעת הצורך.',
+      createBody: 'תכנן את השאלות שלך או תן ל־AI לעזור.',
+      updating: 'מעדכן...',
+      saving: 'שומר...',
+      updatePack: 'עדכן חבילה',
+      savePack: 'שמור חבילה',
+      launching: 'מפעיל...',
+      updateAndHost: 'עדכן וארח',
+      saveAndHost: 'שמור וארח',
+      stepContent: '1. חומר וקסם',
+      stepQuestions: '2. סקירה והפעלה',
+    },
+    ar: {
+      extractFailed: 'تعذر استخراج النص من الملف',
+      editPack: 'تحرير حزمة الاختبار',
+      createPack: 'إنشاء حزمة اختبار',
+      editBody: 'حسّن الأسئلة، واحفظ تدفق الحصة، وانشر نسخة أكثر أمانًا عند الحاجة.',
+      createBody: 'صمّم أسئلتك أو دع الذكاء الاصطناعي يساعدك.',
+      updating: 'جارٍ التحديث...',
+      saving: 'جارٍ الحفظ...',
+      updatePack: 'حدّث الحزمة',
+      savePack: 'احفظ الحزمة',
+      launching: 'جارٍ الإطلاق...',
+      updateAndHost: 'حدّث واستضف',
+      saveAndHost: 'احفظ واستضف',
+      stepContent: '1. المادة والشرارة',
+      stepQuestions: '2. المراجعة والإطلاق',
+    },
+    en: {
+      extractFailed: 'Failed to extract text from file',
+      editPack: 'Edit Quiz Pack',
+      createPack: 'Create Quiz Pack',
+      editBody: 'Refine questions, keep the classroom flow, and publish a safer revision when needed',
+      createBody: 'Design your questions or let AI help',
+      updating: 'Updating...',
+      saving: 'Saving...',
+      updatePack: 'Update Pack',
+      savePack: 'Save Pack',
+      launching: 'Launching...',
+      updateAndHost: 'Update & Host',
+      saveAndHost: 'Save & Host',
+      stepContent: '1. Material & Magic',
+      stepQuestions: '2. Review & Launch',
+    },
+  }[appLanguage];
   const recommendedLaunchModes = useMemo(
     () => recommendModesForDraft(questions.length || questionCount, materialProfile?.topic_fingerprint?.length || 0),
     [materialProfile?.topic_fingerprint?.length, questionCount, questions.length],
@@ -217,6 +269,15 @@ export default function TeacherCreatePack() {
           bloom_levels: Array.isArray(pack?.bloom_levels) ? pack.bloom_levels : [],
           pack_notes: pack?.pack_notes || '',
         });
+        setGenerationMeta(
+          pack?.generation_provider || pack?.generation_model || pack?.generation_contract
+            ? {
+                provider: pack?.generation_provider || '',
+                model: pack?.generation_model || '',
+                contract_version: pack?.generation_contract || '',
+              }
+            : null,
+        );
         setIsPublic(Number(pack?.is_public || 0) === 1);
         setQuestionCount(Number.isFinite(initialQuestionCount) ? Math.max(5, Math.min(20, initialQuestionCount)) : 5);
         setCreationStep(Array.isArray(pack?.questions) && pack.questions.length > 0 ? 'QUESTIONS' : 'CONTENT');
@@ -290,7 +351,7 @@ export default function TeacherCreatePack() {
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to extract text from file');
+      alert(createPackCopy.extractFailed);
     } finally {
       setIsExtracting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -418,6 +479,13 @@ export default function TeacherCreatePack() {
         questions: preparedQuestions,
         language,
         academic_meta: academicMeta,
+        generation_meta: generationMeta
+          ? {
+              provider: generationMeta.provider || '',
+              model: generationMeta.model || '',
+              contract_version: generationMeta.contract_version || '',
+            }
+          : undefined,
         is_public: isPublic,
       })
     });
@@ -634,9 +702,9 @@ export default function TeacherCreatePack() {
               <ArrowLeft className="w-6 h-6 text-brand-dark" />
             </button>
             <div>
-              <h1 className="text-2xl font-black text-brand-dark tracking-tight">{isEditMode ? 'Edit Quiz Pack' : 'Create Quiz Pack'}</h1>
+              <h1 className="text-2xl font-black text-brand-dark tracking-tight">{isEditMode ? createPackCopy.editPack : createPackCopy.createPack}</h1>
               <p className="text-sm font-bold text-brand-dark/60">
-                {isEditMode ? 'Refine questions, keep the classroom flow, and publish a safer revision when needed' : 'Design your questions or let AI help'}
+                {isEditMode ? createPackCopy.editBody : createPackCopy.createBody}
               </p>
             </div>
           </div>
@@ -647,7 +715,7 @@ export default function TeacherCreatePack() {
               className="bg-brand-purple text-white px-6 py-3 rounded-full font-bold border-2 border-brand-dark hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[4px] active:translate-x-[4px] flex items-center gap-2"
             >
               <Save className="w-5 h-5" />
-              {isSaving ? (isEditMode ? 'Updating...' : 'Saving...') : isEditMode ? 'Update Pack' : 'Save Pack'}
+              {isSaving ? (isEditMode ? createPackCopy.updating : createPackCopy.saving) : isEditMode ? createPackCopy.updatePack : createPackCopy.savePack}
             </button>
             <button
               onClick={handleSaveAndHost}
@@ -655,7 +723,7 @@ export default function TeacherCreatePack() {
               className="bg-brand-orange text-white px-6 py-3 rounded-full font-bold border-2 border-brand-dark hover:bg-[#e84d2a] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-[2px_2px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[4px] active:translate-x-[4px] flex items-center gap-2"
             >
               <Sparkles className="w-5 h-5" />
-              {isHosting ? 'Launching...' : `${isEditMode ? 'Update' : 'Save'} & Host ${getGameMode(selectedLaunchMode).shortLabel}`}
+              {isHosting ? createPackCopy.launching : `${isEditMode ? createPackCopy.updateAndHost : createPackCopy.saveAndHost} ${getGameMode(selectedLaunchMode).shortLabel}`}
             </button>
           </div>
         </div>
@@ -665,8 +733,8 @@ export default function TeacherCreatePack() {
         {/* Step Indicator */}
         <div className="flex items-center justify-center gap-8 mb-12">
           {[
-            { id: 'CONTENT', label: '1. Material & Magic', icon: Sparkles },
-            { id: 'QUESTIONS', label: '2. Review & Launch', icon: Layout },
+            { id: 'CONTENT', label: createPackCopy.stepContent, icon: Sparkles },
+            { id: 'QUESTIONS', label: createPackCopy.stepQuestions, icon: Layout },
           ].map((step) => {
             const isActive = creationStep === step.id;
             return (

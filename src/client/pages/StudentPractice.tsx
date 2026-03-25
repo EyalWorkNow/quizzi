@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle, XCircle, ArrowRight, BrainCircuit, RotateCc
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import QuestionImageCard from '../components/QuestionImageCard.tsx';
+import { useAppLanguage } from '../lib/appLanguage.tsx';
 
 const COLORS = [
   { bg: 'bg-rose-500', shadow: 'shadow-[0_8px_0_0_#be123c]' },
@@ -13,6 +14,7 @@ const COLORS = [
 ];
 
 export default function StudentPractice() {
+  const { language } = useAppLanguage();
   const { nickname } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -25,11 +27,73 @@ export default function StudentPractice() {
   const [startTime, setStartTime] = useState(0);
   const [error, setError] = useState('');
   const [practiceStats, setPracticeStats] = useState({ correct: 0, answered: 0 });
+  const copy = {
+    he: {
+      adaptivePractice: 'תרגול אדפטיבי',
+      reentryBody: 'סבב קצר שנועד לאפשר חזרה חלקה ובטוחה.',
+      targetedBody: 'ספרינט ממוקד סביב המושגים שבהם תחושת הביטחון עדיין שברירית.',
+      momentumBody: 'חיזוק קצר שנועד לשמר את ההתקדמות האחרונה.',
+      defaultBody: 'תרגול אדפטיבי שנבנה מתוך פרופיל השליטה הנוכחי שלך.',
+      loadFailed: 'טעינת סט התרגול האדפטיבי שלך נכשלה.',
+      submitFailed: 'לא ניתן היה לשלוח את התשובה שלך. נסה שוב.',
+      loadingPrefix: 'טוען',
+      loadingSuffix: '...',
+      notLoaded: 'התרגול לא נטען כראוי',
+      interrupted: 'משהו קטע את רצף התרגול האדפטיבי.',
+      retry: 'נסה שוב',
+      backToDashboard: 'חזרה ללוח המחוונים',
+      completeSuffix: 'הושלם',
+      updated: 'ציוני השליטה שלך עודכנו ואות ההתקדמות שלך רוענן.',
+      correct: 'נכונות',
+      answered: 'נענו',
+      accuracy: 'דיוק',
+    },
+    ar: {
+      adaptivePractice: 'تدريب تكيّفي',
+      reentryBody: 'جولة قصيرة لتسهيل العودة بثقة.',
+      targetedBody: 'دفعة مركزة حول المفاهيم التي لا تزال الثقة فيها هشة.',
+      momentumBody: 'دفعة سريعة للحفاظ على تقدمك الأخير.',
+      defaultBody: 'تدريب تكيّفي مبني على ملف الإتقان الحالي لديك.',
+      loadFailed: 'فشل تحميل مجموعة التدريب التكيّفي.',
+      submitFailed: 'تعذر إرسال إجابتك. حاول مرة أخرى.',
+      loadingPrefix: 'جارٍ تحميل',
+      loadingSuffix: '...',
+      notLoaded: 'لم يتم تحميل التدريب بشكل سليم',
+      interrupted: 'حدث ما قطع مسار التدريب التكيّفي.',
+      retry: 'أعد المحاولة',
+      backToDashboard: 'العودة إلى لوحة المتابعة',
+      completeSuffix: 'اكتمل',
+      updated: 'تم تحديث درجات الإتقان لديك وتحديث مؤشر التقدم.',
+      correct: 'صحيحة',
+      answered: 'تمت الإجابة',
+      accuracy: 'الدقة',
+    },
+    en: {
+      adaptivePractice: 'Adaptive Practice',
+      reentryBody: 'A short reset round built to make coming back easy.',
+      targetedBody: 'A focused sprint aimed at the concepts where confidence is still fragile.',
+      momentumBody: 'A quick booster to keep your recent gains warm.',
+      defaultBody: 'Adaptive practice built from your current mastery profile.',
+      loadFailed: 'Failed to load your adaptive practice set.',
+      submitFailed: 'Your answer could not be submitted. Try again.',
+      loadingPrefix: 'Loading',
+      loadingSuffix: '...',
+      notLoaded: 'Practice did not load cleanly',
+      interrupted: 'Something interrupted the adaptive practice flow.',
+      retry: 'Retry',
+      backToDashboard: 'Back to Dashboard',
+      completeSuffix: 'complete',
+      updated: 'Your mastery scores have been updated and your progress signal has been refreshed.',
+      correct: 'Correct',
+      answered: 'Answered',
+      accuracy: 'Accuracy',
+    },
+  }[language];
   const queryString = searchParams.toString();
   const fallbackMission = useMemo(
     () => ({
       id: String(searchParams.get('mission') || '').trim() || null,
-      label: String(searchParams.get('mission_label') || '').trim() || 'Adaptive Practice',
+      label: String(searchParams.get('mission_label') || '').trim() || copy.adaptivePractice,
       question_count: Number(searchParams.get('count') || 5) || 5,
       focus_tags: String(searchParams.get('focus_tags') || '')
         .split(',')
@@ -38,7 +102,7 @@ export default function StudentPractice() {
     }),
     [queryString, searchParams],
   );
-  const missionTitle = mission?.label || fallbackMission.label || 'Adaptive Practice';
+  const missionTitle = mission?.label || fallbackMission.label || copy.adaptivePractice;
   const missionFocusTags = Array.isArray(mission?.focus_tags)
     ? mission.focus_tags
     : Array.isArray(fallbackMission.focus_tags)
@@ -47,12 +111,12 @@ export default function StudentPractice() {
   const missionMode = String(mission?.id || fallbackMission.id || '');
   const missionBody =
     missionMode === 'reentry'
-      ? 'A short reset round built to make coming back easy.'
+      ? copy.reentryBody
       : missionMode === 'targeted'
-        ? 'A focused sprint aimed at the concepts where confidence is still fragile.'
+        ? copy.targetedBody
         : missionMode === 'momentum'
-          ? 'A quick booster to keep your recent gains warm.'
-          : 'Adaptive practice built from your current mastery profile.';
+          ? copy.momentumBody
+          : copy.defaultBody;
 
   useEffect(() => {
     let cancelled = false;
@@ -70,7 +134,7 @@ export default function StudentPractice() {
       })
       .catch((loadError: any) => {
         if (cancelled) return;
-        setError(loadError?.message || 'Failed to load your adaptive practice set.');
+        setError(loadError?.message || copy.loadFailed);
         setStatus('ERROR');
       });
 
@@ -104,7 +168,7 @@ export default function StudentPractice() {
       setStatus('FEEDBACK');
     } catch (err) {
       console.error(err);
-      setError('Your answer could not be submitted. Try again.');
+      setError(copy.submitFailed);
     }
   };
 
@@ -126,7 +190,7 @@ export default function StudentPractice() {
         <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }}>
           <BrainCircuit className="w-16 h-16 text-indigo-300 mb-6" />
         </motion.div>
-        <h2 className="text-2xl font-bold text-slate-700">Loading {missionTitle.toLowerCase()}...</h2>
+        <h2 className="text-2xl font-bold text-slate-700">{`${copy.loadingPrefix} ${missionTitle.toLowerCase()}${copy.loadingSuffix}`}</h2>
       </div>
     );
   }
@@ -138,21 +202,21 @@ export default function StudentPractice() {
           <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-[2rem] border-4 border-brand-dark bg-brand-yellow">
             <AlertTriangle className="w-10 h-10 text-brand-dark" />
           </div>
-          <h2 className="text-4xl font-black text-slate-900 mb-3">Practice did not load cleanly</h2>
-          <p className="text-lg font-bold text-slate-600 mb-8">{error || 'Something interrupted the adaptive practice flow.'}</p>
+          <h2 className="text-4xl font-black text-slate-900 mb-3">{copy.notLoaded}</h2>
+          <p className="text-lg font-bold text-slate-600 mb-8">{error || copy.interrupted}</p>
           <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
             <button
               onClick={() => window.location.reload()}
               className="px-6 py-4 rounded-2xl border-2 border-brand-dark bg-brand-dark text-white font-black flex items-center justify-center gap-2 shadow-[4px_4px_0px_0px_#FF5A36]"
             >
               <RotateCcw className="w-4 h-4" />
-              Retry
+              {copy.retry}
             </button>
             <button
               onClick={() => navigate(`/student/dashboard/${nickname}`)}
               className="px-6 py-4 rounded-2xl border-2 border-brand-dark bg-white font-black"
             >
-              Back to Dashboard
+              {copy.backToDashboard}
             </button>
           </div>
         </div>
@@ -178,19 +242,19 @@ export default function StudentPractice() {
           <div className="inline-flex items-center justify-center w-24 h-24 bg-white/20 rounded-3xl mb-8">
             <Sparkles className="w-12 h-12 text-yellow-300" />
           </div>
-          <h2 className="text-5xl font-black mb-4 tracking-tight">{missionTitle} complete</h2>
-          <p className="text-xl text-indigo-100 font-medium mb-8">Your mastery scores have been updated and your progress signal has been refreshed.</p>
+          <h2 className="text-5xl font-black mb-4 tracking-tight">{`${missionTitle} ${copy.completeSuffix}`}</h2>
+          <p className="text-xl text-indigo-100 font-medium mb-8">{copy.updated}</p>
           <div className="grid grid-cols-3 gap-3 mb-10">
             <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60 mb-2">Correct</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60 mb-2">{copy.correct}</p>
               <p className="text-3xl font-black">{practiceStats.correct}</p>
             </div>
             <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60 mb-2">Answered</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60 mb-2">{copy.answered}</p>
               <p className="text-3xl font-black">{practiceStats.answered}</p>
             </div>
             <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60 mb-2">Accuracy</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60 mb-2">{copy.accuracy}</p>
               <p className="text-3xl font-black">{accuracy}%</p>
             </div>
           </div>
@@ -200,7 +264,7 @@ export default function StudentPractice() {
             onClick={() => navigate(`/student/dashboard/${nickname}`)}
             className="w-full bg-white text-indigo-600 px-8 py-5 rounded-2xl font-black text-2xl transition-all shadow-[0_8px_0_0_rgba(255,255,255,0.5)] hover:shadow-[0_4px_0_0_rgba(255,255,255,0.5)] hover:translate-y-1 active:shadow-none active:translate-y-2 flex items-center justify-center gap-3"
           >
-            Back to Dashboard
+            {copy.backToDashboard}
             <ArrowRight className="w-6 h-6" />
           </motion.button>
         </motion.div>

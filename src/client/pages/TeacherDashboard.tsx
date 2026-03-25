@@ -1220,10 +1220,10 @@ export default function TeacherDashboard() {
               <div>
                 <div className="flex items-center gap-3 mb-2">
                   <div className="px-3 py-1 rounded-full bg-brand-purple text-white text-[10px] font-black uppercase tracking-widest border-2 border-brand-dark">
-                    Launch Center
+                    {t('dash.host.title')}
                   </div>
                   <div className="h-1 w-8 bg-brand-dark/20 rounded-full" />
-                  <span className="text-xs font-bold text-brand-dark/40 uppercase tracking-widest">Setup Phase</span>
+                  <span className="text-xs font-bold text-brand-dark/40 uppercase tracking-widest">{t('dash.host.setup')}</span>
                 </div>
                 <h2 data-no-translate="true" className="text-4xl font-black text-brand-dark leading-tight">{hostingPack.title}</h2>
               </div>
@@ -1242,7 +1242,7 @@ export default function TeacherDashboard() {
                   <div>
                     <h3 className="text-xl font-black mb-4 flex items-center gap-3">
                       <Sparkles className="w-6 h-6 text-brand-orange" />
-                      Choose your game format
+                      {t('dash.host.chooseFormat')}
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {GAME_MODES.map((mode) => {
@@ -1290,16 +1290,16 @@ export default function TeacherDashboard() {
                                   <Rocket className="w-5 h-5 text-white" />
                                 </div>
                                 <span className={`px-3 py-1 rounded-full border-2 border-brand-dark text-[10px] font-black uppercase tracking-widest ${mode.teamBased ? 'bg-brand-dark text-white' : 'bg-white text-brand-dark'}`}>
-                                  {mode.teamBased ? 'Team Play' : 'Solo Play'}
+                                  {mode.teamBased ? t('dash.host.teamPlay') : t('dash.host.soloPlay')}
                                 </span>
                               </div>
-                              <h4 className="text-2xl font-black mb-1">{mode.label}</h4>
-                              <p className="text-sm font-bold text-brand-dark/60 leading-tight mb-4">{mode.quickSummary}</p>
+                              <h4 className="text-2xl font-black mb-1">{t(mode.label)}</h4>
+                              <p className="text-sm font-bold text-brand-dark/60 leading-tight mb-4">{t(mode.quickSummary)}</p>
                               
                               <div className="flex flex-wrap gap-2">
                                 {mode.objectives.slice(0, 2).map((obj) => (
                                   <span key={obj} className="text-[10px] font-bold text-brand-dark/40 border border-brand-dark/10 px-2 py-0.5 rounded-md">
-                                    {obj}
+                                    {t(obj)}
                                   </span>
                                 ))}
                               </div>
@@ -1321,7 +1321,7 @@ export default function TeacherDashboard() {
                       >
                         <h4 className="text-lg font-black mb-4 flex items-center gap-3">
                           <Users className="w-6 h-6 text-brand-purple" />
-                          Assign Team Count
+                          {t('dash.host.teamCount')}
                         </h4>
                         <div className="flex flex-wrap gap-4">
                           {[2, 3, 4, 5, 6, 8, 10].map((count) => (
@@ -1338,7 +1338,7 @@ export default function TeacherDashboard() {
                             </button>
                           ))}
                         </div>
-                        <p className="mt-4 text-sm font-bold text-brand-dark/50">Students will be randomly distributed across these teams upon joining.</p>
+                        <p className="mt-4 text-sm font-bold text-brand-dark/50">{t('dash.host.teamNotice')}</p>
                       </motion.div>
                     ) || (
                       <motion.div
@@ -1346,7 +1346,7 @@ export default function TeacherDashboard() {
                         animate={{ opacity: 1, y: 0 }}
                         className="rounded-[2rem] border-4 border-dashed border-brand-dark/20 bg-brand-bg/20 p-8 flex items-center justify-center text-center"
                       >
-                        <p className="font-bold text-brand-dark/40">No extra settings needed for solo play.</p>
+                        <p className="font-bold text-brand-dark/40">{t('dash.host.soloNotice')}</p>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -1372,24 +1372,24 @@ export default function TeacherDashboard() {
                     <div className="relative z-10 flex flex-col h-full">
                       <div className="flex items-center gap-3 mb-6">
                         <span className="w-12 h-1 w-1 bg-white/30 rounded-full" />
-                        <span className="text-xs font-black uppercase tracking-widest text-white/60">Selected Dossier</span>
+                        <span className="text-xs font-black uppercase tracking-widest text-white/60">{t('dash.host.selectedDossier')}</span>
                       </div>
 
-                      <h3 className="text-4xl font-black mb-4">{getGameMode(selectedGameMode).label}</h3>
-                      <p className="text-lg font-bold text-white/80 leading-snug mb-8">{getGameMode(selectedGameMode).description}</p>
+                      <h3 className="text-4xl font-black mb-4">{t(getGameMode(selectedGameMode).label)}</h3>
+                      <p className="text-lg font-bold text-white/80 leading-snug mb-8">{t(getGameMode(selectedGameMode).description)}</p>
 
                       <div className="space-y-6">
                         <div className="bg-white/10 rounded-2xl p-4 border border-white/10">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-white/50 mb-2">Research Foundation</p>
-                          <p className="font-bold text-white leading-tight">{getGameMode(selectedGameMode).researchCue}</p>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-white/50 mb-2">{t('dash.host.researchFoundation')}</p>
+                          <p className="font-bold text-white leading-tight">{t(getGameMode(selectedGameMode).researchCue)}</p>
                         </div>
 
                         <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-white/50 mb-3">Best Applied To</p>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-white/50 mb-3">{t('dash.host.bestAppliedTo')}</p>
                           <div className="flex flex-wrap gap-2">
                             {getGameMode(selectedGameMode).bestFor.map(tag => (
                               <span key={tag} className="text-[11px] font-black bg-white text-brand-dark px-3 py-1 rounded-full">
-                                {tag}
+                                {t(tag)}
                               </span>
                             ))}
                           </div>

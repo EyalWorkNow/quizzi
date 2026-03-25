@@ -217,6 +217,11 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       option_hover_counts_json TEXT DEFAULT '{}',
       outside_answer_pointer_moves INTEGER DEFAULT 0,
       rapid_pointer_jumps INTEGER DEFAULT 0,
+      submission_retry_count INTEGER DEFAULT 0,
+      reconnect_count INTEGER DEFAULT 0,
+      visibility_interruptions INTEGER DEFAULT 0,
+      network_degraded BOOLEAN DEFAULT FALSE,
+      device_profile TEXT DEFAULT '',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `,
@@ -256,6 +261,28 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
   `
     DO $$
+    DECLARE legacy_constraint_name TEXT;
+    BEGIN
+      SELECT con.conname
+      INTO legacy_constraint_name
+      FROM pg_constraint con
+      WHERE con.conrelid = 'mastery'::regclass
+        AND con.contype = 'u'
+        AND (
+          SELECT array_agg(att.attname ORDER BY key_columns.ordinality)
+          FROM unnest(con.conkey) WITH ORDINALITY AS key_columns(attnum, ordinality)
+          JOIN pg_attribute att
+            ON att.attrelid = con.conrelid
+           AND att.attnum = key_columns.attnum
+        ) = ARRAY['nickname', 'tag'];
+
+      IF legacy_constraint_name IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE mastery DROP CONSTRAINT %I', legacy_constraint_name);
+      END IF;
+    END $$;
+  `,
+  `
+    DO $$
     BEGIN
       IF EXISTS (
         SELECT 1
@@ -272,6 +299,11 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS option_hover_counts_json TEXT DEFAULT '{}'`,
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS outside_answer_pointer_moves INTEGER DEFAULT 0`,
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS rapid_pointer_jumps INTEGER DEFAULT 0`,
+  `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS submission_retry_count INTEGER DEFAULT 0`,
+  `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS reconnect_count INTEGER DEFAULT 0`,
+  `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS visibility_interruptions INTEGER DEFAULT 0`,
+  `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS network_degraded BOOLEAN DEFAULT FALSE`,
+  `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS device_profile TEXT DEFAULT ''`,
   `
     CREATE TABLE IF NOT EXISTS mastery (
       id SERIAL PRIMARY KEY,
@@ -307,6 +339,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'CREATE INDEX IF NOT EXISTS idx_behavior_participant_session ON student_behavior_logs(participant_id, session_id)',
   'CREATE INDEX IF NOT EXISTS idx_mastery_nickname ON mastery(nickname)',
   'CREATE INDEX IF NOT EXISTS idx_mastery_identity_key ON mastery(identity_key)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_mastery_identity_tag_unique ON mastery(identity_key, tag)',
   'CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_question ON practice_attempts(nickname, question_id)',
   'CREATE INDEX IF NOT EXISTS idx_practice_attempts_identity_created ON practice_attempts(identity_key, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_generation_cache_lookup ON question_generation_cache(material_profile_id, difficulty, output_language, question_count)',

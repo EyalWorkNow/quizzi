@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Music2, Volume2, VolumeX } from 'lucide-react';
+import { useAppLanguage } from '../lib/appLanguage.tsx';
 import {
   DEFAULT_SESSION_SOUNDTRACKS,
   getSessionSoundtrackById,
@@ -65,6 +66,7 @@ export default function SessionSoundtrackPlayer({
   className = '',
   placement = 'fixed',
 }: Props) {
+  const { language } = useAppLanguage();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [muted, setMuted] = useState(() => readStoredMutedPreference());
   const [needsInteraction, setNeedsInteraction] = useState(false);
@@ -170,15 +172,39 @@ export default function SessionSoundtrackPlayer({
 
   if (!activeTrack) return null;
 
+  const copy = {
+    he: {
+      enableLobby: 'הפעל את מוזיקת הלובי',
+      enableGame: 'הפעל את מוזיקת המשחק',
+      muted: 'המוזיקה מושתקת',
+      lobbyLabel: 'פסקול הלובי',
+      gameLabel: 'פסקול המשחק',
+    },
+    ar: {
+      enableLobby: 'فعّل موسيقى الردهة',
+      enableGame: 'فعّل موسيقى اللعبة',
+      muted: 'الموسيقى مكتومة',
+      lobbyLabel: 'موسيقى الردهة',
+      gameLabel: 'موسيقى اللعبة',
+    },
+    en: {
+      enableLobby: 'Enable lobby music',
+      enableGame: 'Enable game music',
+      muted: 'Music muted',
+      lobbyLabel: 'Lobby soundtrack',
+      gameLabel: 'Game soundtrack',
+    },
+  }[language];
+
   const buttonLabel = needsInteraction
-    ? `Enable ${status === 'LOBBY' ? 'lobby' : 'game'} music`
+    ? (status === 'LOBBY' ? copy.enableLobby : copy.enableGame)
     : muted
-      ? 'Music muted'
+      ? copy.muted
       : activeTrack.label;
   const placementClassName =
     placement === 'inline'
-      ? 'inline-flex w-full items-center gap-3 rounded-full border-4 border-brand-dark bg-white px-5 py-3 text-left shadow-[6px_6px_0px_0px_#1A1A1A] transition-colors hover:bg-brand-yellow'
-      : 'fixed bottom-5 right-5 z-40 hidden items-center gap-3 rounded-full border-4 border-brand-dark bg-white px-5 py-3 text-left shadow-[6px_6px_0px_0px_#1A1A1A] transition-colors hover:bg-brand-yellow md:flex';
+      ? 'game-action-button game-action-button--secondary group w-full justify-start px-5 py-3 text-left'
+      : 'game-action-button game-action-button--secondary group fixed bottom-5 right-5 z-40 hidden justify-start px-5 py-3 text-left md:flex';
 
   return (
     <button
@@ -207,12 +233,12 @@ export default function SessionSoundtrackPlayer({
       className={`${placementClassName} ${className}`.trim()}
       title={activeTrack.label}
     >
-      <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-brand-dark bg-brand-bg">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-brand-dark bg-brand-bg transition-colors group-hover:bg-brand-yellow">
         {muted ? <VolumeX className="w-5 h-5 text-brand-dark" /> : isPlaying ? <Volume2 className="w-5 h-5 text-brand-orange" /> : <Music2 className="w-5 h-5 text-brand-dark" />}
       </div>
       <div className="min-w-0">
         <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple">
-          {status === 'LOBBY' ? 'Lobby soundtrack' : 'Game soundtrack'}
+          {status === 'LOBBY' ? copy.lobbyLabel : copy.gameLabel}
         </p>
         <p className="truncate font-black text-brand-dark">{buttonLabel}</p>
       </div>

@@ -351,6 +351,11 @@ export async function initDb() {
       touch_activity_count INTEGER DEFAULT 0,
       same_answer_reclicks INTEGER DEFAULT 0,
       option_dwell_json TEXT DEFAULT '{}',
+      submission_retry_count INTEGER DEFAULT 0,
+      reconnect_count INTEGER DEFAULT 0,
+      visibility_interruptions INTEGER DEFAULT 0,
+      network_degraded INTEGER DEFAULT 0,
+      device_profile TEXT DEFAULT '',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -450,6 +455,11 @@ export async function initDb() {
   (await ensureColumn('student_behavior_logs', 'touch_activity_count', 'INTEGER DEFAULT 0'));
   (await ensureColumn('student_behavior_logs', 'same_answer_reclicks', 'INTEGER DEFAULT 0'));
   (await ensureColumn('student_behavior_logs', 'option_dwell_json', "TEXT DEFAULT '{}'"));
+  (await ensureColumn('student_behavior_logs', 'submission_retry_count', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('student_behavior_logs', 'reconnect_count', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('student_behavior_logs', 'visibility_interruptions', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('student_behavior_logs', 'network_degraded', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('student_behavior_logs', 'device_profile', "TEXT DEFAULT ''"));
 
   db.exec(`
     DELETE FROM answers

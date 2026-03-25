@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
+import { useAppLanguage } from '../lib/appLanguage.tsx';
 import {
   clearStoredTeacherClasses,
   loadStoredTeacherClassesSnapshot,
@@ -122,6 +123,7 @@ function sortClassesByRecent(classes: TeacherClassBoard[]) {
 }
 
 export default function TeacherClasses() {
+  const { language } = useAppLanguage();
   const navigate = useNavigate();
   const [classes, setClasses] = useState<TeacherClassBoard[]>([]);
   const [packs, setPacks] = useState<any[]>([]);
@@ -136,6 +138,98 @@ export default function TeacherClasses() {
   const [studentName, setStudentName] = useState('');
   const [pendingSessionDelete, setPendingSessionDelete] = useState<null | { sessionId: number; classId: number; label: string }>(null);
   const [copiedOutreachKey, setCopiedOutreachKey] = useState('');
+  const copy = {
+    he: {
+      title: 'כיתות',
+      subtitle: 'רשימות כיתה אמיתיות, שיוך חבילות בפועל וקישורים ישירים לסשנים החיים ולדוחות שכל כיתה באמת יצרה.',
+      refresh: 'רענון לוח',
+      newClass: 'כיתה חדשה',
+      searchPlaceholder: 'חפש כיתות, תלמידים, מקצועות או חבילות משויכות...',
+      loading: 'טוען כיתות...',
+      loadFailedTitle: 'הכיתות לא נטענו כראוי.',
+      retry: 'נסה שוב',
+      emptyTitle: 'לא נמצאו כיתות שמתאימות ללוח הזה.',
+      emptyBody: 'צור כיתה חדשה, או תן ל־Quizzi לשחזר לוחות מהיסטוריית סשנים חיים כשהיא מזהה פעילות קודמת בלי לוח כיתה משויך.',
+      createFirst: 'צור את הכיתה הראשונה',
+      builderTitle: 'בונה כיתה',
+      createTitle: 'יצירת כיתה',
+      editTitle: 'עריכת כיתה',
+      builderBody: 'עדכן את רשומת הכיתה החיה, הסגל והחבילה המשויכת ממקום אחד.',
+      className: 'שם הכיתה',
+      subject: 'מקצוע',
+      grade: 'שכבה',
+      assignedPack: 'חבילה משויכת',
+      noPack: 'עדיין אין חבילה משויכת',
+      createPackFirst: 'צור קודם חבילת חידון אם אתה רוצה שהכיתה הזאת תוכל להפעיל סשן חי ישירות.',
+      color: 'צבע',
+      notes: 'הערות',
+      notesPlaceholder: 'הערות אופציונליות לגבי קצב, קבוצות או הקשר כיתתי...',
+      saving: 'שומר...',
+      updateClass: 'עדכן כיתה',
+      createClass: 'צור כיתה',
+      reset: 'איפוס',
+    },
+    ar: {
+      title: 'الصفوف',
+      subtitle: 'قوائم صفية فعلية، وربط حزم حقيقي، وروابط مباشرة إلى الجلسات الحية والتقارير التي أنشأها كل صف بالفعل.',
+      refresh: 'تحديث اللوحة',
+      newClass: 'صف جديد',
+      searchPlaceholder: 'ابحث عن صفوف أو طلاب أو مواد أو حزم مرتبطة...',
+      loading: 'جارٍ تحميل الصفوف...',
+      loadFailedTitle: 'لم يتم تحميل الصفوف بشكل سليم.',
+      retry: 'أعد المحاولة',
+      emptyTitle: 'لم يتم العثور على صفوف مطابقة لهذه اللوحة.',
+      emptyBody: 'أنشئ صفًا جديدًا، أو اسمح لـ Quizzi بإعادة بناء اللوحات من تاريخ الجلسات الحية عندما يكتشف نشاطًا سابقًا بلا لوحة صف مرتبطة.',
+      createFirst: 'أنشئ الصف الأول',
+      builderTitle: 'منشئ الصف',
+      createTitle: 'إنشاء صف',
+      editTitle: 'تحرير صف',
+      builderBody: 'حدّث سجل الصف الحي والقائمة والحزمة المرتبطة من مكان واحد.',
+      className: 'اسم الصف',
+      subject: 'المادة',
+      grade: 'الصف',
+      assignedPack: 'الحزمة المرتبطة',
+      noPack: 'لا توجد حزمة مرتبطة بعد',
+      createPackFirst: 'أنشئ حزمة اختبار أولًا إذا كنت تريد لهذا الصف أن يطلق جلسة حية مباشرة.',
+      color: 'اللون',
+      notes: 'ملاحظات',
+      notesPlaceholder: 'ملاحظات اختيارية عن الإيقاع أو المجموعات أو سياق الصف...',
+      saving: 'جارٍ الحفظ...',
+      updateClass: 'حدّث الصف',
+      createClass: 'أنشئ صفًا',
+      reset: 'إعادة ضبط',
+    },
+    en: {
+      title: 'Classes',
+      subtitle: 'Real class rosters, real pack assignments, and direct links into the live sessions and reports each class actually generated.',
+      refresh: 'Refresh Board',
+      newClass: 'New Class',
+      searchPlaceholder: 'Search classes, students, subjects or assigned packs...',
+      loading: 'Loading classes...',
+      loadFailedTitle: 'Classes did not load cleanly.',
+      retry: 'Try again',
+      emptyTitle: 'No classes matched this board.',
+      emptyBody: 'Create a class, or let Quizzi rebuild boards from historical live sessions when it finds session history with no class board attached.',
+      createFirst: 'Create the first class',
+      builderTitle: 'Class Builder',
+      createTitle: 'Create Class',
+      editTitle: 'Edit Class',
+      builderBody: 'Update the live class record, roster, and assigned pack from one place.',
+      className: 'Class Name',
+      subject: 'Subject',
+      grade: 'Grade',
+      assignedPack: 'Assigned Pack',
+      noPack: 'No pack assigned yet',
+      createPackFirst: 'Create a quiz pack first if you want this class to launch directly into live sessions.',
+      color: 'Color',
+      notes: 'Notes',
+      notesPlaceholder: 'Optional notes for pacing, grouping, or roster context...',
+      saving: 'Saving...',
+      updateClass: 'Update Class',
+      createClass: 'Create Class',
+      reset: 'Reset',
+    },
+  }[language];
 
   useEffect(() => {
     void bootstrapPage();
@@ -558,9 +652,9 @@ export default function TeacherClasses() {
         <div className="max-w-[1360px] mx-auto">
           <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 mb-8">
             <div>
-              <h1 className="text-3xl lg:text-4xl font-black tracking-tight">Classes</h1>
+              <h1 className="text-3xl lg:text-4xl font-black tracking-tight">{copy.title}</h1>
               <p className="text-brand-dark/60 font-bold mt-2 max-w-3xl">
-                Real class rosters, real pack assignments, and direct links into the live sessions and reports each class actually generated.
+                {copy.subtitle}
               </p>
             </div>
 
@@ -569,14 +663,14 @@ export default function TeacherClasses() {
                 onClick={() => void bootstrapPage()}
                 className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
               >
-                Refresh Board
+                {copy.refresh}
               </button>
               <button
                 onClick={openNewClassBuilder}
                 className="px-6 py-3 bg-brand-yellow text-brand-dark border-2 border-brand-dark rounded-full flex items-center gap-2 hover:bg-yellow-300 transition-colors font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
               >
                 <Plus className="w-5 h-5" />
-                New Class
+                {copy.newClass}
               </button>
             </div>
           </div>
@@ -616,7 +710,7 @@ export default function TeacherClasses() {
                   <input
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Search classes, students, subjects or assigned packs..."
+                    placeholder={copy.searchPlaceholder}
                     className="w-full bg-brand-bg border-2 border-brand-dark rounded-full py-3 pl-12 pr-4 font-bold focus:outline-none focus:ring-2 focus:ring-brand-orange/20"
                   />
                 </div>
@@ -636,30 +730,30 @@ export default function TeacherClasses() {
               {loading ? (
                 <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-10 shadow-[4px_4px_0px_0px_#1A1A1A] flex items-center justify-center gap-3 font-black">
                   <LoaderCircle className="w-5 h-5 animate-spin" />
-                  Loading classes...
+                  {copy.loading}
                 </div>
               ) : loadError && filteredClasses.length === 0 ? (
                 <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-10 shadow-[4px_4px_0px_0px_#1A1A1A] text-center">
-                  <p className="text-2xl font-black mb-2">Classes did not load cleanly.</p>
+                  <p className="text-2xl font-black mb-2">{copy.loadFailedTitle}</p>
                   <p className="font-bold text-brand-dark/60 mb-6">{loadError}</p>
                   <button
                     onClick={() => void bootstrapPage()}
                     className="px-6 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
                   >
-                    Try again
+                    {copy.retry}
                   </button>
                 </div>
               ) : filteredClasses.length === 0 ? (
                 <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-10 shadow-[4px_4px_0px_0px_#1A1A1A] text-center">
-                  <p className="text-2xl font-black mb-2">No classes matched this board.</p>
+                  <p className="text-2xl font-black mb-2">{copy.emptyTitle}</p>
                   <p className="font-bold text-brand-dark/60 mb-6">
-                    Create a class, or let Quizzi rebuild boards from historical live sessions when it finds session history with no class board attached.
+                    {copy.emptyBody}
                   </p>
                   <button
                     onClick={openNewClassBuilder}
                     className="px-6 py-3 bg-brand-yellow border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
                   >
-                    Create the first class
+                    {copy.createFirst}
                   </button>
                 </div>
               ) : (
@@ -688,26 +782,26 @@ export default function TeacherClasses() {
               <div className="flex items-center gap-3 mb-6">
                 <ClipboardList className="w-6 h-6 text-brand-purple" />
                 <div>
-                  <h2 className="text-2xl font-black">{form.id ? 'Edit Class' : selectedClassId === 'new' ? 'Create Class' : 'Class Builder'}</h2>
+                  <h2 className="text-2xl font-black">{form.id ? copy.editTitle : selectedClassId === 'new' ? copy.createTitle : copy.builderTitle}</h2>
                   <p className="font-bold text-sm text-brand-dark/50">
-                    Update the live class record, roster, and assigned pack from one place.
+                    {copy.builderBody}
                   </p>
                 </div>
               </div>
 
               <div className="space-y-4">
-                <Field label="Class Name" value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
-                <Field label="Subject" value={form.subject} onChange={(value) => setForm((current) => ({ ...current, subject: value }))} />
-                <Field label="Grade" value={form.grade} onChange={(value) => setForm((current) => ({ ...current, grade: value }))} />
+                <Field label={copy.className} value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
+                <Field label={copy.subject} value={form.subject} onChange={(value) => setForm((current) => ({ ...current, subject: value }))} />
+                <Field label={copy.grade} value={form.grade} onChange={(value) => setForm((current) => ({ ...current, grade: value }))} />
 
                 <div>
-                  <label className="block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50 mb-2">Assigned Pack</label>
+                  <label className="block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50 mb-2">{copy.assignedPack}</label>
                   <select
                     value={form.packId}
                     onChange={(event) => setForm((current) => ({ ...current, packId: event.target.value }))}
                     className="w-full bg-brand-bg border-2 border-brand-dark rounded-xl p-3 font-bold"
                   >
-                    <option value="">No pack assigned yet</option>
+                    <option value="">{copy.noPack}</option>
                     {packs.map((pack) => (
                       <option key={pack.id} value={pack.id}>
                         {pack.title}
@@ -716,13 +810,13 @@ export default function TeacherClasses() {
                   </select>
                   {packs.length === 0 && (
                     <p className="text-xs font-bold text-brand-dark/50 mt-2">
-                      Create a quiz pack first if you want this class to launch directly into live sessions.
+                      {copy.createPackFirst}
                     </p>
                   )}
                 </div>
 
                 <div>
-                  <label className="block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50 mb-2">Color</label>
+                  <label className="block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50 mb-2">{copy.color}</label>
                   <div className="flex gap-2 flex-wrap">
                     {TEACHER_CLASS_COLOR_OPTIONS.map((color) => (
                       <button
@@ -739,12 +833,12 @@ export default function TeacherClasses() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50 mb-2">Notes</label>
+                  <label className="block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50 mb-2">{copy.notes}</label>
                   <textarea
                     value={form.notes}
                     onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
                     className="w-full bg-brand-bg border-2 border-brand-dark rounded-xl p-3 font-bold min-h-28"
-                    placeholder="Optional notes for pacing, grouping, or roster context..."
+                    placeholder={copy.notesPlaceholder}
                   />
                 </div>
               </div>
@@ -755,10 +849,10 @@ export default function TeacherClasses() {
                   disabled={busyKey === 'save-class'}
                   className="flex-1 bg-brand-orange text-white border-2 border-brand-dark rounded-xl py-3 font-black shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-60"
                 >
-                  {busyKey === 'save-class' ? 'Saving...' : form.id ? 'Update Class' : 'Create Class'}
+                  {busyKey === 'save-class' ? copy.saving : form.id ? copy.updateClass : copy.createClass}
                 </button>
                 <button onClick={resetForm} className="px-4 border-2 border-brand-dark rounded-xl font-black bg-white">
-                  Reset
+                  {copy.reset}
                 </button>
               </div>
 

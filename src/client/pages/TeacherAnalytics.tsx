@@ -462,6 +462,17 @@ export default function TeacherAnalytics() {
   const leadAlert = sortedAlerts[0] || null;
   const leadQuestion = questionDiagnostics[0] || null;
   const leadMisconception = recurrentMisconceptions[0] || null;
+  const summaryTrust = data?.summary || {};
+  const summaryObservedFacts = summaryTrust?.observed_facts || null;
+  const summaryInterpretation = summaryTrust?.derived_interpretation || null;
+  const summaryTeacherAction = summaryTrust?.teacher_action || null;
+  const summaryRawFacts = Array.isArray(summaryTrust?.raw_facts) ? summaryTrust.raw_facts.slice(0, 4) : [];
+  const summaryGradingMetrics = Array.isArray(summaryTrust?.grading_safe_metrics)
+    ? summaryTrust.grading_safe_metrics.slice(0, 4)
+    : [];
+  const summaryBehaviorMetrics = Array.isArray(summaryTrust?.behavior_signal_metrics)
+    ? summaryTrust.behavior_signal_metrics.slice(0, 4)
+    : [];
   const attentionQueue = data?.studentSpotlight?.attention_needed || [];
   const topAttentionStudents = attentionQueue.slice(0, 3);
   const attentionOrder = useMemo(
@@ -2093,7 +2104,6 @@ export default function TeacherAnalytics() {
   return (
     <div
       dir={direction}
-      data-no-translate="true"
       className="min-h-screen bg-brand-bg pb-20 font-sans text-brand-dark selection:bg-brand-orange selection:text-white"
     >
       <div className={`sticky top-0 z-30 border-b-4 border-brand-dark shadow-[0_4px_0px_0px_#1A1A1A] transition-all duration-300 ${isHeaderCondensed ? 'bg-white/85 backdrop-blur-md' : 'bg-white'}`}>
@@ -2298,6 +2308,73 @@ export default function TeacherAnalytics() {
                 <p className="font-medium text-brand-dark/75">
                   {t(leadAlert?.body || 'The class does not currently show a single alert that outweighs the rest of the board.')}
                 </p>
+              </div>
+
+              <div className="rounded-[1.9rem] border-4 border-brand-dark bg-white text-brand-dark p-5 shadow-[6px_6px_0px_0px_#1A1A1A]">
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple">{t('Teacher Trust Mode')}</p>
+                    <p className="font-bold text-brand-dark/65 mt-1">{t('Observed facts, interpretation, and action')}</p>
+                  </div>
+                  <div className="rounded-full border-2 border-brand-dark bg-brand-bg px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/55">
+                    {String(summaryTrust?.analytics_version || data?.analytics_version || 'n/a').replace(/_/g, ' ')}
+                  </div>
+                </div>
+
+                <div className="grid gap-3">
+                  <TrustReadCard
+                    eyebrow={t('Observed Facts')}
+                    title={t(summaryObservedFacts?.headline || 'Observed facts')}
+                    body={t(summaryObservedFacts?.body || 'No evidence snapshot was produced yet.')}
+                    tone="light"
+                  />
+                  <TrustReadCard
+                    eyebrow={t('Derived Interpretation')}
+                    title={t(summaryInterpretation?.headline || data?.summary?.headline || 'Class read')}
+                    body={t(summaryInterpretation?.body || data?.summary?.summary || 'No interpretation was produced yet.')}
+                    tone="purple"
+                  />
+                  <TrustReadCard
+                    eyebrow={t('Teacher Action')}
+                    title={t(summaryTeacherAction?.label || summaryTeacherAction?.title || 'Monitor')}
+                    body={t(summaryTeacherAction?.body || 'Keep watching the next round for a clearer instructional move.')}
+                    tone="amber"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mt-4">
+                  <SignalPill label="Signal Quality" value={summaryTrust?.signal_quality || 'low'} tone={riskTone(summaryTrust?.signal_quality)} />
+                  <SignalPill label="Confidence Band" value={summaryTrust?.confidence_band || 'low'} tone={riskTone(summaryTrust?.confidence_band)} />
+                  <SignalPill label="Evidence Count" value={summaryTrust?.evidence_count ?? 0} />
+                  <SignalPill label="Suppressed" value={summaryTrust?.suppressed_reason ? 'Yes' : 'No'} tone={summaryTrust?.suppressed_reason ? 'medium' : 'good'} />
+                </div>
+
+                {(summaryGradingMetrics.length > 0 || summaryBehaviorMetrics.length > 0 || summaryRawFacts.length > 0) && (
+                  <div className="mt-4 space-y-4">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{t('Grading-Safe Metrics')}</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {summaryGradingMetrics.map((metric: any, index: number) => (
+                          <TrustMetricChip key={`grading-safe-${metric.label || index}`} metric={metric} />
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{t('Behavior Signals')}</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(summaryBehaviorMetrics.length > 0 ? summaryBehaviorMetrics : summaryRawFacts).map((metric: any, index: number) => (
+                          <TrustMetricChip key={`behavior-signal-${metric.label || index}`} metric={metric} />
+                        ))}
+                      </div>
+                    </div>
+                    {summaryTrust?.suppressed_reason && (
+                      <div className="rounded-[1.2rem] border-2 border-dashed border-brand-dark/25 bg-brand-bg p-3">
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-1">{t('Suppressed Reason')}</p>
+                        <p className="font-medium text-brand-dark/70">{t(summaryTrust.suppressed_reason)}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -6180,6 +6257,51 @@ function SignalPill({
         {metricId && <InfoTooltip metricId={metricId} />}
       </div>
       <p className="text-lg font-black">{typeof value === 'string' ? t(value) : value}</p>
+    </div>
+  );
+}
+
+function TrustReadCard({
+  eyebrow,
+  title,
+  body,
+  tone,
+}: {
+  eyebrow: string;
+  title: string;
+  body: string;
+  tone: 'light' | 'purple' | 'amber';
+}) {
+  const { t } = useTeacherAnalyticsLanguage();
+  const toneClass =
+    tone === 'purple'
+      ? 'bg-[#eef0ff]'
+      : tone === 'amber'
+        ? 'bg-[#fff6db]'
+        : 'bg-brand-bg';
+
+  return (
+    <div className={`rounded-[1.2rem] border-2 border-brand-dark p-4 ${toneClass}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{t(eyebrow)}</p>
+      <p className="font-black leading-tight">{t(title)}</p>
+      <p className="font-medium text-brand-dark/72 mt-2">{t(body)}</p>
+    </div>
+  );
+}
+
+function TrustMetricChip({ metric }: { metric: any }) {
+  const { t } = useTeacherAnalyticsLanguage();
+  const unit = String(metric?.unit || '').trim();
+  const rawValue = metric?.value;
+  const formattedValue =
+    typeof rawValue === 'number' && Number.isFinite(rawValue)
+      ? `${Number(rawValue).toFixed(unit === '%' ? 1 : unit === 'ms' ? 0 : Number.isInteger(rawValue) ? 0 : 1)}${unit ? ` ${unit}` : ''}`
+      : `${String(rawValue ?? '--')}${unit ? ` ${unit}` : ''}`;
+
+  return (
+    <div className="rounded-xl border-2 border-brand-dark bg-white px-3 py-2">
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{t(metric?.label || 'Metric')}</p>
+      <p className="text-sm font-black mt-1">{typeof rawValue === 'string' ? t(formattedValue) : formattedValue}</p>
     </div>
   );
 }
