@@ -2,6 +2,7 @@ import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from './ses
 
 export type GameModeId =
   | 'classic_quiz'
+  | 'accuracy_quiz'
   | 'speed_sprint'
   | 'confidence_climb'
   | 'peer_pods'
@@ -14,11 +15,16 @@ export type GameModeConfig = {
   timer_multiplier?: number;
   min_time_limit_seconds?: number;
   max_time_limit_seconds?: number;
+  timer_mode?: 'countdown' | 'unlimited';
   requires_confidence?: boolean;
   peer_instruction_enabled?: boolean;
   discussion_seconds?: number;
   revote_seconds?: number;
-  scoring_profile?: 'standard' | 'speed' | 'confidence' | 'coverage';
+  scoring_profile?: 'standard' | 'speed' | 'confidence' | 'coverage' | 'accuracy';
+  leaderboard_style?: 'standard' | 'accuracy';
+  rejoin_policy?: 'restore' | 'strict';
+  sound_fx_enabled?: boolean;
+  reveal_duration_seconds?: number;
   lobby_track_id?: SessionSoundtrackChoice;
   gameplay_track_id?: SessionSoundtrackChoice;
 };
@@ -42,7 +48,21 @@ export type GameModeDefinition = {
   visualVibe: string; // Used for CSS background patterns or imagery
 };
 
-const DEFAULT_AUDIO_MODE_CONFIG: Pick<GameModeConfig, 'lobby_track_id' | 'gameplay_track_id'> = {
+const DEFAULT_GAMEPLAY_MODE_CONFIG: Pick<
+  GameModeConfig,
+  | 'timer_mode'
+  | 'leaderboard_style'
+  | 'rejoin_policy'
+  | 'sound_fx_enabled'
+  | 'reveal_duration_seconds'
+  | 'lobby_track_id'
+  | 'gameplay_track_id'
+> = {
+  timer_mode: 'countdown',
+  leaderboard_style: 'standard',
+  rejoin_policy: 'restore',
+  sound_fx_enabled: true,
+  reveal_duration_seconds: 6,
   ...DEFAULT_SESSION_SOUNDTRACKS,
 };
 
@@ -62,12 +82,37 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     objectives: ['Rapid retrieval', 'Low setup overhead', 'Clear individual ranking'],
     bestFor: ['Daily review', 'Whole-class checks', 'Fast formative assessment'],
     defaultModeConfig: {
-      ...DEFAULT_AUDIO_MODE_CONFIG,
+      ...DEFAULT_GAMEPLAY_MODE_CONFIG,
       scoring_profile: 'standard',
     },
     hexColor: '#6366f1', // Indigo
     accentColor: '#818cf8',
     visualVibe: 'dots-grid',
+  },
+  {
+    id: 'accuracy_quiz',
+    label: 'Accuracy Quiz',
+    shortLabel: 'Accuracy',
+    category: 'solo',
+    teamBased: false,
+    defaultTeamCount: 0,
+    evidenceStrength: 'high',
+    researchCue: 'Correctness-first retrieval without speed pressure',
+    quickSummary: 'Fixed points for correct answers, no speed bonus, calmer pacing.',
+    description:
+      'A lower-pressure solo mode where correctness drives scoring. Great when you want the room to focus on thinking clearly instead of racing the timer.',
+    objectives: ['Accuracy over speed', 'Fair scoring', 'Calmer pacing'],
+    bestFor: ['Mixed-access rooms', 'Concept checks', 'Low-pressure review'],
+    defaultModeConfig: {
+      ...DEFAULT_GAMEPLAY_MODE_CONFIG,
+      timer_mode: 'unlimited',
+      leaderboard_style: 'accuracy',
+      scoring_profile: 'accuracy',
+      reveal_duration_seconds: 5,
+    },
+    hexColor: '#eab308',
+    accentColor: '#fde047',
+    visualVibe: 'soft-halo',
   },
   {
     id: 'speed_sprint',
@@ -84,7 +129,7 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     objectives: ['Fast recall', 'High tempo', 'Short attention cycles'],
     bestFor: ['Warm-ups', 'Exit tickets', 'Rapid spaced review'],
     defaultModeConfig: {
-      ...DEFAULT_AUDIO_MODE_CONFIG,
+      ...DEFAULT_GAMEPLAY_MODE_CONFIG,
       timer_multiplier: 0.65,
       min_time_limit_seconds: 8,
       max_time_limit_seconds: 18,
@@ -109,7 +154,7 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     objectives: ['Confidence calibration', 'Reflective retrieval', 'More deliberate lock-in'],
     bestFor: ['Exam prep', 'Misconception checks', 'Confidence rebuilding'],
     defaultModeConfig: {
-      ...DEFAULT_AUDIO_MODE_CONFIG,
+      ...DEFAULT_GAMEPLAY_MODE_CONFIG,
       requires_confidence: true,
       scoring_profile: 'confidence',
     },
@@ -132,7 +177,7 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     objectives: ['Peer instruction', 'Explanation-rich rounds', 'Revision after discussion'],
     bestFor: ['Conceptual questions', 'Common misconceptions', 'Reasoning-heavy lessons'],
     defaultModeConfig: {
-      ...DEFAULT_AUDIO_MODE_CONFIG,
+      ...DEFAULT_GAMEPLAY_MODE_CONFIG,
       peer_instruction_enabled: true,
       discussion_seconds: 30,
       revote_seconds: 22,
@@ -157,7 +202,7 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     objectives: ['Peer accountability', 'Collective momentum', 'Low-friction group play'],
     bestFor: ['Mixed-attainment rooms', 'Energy boosts', 'Team competition'],
     defaultModeConfig: {
-      ...DEFAULT_AUDIO_MODE_CONFIG,
+      ...DEFAULT_GAMEPLAY_MODE_CONFIG,
       scoring_profile: 'standard',
     },
     hexColor: '#10b981', // Emerald
@@ -179,7 +224,7 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
     objectives: ['Concept coverage', 'Balanced mastery', 'Tag-level competition'],
     bestFor: ['Cumulative review', 'Mixed-topic packs', 'Reinforcement across tags'],
     defaultModeConfig: {
-      ...DEFAULT_AUDIO_MODE_CONFIG,
+      ...DEFAULT_GAMEPLAY_MODE_CONFIG,
       scoring_profile: 'coverage',
     },
     hexColor: '#06b6d4', // Cyan

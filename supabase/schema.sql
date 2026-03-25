@@ -157,20 +157,27 @@ CREATE TABLE IF NOT EXISTS student_behavior_logs (
   option_hover_counts_json TEXT DEFAULT '{}',
   outside_answer_pointer_moves INTEGER DEFAULT 0,
   rapid_pointer_jumps INTEGER DEFAULT 0,
+  submission_retry_count INTEGER DEFAULT 0,
+  reconnect_count INTEGER DEFAULT 0,
+  visibility_interruptions INTEGER DEFAULT 0,
+  network_degraded BOOLEAN DEFAULT FALSE,
+  device_profile TEXT DEFAULT '',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS mastery (
   id SERIAL PRIMARY KEY,
+  identity_key TEXT,
   nickname TEXT,
   tag TEXT,
   score DOUBLE PRECISION DEFAULT 0,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(nickname, tag)
+  UNIQUE(identity_key, tag)
 );
 
 CREATE TABLE IF NOT EXISTS practice_attempts (
   id SERIAL PRIMARY KEY,
+  identity_key TEXT,
   nickname TEXT,
   question_id INTEGER,
   is_correct BOOLEAN,
@@ -178,16 +185,23 @@ CREATE TABLE IF NOT EXISTS practice_attempts (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE mastery ADD COLUMN IF NOT EXISTS identity_key TEXT;
+ALTER TABLE practice_attempts ADD COLUMN IF NOT EXISTS identity_key TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_sessions_pin ON sessions(pin);
 CREATE INDEX IF NOT EXISTS idx_sessions_pack_status ON sessions(quiz_pack_id, status);
 CREATE INDEX IF NOT EXISTS idx_participants_session ON participants(session_id);
 CREATE INDEX IF NOT EXISTS idx_participants_nickname_session ON participants(nickname, session_id);
 CREATE INDEX IF NOT EXISTS idx_answers_session ON answers(session_id);
 CREATE INDEX IF NOT EXISTS idx_answers_participant_session ON answers(participant_id, session_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_answers_unique_submission ON answers(session_id, question_id, participant_id);
 CREATE INDEX IF NOT EXISTS idx_questions_pack_order ON questions(quiz_pack_id, id);
 CREATE INDEX IF NOT EXISTS idx_behavior_participant_session ON student_behavior_logs(participant_id, session_id);
 CREATE INDEX IF NOT EXISTS idx_mastery_nickname ON mastery(nickname);
+CREATE INDEX IF NOT EXISTS idx_mastery_identity_key ON mastery(identity_key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mastery_identity_tag_unique ON mastery(identity_key, tag);
 CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_question ON practice_attempts(nickname, question_id);
+CREATE INDEX IF NOT EXISTS idx_practice_attempts_identity_created ON practice_attempts(identity_key, created_at);
 CREATE INDEX IF NOT EXISTS idx_generation_cache_lookup ON question_generation_cache(material_profile_id, difficulty, output_language, question_count);
 CREATE INDEX IF NOT EXISTS idx_quiz_packs_profile ON quiz_packs(material_profile_id);
 CREATE INDEX IF NOT EXISTS idx_quiz_packs_source_hash ON quiz_packs(source_hash);
@@ -198,6 +212,27 @@ CREATE INDEX IF NOT EXISTS idx_questions_pack_question_order ON questions(quiz_p
 CREATE INDEX IF NOT EXISTS idx_sessions_game_type ON sessions(game_type);
 CREATE INDEX IF NOT EXISTS idx_sessions_teacher_class ON sessions(teacher_class_id, status);
 CREATE INDEX IF NOT EXISTS idx_participants_session_team ON participants(session_id, team_id);
+
+DO $$
+DECLARE legacy_constraint_name TEXT;
+BEGIN
+  SELECT con.conname
+  INTO legacy_constraint_name
+  FROM pg_constraint con
+  WHERE con.conrelid = 'mastery'::regclass
+    AND con.contype = 'u'
+    AND (
+      SELECT array_agg(att.attname ORDER BY key_columns.ordinality)
+      FROM unnest(con.conkey) WITH ORDINALITY AS key_columns(attnum, ordinality)
+      JOIN pg_attribute att
+        ON att.attrelid = con.conrelid
+       AND att.attnum = key_columns.attnum
+    ) = ARRAY['nickname', 'tag'];
+
+  IF legacy_constraint_name IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE mastery DROP CONSTRAINT %I', legacy_constraint_name);
+  END IF;
+END $$;
 
 ALTER TABLE mastery
 ALTER COLUMN score TYPE DOUBLE PRECISION

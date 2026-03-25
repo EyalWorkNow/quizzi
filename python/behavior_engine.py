@@ -127,6 +127,128 @@ def parse_json_object(value: Any) -> dict[str, Any]:
     return {}
 
 
+ANALYTICS_VERSION = "quizzi_analytics_trust_v2"
+ACTION_LABELS = {
+    "reteach_now": "Reteach now",
+    "fragile_but_correct": "Fragile but correct",
+    "likely_distractor_issue": "Likely distractor issue",
+    "needs_calmer_pacing": "Needs calmer pacing",
+    "ready_for_stretch": "Ready for stretch",
+    "monitor": "Monitor",
+}
+
+
+def classify_band(score: float) -> str:
+    if score >= 75:
+        return "high"
+    if score >= 45:
+        return "medium"
+    return "low"
+
+
+def build_metric(label: str, value: Any, unit: str = "") -> dict[str, Any]:
+    metric = {"label": label, "value": value}
+    if unit:
+        metric["unit"] = unit
+    return metric
+
+
+def build_data_quality(
+    *,
+    expected_count: int,
+    observed_count: int,
+    reconnect_count: int = 0,
+    retry_count: int = 0,
+    visibility_interruptions: int = 0,
+    network_degraded_count: int = 0,
+) -> dict[str, Any]:
+    missing_answers = max(0, expected_count - observed_count) if expected_count > 0 else 0
+    contamination_penalty = (
+        (missing_answers * 3.0)
+        + (reconnect_count * 2.0)
+        + (retry_count * 2.2)
+        + (visibility_interruptions * 1.1)
+        + (network_degraded_count * 2.4)
+    )
+    quality_score = round(clamp(100.0 - contamination_penalty, 10.0, 100.0), 1)
+    return {
+        "expected_count": max(0, expected_count),
+        "observed_count": max(0, observed_count),
+        "missing_answers": missing_answers,
+        "reconnect_count": max(0, reconnect_count),
+        "submission_retry_count": max(0, retry_count),
+        "visibility_interruptions": max(0, visibility_interruptions),
+        "network_degraded_count": max(0, network_degraded_count),
+        "quality_score": quality_score,
+        "signal_quality": classify_band(quality_score),
+    }
+
+
+def build_teacher_action(action_id: str, body: str, title: str = "") -> dict[str, Any]:
+    normalized_id = action_id if action_id in ACTION_LABELS else "monitor"
+    label = ACTION_LABELS.get(normalized_id, ACTION_LABELS["monitor"])
+    return {
+        "id": normalized_id,
+        "label": label,
+        "title": title or label,
+        "body": body,
+    }
+
+
+def build_trust_bundle(
+    *,
+    evidence_count: int,
+    observed_headline: str,
+    observed_body: str,
+    interpretation_headline: str,
+    interpretation_body: str,
+    teacher_action: dict[str, Any],
+    raw_facts: list[dict[str, Any]],
+    grading_safe_metrics: list[dict[str, Any]] | None = None,
+    behavior_signal_metrics: list[dict[str, Any]] | None = None,
+    data_quality: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    data_quality = data_quality or build_data_quality(
+        expected_count=evidence_count,
+        observed_count=evidence_count,
+    )
+    evidence_score = clamp((min(max(evidence_count, 0), 12) / 12.0) * 100.0, 0.0, 100.0)
+    trust_score = round((evidence_score * 0.58) + (as_float(data_quality.get("quality_score")) * 0.42), 1)
+    if evidence_count >= 8 and trust_score >= 70:
+        confidence_band = "high"
+    elif evidence_count >= 4 and trust_score >= 45:
+        confidence_band = "medium"
+    else:
+        confidence_band = "low"
+
+    suppressed_reason = None
+    if evidence_count < 3:
+        suppressed_reason = "Not enough observations yet to make a high-confidence call."
+    elif as_float(data_quality.get("quality_score")) < 45:
+        suppressed_reason = "The signal is noisy because this session had missing or unstable telemetry."
+
+    return {
+        "analytics_version": ANALYTICS_VERSION,
+        "evidence_count": max(0, evidence_count),
+        "signal_quality": data_quality.get("signal_quality", classify_band(trust_score)),
+        "confidence_band": confidence_band,
+        "suppressed_reason": suppressed_reason,
+        "raw_facts": raw_facts[:8],
+        "observed_facts": {
+            "headline": observed_headline,
+            "body": observed_body,
+        },
+        "derived_interpretation": {
+            "headline": interpretation_headline,
+            "body": interpretation_body,
+        },
+        "teacher_action": teacher_action,
+        "grading_safe_metrics": grading_safe_metrics or [],
+        "behavior_signal_metrics": behavior_signal_metrics or [],
+        "data_quality": data_quality,
+    }
+
+
 def distribution_entropy(values: list[float | int]) -> float:
     numeric_values = [max(0.0, float(value)) for value in values if float(value) > 0]
     total = sum(numeric_values)
@@ -218,6 +340,11 @@ def normalize_log(log: dict[str, Any]) -> dict[str, Any]:
     normalized["keyboard_activity_count"] = max(0, as_int(log.get("keyboard_activity_count")))
     normalized["touch_activity_count"] = max(0, as_int(log.get("touch_activity_count")))
     normalized["same_answer_reclicks"] = max(0, as_int(log.get("same_answer_reclicks")))
+    normalized["submission_retry_count"] = max(0, as_int(log.get("submission_retry_count")))
+    normalized["reconnect_count"] = max(0, as_int(log.get("reconnect_count")))
+    normalized["visibility_interruptions"] = max(0, as_int(log.get("visibility_interruptions")))
+    normalized["network_degraded"] = as_bool(log.get("network_degraded"))
+    normalized["device_profile"] = str(log.get("device_profile") or "").strip().lower()
     normalized["option_dwell"] = {
         str(key): max(0.0, as_float(value))
         for key, value in parse_json_object(log.get("option_dwell") or log.get("option_dwell_json")).items()
@@ -854,6 +981,115 @@ def build_student_recommendation(
     return "This student is ready for a broader mixed review from the same pack."
 
 
+def select_student_action(
+    *,
+    accuracy: float,
+    stress_index: float,
+    focus_score: float,
+    changed_away_from_correct_count: int,
+    deadline_dependency_rate: float,
+    weak_tags: list[str],
+) -> dict[str, Any]:
+    weak_text = ", ".join(tag.title() for tag in weak_tags[:2]) or "the weakest concept cluster"
+    if accuracy < 55:
+        return build_teacher_action(
+            "reteach_now",
+            f"Reteach {weak_text} before the next checkpoint and keep the same material visible while the learner rebuilds accuracy.",
+        )
+    if changed_away_from_correct_count > 0 and accuracy >= 65:
+        return build_teacher_action(
+            "fragile_but_correct",
+            "The learner can reach correct answers, but needs support locking them sooner instead of revising away late.",
+        )
+    if stress_index >= 60 or deadline_dependency_rate >= 25 or focus_score < 60:
+        return build_teacher_action(
+            "needs_calmer_pacing",
+            "Reuse the same concepts with a calmer tempo, fewer look-alike distractors, and more explicit commitment prompts.",
+        )
+    if accuracy >= 85 and focus_score >= 75 and stress_index < 35:
+        return build_teacher_action(
+            "ready_for_stretch",
+            "This learner is stable enough for a harder extension round or a broader mixed review set.",
+        )
+    return build_teacher_action(
+        "monitor",
+        "Keep monitoring the next live round and check whether the same weak tags stay unstable.",
+    )
+
+
+def select_question_action(question_row: dict[str, Any]) -> dict[str, Any]:
+    top_distractor_rate = as_float((question_row.get("top_distractor") or {}).get("rate"))
+    if question_row["accuracy"] < 55:
+        return build_teacher_action(
+            "reteach_now",
+            "Reteach the core distinction before reusing this item; the class did not show enough stable mastery here.",
+        )
+    if top_distractor_rate >= 20:
+        return build_teacher_action(
+            "likely_distractor_issue",
+            "Contrast the sticky distractor with the correct idea and tighten the wording before the next live run.",
+        )
+    if as_float(question_row.get("changed_away_from_correct_rate")) >= 15:
+        return build_teacher_action(
+            "fragile_but_correct",
+            "Students were often correct before revising away, so coach commitment on this concept instead of only reteaching content.",
+        )
+    if question_row["stress_index"] >= 60 or as_float(question_row.get("deadline_dependency_rate")) >= 25:
+        return build_teacher_action(
+            "needs_calmer_pacing",
+            "Keep the concept but reduce pacing pressure or add one calmer re-check before lock-in.",
+        )
+    if question_row["accuracy"] >= 85 and question_row["stress_index"] < 35:
+        return build_teacher_action(
+            "ready_for_stretch",
+            "This item is stable enough to use as a bridge into a more demanding follow-up question.",
+        )
+    return build_teacher_action(
+        "monitor",
+        "Leave this question in rotation and monitor whether the same signal returns in the next session.",
+    )
+
+
+def select_class_action(
+    *,
+    overall_accuracy: float,
+    stress_index: float,
+    first_choice_accuracy: float,
+    focus_watch_count: int,
+    participant_count: int,
+    top_distractor_rate: float,
+) -> dict[str, Any]:
+    if overall_accuracy < 55:
+        return build_teacher_action(
+            "reteach_now",
+            "Pause for a guided recap before the next graded checkpoint; the class has not shown enough stable accuracy yet.",
+        )
+    if top_distractor_rate >= 20:
+        return build_teacher_action(
+            "likely_distractor_issue",
+            "Review the sticky distractor and the wording around it before you move on to fresh content.",
+        )
+    if first_choice_accuracy - overall_accuracy >= 10:
+        return build_teacher_action(
+            "fragile_but_correct",
+            "Students often start correctly but wobble before submitting. Coach commitment and verification, not just content.",
+        )
+    if stress_index >= 55 or focus_watch_count >= max(2, ceil(participant_count * 0.25)):
+        return build_teacher_action(
+            "needs_calmer_pacing",
+            "Slow the pace, shorten the prompt load, and give the room one quick verbal reset before the next live question.",
+        )
+    if overall_accuracy >= 82 and stress_index < 35:
+        return build_teacher_action(
+            "ready_for_stretch",
+            "The room is stable enough to stretch into a harder item, an explanation round, or a mixed-review challenge.",
+        )
+    return build_teacher_action(
+        "monitor",
+        "Keep scanning the next question for a clearer misconception or pressure hotspot before you change the lesson plan.",
+    )
+
+
 def build_distribution(
     values: list[float],
     bands: list[tuple[str, float, float]],
@@ -1150,6 +1386,18 @@ def build_question_diagnostics(
                 "avg_swaps": row["avg_swaps"],
                 "avg_blur_time_ms": row["avg_blur_time_ms"],
                 "avg_interaction_intensity": row["avg_interaction_intensity"],
+                "analytics_version": row.get("analytics_version", ANALYTICS_VERSION),
+                "signal_quality": row.get("signal_quality", "low"),
+                "confidence_band": row.get("confidence_band", "low"),
+                "evidence_count": row.get("evidence_count", 0),
+                "suppressed_reason": row.get("suppressed_reason"),
+                "raw_facts": row.get("raw_facts", []),
+                "observed_facts": row.get("observed_facts"),
+                "derived_interpretation": row.get("derived_interpretation"),
+                "teacher_action": row.get("teacher_action"),
+                "grading_safe_metrics": row.get("grading_safe_metrics", []),
+                "behavior_signal_metrics": row.get("behavior_signal_metrics", []),
+                "data_quality": row.get("data_quality", {}),
             }
         )
     diagnostics.sort(
@@ -1888,18 +2136,26 @@ def outcome_for_answer(payload: dict[str, Any]) -> dict[str, Any]:
     mode = str(payload.get("mode", "session")).strip().lower() or "session"
     is_correct = as_bool(payload.get("is_correct"))
     response_ms = max(0, as_int(payload.get("response_ms")))
-    time_limit_seconds = max(5, as_int(payload.get("time_limit_seconds"), 20))
+    raw_time_limit_seconds = as_int(payload.get("time_limit_seconds"), 20)
+    time_limit_seconds = max(5, raw_time_limit_seconds) if raw_time_limit_seconds > 0 else 20
+    scoring_profile = str(payload.get("scoring_profile", "standard")).strip().lower() or "standard"
     tags = parse_string_list(payload.get("tags"))
     mastery_map = build_mastery_map(payload.get("current_mastery"))
     computed_speed = speed_factor(response_ms, time_limit_seconds)
 
     score_awarded = 0
     if mode == "session" and is_correct:
-        score_awarded = 1000 + round(computed_speed * 1000)
+        if scoring_profile == "accuracy":
+            score_awarded = 1200
+        else:
+            score_awarded = 1000 + round(computed_speed * 1000)
 
     if mode == "practice":
         correct_gain = 5.0 + (computed_speed * 5.0)
         incorrect_penalty = -5.0
+    elif scoring_profile == "accuracy":
+        correct_gain = 12.0
+        incorrect_penalty = -12.0
     else:
         correct_gain = 10.0 + (computed_speed * 10.0)
         incorrect_penalty = -15.0
@@ -1921,6 +2177,7 @@ def outcome_for_answer(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "mode": mode,
         "is_correct": is_correct,
+        "scoring_profile": scoring_profile,
         "speed_factor": round(computed_speed, 4),
         "score_awarded": score_awarded,
         "mastery_updates": mastery_updates,
@@ -1975,6 +2232,10 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
         total_keyboard_activity = sum(log["keyboard_activity_count"] for log in participant_logs)
         total_touch_activity = sum(log["touch_activity_count"] for log in participant_logs)
         total_same_answer_reclicks = sum(log["same_answer_reclicks"] for log in participant_logs)
+        total_submission_retries = sum(log["submission_retry_count"] for log in participant_logs)
+        total_reconnects = sum(log["reconnect_count"] for log in participant_logs)
+        total_visibility_interruptions = sum(log["visibility_interruptions"] for log in participant_logs)
+        total_network_degraded = sum(1 for log in participant_logs if log["network_degraded"])
         avg_hover_entropy = round(avg([log["hover_entropy"] for log in participant_logs]), 3)
         avg_interaction_intensity = round(
             avg(
@@ -2055,6 +2316,57 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
             flags.append("Tab blur drag")
         if avg_longest_idle_streak_ms > 2500:
             flags.append("Long idle streaks")
+        data_quality = build_data_quality(
+            expected_count=len(questions),
+            observed_count=answers_count,
+            reconnect_count=total_reconnects,
+            retry_count=total_submission_retries,
+            visibility_interruptions=total_visibility_interruptions,
+            network_degraded_count=total_network_degraded,
+        )
+        student_action = select_student_action(
+            accuracy=accuracy,
+            stress_index=stress_index,
+            focus_score=profile["focus_score"],
+            changed_away_from_correct_count=revision_summary["changed_away_from_correct_count"],
+            deadline_dependency_rate=deadline_profile["last_second_rate"],
+            weak_tags=profile["weak_tags"],
+        )
+        trust_bundle = build_trust_bundle(
+            evidence_count=answers_count,
+            observed_headline="Observed facts",
+            observed_body=(
+                f"{accuracy:.1f}% accuracy across {answers_count} captured answers, "
+                f"{stress_index:.1f} stress, and {total_focus_loss} focus-loss events."
+            ),
+            interpretation_headline=profile["headline"],
+            interpretation_body=profile["body"],
+            teacher_action=student_action,
+            raw_facts=[
+                build_metric("Accuracy", accuracy, "%"),
+                build_metric("Correct answers", correct_answers),
+                build_metric("Captured answers", answers_count),
+                build_metric("Stress index", stress_index, "%"),
+                build_metric("Focus losses", total_focus_loss),
+                build_metric("Submission retries", total_submission_retries),
+                build_metric("Reconnects", total_reconnects),
+                build_metric("Visibility interruptions", total_visibility_interruptions),
+            ],
+            grading_safe_metrics=[
+                build_metric("Accuracy", accuracy, "%"),
+                build_metric("Correct answers", correct_answers),
+                build_metric("Captured answers", answers_count),
+                build_metric("First-choice accuracy", revision_summary["first_choice_correct_rate"], "%"),
+            ],
+            behavior_signal_metrics=[
+                build_metric("Stress index", stress_index, "%"),
+                build_metric("Focus score", profile["focus_score"]),
+                build_metric("Confidence score", profile["confidence_score"]),
+                build_metric("Panic swaps", total_panic_swaps),
+                build_metric("Attention drag", attention_drag_index),
+            ],
+            data_quality=data_quality,
+        )
         participant_rows.append(
             {
                 "id": participant_id,
@@ -2091,6 +2403,10 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
                 "total_keyboard_activity": total_keyboard_activity,
                 "total_touch_activity": total_touch_activity,
                 "total_same_answer_reclicks": total_same_answer_reclicks,
+                "total_submission_retries": total_submission_retries,
+                "total_reconnects": total_reconnects,
+                "total_visibility_interruptions": total_visibility_interruptions,
+                "total_network_degraded_events": total_network_degraded,
                 "attention_drag_index": attention_drag_index,
                 "stress_index": stress_index,
                 "stress_level": classify_stress(stress_index),
@@ -2115,6 +2431,7 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
                     focus_score=profile["focus_score"],
                     weak_tags=profile["weak_tags"],
                 ),
+                **trust_bundle,
             }
         )
 
@@ -2239,6 +2556,51 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
             "missed_by_count": len(question_answers) - correct_answers,
         }
         question_row["recommendation"] = build_question_recommendation(question_row)
+        question_data_quality = build_data_quality(
+            expected_count=len(participants),
+            observed_count=len(question_answers),
+            reconnect_count=sum(log["reconnect_count"] for log in question_logs),
+            retry_count=sum(log["submission_retry_count"] for log in question_logs),
+            visibility_interruptions=sum(log["visibility_interruptions"] for log in question_logs),
+            network_degraded_count=sum(1 for log in question_logs if log["network_degraded"]),
+        )
+        question_action = select_question_action(question_row)
+        question_row.update(
+            build_trust_bundle(
+                evidence_count=len(question_answers),
+                observed_headline="Observed facts",
+                observed_body=(
+                    f"Question {question_row['index']} landed at {accuracy:.1f}% accuracy from {len(question_answers)} answers, "
+                    f"with {stress_index:.1f} stress and "
+                    f"{(top_distractor or {}).get('rate', 0):.1f}% on the top distractor."
+                ),
+                interpretation_headline=question_row["recommendation"],
+                interpretation_body=(
+                    "This interpretation blends the accuracy pattern with pressure, revision, and distractor behavior on the item."
+                ),
+                teacher_action=question_action,
+                raw_facts=[
+                    build_metric("Accuracy", accuracy, "%"),
+                    build_metric("Answers captured", len(question_answers)),
+                    build_metric("Stress index", stress_index, "%"),
+                    build_metric("First-choice accuracy", revision_summary["first_choice_correct_rate"], "%"),
+                    build_metric("Deadline dependency", deadline_profile["last_second_rate"], "%"),
+                    build_metric("Top distractor rate", (top_distractor or {}).get("rate", 0), "%"),
+                ],
+                grading_safe_metrics=[
+                    build_metric("Accuracy", accuracy, "%"),
+                    build_metric("Correct answers", correct_answers),
+                    build_metric("Answers captured", len(question_answers)),
+                ],
+                behavior_signal_metrics=[
+                    build_metric("Stress index", stress_index, "%"),
+                    build_metric("Avg response", avg_response_ms, "ms"),
+                    build_metric("Avg swaps", avg_swaps),
+                    build_metric("Panic swaps", total_panic_swaps),
+                ],
+                data_quality=question_data_quality,
+            )
+        )
         question_rows.append(question_row)
 
     tag_summary = build_tag_rows_for_answers(
@@ -2260,6 +2622,10 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
     stress_index = round(avg([row["stress_index"] for row in question_rows]), 1)
     total_focus_loss = sum(log["focus_loss_count"] for log in logs)
     total_panic_swaps = sum(log["panic_swaps"] for log in logs)
+    total_reconnects = sum(log["reconnect_count"] for log in logs)
+    total_submission_retries = sum(log["submission_retry_count"] for log in logs)
+    total_visibility_interruptions = sum(log["visibility_interruptions"] for log in logs)
+    total_network_degraded = sum(1 for log in logs if log["network_degraded"])
     high_risk_count = sum(1 for row in participant_rows if row["risk_level"] == "high")
     medium_risk_count = sum(1 for row in participant_rows if row["risk_level"] == "medium")
     focus_watch_count = sum(1 for row in participant_rows if row["total_focus_loss"] > 0)
@@ -2391,6 +2757,57 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
     )
     fatigue_drift = build_fatigue_drift(research_rows)
     recurrent_misconceptions = build_misconception_patterns(research_rows)
+    class_data_quality = build_data_quality(
+        expected_count=participant_count * question_count,
+        observed_count=total_answers,
+        reconnect_count=total_reconnects,
+        retry_count=total_submission_retries,
+        visibility_interruptions=total_visibility_interruptions,
+        network_degraded_count=total_network_degraded,
+    )
+    class_action = select_class_action(
+        overall_accuracy=overall_accuracy,
+        stress_index=stress_index,
+        first_choice_accuracy=revision_intelligence["first_choice_correct_rate"],
+        focus_watch_count=focus_watch_count,
+        participant_count=participant_count,
+        top_distractor_rate=as_float((toughest_question.get("top_distractor") or {}).get("rate")) if toughest_question else 0.0,
+    )
+    class_trust_bundle = build_trust_bundle(
+        evidence_count=total_answers,
+        observed_headline="Observed facts",
+        observed_body=(
+            f"{overall_accuracy:.1f}% class accuracy across {total_answers} answers, "
+            f"{completion_rate:.1f}% completion, and {stress_index:.1f} stress."
+        ),
+        interpretation_headline=headline,
+        interpretation_body=summary,
+        teacher_action=class_action,
+        raw_facts=[
+            build_metric("Class accuracy", overall_accuracy, "%"),
+            build_metric("Completion rate", completion_rate, "%"),
+            build_metric("Participants", participant_count),
+            build_metric("Questions", question_count),
+            build_metric("Focus losses", total_focus_loss),
+            build_metric("Panic swaps", total_panic_swaps),
+            build_metric("Reconnects", total_reconnects),
+            build_metric("Submission retries", total_submission_retries),
+        ],
+        grading_safe_metrics=[
+            build_metric("Class accuracy", overall_accuracy, "%"),
+            build_metric("Completion rate", completion_rate, "%"),
+            build_metric("Participants", participant_count),
+            build_metric("Questions", question_count),
+            build_metric("First-choice accuracy", revision_intelligence["first_choice_correct_rate"], "%"),
+        ],
+        behavior_signal_metrics=[
+            build_metric("Stress index", stress_index, "%"),
+            build_metric("Focus watch students", focus_watch_count),
+            build_metric("High-risk students", high_risk_count),
+            build_metric("Panic swaps", total_panic_swaps),
+        ],
+        data_quality=class_data_quality,
+    )
     correlations = build_class_correlations(participant_rows)
     student_clusters = build_student_clusters(participant_rows)
     question_diagnostics = build_question_diagnostics(
@@ -2398,6 +2815,31 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
         answers_by_question=answers_by_question,
         participant_rows=participant_rows,
     )
+    question_lookup = {row["id"]: row for row in question_rows}
+    alerts = [
+        {
+            **alert,
+            **build_trust_bundle(
+                evidence_count=as_int((question_lookup.get(as_int(alert.get("question_id"))) or {}).get("answers_count"), participant_count),
+                observed_headline="Observed facts",
+                observed_body=alert["body"],
+                interpretation_headline=alert["title"],
+                interpretation_body="This alert is raised only when the underlying evidence crosses the session threshold for that pattern.",
+                teacher_action=(question_lookup.get(as_int(alert.get("question_id"))) or {}).get("teacher_action") or class_action,
+                raw_facts=(
+                    (question_lookup.get(as_int(alert.get("question_id"))) or {}).get("raw_facts")
+                    or class_trust_bundle["raw_facts"]
+                ),
+                grading_safe_metrics=class_trust_bundle["grading_safe_metrics"],
+                behavior_signal_metrics=class_trust_bundle["behavior_signal_metrics"],
+                data_quality=(
+                    (question_lookup.get(as_int(alert.get("question_id"))) or {}).get("data_quality")
+                    or class_data_quality
+                ),
+            ),
+        }
+        for alert in alerts
+    ]
     research = {
         "descriptive_stats": [
             {
@@ -2491,8 +2933,36 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
             "recurrent_misconceptions": recurrent_misconceptions,
         "topic_behavior_profiles": tag_summary,
     }
+    summary_payload = {
+        "session_id": as_int(session.get("id")),
+        "overall_accuracy": overall_accuracy,
+        "participant_count": participant_count,
+        "question_count": question_count,
+        "completion_rate": completion_rate,
+        "stress_index": stress_index,
+        "total_answers": total_answers,
+        "first_choice_accuracy": revision_intelligence["first_choice_correct_rate"],
+        "corrected_after_wrong_count": revision_intelligence["corrected_after_wrong_count"],
+        "changed_away_from_correct_count": revision_intelligence["changed_away_from_correct_count"],
+        "deadline_dependency_rate": deadline_dependency["last_second_rate"],
+        "total_focus_loss": total_focus_loss,
+        "total_panic_swaps": total_panic_swaps,
+        "total_reconnects": total_reconnects,
+        "total_submission_retries": total_submission_retries,
+        "total_visibility_interruptions": total_visibility_interruptions,
+        "high_risk_students": high_risk_count,
+        "medium_risk_students": medium_risk_count,
+        "focus_watch_students": focus_watch_count,
+        "team_count": len(team_rows),
+        "headline": headline,
+        "summary": summary,
+        "toughest_question_id": toughest_question["id"] if toughest_question else None,
+        "top_gap_tag": tag_summary[0]["tag"] if tag_summary else None,
+        **class_trust_bundle,
+    }
 
     return {
+        "analytics_version": ANALYTICS_VERSION,
         "session": {
             "id": as_int(session.get("id")),
             "pin": str(session.get("pin", "")),
@@ -2506,29 +2976,7 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
         "participants": participant_rows,
         "questions": question_rows,
         "tagSummary": tag_summary,
-        "summary": {
-            "session_id": as_int(session.get("id")),
-            "overall_accuracy": overall_accuracy,
-            "participant_count": participant_count,
-            "question_count": question_count,
-            "completion_rate": completion_rate,
-            "stress_index": stress_index,
-            "total_answers": total_answers,
-            "first_choice_accuracy": revision_intelligence["first_choice_correct_rate"],
-            "corrected_after_wrong_count": revision_intelligence["corrected_after_wrong_count"],
-            "changed_away_from_correct_count": revision_intelligence["changed_away_from_correct_count"],
-            "deadline_dependency_rate": deadline_dependency["last_second_rate"],
-            "total_focus_loss": total_focus_loss,
-            "total_panic_swaps": total_panic_swaps,
-            "high_risk_students": high_risk_count,
-            "medium_risk_students": medium_risk_count,
-            "focus_watch_students": focus_watch_count,
-            "team_count": len(team_rows),
-            "headline": headline,
-            "summary": summary,
-            "toughest_question_id": toughest_question["id"] if toughest_question else None,
-            "top_gap_tag": tag_summary[0]["tag"] if tag_summary else None,
-        },
+        "summary": summary_payload,
         "metrics": [
             {
                 "question_id": row["id"],
@@ -2692,6 +3140,10 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
         "total_swaps": sum(log["total_swaps"] for log in logs),
         "total_panic_swaps": sum(log["panic_swaps"] for log in logs),
         "total_focus_loss": sum(log["focus_loss_count"] for log in logs),
+        "total_submission_retries": sum(log["submission_retry_count"] for log in logs),
+        "total_reconnects": sum(log["reconnect_count"] for log in logs),
+        "total_visibility_interruptions": sum(log["visibility_interruptions"] for log in logs),
+        "total_network_degraded_events": sum(1 for log in logs if log["network_degraded"]),
         "avg_idle_time_ms": round(avg([log["idle_time_ms"] for log in logs]), 1),
         "avg_blur_time_ms": round(avg([log["blur_time_ms"] for log in logs]), 1),
         "avg_longest_idle_streak_ms": round(avg([log["longest_idle_streak_ms"] for log in logs]), 1),
@@ -2904,8 +3356,72 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
             "Use the weak-topic and session-pressure signals together. A student can know the material and still lose points through hesitation."
         ),
     }
+    student_data_quality = build_data_quality(
+        expected_count=len(questions),
+        observed_count=stats["total_answers"],
+        reconnect_count=aggregates["total_reconnects"],
+        retry_count=aggregates["total_submission_retries"],
+        visibility_interruptions=aggregates["total_visibility_interruptions"],
+        network_degraded_count=aggregates["total_network_degraded_events"],
+    )
+    student_action = select_student_action(
+        accuracy=stats["accuracy"],
+        stress_index=session_stress,
+        focus_score=profile["focus_score"],
+        changed_away_from_correct_count=revision_summary["changed_away_from_correct_count"],
+        deadline_dependency_rate=deadline_profile["last_second_rate"],
+        weak_tags=profile["weak_tags"],
+    )
+    student_trust_bundle = build_trust_bundle(
+        evidence_count=stats["total_answers"],
+        observed_headline="Observed facts",
+        observed_body=(
+            f"{stats['accuracy']:.1f}% accuracy across {stats['total_answers']} captured answers, "
+            f"{session_stress:.1f} stress, and {aggregates['total_focus_loss']} focus-loss events."
+        ),
+        interpretation_headline=overall_story["headline"],
+        interpretation_body=overall_story["body"],
+        teacher_action=student_action,
+        raw_facts=[
+            build_metric("Accuracy", stats["accuracy"], "%"),
+            build_metric("Captured answers", stats["total_answers"]),
+            build_metric("Stress index", session_stress, "%"),
+            build_metric("Focus losses", aggregates["total_focus_loss"]),
+            build_metric("Submission retries", aggregates["total_submission_retries"]),
+            build_metric("Reconnects", aggregates["total_reconnects"]),
+            build_metric("Weak tags", ", ".join(profile["weak_tags"][:2])),
+        ],
+        grading_safe_metrics=[
+            build_metric("Accuracy", stats["accuracy"], "%"),
+            build_metric("Total answers", stats["total_answers"]),
+            build_metric("Total score", stats["total_score"]),
+            build_metric("First-choice accuracy", revision_summary["first_choice_correct_rate"], "%"),
+        ],
+        behavior_signal_metrics=[
+            build_metric("Stress index", session_stress, "%"),
+            build_metric("Focus score", profile["focus_score"]),
+            build_metric("Confidence score", profile["confidence_score"]),
+            build_metric("Panic swaps", aggregates["total_panic_swaps"]),
+            build_metric("Deadline dependency", deadline_profile["last_second_rate"], "%"),
+        ],
+        data_quality=student_data_quality,
+    )
+    overall_story = {
+        **overall_story,
+        **student_trust_bundle,
+    }
+    practice_plan = {
+        **practice_plan,
+        "teacher_action": student_action,
+        "analytics_version": ANALYTICS_VERSION,
+    }
 
     return {
+        "analytics_version": ANALYTICS_VERSION,
+        "trust": student_trust_bundle,
+        "dataQuality": student_data_quality,
+        "gradingSafeMetrics": student_trust_bundle["grading_safe_metrics"],
+        "behaviorSignalMetrics": student_trust_bundle["behavior_signal_metrics"],
         "stats": stats,
         "mastery": mastery_rows,
         "aggregates": aggregates,
@@ -2914,6 +3430,12 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
             "score": risk_score,
             "level": risk_level,
             "stress_index": session_stress,
+            "signal_quality": student_trust_bundle["signal_quality"],
+            "confidence_band": student_trust_bundle["confidence_band"],
+            "evidence_count": student_trust_bundle["evidence_count"],
+            "suppressed_reason": student_trust_bundle["suppressed_reason"],
+            "teacher_action": student_action,
+            "raw_facts": student_trust_bundle["raw_facts"],
         },
         "tagPerformance": tag_performance,
         "questionReview": question_review,
@@ -3138,12 +3660,56 @@ def build_teacher_overview(payload: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    overview_headline = (
+        "Recent sessions look instructionally stable."
+        if avg_accuracy >= 80 and avg_stress < 35
+        else "Recent sessions show a mixed teaching picture."
+        if avg_accuracy >= 60
+        else "Recent sessions need a stronger reteach loop."
+    )
+    overview_action = select_class_action(
+        overall_accuracy=avg_accuracy,
+        stress_index=avg_stress,
+        first_choice_accuracy=avg_accuracy,
+        focus_watch_count=0,
+        participant_count=max(1, all_players),
+        top_distractor_rate=0.0,
+    )
+    overview_trust_bundle = build_trust_bundle(
+        evidence_count=len(session_summaries),
+        observed_headline="Observed facts",
+        observed_body=(
+            f"{hosted_count} hosted sessions, {all_players} total players, {avg_accuracy:.1f}% average accuracy, and {avg_stress:.1f} average stress."
+        ),
+        interpretation_headline=overview_headline,
+        interpretation_body=(
+            "Use this overview to decide which class to reopen first, then drill into the full analytics board for evidence and next-step actions."
+        ),
+        teacher_action=overview_action,
+        raw_facts=[
+            build_metric("Hosted sessions", hosted_count),
+            build_metric("Total players", all_players),
+            build_metric("Average accuracy", avg_accuracy, "%"),
+            build_metric("Average stress", avg_stress, "%"),
+        ],
+        grading_safe_metrics=[
+            build_metric("Hosted sessions", hosted_count),
+            build_metric("Total players", all_players),
+            build_metric("Average accuracy", avg_accuracy, "%"),
+        ],
+        behavior_signal_metrics=[
+            build_metric("Average stress", avg_stress, "%"),
+        ],
+    )
+
     return {
+        "analytics_version": ANALYTICS_VERSION,
         "summary": {
             "total_players": all_players,
             "avg_accuracy": avg_accuracy,
             "quizzes_hosted": hosted_count,
             "avg_stress": avg_stress,
+            **overview_trust_bundle,
         },
         "recent_sessions": session_summaries[:10],
         "insights": insights,

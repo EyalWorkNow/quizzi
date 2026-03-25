@@ -15,7 +15,7 @@ import {
 import { getGameMode } from '../lib/gameModes.ts';
 import { getGameModeTone } from '../lib/gameModePresentation.ts';
 import { buildSessionJoinUrl } from '../lib/joinCodes.ts';
-import { isPeerInstructionMode, resolveSessionQuestionTimeLimit } from '../lib/sessionModeRules.ts';
+import { isPeerInstructionMode, isUntimedMode, resolveSessionQuestionTimeLimit } from '../lib/sessionModeRules.ts';
 import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { getLiveQuestionDensity, formatAnswerSlotLabel } from '../../shared/liveQuestionDensity.ts';
@@ -69,27 +69,28 @@ function buildLiveHostInsights({
   const leader = sortedSelections[0] || null;
   const runnerUp = sortedSelections[1] || null;
   const secondsThreshold = Math.max(6, Math.ceil(activeQuestionSeconds * 0.35));
+  const timedPhase = activeQuestionSeconds > 0 && phaseTimeLeft > 0;
   const cues: Array<{ tone: 'warning' | 'insight' | 'success'; title: string; body: string }> = [];
 
   if (!participants) {
     cues.push({
       tone: 'insight',
-      title: 'Room not ready yet',
-      body: 'No students are connected right now, so keep the PIN visible until the room fills.',
+      title: 'החדר עדיין לא מוכן',
+      body: 'כרגע אין תלמידים מחוברים, לכן כדאי להשאיר את הקוד גלוי עד שהחדר יתמלא.',
     });
-  } else if (participationPct < 55 && phaseTimeLeft <= secondsThreshold) {
+  } else if (timedPhase && participationPct < 55 && phaseTimeLeft <= secondsThreshold) {
     cues.push({
       tone: 'warning',
-      title: 'Hesitation detected',
-      body: 'Many students still have not committed. Add a hint, extend the timer, or slow the pace before you reveal.',
+      title: 'זוהה היסוס',
+      body: 'תלמידים רבים עדיין לא נעלו תשובה. אפשר להוסיף רמז, להאריך את הזמן או להאט מעט לפני החשיפה.',
     });
   }
 
   if (leader && runnerUp && leader.count > 0 && runnerUp.count > 0 && leader.pct - runnerUp.pct <= 12) {
     cues.push({
       tone: 'insight',
-      title: 'Split room',
-      body: `The room is split between ${formatAnswerSlotLabel(leader.index)} and ${formatAnswerSlotLabel(runnerUp.index)}. Invite both sides to justify before the reveal.`,
+      title: 'החדר מפוצל',
+      body: `החדר מתחלק בין ${formatAnswerSlotLabel(leader.index)} לבין ${formatAnswerSlotLabel(runnerUp.index)}. כדאי להזמין את שני הצדדים לנמק לפני החשיפה.`,
     });
   }
 
@@ -102,27 +103,32 @@ function buildLiveHostInsights({
   ) {
     cues.push({
       tone: 'warning',
-      title: 'Misconception cluster',
-      body: `Most students are leaning toward ${formatAnswerSlotLabel(leader.index)}, which is not correct. Pause and probe the reasoning before moving on.`,
+      title: 'אשכול טעות נפוצה',
+      body: `רוב התלמידים נוטים אל ${formatAnswerSlotLabel(leader.index)}, אך זו אינה התשובה הנכונה. מומלץ לעצור ולבדוק את קו החשיבה לפני שממשיכים.`,
     });
   }
 
-  if (participants > 0 && participationPct >= 85 && phaseTimeLeft <= Math.max(3, Math.ceil(activeQuestionSeconds * 0.15))) {
+  if (
+    timedPhase &&
+    participants > 0 &&
+    participationPct >= 85 &&
+    phaseTimeLeft <= Math.max(3, Math.ceil(activeQuestionSeconds * 0.15))
+  ) {
     cues.push({
       tone: 'success',
-      title: 'Ready to move',
-      body: 'The room has mostly committed. You can reveal soon without losing much participation.',
+      title: 'אפשר להתקדם',
+      body: 'רוב החדר כבר נעל תשובה. אפשר לחשוף בקרוב בלי לאבד הרבה השתתפות.',
     });
   }
 
   if (cues.length === 0) {
     cues.push({
       tone: 'insight',
-      title: status === 'QUESTION_DISCUSSION' ? 'Discussion in motion' : 'Healthy momentum',
+      title: status === 'QUESTION_DISCUSSION' ? 'הדיון בעיצומו' : 'מומנטום בריא',
       body:
         status === 'QUESTION_DISCUSSION'
-          ? 'Pods are comparing reasoning right now. Listen for one strong argument from each side before opening the revote.'
-          : 'The room is moving at a stable pace. Let the strongest pattern emerge before the next transition.',
+          ? 'הקבוצות משוות עכשיו קווי חשיבה. כדאי להאזין לטיעון חזק מכל צד לפני פתיחת ההצבעה החוזרת.'
+          : 'החדר מתקדם בקצב יציב. תן לדפוס המרכזי להתבהר לפני המעבר הבא.',
     });
   }
 
@@ -152,6 +158,7 @@ export default function TeacherHost() {
   const [pack, setPack] = useState<any>(null);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [teamBoard, setTeamBoard] = useState<any[]>([]);
+  const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(false);
   const [studentSelections, setStudentSelections] = useState<Record<number, number>>({});
   const [focusAlerts, setFocusAlerts] = useState<Set<string>>(new Set());
   const [isPinCopied, setIsPinCopied] = useState(false);
@@ -263,6 +270,102 @@ export default function TeacherHost() {
       }),
     [activeQuestionSeconds, answerSelectionSummary, currentQuestion, isPeerMode, participants.length, phaseTimeLeft, status, studentSelections, totalAnswers],
   );
+  const leaderboardRows = React.useMemo(
+    () =>
+      (Array.isArray(leaderboard) && leaderboard.length ? leaderboard : participants).map((row: any) => {
+        const score = Number(row?.score ?? row?.total_score ?? 0);
+        const correctCount = Number(row?.correctCount ?? row?.correct_answers ?? row?.correct_count ?? 0);
+        const answeredCount = Math.max(
+          correctCount,
+          Number(
+            row?.answeredCount ??
+            row?.answersSubmitted ??
+            row?.answers_submitted ??
+            row?.questions_attempted ??
+            row?.attempted_count ??
+            row?.total_answers ??
+            row?.answered_count ??
+            0,
+          ),
+        );
+
+        return {
+          ...row,
+          score,
+          correctCount,
+          answeredCount,
+          accuracyPct: answeredCount > 0 ? Math.round((correctCount / answeredCount) * 100) : 0,
+        };
+      }),
+    [leaderboard, participants],
+  );
+  const sortedLeaderboardRows = React.useMemo(
+    () =>
+      [...leaderboardRows].sort((left, right) => {
+        const scoreDiff = Number(right?.score || 0) - Number(left?.score || 0);
+        if (scoreDiff !== 0) return scoreDiff;
+        const correctDiff = Number(right?.correctCount || 0) - Number(left?.correctCount || 0);
+        if (correctDiff !== 0) return correctDiff;
+        return String(left?.nickname || '').localeCompare(String(right?.nickname || ''));
+      }),
+    [leaderboardRows],
+  );
+  const teamLeaderboardRows = React.useMemo(() => {
+    if (Array.isArray(teamBoard) && teamBoard.length) {
+      return [...teamBoard]
+        .map((row: any) => {
+          const score = Number(row?.score ?? row?.total_score ?? row?.points ?? 0);
+          const correctCount = Number(row?.correctCount ?? row?.correct_answers ?? row?.correct_count ?? 0);
+          const answeredCount = Math.max(
+            correctCount,
+            Number(
+              row?.answeredCount ??
+              row?.answersSubmitted ??
+              row?.answers_submitted ??
+              row?.questions_attempted ??
+              row?.attempted_count ??
+              row?.total_answers ??
+              row?.answered_count ??
+              0,
+            ),
+          );
+
+          return {
+            name: String(row?.team_name || row?.name || 'Team'),
+            score,
+            members: Number(row?.member_count ?? row?.participant_count ?? row?.size ?? 0),
+            correctCount,
+            answeredCount,
+            accuracyPct: answeredCount > 0 ? Math.round((correctCount / answeredCount) * 100) : 0,
+          };
+        })
+        .sort((left, right) => Number(right.score || 0) - Number(left.score || 0));
+    }
+
+    const groupedTeams = leaderboardRows.reduce<Record<string, any>>((acc, row: any) => {
+      const key = String(row?.team_name || '').trim();
+      if (!key) return acc;
+      if (!acc[key]) {
+        acc[key] = {
+          name: key,
+          score: 0,
+          members: 0,
+          correctCount: 0,
+          answeredCount: 0,
+        };
+      }
+      acc[key].score += Number(row?.score || 0);
+      acc[key].members += 1;
+      acc[key].correctCount += Number(row?.correctCount || 0);
+      acc[key].answeredCount += Number(row?.answeredCount || 0);
+      acc[key].accuracyPct = acc[key].answeredCount > 0
+        ? Math.round((acc[key].correctCount / acc[key].answeredCount) * 100)
+        : 0;
+      return acc;
+    }, {});
+
+    return Object.values(groupedTeams).sort((left: any, right: any) => Number(right.score || 0) - Number(left.score || 0));
+  }, [leaderboardRows, teamBoard]);
   const phaseTransitionPending = Boolean(pendingStateKey);
 
   useEffect(() => {
@@ -406,12 +509,23 @@ export default function TeacherHost() {
 
   const loadLeaderboard = () => {
     if (!sessionId) return;
+    setIsLeaderboardLoading(true);
+    setLeaderboard([]);
+    setTeamBoard([]);
     apiFetchJson(`/api/analytics/class/${sessionId}`)
       .then((analytics) => {
         setLeaderboard(analytics.participants || []);
         setTeamBoard(analytics.teams || []);
       })
-      .catch(() => {});
+      .catch((error: any) => {
+        setHostMessage({
+          tone: 'error',
+          text: error?.message || 'Leaderboard sync failed. Showing the live roster instead.',
+        });
+      })
+      .finally(() => {
+        setIsLeaderboardLoading(false);
+      });
   };
 
   const queueFocusAlert = (nickname?: string) => {
@@ -530,6 +644,7 @@ export default function TeacherHost() {
     const payload = {
       id: question.id,
       prompt: question.prompt,
+      image_url: question.image_url || '',
       answers,
       time_limit_seconds: timeLimitSeconds,
     } as Record<string, unknown>;
@@ -1008,26 +1123,26 @@ export default function TeacherHost() {
           animate={{ opacity: 1 }}
           transition={{ delay: 3 }}
           onClick={() => navigate('/teacher/dashboard')}
-          className="mt-12 group flex items-center gap-2 text-brand-purple font-black hover:text-brand-orange transition-colors"
+          className="game-action-button game-action-button--secondary mt-12 px-5 py-3 text-sm sm:text-base"
         >
-          <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-          Back to Dashboard
+          <ArrowLeft className="w-5 h-5" />
+          חזרה ללוח הבקרה
         </motion.button>
       </div>
     );
   }
 
   if (status === 'LOBBY') {
-    const lobbyRoomName = pack?.title || 'Live quiz room';
-    const lobbyTitle = participants.length > 0 ? 'Room ready for students.' : 'Waiting for students to join.';
+    const lobbyRoomName = pack?.title || 'חדר חידון חי';
+    const lobbyTitle = participants.length > 0 ? 'החדר מוכן לתלמידים.' : 'ממתין להצטרפות תלמידים.';
     const lobbySubtitle =
       participants.length > 0
-        ? `${participants.length} ${participants.length === 1 ? 'student is' : 'students are'} already inside. Keep the PIN visible and launch when the room feels settled.`
-        : 'Keep the PIN visible so students can scan the QR or type the code and appear here in real time.';
+        ? `${participants.length} ${participants.length === 1 ? 'תלמיד כבר נמצא בפנים' : 'תלמידים כבר נמצאים בפנים'}. השאר את הקוד גלוי והפעל כשהחדר מרגיש יציב.`
+        : 'השאר את הקוד גלוי כדי שתלמידים יוכלו לסרוק את ה־QR או להקליד את הקוד ולהופיע כאן בזמן אמת.';
     const participantSectionCopy =
       participants.length > 0
-        ? 'Students appear here the moment they join.'
-        : 'Once someone joins, the room will start to populate here automatically.';
+        ? 'התלמידים מופיעים כאן מיד כשהם מצטרפים.'
+        : 'ברגע שמישהו מצטרף, החדר יתחיל להתמלא כאן אוטומטית.';
 
     return (
       <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
@@ -1041,12 +1156,12 @@ export default function TeacherHost() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => navigate('/teacher/dashboard')}
-                className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-brand-dark/10 bg-white shadow-[2px_2px_0px_0px_#1A1A1A] transition-all hover:border-brand-purple hover:text-brand-purple sm:h-12 sm:w-12"
+                className="game-icon-button h-10 w-10 hover:border-brand-purple hover:text-brand-purple sm:h-12 sm:w-12"
               >
-                <ArrowLeft className="h-6 w-6 text-brand-dark/30" />
+                <ArrowLeft className="h-6 w-6 opacity-40" />
               </motion.button>
               <div className="flex h-10 items-center gap-3 rounded-2xl border-2 border-brand-dark bg-brand-bg px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                 <span className="text-xs font-black uppercase tracking-widest text-brand-dark/40">Lobby Phase</span>
+                 <span className="text-xs font-black uppercase tracking-widest text-brand-dark/40">שלב הלובי</span>
               </div>
             </div>
 
@@ -1060,9 +1175,9 @@ export default function TeacherHost() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleEndSession}
-                className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-brand-dark/10 bg-white shadow-[2px_2px_0px_0px_#1A1A1A] transition-all hover:border-rose-300 hover:text-rose-600 sm:h-12 sm:w-12"
+                className="game-icon-button h-10 w-10 hover:bg-rose-50 hover:text-rose-600 sm:h-12 sm:w-12"
               >
-                <XCircle className="h-6 w-6 text-brand-dark/30" />
+                <XCircle className="h-6 w-6 opacity-40" />
               </motion.button>
               
               <motion.button
@@ -1070,10 +1185,10 @@ export default function TeacherHost() {
                 whileTap={{ scale: participants.length > 0 && !phaseTransitionPending ? 0.97 : 1 }}
                 onClick={() => updateState('QUESTION_ACTIVE', 0)}
                 disabled={participants.length === 0 || phaseTransitionPending}
-                className="group relative rounded-2xl border-4 border-brand-dark bg-brand-dark px-6 py-3 text-base font-black text-white shadow-[6px_6px_0px_0px_#FF5A36] flex items-center gap-2 transition-all hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[8px_8px_0px_0px_#FF5A36] disabled:opacity-50"
+                className="game-action-button game-action-button--dark px-6 py-3 text-base"
               >
                 {phaseTransitionPending ? '...' : (participants.length > 0 ? 'Launch Session' : 'Waiting...')}
-                <Rocket className="w-5 h-5 transition-transform group-hover:translate-x-1" />
+                <Rocket className="w-5 h-5" />
               </motion.button>
             </div>
           </div>
@@ -1129,7 +1244,7 @@ export default function TeacherHost() {
                         <button
                           type="button"
                           onClick={copyPin}
-                          className="flex w-full items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 font-black text-brand-dark shadow-[3px_3px_0px_0px_#1A1A1A] sm:w-auto"
+                          className="game-action-button game-action-button--yellow w-full px-4 py-2 sm:w-auto"
                         >
                           {isPinCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                           {isPinCopied ? 'Copied' : 'Copy PIN'}
@@ -1256,9 +1371,20 @@ export default function TeacherHost() {
   if (status === 'QUESTION_ACTIVE' || status === 'QUESTION_DISCUSSION' || status === 'QUESTION_REVOTE') {
     const isDiscussion = status === 'QUESTION_DISCUSSION';
     const isRevote = status === 'QUESTION_REVOTE';
+    const isUntimedActivePhase = !isDiscussion && isUntimedMode(gameMode.id, modeConfig);
     const nextStatus = isDiscussion ? 'QUESTION_REVOTE' : isPeerMode && !isRevote ? 'QUESTION_DISCUSSION' : 'QUESTION_REVEAL';
     const nextButtonLabel = isDiscussion ? 'Open Final Revote' : isPeerMode && !isRevote ? 'Start Discussion' : 'Reveal Answer';
-    const stageLabel = isDiscussion ? 'Pod Discussion' : isRevote ? 'Final Revote' : isPeerMode ? 'Silent Vote' : 'Question Live';
+    const stageLabel = isDiscussion
+      ? 'Pod Discussion'
+      : isRevote
+        ? 'Final Revote'
+        : gameMode.id === 'accuracy_quiz'
+          ? 'Accuracy Round'
+          : isPeerMode
+            ? 'Silent Vote'
+            : 'Question Live';
+    const phaseTimerLabel = isUntimedActivePhase ? t('game.timer.untimed') : `${phaseTimeLeft}s`;
+    const phaseTimerWarning = !isUntimedActivePhase && phaseTimeLeft <= 10;
     
     const stageCountLabel = isDiscussion
       ? `${Object.keys(studentSelections).length} / ${participants.length} first votes`
@@ -1313,7 +1439,7 @@ export default function TeacherHost() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleEndSession}
-                className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-brand-dark/10 bg-white shadow-[2px_2px_0px_0px_#1A1A1A] transition-all hover:border-rose-300 hover:text-rose-600 sm:h-12 sm:w-12"
+                className="game-icon-button h-10 w-10 hover:bg-rose-50 hover:text-rose-600 sm:h-12 sm:w-12"
               >
                 <XCircle className="h-6 w-6" />
               </motion.button>
@@ -1330,7 +1456,7 @@ export default function TeacherHost() {
                 <span className="text-sm font-black">{pack?.title}</span>
               </div>
               <div className={`rounded-2xl border-2 border-brand-dark px-4 py-2 text-xs font-black uppercase tracking-widest shadow-[4px_4px_0px_0px_#1A1A1A] ${gameTone.pill}`}>
-                {gameMode.label}
+                {t(gameMode.label)}
               </div>
             </div>
 
@@ -1340,15 +1466,15 @@ export default function TeacherHost() {
                  <span className="text-lg font-black leading-none text-brand-purple">{stageCountLabel}</span>
               </div>
               <div className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-14">
-                <Clock className={`h-5 w-5 ${phaseTimeLeft <= 10 ? 'text-rose-500 animate-pulse' : 'text-brand-orange'}`} />
-                <span className={`text-xl font-black ${phaseTimeLeft <= 10 ? 'text-rose-600' : ''}`}>{phaseTimeLeft}s</span>
+                <Clock className={`h-5 w-5 ${phaseTimerWarning ? 'text-rose-500 animate-pulse' : 'text-brand-orange'}`} />
+                <span className={`text-xl font-black ${phaseTimerWarning ? 'text-rose-600' : ''}`}>{phaseTimerLabel}</span>
               </div>
               <motion.button
                 whileHover={{ scale: phaseTransitionPending ? 1 : 1.03 }}
                 whileTap={{ scale: phaseTransitionPending ? 1 : 0.97 }}
                 onClick={() => updateState(nextStatus, questionIndex)}
                 disabled={phaseTransitionPending}
-                className="rounded-2xl border-4 border-brand-dark bg-brand-dark px-6 py-3 text-base font-black text-white shadow-[6px_6px_0px_0px_#FF5A36] transition-all hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[8px_8px_0px_0px_#FF5A36] disabled:opacity-50 sm:px-8"
+                className="game-action-button game-action-button--dark px-6 py-3 text-base sm:px-8"
               >
                 {phaseTransitionPending ? '...' : nextButtonLabel}
               </motion.button>
@@ -1491,6 +1617,7 @@ export default function TeacherHost() {
 
   if (status === 'QUESTION_REVEAL') {
     const currentPrompt = currentQuestion?.prompt || '';
+    const correctIndex = currentQuestion?.correct_index ?? -1;
     const liveQuestionDensity = getLiveQuestionDensity({
       prompt: currentPrompt,
       explanation: currentQuestion?.explanation || currentAnswers[correctIndex],
@@ -1508,7 +1635,6 @@ export default function TeacherHost() {
     const totalVotes = Object.keys(studentSelections).length;
     const correctVotes = Object.values(studentSelections).filter(idx => idx === currentQuestion?.correct_index).length;
     const accuracyPct = totalVotes > 0 ? Math.round((correctVotes / totalVotes) * 100) : 0;
-    const correctIndex = currentQuestion?.correct_index ?? -1;
     
     const answerSelectionSummary = currentAnswers.reduce((acc: any, _, idx: number) => {
       const count = Object.values(studentSelections).filter(v => v === idx).length;
@@ -1537,9 +1663,9 @@ export default function TeacherHost() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleEndSession}
-                className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-brand-dark/10 bg-white shadow-[2px_2px_0px_0px_#1A1A1A] transition-all hover:border-rose-300 hover:text-rose-600 sm:h-12 sm:w-12"
+                className="game-icon-button h-10 w-10 hover:bg-rose-50 hover:text-rose-600 sm:h-12 sm:w-12"
               >
-                <XCircle className="h-6 w-6 text-brand-dark/30" />
+                <XCircle className="h-6 w-6 opacity-40" />
               </motion.button>
               <div className="flex h-10 items-center gap-3 rounded-2xl border-2 border-brand-dark bg-brand-bg px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
                  <span className="text-xs font-black uppercase tracking-widest text-brand-dark/40">Results Phase</span>
@@ -1563,10 +1689,10 @@ export default function TeacherHost() {
                 whileTap={{ scale: phaseTransitionPending ? 1 : 0.97 }}
                 onClick={() => updateState('LEADERBOARD', questionIndex)}
                 disabled={phaseTransitionPending}
-                className="group relative rounded-2xl border-4 border-brand-dark bg-brand-dark px-6 py-3 text-base font-black text-white shadow-[6px_6px_0px_0px_#FF5A36] flex items-center gap-2 transition-all hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[8px_8px_0px_0px_#FF5A36] disabled:opacity-50"
+                className="game-action-button game-action-button--dark px-6 py-3 text-base"
               >
                 {phaseTransitionPending ? '...' : 'Next Phase'}
-                <ChevronRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
+                <ChevronRight className="w-5 h-5" />
               </motion.button>
             </div>
           </div>
@@ -1659,9 +1785,37 @@ export default function TeacherHost() {
   if (status === 'LEADERBOARD') {
     const totalVotes = Object.keys(studentSelections).length;
     const correctVotes = Object.values(studentSelections).filter(idx => idx === currentQuestion?.correct_index).length;
-    const accuracyPct = totalVotes > 0 ? Math.round((correctVotes / totalVotes) * 100) : 0;
+    const roundAccuracyPct = totalVotes > 0 ? Math.round((correctVotes / totalVotes) * 100) : 0;
 
     const isLast = questionIndex >= (pack?.questions?.length || 0) - 1;
+    const rankedRows = sortedLeaderboardRows.slice(0, 10);
+    const podiumRows = rankedRows.slice(0, 3);
+    const leadingParticipant = rankedRows[0] || null;
+    const runnerUpParticipant = rankedRows[1] || null;
+    const roomAverageScore = rankedRows.length
+      ? Math.round(rankedRows.reduce((sum, participant) => sum + Number(participant?.score || 0), 0) / rankedRows.length)
+      : 0;
+    const roomAverageAccuracy = rankedRows.length
+      ? Math.round(rankedRows.reduce((sum, participant) => sum + Number(participant?.accuracyPct || 0), 0) / rankedRows.length)
+      : 0;
+    const leaderGap = leadingParticipant
+      ? Math.max(0, Number(leadingParticipant?.score || 0) - Number(runnerUpParticipant?.score || 0))
+      : 0;
+    const leadingTeam = isTeamMode ? teamLeaderboardRows[0] || null : null;
+    const accuracyBoard = gameMode.id === 'accuracy_quiz';
+    const boardTitle = isLast ? 'The Winners Circle' : accuracyBoard ? 'Accuracy Leaderboard' : 'Leaderboard';
+    const boardBadge = isLast ? 'Final Standings' : accuracyBoard ? 'Accuracy Standings' : 'Current Standings';
+    const boardNarrative = isLast
+      ? 'Final scores are locked. Celebrate the podium, then jump into the analytics.'
+      : accuracyBoard
+        ? 'This room is ranked by correct answers first, with score used only to break ties.'
+        : 'Scores just reshuffled. Spotlight the podium first, then scan the full room list below.';
+    const insightMessage =
+      roundAccuracyPct >= 75
+        ? 'The room landed this round cleanly. You can safely increase the challenge on the next question.'
+        : roundAccuracyPct >= 45
+          ? 'The room is split enough to warrant a quick debrief before you move on.'
+          : 'This round produced friction. Pause on the top misconception before the next launch.';
 
     return (
       <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
@@ -1675,13 +1829,13 @@ export default function TeacherHost() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleEndSession}
-                className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-brand-dark/10 bg-white shadow-[2px_2px_0px_0px_#1A1A1A] transition-all hover:border-rose-300 hover:text-rose-600 sm:h-12 sm:w-12"
+                className="game-icon-button h-10 w-10 hover:bg-rose-50 hover:text-rose-600 sm:h-12 sm:w-12"
               >
-                <XCircle className="h-6 w-6 text-brand-dark/30" />
+                <XCircle className="h-6 w-6 opacity-40" />
               </motion.button>
               <div className="flex h-11 items-center gap-3 rounded-2xl border-2 border-brand-dark bg-brand-bg px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
                  <span className="text-xs font-black uppercase tracking-widest text-brand-dark/40">
-                   {isLast ? 'Final Standings' : 'Current Standings'}
+                   {boardBadge}
                  </span>
               </div>
             </div>
@@ -1691,7 +1845,7 @@ export default function TeacherHost() {
                 <span className="text-xs font-black uppercase text-brand-orange">Q{questionIndex + 1}/{pack?.questions?.length}</span>
               </div>
               <div className={`rounded-2xl border-2 border-brand-dark px-4 py-2 text-xs font-black uppercase tracking-widest shadow-[4px_4px_0px_0px_#1A1A1A] ${gameTone.pill}`}>
-                {gameMode.label}
+                {t(gameMode.label)}
               </div>
             </div>
 
@@ -1702,7 +1856,7 @@ export default function TeacherHost() {
                   whileTap={{ scale: isCreatingPersonalizedGames ? 1 : 0.97 }}
                   onClick={() => void handleCreatePersonalizedGames()}
                   disabled={isCreatingPersonalizedGames}
-                  className="hidden sm:flex items-center gap-2 rounded-2xl border-2 border-brand-dark bg-brand-yellow px-5 py-2.5 text-sm font-black shadow-[4px_4px_0px_0px_#1A1A1A] disabled:opacity-50"
+                  className="game-action-button game-action-button--yellow hidden px-5 py-2.5 text-sm sm:flex"
                 >
                   <Sparkles className="w-4 h-4" />
                   {isCreatingPersonalizedGames ? 'Building...' : 'Personal Games'}
@@ -1722,9 +1876,7 @@ export default function TeacherHost() {
                   }
                 }}
                 disabled={phaseTransitionPending}
-                className={`rounded-2xl border-4 border-brand-dark px-6 py-3 text-base font-black text-white shadow-[6px_6px_0px_0px_#FF5A36] flex items-center gap-2 disabled:opacity-50 transition-all ${
-                  isLast ? 'bg-emerald-600 shadow-[6px_6px_0px_0px_#065f46] hover:shadow-[8px_8px_0px_0px_#065f46]' : 'bg-brand-dark hover:shadow-[8px_8px_0px_0px_#FF5A36]'
-                }`}
+                className={`game-action-button ${isLast ? 'game-action-button--success' : 'game-action-button--dark'} px-6 py-3 text-base`}
               >
                 {phaseTransitionPending ? '...' : isLast ? 'End & Analyze' : 'Next Question'}
                 <ChevronRight className="w-5 h-5" />
@@ -1733,141 +1885,224 @@ export default function TeacherHost() {
           </div>
         </div>
 
-        <div className="relative flex-1 min-h-0 flex flex-col p-2 sm:p-4 lg:p-5 gap-2 sm:gap-4 overflow-hidden w-full max-w-[1540px] mx-auto">
-          
+        <div className="relative flex-1 min-h-0 overflow-hidden px-2 pb-2 sm:px-4 sm:pb-4 lg:px-5 lg:pb-5 w-full max-w-[1540px] mx-auto">
           <motion.div
-            initial={{ y: -20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            className="shrink-0 flex flex-col items-center"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative flex h-full min-h-0 flex-col overflow-y-auto rounded-[2.8rem] border border-brand-dark/10 bg-white/92 shadow-[0_28px_80px_rgba(15,23,42,0.14)] backdrop-blur-xl"
           >
-             <div className="mb-2 flex items-center gap-3">
-                <span className="h-[2px] w-12 bg-brand-purple/20" />
-                <span className="text-xs font-black uppercase tracking-[0.4em] text-brand-purple">Performance Board</span>
-                <span className="h-[2px] w-12 bg-brand-purple/20" />
-             </div>
-             <h2 className="text-4xl sm:text-5xl lg:text-7xl font-black text-brand-dark tracking-tighter text-center">
-               {isLast ? 'The Winners Circle' : 'Leaderboard'}
-             </h2>
-          </motion.div>
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(120,160,255,0.16),_transparent_28%),radial-gradient(circle_at_bottom_left,_rgba(255,214,95,0.16),_transparent_24%),linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(245,249,255,0.96)_100%)]" />
+            <div className="absolute right-10 top-10 h-32 w-32 rounded-full bg-brand-purple/10 blur-3xl" />
+            <div className="absolute left-10 bottom-10 h-28 w-28 rounded-full bg-brand-yellow/20 blur-3xl" />
 
-          <div className="flex-1 min-h-0 w-full flex flex-col lg:flex-row gap-6">
-             {/* Left Column: Metrics and Insights */}
-             <div className="hidden lg:flex flex-col gap-6 w-80 shrink-0 mt-4">
-                <div className="rounded-[2.5rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
-                   <p className="text-[10px] font-black uppercase tracking-widest text-brand-dark/40 mb-4">Class Pulse</p>
-                   <div className="space-y-4">
-                      <div className="flex items-end justify-between">
-                         <span className="text-sm font-bold text-brand-dark/60">Success Rate</span>
-                         <span className="text-2xl font-black text-brand-purple">{accuracyPct}%</span>
-                      </div>
-                      <div className="h-2 w-full bg-brand-bg rounded-full overflow-hidden">
-                         <div className="h-full bg-brand-purple" style={{ width: `${accuracyPct}%` }} />
-                      </div>
-                   </div>
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-5 p-4 sm:gap-6 sm:p-6 lg:p-8">
+              <div className="shrink-0">
+                <div className="mb-3 flex items-center gap-3 text-brand-purple/70">
+                  <span className="h-[2px] w-10 bg-brand-purple/15" />
+                  <span className="text-[11px] font-black uppercase tracking-[0.42em]">Class Spotlight</span>
+                  <span className="h-[2px] w-10 bg-brand-purple/15" />
+                </div>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <h2 className="text-4xl font-black tracking-[-0.04em] text-brand-dark sm:text-5xl lg:text-6xl">
+                      {boardTitle}
+                    </h2>
+                    <p className="mt-2 max-w-3xl text-sm font-bold leading-relaxed text-brand-dark/55 sm:text-base">
+                      {boardNarrative}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="rounded-full border-2 border-brand-dark/25 bg-white/95 px-4 py-2 text-xs font-black uppercase tracking-[0.24em] text-brand-dark/65 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+                      Ranked Players: {rankedRows.length}
+                    </div>
+                    <div className="rounded-full border-2 border-brand-dark/25 bg-white/95 px-4 py-2 text-xs font-black uppercase tracking-[0.24em] text-brand-dark/65 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+                      Round Accuracy: {roundAccuracyPct}%
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <LeaderboardOverviewCard
+                  label="Top Score"
+                  value={leadingParticipant ? leadingParticipant.score || 0 : '--'}
+                  detail={leadingParticipant ? extractNickname(String(leadingParticipant.nickname || '')) : 'Waiting for the room'}
+                  tone="indigo"
+                />
+                <LeaderboardOverviewCard
+                  label="Leader Gap"
+                  value={leadingParticipant ? `+${leaderGap}` : '--'}
+                  detail={runnerUpParticipant ? `Ahead of ${extractNickname(String(runnerUpParticipant.nickname || ''))}` : 'No runner-up yet'}
+                  tone="amber"
+                />
+                <LeaderboardOverviewCard
+                  label="Room Average"
+                  value={rankedRows.length ? roomAverageScore : '--'}
+                  detail={rankedRows.length ? `${roomAverageAccuracy}% average accuracy` : 'Awaiting ranked players'}
+                  tone="emerald"
+                />
+                <LeaderboardOverviewCard
+                  label={isTeamMode ? 'Top Team' : 'Host Insight'}
+                  value={isTeamMode ? (leadingTeam?.name || '--') : `${roundAccuracyPct}%`}
+                  detail={isTeamMode && leadingTeam
+                    ? `${leadingTeam.members || 0} members • ${leadingTeam.score || 0} points`
+                    : insightMessage}
+                  tone="sky"
+                />
+              </div>
+
+              <div className="shrink-0 rounded-[2.7rem] border border-brand-dark/10 bg-white/90 px-4 pb-4 pt-5 shadow-[0_22px_55px_rgba(15,23,42,0.1)] sm:px-6 sm:pb-6">
+                <div className="mb-5 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[11px] font-black uppercase tracking-[0.28em] text-brand-purple/55">Podium Spotlight</p>
+                    <p className="text-xl font-black text-brand-dark">Top three right now</p>
+                  </div>
+                  <div className="rounded-full border border-brand-dark/15 bg-white px-4 py-2 text-[11px] font-black uppercase tracking-[0.24em] text-brand-dark/55 shadow-[0_8px_16px_rgba(15,23,42,0.08)]">
+                    {isLast ? 'Final lock-in' : 'Live reshuffle'}
+                  </div>
                 </div>
 
-                <div className="flex-1 rounded-[2.5rem] border-4 border-brand-dark bg-brand-orange/5 p-6 shadow-[8px_8px_0px_0px_#FF5A36] border-dashed">
-                   <p className="text-[10px] font-black uppercase tracking-widest text-brand-orange mb-4">Host Tip</p>
-                   <p className="text-sm font-black leading-relaxed text-brand-dark/80 italic">
-                     "Most students struggled with Choice B. Consider a quick revision before the next pack!"
-                   </p>
+                <div className="relative rounded-[2.4rem] border border-brand-dark/8 bg-[linear-gradient(180deg,rgba(247,250,255,0.96)_0%,rgba(255,255,255,0.98)_42%,rgba(248,250,255,0.95)_100%)] px-3 pb-7 pt-10 sm:px-6">
+                  <div className="pointer-events-none absolute inset-x-8 bottom-0 h-20 rounded-t-[2.5rem] border border-brand-dark/8 bg-white/70" />
+                  <div className="pointer-events-none absolute inset-x-0 bottom-12 flex justify-center">
+                    <div className="h-[2px] w-[78%] rounded-full bg-brand-dark/10" />
+                  </div>
+                  <div className="relative z-10 flex items-end justify-center gap-3 sm:gap-5 lg:gap-7">
+                    {podiumRows[1] && (
+                      <PodiumStep
+                        participant={podiumRows[1]}
+                        rank={2}
+                        height="h-32 sm:h-40 lg:h-48"
+                        delay={0.12}
+                        color="bg-[linear-gradient(180deg,#E7B7F4_0%,#D9A5EA_100%)]"
+                        icon={<Medal className="h-5 w-5 text-brand-dark/70" />}
+                      />
+                    )}
+                    {podiumRows[0] && (
+                      <PodiumStep
+                        participant={podiumRows[0]}
+                        rank={1}
+                        height="h-40 sm:h-52 lg:h-60"
+                        delay={0}
+                        color="bg-[linear-gradient(180deg,#FFE79E_0%,#FFD86D_100%)]"
+                        icon={<Trophy className="h-6 w-6 text-brand-dark/70" />}
+                        isWinner={true}
+                      />
+                    )}
+                    {podiumRows[2] && (
+                      <PodiumStep
+                        participant={podiumRows[2]}
+                        rank={3}
+                        height="h-28 sm:h-36 lg:h-44"
+                        delay={0.24}
+                        color="bg-[linear-gradient(180deg,#FFB9AE_0%,#F59F94_100%)]"
+                        icon={<Award className="h-5 w-5 text-brand-dark/70" />}
+                      />
+                    )}
+                  </div>
                 </div>
-             </div>              {/* Right Column/Main Content: The Board */}
-              <div className="flex-1 min-h-0 flex flex-col">
-                 <div className="flex-1 min-h-0 w-full overflow-y-auto pr-2 custom-scrollbar">
-                    {participants.length === 0 ? (
-                      <div className="flex h-full items-center justify-center rounded-[3rem] border-4 border-brand-dark border-dashed bg-white/50 p-12">
-                         <div className="text-center">
-                            <Users className="mx-auto h-16 w-16 text-brand-dark/10 mb-4" />
-                            <p className="text-xl font-black text-brand-dark/30">Waiting for data sync...</p>
-                         </div>
+              </div>
+
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] xl:items-start">
+                <div className="order-2 flex flex-col xl:order-1">
+                  {isLeaderboardLoading ? (
+                    <div className="flex h-full min-h-[320px] items-center justify-center rounded-[2.5rem] border border-brand-dark/10 border-dashed bg-white/95 p-12 shadow-[0_18px_40px_rgba(15,23,42,0.08)]">
+                      <div className="text-center">
+                        <Trophy className="mx-auto mb-4 h-16 w-16 text-brand-dark/15" />
+                        <p className="text-2xl font-black text-brand-dark/40">Syncing scores...</p>
+                      </div>
+                    </div>
+                  ) : rankedRows.length === 0 ? (
+                    <div className="flex h-full min-h-[320px] items-center justify-center rounded-[2.5rem] border border-brand-dark/10 border-dashed bg-white/95 p-12 shadow-[0_18px_40px_rgba(15,23,42,0.08)]">
+                      <div className="text-center">
+                        <Users className="mx-auto mb-4 h-16 w-16 text-brand-dark/15" />
+                        <p className="text-2xl font-black text-brand-dark/40">Waiting for data sync...</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col rounded-[2.5rem] border border-brand-dark/10 bg-white/96 p-5 shadow-[0_22px_50px_rgba(15,23,42,0.1)]">
+                      <div className="mb-4 flex items-start justify-between gap-4">
+                        <div className="flex-1 text-right">
+                          <p className="text-[11px] font-black uppercase tracking-[0.28em] text-brand-purple/55">Game Leaderboard</p>
+                          <p className="mt-1 text-lg font-black text-brand-dark">
+                            {accuracyBoard ? 'Room accuracy standings' : `Room standings after question ${questionIndex + 1}`}
+                          </p>
+                        </div>
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-brand-dark/15 bg-[#eef0ff] shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+                          <BarChart3 className="h-5 w-5 text-brand-purple" />
+                        </div>
+                      </div>
+
+                      <div className="mb-4 flex justify-start">
+                        <div className="rounded-full border border-brand-dark/15 bg-white px-4 py-2 text-[11px] font-black uppercase tracking-[0.24em] text-brand-dark/55 shadow-[0_8px_16px_rgba(15,23,42,0.08)]">
+                          Live Rank View
+                        </div>
+                      </div>
+
+                      <div className="pr-1">
+                        <div className="grid gap-4 xl:grid-cols-2">
+                          {rankedRows.map((participant, index) => (
+                            <LeaderboardStandingRow
+                              key={participant.id || participant.nickname || index}
+                              participant={participant}
+                              rank={index + 1}
+                              isTopThree={index < 3}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="order-1 flex flex-col gap-5 xl:order-2">
+                  <div className="rounded-[2.5rem] border border-brand-dark/10 bg-white/96 p-5 shadow-[0_22px_50px_rgba(15,23,42,0.1)]">
+                    <div className="mb-4 flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-[11px] font-black uppercase tracking-[0.28em] text-brand-purple/55">
+                          {isTeamMode ? 'Team Pulse' : 'Host Insight'}
+                        </p>
+                        <p className="text-lg font-black text-brand-dark">
+                          {isTeamMode && leadingTeam ? leadingTeam.name : 'Read the room before you launch again'}
+                        </p>
+                      </div>
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-brand-dark/15 bg-[#fff6db] shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+                        <Lightbulb className="h-5 w-5 text-brand-dark" />
+                      </div>
+                    </div>
+
+                    {isTeamMode && leadingTeam ? (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <LeaderboardOverviewCard
+                            label="Team Points"
+                            value={leadingTeam.score || 0}
+                            detail="Best combined score"
+                            tone="amber"
+                            compact
+                          />
+                          <LeaderboardOverviewCard
+                            label="Members"
+                            value={leadingTeam.members || 0}
+                            detail={`${leadingTeam.accuracyPct || 0}% team accuracy`}
+                            tone="sky"
+                            compact
+                          />
+                        </div>
+                        <p className="rounded-[1.7rem] border border-brand-dark/10 bg-[#f8faff] px-4 py-4 text-sm font-bold leading-relaxed text-brand-dark/72">
+                          {insightMessage}
+                        </p>
                       </div>
                     ) : (
-                      <div className="flex flex-col gap-8 pb-12">
-                         {/* Winners Podium Section */}
-                         <div className="flex flex-col items-center justify-center gap-4 lg:flex-row lg:items-end lg:gap-8 lg:px-4 py-8">
-                            {/* 2nd Place */}
-                            {participants.sort((a, b) => (b.score || 0) - (a.score || 0))[1] && (
-                              <PodiumStep
-                                participant={participants.sort((a, b) => (b.score || 0) - (a.score || 0))[1]}
-                                rank={2}
-                                height="h-32 sm:h-48"
-                                delay={0.2}
-                                color="bg-zinc-200"
-                                icon={<div className="bg-zinc-100 p-2 rounded-xl border-2 border-brand-dark shadow-sm"><Medal className="w-8 h-8 text-zinc-400" /></div>}
-                              />
-                            )}
-                            
-                            {/* 1st Place */}
-                            {participants.sort((a, b) => (b.score || 0) - (a.score || 0))[0] && (
-                              <PodiumStep
-                                participant={participants.sort((a, b) => (b.score || 0) - (a.score || 0))[0]}
-                                rank={1}
-                                height="h-44 sm:h-64"
-                                delay={0}
-                                color="bg-brand-yellow"
-                                icon={<div className="bg-white p-3 rounded-2xl border-4 border-brand-dark shadow-xl"><Trophy className="w-12 h-12 text-brand-yellow-dark" /></div>}
-                                isWinner={true}
-                              />
-                            )}
-
-                            {/* 3rd Place */}
-                            {participants.sort((a, b) => (b.score || 0) - (a.score || 0))[2] && (
-                              <PodiumStep
-                                participant={participants.sort((a, b) => (b.score || 0) - (a.score || 0))[2]}
-                                rank={3}
-                                height="h-24 sm:h-36"
-                                delay={0.4}
-                                color="bg-orange-200"
-                                icon={<div className="bg-orange-50 p-2 rounded-xl border-2 border-brand-dark shadow-sm"><Award className="w-7 h-7 text-orange-400" /></div>}
-                              />
-                            )}
-                         </div>
-
-                         {/* The Rest of the Leaderboard */}
-                         <div className="space-y-3">
-                            <div className="flex items-center gap-3 px-4 mb-4">
-                               <span className="h-[2px] w-6 bg-brand-dark/10" />
-                               <span className="text-[10px] font-black uppercase tracking-widest text-brand-dark/30">Challengers Circle</span>
-                               <span className="h-[2px] w-6 bg-brand-dark/10" />
-                            </div>
-                            
-                            {participants.sort((a, b) => (b.score || 0) - (a.score || 0)).slice(3, 12).map((p, i) => (
-                               <motion.div
-                                 key={p.id}
-                                 initial={{ x: -20, opacity: 0 }}
-                                 animate={{ x: 0, opacity: 1 }}
-                                 transition={{ delay: (i + 3) * 0.05 }}
-                                 className="flex items-center gap-4 rounded-3xl border-4 border-brand-dark p-4 sm:p-5 shadow-[6px_6px_0px_0px_#1A1A1A] bg-white transition-all hover:translate-x-1"
-                               >
-                                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border-2 border-brand-dark bg-brand-bg font-black text-xl text-brand-dark/30 shadow-[3px_3px_0px_0px_#1A1A1A]">
-                                    {i + 4}
-                                  </div>
-                                  
-                                  <div className="flex-1 min-w-0">
-                                     <div className="flex items-center gap-3">
-                                        <Avatar nickname={p.nickname} imgClassName="h-10 w-10 rounded-xl" />
-                                        <div className="flex flex-col min-w-0">
-                                           <span className="text-xl font-black truncate">{extractNickname(p.nickname)}</span>
-                                           <span className="text-xs font-bold text-brand-dark/40 uppercase tracking-widest">{p.correctCount || 0} Correct</span>
-                                        </div>
-                                     </div>
-                                  </div>
-
-                                  <div className="flex flex-col items-end">
-                                     <span className="text-3xl font-black tracking-tighter">
-                                       {p.score || 0}
-                                     </span>
-                                     <span className="text-[10px] font-black uppercase tracking-widest opacity-30">Points</span>
-                                  </div>
-                               </motion.div>
-                            ))}
-                         </div>
-                      </div>
+                      <p className="rounded-[1.7rem] border border-brand-dark/10 bg-[#f8faff] px-4 py-4 text-sm font-bold leading-relaxed text-brand-dark/72">
+                        {insightMessage}
+                      </p>
                     )}
-                 </div>
+                  </div>
+                </div>
               </div>
-          </div>
+            </div>
+          </motion.div>
 
           {/* Personalized Games Success Banner */}
           {isLast && personalizedGamesSummary && (
@@ -1936,7 +2171,7 @@ export default function TeacherHost() {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => navigate(`/teacher/analytics/class/${sessionId}`)}
-              className="rounded-2xl border-4 border-brand-dark bg-brand-dark px-8 py-4 text-lg font-black text-white shadow-[6px_6px_0px_0px_#FF5A36] transition-all hover:shadow-[8px_8px_0px_0px_#FF5A36]"
+              className="game-action-button game-action-button--dark px-8 py-4 text-lg"
             >
               Open Analytics
             </motion.button>
@@ -1944,7 +2179,7 @@ export default function TeacherHost() {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => navigate('/teacher/dashboard')}
-              className="rounded-2xl border-4 border-brand-dark bg-white px-8 py-4 text-lg font-black shadow-[6px_6px_0px_0px_#1A1A1A] transition-all"
+              className="game-action-button game-action-button--secondary px-8 py-4 text-lg"
             >
               Dashboard
             </motion.button>
@@ -1968,13 +2203,13 @@ export default function TeacherHost() {
         <div className="flex flex-col gap-3">
           <button 
             onClick={() => window.location.reload()}
-            className="w-full rounded-2xl border-4 border-brand-dark bg-brand-orange py-4 text-lg font-black text-white shadow-[4px_4px_0px_0px_#1A1A1A]"
+            className="game-action-button game-action-button--primary w-full py-4 text-lg"
           >
             {t('dash.action.refresh')}
           </button>
           <button 
             onClick={() => navigate('/teacher/dashboard')}
-            className="w-full rounded-2xl border-4 border-brand-dark bg-white py-4 text-lg font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
+            className="game-action-button game-action-button--secondary w-full py-4 text-lg"
           >
             {t('nav.dashboard')}
           </button>
@@ -2122,7 +2357,7 @@ function QuestionReplayShowcase({
             whileTap={{ scale: rematchBusy ? 1 : 0.97 }}
             onClick={onLaunchRematch}
             disabled={rematchBusy}
-            className="w-full rounded-[1.4rem] border-4 border-brand-dark bg-brand-orange px-5 py-4 text-lg font-black text-white shadow-[6px_6px_0px_0px_#1A1A1A] disabled:opacity-60 flex items-center justify-center gap-3"
+            className="game-action-button game-action-button--primary w-full px-5 py-4 text-lg"
           >
             <Rocket className="w-5 h-5" />
             {rematchBusy ? 'Preparing Rematch...' : actionLabel}
@@ -2324,37 +2559,41 @@ function PodiumStep({
 
   return (
     <motion.div 
-      initial={{ y: 400, opacity: 0 }}
+      initial={{ y: 120, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
-      transition={{ delay: delay * 0.4, duration: 1.2, type: 'spring', bounce: 0.25 }}
-      className={`flex flex-col items-center justify-end w-full max-w-[280px] h-full relative group pb-1`}
+      transition={{ delay: delay * 0.45, duration: 1, type: 'spring', bounce: 0.2 }}
+      className="relative flex min-w-0 flex-1 flex-col items-center justify-end"
     >
-      <div className="mb-4 flex flex-col items-center z-20">
+      <div className="z-20 mb-4 flex flex-col items-center">
         <motion.div
           initial={{ scale: 0, rotate: -20 }}
           animate={{ scale: 1, rotate: 0 }}
-          transition={{ delay: delay + 1.2, type: 'spring', stiffness: 260 }}
+          transition={{ delay: delay + 0.6, type: 'spring', stiffness: 260 }}
           className="relative"
         >
           {isWinner && (
             <motion.div
               animate={{ y: [0, -8, 0], rotate: [0, 5, -5, 0] }}
               transition={{ repeat: Infinity, duration: 4 }}
-              className="absolute -top-10 left-1/2 -translate-x-1/2 z-30"
+              className="absolute -top-9 left-1/2 z-30 -translate-x-1/2"
             >
-              <Crown className="w-10 h-10 text-brand-yellow drop-shadow-[0_0_15px_rgba(255,210,51,0.6)]" />
+              <Crown className="h-10 w-10 text-brand-yellow drop-shadow-[0_0_18px_rgba(255,210,51,0.55)]" />
             </motion.div>
           )}
 
-          <div className={`w-20 h-20 sm:w-28 sm:h-28 rounded-[2rem] border-4 border-brand-dark bg-white overflow-hidden shadow-2xl ring-4 ${
-            isWinner ? 'ring-brand-yellow/30' : 'ring-white/50'
+          <div className={`rounded-[2rem] border-[3px] border-brand-dark bg-white p-1.5 shadow-[0_16px_30px_rgba(15,23,42,0.16)] ${
+            isWinner ? 'ring-4 ring-brand-yellow/25' : ''
           }`}>
-            <Avatar nickname={nickname} imgClassName="w-full h-full object-cover" />
+            <LeaderboardAvatarBadge
+              nickname={nickname}
+              sizeClass="h-16 w-16 sm:h-20 sm:w-20 lg:h-24 lg:w-24"
+              className="rounded-[1.35rem] border-brand-dark bg-brand-bg"
+            />
           </div>
 
           {rank > 0 && (
-            <div className={`absolute -bottom-4 -right-4 w-12 h-12 rounded-2xl border-4 border-brand-dark flex items-center justify-center font-black text-xl shadow-[4px_4px_0px_0px_#1A1A1A] z-40 ${
-              isWinner ? 'bg-brand-yellow' : 'bg-white'
+            <div className={`absolute -bottom-3 -right-3 z-40 flex h-10 w-10 items-center justify-center rounded-2xl border-[3px] border-brand-dark font-black shadow-[0_10px_18px_rgba(15,23,42,0.18)] ${
+              isWinner ? 'bg-brand-yellow text-brand-dark' : 'bg-white text-brand-dark'
             }`}>
               {rank}
             </div>
@@ -2364,40 +2603,200 @@ function PodiumStep({
         <motion.div 
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: delay + 1.4 }}
-          className="mt-6 max-w-[200px] sm:max-w-[260px] rounded-2xl border-4 border-brand-dark bg-white px-5 py-2 shadow-[6px_6px_0px_0px_#1A1A1A]"
+          transition={{ delay: delay + 0.8 }}
+          className="mt-4 max-w-[12rem] text-center sm:max-w-[16rem]"
         >
-          <p className="truncate text-base font-black text-brand-dark sm:text-xl">{extractNickname(nickname)}</p>
+          <p className="truncate text-sm font-black text-brand-dark sm:text-base">{extractNickname(nickname)}</p>
+          <div className={`mx-auto mt-2 inline-flex items-center justify-center rounded-full border border-brand-dark/12 px-4 py-2 text-sm font-black shadow-[0_10px_22px_rgba(15,23,42,0.12)] ${
+            isWinner
+              ? 'bg-white/95 text-brand-dark'
+              : 'bg-white/92 text-brand-dark'
+          }`}>
+            XP {participant.score || 0}
+          </div>
         </motion.div>
-        
-        <motion.p 
-          initial={{ opacity: 0, scale: 0.5 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: delay + 1.6, type: 'spring' }}
-          className={`text-2xl sm:text-3xl font-black mt-2 drop-shadow-sm ${isWinner ? 'text-brand-orange' : 'text-brand-purple'}`}
-        >
-          {participant.score || 0}
-        </motion.p>
       </div>
 
       <motion.div 
-        initial={{ height: 0 }}
-        animate={{ height: height.match(/\d+/) ? `${height.match(/\d+/)[0]}%` : '50%' }}
-        transition={{ delay: delay + 0.6, duration: 1.5, ease: 'circOut' }}
-        className={`w-full ${color} rounded-t-[3rem] border-x-4 border-t-4 border-brand-dark shadow-[12px_-4px_0px_0px_rgba(0,0,0,0.1)] flex flex-col items-center justify-start pt-10 sm:pt-14 relative z-10 ${
-          rank > 1 ? 'border-dashed' : 'border-solid'
-        }`}
+        initial={{ y: 100, opacity: 0, scaleY: 0.7 }}
+        animate={{ y: 0, opacity: 1, scaleY: 1 }}
+        transition={{ delay: delay + 0.15, duration: 0.9, ease: 'easeOut' }}
+        className={`relative z-10 flex w-full origin-bottom items-center justify-center overflow-hidden rounded-t-[2.4rem] border-[3px] border-brand-dark ${height} ${color} shadow-[0_18px_34px_rgba(15,23,42,0.16)]`}
       >
-        <div className="absolute top-0 right-0 p-4 opacity-5">
-           <div className="text-[12rem] font-black leading-none pointer-events-none select-none">{rank}</div>
+        <div className="absolute inset-x-0 top-0 h-8 bg-white/30 blur-lg" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.24),transparent_40%,rgba(0,0,0,0.06))]" />
+        <div className="absolute right-0 top-0 p-4 opacity-[0.14]">
+           <div className="pointer-events-none select-none text-[6rem] font-black leading-none text-white sm:text-[8rem]">{rank}</div>
         </div>
-        
-        {!isWinner && (
-          <div className="absolute -top-6 drop-shadow-xl scale-[1.3] z-20 transition-transform group-hover:scale-[1.4]">
+        {icon && (
+          <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border-[3px] border-brand-dark bg-white/90 p-2 text-brand-dark shadow-[0_10px_18px_rgba(15,23,42,0.18)]">
             {icon}
           </div>
         )}
+        <div className="relative z-10 mt-6 text-[3.4rem] font-black leading-none text-white drop-shadow-[0_8px_18px_rgba(255,255,255,0.45)] sm:text-[4.8rem]">
+          {rank}
+        </div>
       </motion.div>
+    </motion.div>
+  );
+}
+
+function LeaderboardAvatarBadge({
+  nickname,
+  sizeClass = 'h-12 w-12',
+  className = '',
+}: {
+  nickname: string;
+  sizeClass?: string;
+  className?: string;
+}) {
+  const avatarMatch = String(nickname || '').match(/^\[(avatar_\d+\.png)\]\s*(.*)$/);
+  const avatarFile = avatarMatch?.[1] || '';
+  const cleanedName = extractNickname(String(nickname || 'Student')).trim();
+  const initials = cleanedName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join('')
+    .toUpperCase() || '?';
+
+  return (
+    <div className={`flex shrink-0 items-center justify-center overflow-hidden rounded-[1.1rem] border-[3px] border-brand-dark bg-white shadow-[0_10px_18px_rgba(15,23,42,0.14)] ${sizeClass} ${className}`}>
+      {avatarFile ? (
+        <img
+          src={`/avatars/${avatarFile}`}
+          alt={cleanedName || 'Avatar'}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <span className="text-base font-black tracking-tight text-brand-dark sm:text-lg">{initials}</span>
+      )}
+    </div>
+  );
+}
+
+function LeaderboardOverviewCard({
+  label,
+  value,
+  detail,
+  tone,
+  compact = false,
+}: {
+  label: string;
+  value: string | number;
+  detail: string;
+  tone: 'indigo' | 'amber' | 'emerald' | 'sky';
+  compact?: boolean;
+}) {
+  const toneClasses = {
+    indigo: {
+      dot: 'bg-brand-purple',
+      value: 'text-brand-dark',
+      card: 'bg-white',
+    },
+    amber: {
+      dot: 'bg-brand-yellow',
+      value: 'text-brand-dark',
+      card: 'bg-[#fff7df]',
+    },
+    emerald: {
+      dot: 'bg-emerald-400',
+      value: 'text-brand-dark',
+      card: 'bg-[#ecfff6]',
+    },
+    sky: {
+      dot: 'bg-sky-400',
+      value: 'text-brand-dark',
+      card: 'bg-[#eef8ff]',
+    },
+  }[tone];
+
+  return (
+    <div className={`rounded-[1.7rem] border border-brand-dark/10 px-4 py-4 shadow-[0_16px_34px_rgba(15,23,42,0.08)] ${toneClasses.card} ${compact ? 'min-h-[118px]' : ''}`}>
+      <div className="flex items-center gap-2">
+        <span className={`h-2.5 w-2.5 rounded-full ${toneClasses.dot}`} />
+        <p className="text-[11px] font-black uppercase tracking-[0.28em] text-brand-dark/45">{label}</p>
+      </div>
+      <p className={`mt-3 text-2xl font-black tracking-[-0.04em] ${toneClasses.value} ${compact ? 'text-xl' : 'sm:text-3xl'}`}>
+        {value}
+      </p>
+      <p className="mt-2 text-sm font-bold leading-relaxed text-brand-dark/56">
+        {detail}
+      </p>
+    </div>
+  );
+}
+
+function LeaderboardStandingRow({
+  participant,
+  rank,
+  isTopThree,
+}: {
+  key?: React.Key;
+  participant: any;
+  rank: number;
+  isTopThree: boolean;
+}) {
+  const displayName = extractNickname(String(participant?.nickname || 'Student'));
+  const answeredCount = Number(participant?.answeredCount || 0);
+  const correctCount = Number(participant?.correctCount || 0);
+  const accuracyPct = Number(participant?.accuracyPct || 0);
+  const performanceLabel = answeredCount > 0 ? `${correctCount}/${answeredCount} correct` : `${correctCount} correct`;
+  const badgeLabel = participant?.team_name ? String(participant.team_name) : `${accuracyPct}% accuracy`;
+
+  return (
+    <motion.div
+      initial={{ x: -24, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      transition={{ delay: rank * 0.05 }}
+      className={`grid grid-cols-[auto,1fr,auto] items-center gap-4 rounded-[2rem] border-[3px] border-brand-dark bg-white px-4 py-4 shadow-[0_20px_36px_rgba(15,23,42,0.1)] sm:px-5 ${
+        isTopThree
+          ? 'ring-2 ring-brand-purple/10'
+          : ''
+      }`}
+    >
+      <div className={`flex h-11 w-11 items-center justify-center rounded-full border-[3px] border-brand-dark text-base font-black shadow-[0_10px_18px_rgba(15,23,42,0.14)] ${
+        rank === 1
+          ? 'bg-brand-yellow text-brand-dark'
+          : rank === 2
+            ? 'bg-brand-purple text-white'
+            : rank === 3
+              ? 'bg-brand-orange text-white'
+              : 'bg-brand-bg text-brand-dark'
+      }`}>
+        {rank}
+      </div>
+
+      <div className="min-w-0">
+        <div className="flex items-center gap-3">
+          <LeaderboardAvatarBadge nickname={String(participant?.nickname || '')} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-black text-brand-dark sm:text-lg">{displayName}</p>
+            <p className="mt-1 truncate text-sm font-bold text-brand-dark/58">{performanceLabel}</p>
+          </div>
+          <div className="hidden rounded-full bg-[#ececec] px-4 py-2 text-sm font-black text-brand-dark/82 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] md:block">
+            {badgeLabel}
+          </div>
+        </div>
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-brand-dark/8">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-brand-orange via-brand-yellow to-brand-purple"
+            style={{ width: `${Math.max(8, Math.min(100, accuracyPct || 0))}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="text-right">
+        <div className={`rounded-full border border-brand-dark/10 px-4 py-2 text-xl font-black shadow-[0_12px_24px_rgba(15,23,42,0.1)] sm:text-2xl ${
+          isTopThree
+            ? 'bg-[#ececec] text-brand-dark'
+            : 'bg-[#ececec] text-brand-dark'
+        }`}>
+          XP {participant?.score || 0}
+        </div>
+        <p className="mt-1 text-[10px] font-black uppercase tracking-[0.28em] text-brand-dark/32">Score</p>
+      </div>
     </motion.div>
   );
 }

@@ -29,10 +29,12 @@ import { apiFetchJson } from '../lib/api.ts';
 import Avatar, { extractNickname } from '../components/Avatar.tsx';
 import { clearJoinedParticipantSession, getParticipantToken } from '../lib/studentSession.ts';
 import { isValidSessionPin } from '../lib/joinCodes.ts';
+import { useAppLanguage } from '../lib/appLanguage.tsx';
 
 // Replaced by central apiFetchJson
 
 export default function StudentDashboard() {
+  const { language } = useAppLanguage();
   const { nickname } = useParams();
   const navigate = useNavigate();
   const participantId = localStorage.getItem('participant_id');
@@ -44,6 +46,50 @@ export default function StudentDashboard() {
   const [gameData, setGameData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const copy = {
+    he: {
+      loadFailed: 'טעינת לוח המחוונים נכשלה',
+      overallOnly: 'נתוני המשחק האחרון אינם זמינים כרגע, מוצגת התמונה הכוללת בלבד.',
+      latestOnly: 'הניתוח הכולל אינו זמין כרגע, מוצג רק המשחק האחרון.',
+      loading: 'טוען את לוח המחוונים האישי שלך...',
+      unavailable: 'לוח המחוונים של התלמיד אינו זמין',
+      noAnalytics: 'לא התקבלו נתוני ניתוח.',
+      backHome: 'חזרה לעמוד הבית',
+      title: 'מרכז הבקרה של התלמיד',
+      latestGame: 'המשחק האחרון:',
+      overallProfile: 'פרופיל הלמידה הכולל',
+      explorePacks: 'עיון בחבילות',
+      startPractice: 'התחל תרגול אדפטיבי',
+    },
+    ar: {
+      loadFailed: 'فشل تحميل لوحة المتابعة',
+      overallOnly: 'تحليلات اللعبة الأخيرة غير متاحة الآن، لذلك نعرض الصورة العامة فقط.',
+      latestOnly: 'التحليلات العامة غير متاحة الآن، لذلك نعرض أحدث لعبة فقط.',
+      loading: 'جارٍ تحميل لوحة المتابعة الشخصية...',
+      unavailable: 'لوحة متابعة الطالب غير متاحة',
+      noAnalytics: 'لم يتم إرجاع بيانات تحليل.',
+      backHome: 'العودة إلى الصفحة الرئيسية',
+      title: 'مركز متابعة الطالب',
+      latestGame: 'آخر لعبة:',
+      overallProfile: 'ملف التعلم العام',
+      explorePacks: 'استكشاف الحِزم',
+      startPractice: 'ابدأ تدريبًا تكيّفيًا',
+    },
+    en: {
+      loadFailed: 'Failed to load dashboard',
+      overallOnly: 'Latest game analytics unavailable, showing overall view only.',
+      latestOnly: 'Overall analytics unavailable, showing latest game only.',
+      loading: 'Loading your personal dashboard...',
+      unavailable: 'Student dashboard unavailable',
+      noAnalytics: 'No analytics were returned.',
+      backHome: 'Back Home',
+      title: 'Student Command Center',
+      latestGame: 'Latest game:',
+      overallProfile: 'Overall learning profile',
+      explorePacks: 'Explore Packs',
+      startPractice: 'Start Adaptive Practice',
+    },
+  }[language];
 
   useEffect(() => {
     let cancelled = false;
@@ -89,11 +135,11 @@ export default function StudentDashboard() {
       }
 
       if (overallResult.status === 'rejected' && gameResult.status === 'rejected') {
-        setError(overallResult.reason?.message || gameResult.reason?.message || 'Failed to load dashboard');
+        setError(overallResult.reason?.message || gameResult.reason?.message || copy.loadFailed);
       } else if (overallResult.status === 'rejected') {
-        setError(overallResult.reason?.message || 'Overall analytics unavailable, showing latest game only.');
+        setError(overallResult.reason?.message || copy.latestOnly);
       } else if (gameResult.status === 'rejected' && participantId) {
-        setError(gameResult.reason?.message || 'Latest game analytics unavailable, showing overall view only.');
+        setError(gameResult.reason?.message || copy.overallOnly);
       }
 
       setLoading(false);
@@ -101,7 +147,7 @@ export default function StudentDashboard() {
 
     load().catch((loadError: any) => {
       if (cancelled) return;
-      setError(loadError?.message || 'Failed to load dashboard');
+      setError(loadError?.message || copy.loadFailed);
       setLoading(false);
     });
 
@@ -155,7 +201,7 @@ export default function StudentDashboard() {
       <div className="min-h-screen bg-brand-bg flex items-center justify-center">
         <div className="text-center text-brand-dark">
           <div className="w-16 h-16 border-4 border-brand-dark border-t-brand-orange rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-xl font-black">Loading your personal dashboard...</p>
+          <p className="text-xl font-black">{copy.loading}</p>
         </div>
       </div>
     );
@@ -165,13 +211,13 @@ export default function StudentDashboard() {
     return (
       <div className="min-h-screen bg-brand-bg flex items-center justify-center p-8">
         <div className="bg-white rounded-[2.5rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#1A1A1A] p-8 max-w-xl text-center">
-          <p className="text-3xl font-black mb-3">Student dashboard unavailable</p>
-          <p className="font-bold text-brand-dark/60 mb-6">{error || 'No analytics were returned.'}</p>
+          <p className="text-3xl font-black mb-3">{copy.unavailable}</p>
+          <p className="font-bold text-brand-dark/60 mb-6">{error || copy.noAnalytics}</p>
           <button
             onClick={() => navigate('/')}
             className="px-6 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black"
           >
-            Back Home
+            {copy.backHome}
           </button>
         </div>
       </div>
@@ -192,10 +238,10 @@ export default function StudentDashboard() {
               <ArrowRight className="w-5 h-5 rotate-180" />
             </button>
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Student Command Center</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{copy.title}</p>
               <h1 className="text-3xl font-black tracking-tight">{displayNickname}</h1>
               <p className="font-bold text-brand-dark/60">
-                {latestSessionTitle ? `Latest game: ${latestSessionTitle}` : 'Overall learning profile'}
+                {latestSessionTitle ? `${copy.latestGame} ${latestSessionTitle}` : copy.overallProfile}
               </p>
             </div>
           </div>
@@ -205,14 +251,14 @@ export default function StudentDashboard() {
               onClick={() => navigate('/explore')}
               className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
             >
-              Explore Packs
+              {copy.explorePacks}
             </button>
             <button
               onClick={() => navigate(primaryPracticePath)}
               className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black shadow-[2px_2px_0px_0px_#1A1A1A] flex items-center gap-2"
             >
               <Sparkles className="w-4 h-4" />
-              Start Adaptive Practice
+              {copy.startPractice}
             </button>
             <button
               onClick={() => {

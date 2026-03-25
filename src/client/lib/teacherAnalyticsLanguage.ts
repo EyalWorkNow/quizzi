@@ -53,6 +53,8 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Turn this session into the next lesson': 'הפוך את הסשן הזה לשיעור הבא',
   'Pick a ready-made follow-up path, create the pack, or open it live right now from the same analytics board.':
     'בחר מסלול המשך מוכן, צור את החבילה, או פתח אותה חי עכשיו מאותו לוח אנליטיקות.',
+  'Teach next': 'מה ללמד עכשיו',
+  'Student support': 'תמיכה בתלמיד',
   'Focus Tags': 'תגיות מיקוד',
   'Priority Questions': 'שאלות בעדיפות',
   'Student Group': 'קבוצת תלמידים',
@@ -108,6 +110,28 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'No urgent class-wide alert': 'אין כרגע התראה דחופה ברמת הכיתה',
   'The class does not currently show a single alert that outweighs the rest of the board.':
     'כרגע אין בכיתה התראה אחת שבולטת מעל שאר הלוח.',
+  'Teacher Trust Mode': 'מצב אמון למורה',
+  'Observed facts, interpretation, and action': 'עובדות נצפות, פרשנות ופעולה מומלצת',
+  'Observed Facts': 'עובדות נצפות',
+  'Observed facts': 'עובדות נצפות',
+  'Derived Interpretation': 'פרשנות נגזרת',
+  'Derived interpretation': 'פרשנות נגזרת',
+  'Teacher Action': 'פעולת מורה',
+  'Signal Quality': 'איכות האות',
+  'Confidence Band': 'רמת ודאות',
+  'Evidence Count': 'מספר ראיות',
+  Suppressed: 'הוסתר',
+  'Grading-Safe Metrics': 'מדדים בטוחים להערכה',
+  'Behavior Signals': 'אותות התנהגות',
+  'Suppressed Reason': 'סיבת ההסתרה',
+  'Reteach now': 'ללמד מחדש עכשיו',
+  'Fragile but correct': 'נכון אבל שברירי',
+  'Likely distractor issue': 'כנראה בעיית מסיח',
+  'Needs calmer pacing': 'צריך קצב רגוע יותר',
+  'Ready for stretch': 'מוכן לאתגר',
+  Monitor: 'מעקב',
+  Yes: 'כן',
+  No: 'לא',
   'Academic Mapping': 'מיפוי אקדמי',
   'Keep this session anchored to the course structure, not just the game.':
     'השאר את הסשן הזה מחובר למבנה הקורס, לא רק למשחק.',
@@ -178,6 +202,26 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Use these charts after you know the misconception. They explain when the room destabilized, which students stayed resilient, and whether time pressure changed the outcome.':
     'השתמש בגרפים האלה אחרי שהבנת את הטעות המרכזית. הם מסבירים מתי הכיתה התערערה, אילו תלמידים נשארו יציבים, והאם לחץ זמן שינה את התוצאה.',
   'Decision Paths': 'מסלולי החלטה',
+  'Teaching Playbook': 'פלייבוק הוראה',
+  'A fast plan for the next teaching move': 'תוכנית מהירה למהלך ההוראה הבא',
+  'Use this when you want to move from analytics to instruction without planning from scratch.':
+    'השתמש בזה כשאתה רוצה לעבור מאנליטיקות להוראה בלי לתכנן מאפס.',
+  'Intervention Cohorts': 'קבוצות התערבות',
+  'Auto-built groups from this session': 'קבוצות שנבנו אוטומטית מתוך הסשן הזה',
+  'Instead of one giant class response, use these groups to differentiate the next move.':
+    'במקום תגובה כיתתית אחת גדולה, השתמש בקבוצות האלה כדי להתאים את המהלך הבא.',
+  'Pivot Moments': 'רגעי מפנה',
+  'Where the session stopped feeling stable': 'איפה הסשן הפסיק להרגיש יציב',
+  'These are the moments where the class bent under pressure, hesitation, or confusion.':
+    'אלה הרגעים שבהם הכיתה התערערה תחת לחץ, היסוס או בלבול.',
+  'Concept Clinics': 'קליניקות מושג',
+  'Topic-level fixes for the whole class': 'תיקונים ברמת הנושא לכל הכיתה',
+  'Each clinic proposes a fast same-material intervention around one weak concept cluster.':
+    'כל קליניקה מציעה התערבות מהירה מאותו חומר סביב אשכול מושגים חלש אחד.',
+  'Office Hours Auto-Invite': 'הזמנה אוטומטית לשעות קבלה',
+  'Who should hear from you next': 'מי צריך לשמוע ממך עכשיו',
+  'Copy a ready-made invite for the students most likely to drift or underperform next.':
+    'העתק הזמנה מוכנה מראש לתלמידים שהכי סביר שיידרדרו או יתקשו בהמשך.',
   'Decision Revision Flow': 'זרימת שינויי החלטה',
   Revised: 'שינו תשובה',
   'Locked Wrong': 'ננעלו על שגיאה',
@@ -525,9 +569,17 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Low mastery or high pressure collapse pattern.': 'שליטה נמוכה או דפוס קריסה תחת לחץ.',
   'First Choice': 'בחירה ראשונה',
   'Classic Quiz': 'חידון קלאסי',
+  'Accuracy Quiz': 'חידון דיוק',
   'Practice testing with immediate feedback': 'תרגול שליפה עם משוב מיידי',
+  'Correctness-first retrieval without speed pressure': 'שליפה מבוססת נכונות בלי לחץ מהירות',
   'Individual quiz flow with direct scoring, low friction, and the clearest path from question to feedback.':
     'זרימת חידון אישית עם ניקוד ישיר, מעט חיכוך והמסלול הברור ביותר משאלה למשוב.',
+  'A lower-pressure solo mode where correctness drives scoring. Great when you want the room to focus on thinking clearly instead of racing the timer.':
+    'מצב אישי רגוע יותר שבו הנכונות קובעת את הניקוד. מתאים כשחשוב שהכיתה תתמקד בחשיבה ברורה במקום במרדף אחרי הטיימר.',
+  'Fixed points for correct answers, no speed bonus, calmer pacing.': 'נקודות קבועות על תשובות נכונות, בלי בונוס מהירות ועם קצב רגוע יותר.',
+  'Accuracy over speed': 'דיוק לפני מהירות',
+  'Fair scoring': 'ניקוד הוגן',
+  'Calmer pacing': 'קצב רגוע יותר',
   'Rapid retrieval': 'שליפה מהירה',
   'Low setup overhead': 'מעט הכנה',
   'Clear individual ranking': 'דירוג אישי ברור',
@@ -925,6 +977,10 @@ const HEBREW_PATTERN_RULES: PatternRule[] = [
   {
     pattern: /^(\d+(?:\.\d+)?)% of all response rows followed this path\.$/,
     translate: ([, value]) => `${value}% מכל שורות התשובה הלכו במסלול הזה.`,
+  },
+  {
+    pattern: /^(.+) is the dominant follow-up pattern at (\d+(?:\.\d+)?)%\.$/,
+    translate: ([, label, rate]) => `${translateTeacherAnalyticsText(label, 'he')} הוא דפוס ההמשך הדומיננטי בשיעור של ${rate}%.`,
   },
   {
     pattern: /^(\d+(?:\.\d+)?)% accuracy with calm pacing across (\d+) students\.$/,

@@ -29,6 +29,7 @@ import {
   SessionHistoryTrendChart,
 } from '../components/studentDashboardCharts.tsx';
 import { apiFetchJson } from '../lib/api.ts';
+import { useAppLanguage } from '../lib/appLanguage.tsx';
 
 function buildSignalComparisons(sessionAnalytics: any, overallAnalytics: any) {
   const overallSignals = new Map(
@@ -91,6 +92,7 @@ function formatDeltaMs(value: number) {
 }
 
 export default function TeacherStudentAnalytics() {
+  const { language } = useAppLanguage();
   const { sessionId, participantId } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState<any>(null);
@@ -98,6 +100,35 @@ export default function TeacherStudentAnalytics() {
   const [error, setError] = useState('');
   const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [snapshotCopied, setSnapshotCopied] = useState(false);
+  const copy = {
+    he: {
+      packLabel: 'חבילה',
+      studentLabel: 'תלמיד',
+      primaryFallback: 'נקודת הקצה הראשית נכשלה, נטענו נתוני גיבוי.',
+      loadFailed: 'טעינת ניתוח התלמיד נכשלה',
+      adaptiveFailed: 'יצירת המשחק האדפטיבי נכשלה',
+      copyFailed: 'העתקת תקציר התמיכה נכשלה',
+      loading: 'טוען את לוח המחוונים האישי...',
+    },
+    ar: {
+      packLabel: 'حزمة',
+      studentLabel: 'طالب',
+      primaryFallback: 'فشلت نقطة النهاية الرئيسية، وتم تحميل بيانات احتياطية.',
+      loadFailed: 'فشل تحميل تحليلات الطالب',
+      adaptiveFailed: 'فشل إنشاء اللعبة التكيّفية',
+      copyFailed: 'فشل نسخ ملخص الدعم',
+      loading: 'جارٍ تحميل لوحة المتابعة الشخصية...',
+    },
+    en: {
+      packLabel: 'Pack',
+      studentLabel: 'Student',
+      primaryFallback: 'Primary endpoint failed, loaded fallback data.',
+      loadFailed: 'Failed to load student analytics',
+      adaptiveFailed: 'Failed to create adaptive game',
+      copyFailed: 'Failed to copy support snapshot',
+      loading: 'Loading personal dashboard...',
+    },
+  }[language];
 
   const buildFallbackPayload = async () => {
     const classPayload = await apiFetchJson(`/api/analytics/class/${sessionId}`);
@@ -109,13 +140,13 @@ export default function TeacherStudentAnalytics() {
       pack:
         reportPayload?.pack || {
           id: classPayload?.session?.quiz_pack_id,
-          title: classPayload?.session?.pack_title || `Pack ${classPayload?.session?.quiz_pack_id || ''}`,
+          title: classPayload?.session?.pack_title || `${copy.packLabel} ${classPayload?.session?.quiz_pack_id || ''}`,
         },
       participant:
         reportPayload?.participant || {
           id: Number(participantId),
           session_id: Number(sessionId),
-          nickname: studentSummary?.nickname || 'Student',
+          nickname: studentSummary?.nickname || copy.studentLabel,
         },
       student_summary: studentSummary || null,
       class_summary: classPayload?.summary || null,
@@ -142,9 +173,9 @@ export default function TeacherStudentAnalytics() {
       try {
         const fallbackPayload = await buildFallbackPayload();
         setData(fallbackPayload);
-        setError(loadError?.message || 'Primary endpoint failed, loaded fallback data.');
+        setError(loadError?.message || copy.primaryFallback);
       } catch (fallbackError: any) {
-        setError(fallbackError?.message || loadError?.message || 'Failed to load student analytics');
+        setError(fallbackError?.message || loadError?.message || copy.loadFailed);
         setData(null);
       }
     } finally {
@@ -167,6 +198,12 @@ export default function TeacherStudentAnalytics() {
   const comparison = data?.session_vs_overall || buildSessionComparison(analytics, overallAnalytics);
   const student = data?.student_summary;
   const classSummary = data?.class_summary;
+  const trust = analytics?.trust || analytics?.overallStory || {};
+  const trustObservedFacts = trust?.observed_facts || analytics?.overallStory?.observed_facts || null;
+  const trustInterpretation = trust?.derived_interpretation || analytics?.overallStory?.derived_interpretation || null;
+  const trustTeacherAction = analytics?.risk?.teacher_action || trust?.teacher_action || analytics?.practicePlan?.teacher_action || null;
+  const gradingSafeMetrics = Array.isArray(analytics?.gradingSafeMetrics) ? analytics.gradingSafeMetrics.slice(0, 4) : [];
+  const behaviorSignalMetrics = Array.isArray(analytics?.behaviorSignalMetrics) ? analytics.behaviorSignalMetrics.slice(0, 4) : [];
   const preview = data?.adaptive_game_preview;
   const questionReview = analytics?.questionReview || [];
   const revisionInsights = analytics?.revisionInsights || {};
@@ -300,7 +337,7 @@ export default function TeacherStudentAnalytics() {
       });
       navigate(`/teacher/session/${payload.pin}/host`);
     } catch (createError: any) {
-      window.alert(createError?.message || 'Failed to create adaptive game');
+      window.alert(createError?.message || copy.adaptiveFailed);
     } finally {
       setIsCreatingGame(false);
     }
@@ -311,7 +348,7 @@ export default function TeacherStudentAnalytics() {
       await navigator.clipboard.writeText(supportSnapshot.text);
       setSnapshotCopied(true);
     } catch (copyError: any) {
-      window.alert(copyError?.message || 'Failed to copy support snapshot');
+      window.alert(copyError?.message || copy.copyFailed);
     }
   };
 
@@ -320,7 +357,7 @@ export default function TeacherStudentAnalytics() {
       <div className="min-h-screen bg-brand-bg flex items-center justify-center">
         <div className="text-center text-brand-dark">
           <div className="w-16 h-16 border-4 border-brand-dark border-t-brand-purple rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-xl font-black">Loading personal dashboard...</p>
+          <p className="text-xl font-black">{copy.loading}</p>
         </div>
       </div>
     );
@@ -383,7 +420,7 @@ export default function TeacherStudentAnalytics() {
               className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
             >
               {snapshotCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              {snapshotCopied ? 'Snapshot Copied' : 'Copy Support Snapshot'}
+              {snapshotCopied ? 'התקציר הועתק' : 'העתק תקציר תמיכה'}
             </button>
             <button
               onClick={() => window.print()}
@@ -398,7 +435,7 @@ export default function TeacherStudentAnalytics() {
               className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-60"
             >
               <Sparkles className="w-4 h-4" />
-              {isCreatingGame ? 'Creating Game...' : 'Build And Host Adaptive Game'}
+              {isCreatingGame ? 'יוצר משחק...' : 'בנה וארח משחק אדפטיבי'}
             </button>
           </div>
         </div>
@@ -453,6 +490,82 @@ export default function TeacherStudentAnalytics() {
               <p className="font-medium text-brand-dark/70">
                 {student?.recommendation || analytics?.practicePlan?.body}
               </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-6 mb-8">
+          <div className="bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Teacher Trust Mode</p>
+                <h2 className="text-3xl font-black">Why we think this is true</h2>
+                <p className="font-bold text-brand-dark/60 mt-2">
+                  Every student read is now split into observed facts, interpretation, and the next teaching move.
+                </p>
+              </div>
+              <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg px-4 py-3 text-xs font-black uppercase tracking-[0.18em] text-brand-dark/55">
+                {String(analytics?.analytics_version || trust?.analytics_version || 'n/a').replace(/_/g, ' ')}
+              </div>
+            </div>
+
+            <div className="grid gap-3">
+              <TrustStoryCard
+                eyebrow="Observed facts"
+                title={trustObservedFacts?.headline || 'Observed facts'}
+                body={trustObservedFacts?.body || 'The system has not produced an evidence read for this student yet.'}
+                tone="bg-brand-bg"
+              />
+              <TrustStoryCard
+                eyebrow="Derived interpretation"
+                title={trustInterpretation?.headline || analytics?.overallStory?.headline || analytics?.profile?.headline || 'Session-specific interpretation'}
+                body={trustInterpretation?.body || analytics?.overallStory?.body || analytics?.profile?.body || 'No interpretation was produced yet.'}
+                tone="bg-[#eef0ff]"
+              />
+              <TrustStoryCard
+                eyebrow="Teacher action"
+                title={trustTeacherAction?.label || trustTeacherAction?.title || 'Monitor'}
+                body={trustTeacherAction?.body || analytics?.practicePlan?.body || 'Watch the next game for a cleaner signal before changing the instruction plan.'}
+                tone="bg-[#fff6db]"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+              <TrustBadge label="Signal quality" value={analytics?.risk?.signal_quality || trust?.signal_quality || 'low'} />
+              <TrustBadge label="Confidence band" value={analytics?.risk?.confidence_band || trust?.confidence_band || 'low'} />
+              <TrustBadge label="Evidence count" value={analytics?.risk?.evidence_count ?? trust?.evidence_count ?? 0} />
+              <TrustBadge label="Suppressed" value={(analytics?.risk?.suppressed_reason || trust?.suppressed_reason) ? 'Yes' : 'No'} />
+            </div>
+          </div>
+
+          <div className="bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
+            <div className="flex items-center gap-3 mb-5">
+              <Gauge className="w-6 h-6 text-brand-purple" />
+              <div>
+                <h2 className="text-3xl font-black">Assessment vs behavior</h2>
+                <p className="font-bold text-brand-dark/60 mt-1">
+                  Separate grading-safe evidence from game-behavior signals before you act on the report.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <TrustMetricGroup
+                title="Grading-safe metrics"
+                metrics={gradingSafeMetrics}
+                emptyBody="No grading-safe metrics were returned for this student yet."
+              />
+              <TrustMetricGroup
+                title="Behavior signals"
+                metrics={behaviorSignalMetrics}
+                emptyBody="No behavior metrics were returned for this student yet."
+              />
+              {(analytics?.risk?.suppressed_reason || trust?.suppressed_reason) && (
+                <div className="rounded-[1.3rem] border-2 border-dashed border-brand-dark/25 bg-brand-bg p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">Suppressed reason</p>
+                  <p className="font-medium text-brand-dark/70">{analytics?.risk?.suppressed_reason || trust?.suppressed_reason}</p>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -925,6 +1038,79 @@ function HeroStat({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
       <p className="text-xs font-black uppercase tracking-[0.2em] text-white/40 mb-2">{label}</p>
       <p className="text-3xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function TrustStoryCard({
+  eyebrow,
+  title,
+  body,
+  tone,
+}: {
+  eyebrow: string;
+  title: string;
+  body: string;
+  tone: string;
+}) {
+  return (
+    <div className={`rounded-[1.4rem] border-2 border-brand-dark p-4 ${tone}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{eyebrow}</p>
+      <p className="font-black leading-tight">{title}</p>
+      <p className="font-medium text-brand-dark/72 mt-2">{body}</p>
+    </div>
+  );
+}
+
+function TrustBadge({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-[1.1rem] border-2 border-brand-dark bg-brand-bg px-3 py-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{label}</p>
+      <p className="text-lg font-black mt-1">{value}</p>
+    </div>
+  );
+}
+
+function TrustMetricGroup({
+  title,
+  metrics,
+  emptyBody,
+}: {
+  title: string;
+  metrics: any[];
+  emptyBody: string;
+}) {
+  if (!metrics.length) {
+    return (
+      <div>
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{title}</p>
+        <div className="rounded-[1.3rem] border-2 border-dashed border-brand-dark/20 bg-brand-bg p-4">
+          <p className="font-medium text-brand-dark/65">{emptyBody}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{title}</p>
+      <div className="grid grid-cols-2 gap-3">
+        {metrics.map((metric, index) => {
+          const unit = String(metric?.unit || '').trim();
+          const rawValue = metric?.value;
+          const displayValue =
+            typeof rawValue === 'number' && Number.isFinite(rawValue)
+              ? `${Number(rawValue).toFixed(unit === '%' ? 1 : unit === 'ms' ? 0 : Number.isInteger(rawValue) ? 0 : 1)}${unit ? ` ${unit}` : ''}`
+              : `${String(rawValue ?? '--')}${unit ? ` ${unit}` : ''}`;
+
+          return (
+            <div key={`${title}-${metric?.label || index}`} className="rounded-[1.1rem] border-2 border-brand-dark bg-white px-3 py-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{metric?.label || 'Metric'}</p>
+              <p className="text-sm font-black mt-1">{displayValue}</p>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

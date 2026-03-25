@@ -59,73 +59,161 @@ const CLASSES_KEY = 'quizzi.teacher.classes';
 const CONTACTS_KEY = 'quizzi.contact.submissions';
 const APP_LANGUAGE_KEY = 'quizzi.app.language';
 
-const DEFAULT_SETTINGS: TeacherSettingsState = {
-  profile: {
-    firstName: 'Sarah',
-    lastName: 'Jenkins',
-    email: 'teacher@school.edu',
-    school: 'Lincoln High School',
-    avatar: '👩🏻‍🏫',
-  },
-  notifications: {
-    featureUpdates: true,
-    weeklyReports: true,
-    studentJoinAlerts: false,
-    marketingEmails: false,
-  },
-  appearance: {
-    theme: 'light',
-    language: 'en',
-  },
-};
+function readStoredAppLanguage(): TeacherLanguage {
+  if (typeof window === 'undefined') return 'en';
+  return normalizeTeacherLanguage(window.localStorage.getItem(APP_LANGUAGE_KEY), 'en');
+}
 
-const DEFAULT_CLASSES: TeacherClass[] = [
-  {
-    id: 'class-math-101',
-    name: 'Math 101',
-    subject: 'Math',
-    grade: '9th Grade',
-    color: 'bg-brand-purple',
-    packId: null,
-    notes: 'Core numeracy group.',
+function buildDefaultSettings(language: TeacherLanguage): TeacherSettingsState {
+  const profileByLanguage = {
+    he: {
+      firstName: 'שרה',
+      lastName: 'כהן',
+      school: 'תיכון הרצל',
+    },
+    ar: {
+      firstName: 'سارة',
+      lastName: 'خليل',
+      school: 'ثانوية الأمل',
+    },
+    en: {
+      firstName: 'Sarah',
+      lastName: 'Jenkins',
+      school: 'Lincoln High School',
+    },
+  }[language];
+
+  return {
+    profile: {
+      firstName: profileByLanguage.firstName,
+      lastName: profileByLanguage.lastName,
+      email: 'teacher@school.edu',
+      school: profileByLanguage.school,
+      avatar: '👩🏻‍🏫',
+    },
+    notifications: {
+      featureUpdates: true,
+      weeklyReports: true,
+      studentJoinAlerts: false,
+      marketingEmails: false,
+    },
+    appearance: {
+      theme: 'light',
+      language,
+    },
+  };
+}
+
+function buildDefaultClasses(language: TeacherLanguage): TeacherClass[] {
+  const defaultClassSets = {
+    he: [
+      {
+        id: 'class-math-101',
+        name: 'מתמטיקה 101',
+        subject: 'מתמטיקה',
+        grade: "כיתה ט'",
+        color: 'bg-brand-purple',
+        packId: null,
+        notes: 'קבוצת ליבה לחיזוק מיומנויות בסיס.',
+        students: ['נועה', 'יואב', 'מאיה', 'עידו', 'אלה'],
+      },
+      {
+        id: 'class-science-202',
+        name: 'מדעים 202',
+        subject: 'מדעים',
+        grade: "כיתה י'",
+        color: 'bg-brand-orange',
+        packId: null,
+        notes: 'קבוצה עם דגש על עבודת מעבדה.',
+        students: ['איתן', 'ליה', 'אמה', 'דניאל'],
+      },
+      {
+        id: 'class-history-303',
+        name: 'היסטוריה 303',
+        subject: 'היסטוריה',
+        grade: "כיתה י\"א",
+        color: 'bg-brand-yellow',
+        packId: null,
+        notes: 'סמינר מבוסס פרויקטים.',
+        students: ['יונה', 'מיה', 'סופיה'],
+      },
+    ],
+    ar: [
+      {
+        id: 'class-math-101',
+        name: 'رياضيات 101',
+        subject: 'رياضيات',
+        grade: 'الصف التاسع',
+        color: 'bg-brand-purple',
+        packId: null,
+        notes: 'مجموعة أساسية لتعزيز المهارات الحسابية.',
+        students: ['آفا', 'نوح', 'مايا', 'ليام', 'إيلا'],
+      },
+      {
+        id: 'class-science-202',
+        name: 'علوم 202',
+        subject: 'علوم',
+        grade: 'الصف العاشر',
+        color: 'bg-brand-orange',
+        packId: null,
+        notes: 'شعبة تركّز على المختبر.',
+        students: ['ماسون', 'ليا', 'إيما', 'دانيال'],
+      },
+      {
+        id: 'class-history-303',
+        name: 'تاريخ 303',
+        subject: 'تاريخ',
+        grade: 'الصف الحادي عشر',
+        color: 'bg-brand-yellow',
+        packId: null,
+        notes: 'حلقة دراسية قائمة على المشاريع.',
+        students: ['جونا', 'مايا', 'صوفيا'],
+      },
+    ],
+    en: [
+      {
+        id: 'class-math-101',
+        name: 'Math 101',
+        subject: 'Math',
+        grade: '9th Grade',
+        color: 'bg-brand-purple',
+        packId: null,
+        notes: 'Core numeracy group.',
+        students: ['Ava', 'Noah', 'Mia', 'Liam', 'Ella'],
+      },
+      {
+        id: 'class-science-202',
+        name: 'Science 202',
+        subject: 'Science',
+        grade: '10th Grade',
+        color: 'bg-brand-orange',
+        packId: null,
+        notes: 'Lab-heavy section.',
+        students: ['Mason', 'Leah', 'Emma', 'Daniel'],
+      },
+      {
+        id: 'class-history-303',
+        name: 'History 303',
+        subject: 'History',
+        grade: '11th Grade',
+        color: 'bg-brand-yellow',
+        packId: null,
+        notes: 'Project-based seminar.',
+        students: ['Jonah', 'Maya', 'Sofia'],
+      },
+    ],
+  }[language];
+
+  return defaultClassSets.map((classItem) => ({
+    ...classItem,
     createdAt: new Date().toISOString(),
-    students: ['Ava', 'Noah', 'Mia', 'Liam', 'Ella'].map((name, index) => ({
-      id: `math-101-${index}`,
+    students: classItem.students.map((name, index) => ({
+      id: `${classItem.id}-${index}`,
       name,
       joinedAt: new Date().toISOString(),
     })),
-  },
-  {
-    id: 'class-science-202',
-    name: 'Science 202',
-    subject: 'Science',
-    grade: '10th Grade',
-    color: 'bg-brand-orange',
-    packId: null,
-    notes: 'Lab-heavy section.',
-    createdAt: new Date().toISOString(),
-    students: ['Mason', 'Leah', 'Emma', 'Daniel'].map((name, index) => ({
-      id: `science-202-${index}`,
-      name,
-      joinedAt: new Date().toISOString(),
-    })),
-  },
-  {
-    id: 'class-history-303',
-    name: 'History 303',
-    subject: 'History',
-    grade: '11th Grade',
-    color: 'bg-brand-yellow',
-    packId: null,
-    notes: 'Project-based seminar.',
-    createdAt: new Date().toISOString(),
-    students: ['Jonah', 'Maya', 'Sofia'].map((name, index) => ({
-      id: `history-303-${index}`,
-      name,
-      joinedAt: new Date().toISOString(),
-    })),
-  },
-];
+  }));
+}
 
 function normalizeTeacherLanguage(value: unknown, fallback: TeacherLanguage = 'en'): TeacherLanguage {
   const normalized = String(value || '').trim().toLowerCase();
@@ -152,16 +240,14 @@ function writeJson<T>(key: string, value: T) {
 }
 
 export function loadTeacherSettings(): TeacherSettingsState {
-  const value = readJson<TeacherSettingsState>(SETTINGS_KEY, DEFAULT_SETTINGS);
-  const appLanguage =
-    typeof window !== 'undefined'
-      ? normalizeTeacherLanguage(window.localStorage.getItem(APP_LANGUAGE_KEY), 'en')
-      : 'en';
+  const appLanguage = readStoredAppLanguage();
+  const defaultSettings = buildDefaultSettings(appLanguage);
+  const value = readJson<TeacherSettingsState>(SETTINGS_KEY, defaultSettings);
   return {
-    profile: { ...DEFAULT_SETTINGS.profile, ...(value.profile || {}) },
-    notifications: { ...DEFAULT_SETTINGS.notifications, ...(value.notifications || {}) },
+    profile: { ...defaultSettings.profile, ...(value.profile || {}) },
+    notifications: { ...defaultSettings.notifications, ...(value.notifications || {}) },
     appearance: {
-      ...DEFAULT_SETTINGS.appearance,
+      ...defaultSettings.appearance,
       ...(value.appearance || {}),
       language: normalizeTeacherLanguage(value.appearance?.language, appLanguage),
     },
@@ -173,7 +259,7 @@ export function saveTeacherSettings(settings: TeacherSettingsState) {
 }
 
 export function loadTeacherClasses(): TeacherClass[] {
-  return readJson<TeacherClass[]>(CLASSES_KEY, DEFAULT_CLASSES);
+  return readJson<TeacherClass[]>(CLASSES_KEY, buildDefaultClasses(readStoredAppLanguage()));
 }
 
 export function loadStoredTeacherClassesSnapshot(): TeacherClass[] | null {
@@ -198,11 +284,29 @@ export function clearStoredTeacherClasses() {
 }
 
 export function createTeacherClass(partial: Partial<TeacherClass>): TeacherClass {
+  const language = readStoredAppLanguage();
+  const localizedDefaults = {
+    he: {
+      name: 'כיתה חדשה',
+      subject: 'כללי',
+      grade: 'רב־שכבתי',
+    },
+    ar: {
+      name: 'صف جديد',
+      subject: 'عام',
+      grade: 'متعدد المستويات',
+    },
+    en: {
+      name: 'New Class',
+      subject: 'General',
+      grade: 'Mixed',
+    },
+  }[language];
   return {
     id: `class-${Date.now()}`,
-    name: partial.name || 'New Class',
-    subject: partial.subject || 'General',
-    grade: partial.grade || 'Mixed',
+    name: partial.name || localizedDefaults.name,
+    subject: partial.subject || localizedDefaults.subject,
+    grade: partial.grade || localizedDefaults.grade,
     color: partial.color || 'bg-white',
     packId: partial.packId ?? null,
     notes: partial.notes || '',

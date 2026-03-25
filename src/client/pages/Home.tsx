@@ -560,14 +560,14 @@ export default function Home() {
             transition={{ delay: 0.08 }}
             className="relative min-w-0"
           >
-            <div className="relative flex min-h-[240px] items-center justify-center overflow-hidden rounded-[2.8rem] border-2 border-brand-dark/5 bg-brand-bg/60 px-6 py-8 sm:min-h-[300px] lg:min-h-[640px] lg:px-8 lg:py-10">
-              <div className="absolute h-[520px] w-[520px] rounded-full border-[3px] border-brand-dark/5 lg:h-[620px] lg:w-[620px]" />
-              <div className="absolute h-[360px] w-[360px] rounded-full border-[3px] border-brand-dark/5 lg:h-[420px] lg:w-[420px]" />
+            <div className="relative flex min-h-[420px] items-center justify-center overflow-hidden rounded-[2.8rem] border-2 border-brand-dark/5 bg-brand-bg/60 px-6 py-8 sm:min-h-[520px] sm:px-8 sm:py-10 lg:min-h-[640px] lg:px-8 lg:py-12">
+              <div className="absolute h-[520px] w-[520px] rounded-full border-[3px] border-brand-dark/5 sm:h-[620px] sm:w-[620px] lg:h-[720px] lg:w-[720px]" />
+              <div className="absolute h-[320px] w-[320px] rounded-full border-[3px] border-brand-dark/5 sm:h-[430px] sm:w-[430px] lg:h-[500px] lg:w-[500px]" />
 
               <motion.div
                 animate={{ y: [-10, 10, -10], rotate: [0, 10, 0] }}
                 transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute left-6 top-8 text-brand-yellow lg:left-10 lg:top-20"
+                className="absolute left-6 top-8 text-brand-yellow sm:left-10 sm:top-12 lg:left-12 lg:top-16"
               >
                 <svg width="54" height="54" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" /></svg>
               </motion.div>
@@ -575,28 +575,36 @@ export default function Home() {
               <motion.div
                 animate={{ y: [10, -10, 10], rotate: [0, -10, 0] }}
                 transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute bottom-10 right-4 text-brand-yellow lg:bottom-32 lg:right-8"
+                className="absolute bottom-20 right-6 text-brand-yellow sm:bottom-24 sm:right-8 lg:bottom-28 lg:right-10"
               >
                 <svg width="38" height="38" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" /></svg>
               </motion.div>
 
-              <motion.div
-                initial={{ scale: 0.84, rotate: -8 }}
-                animate={{ scale: 1, rotate: 12 }}
-                transition={{ type: 'spring', bounce: 0.42, duration: 1 }}
-                className="relative z-10 flex h-[240px] w-[240px] items-center justify-center rounded-[3rem] border-4 border-brand-dark bg-brand-purple shadow-[18px_18px_0px_0px_#1A1A1A] sm:h-[280px] sm:w-[280px] lg:h-[360px] lg:w-[360px] lg:rounded-[4rem]"
-              >
-                <Sparkles className="h-24 w-24 text-white sm:h-28 sm:w-28 lg:h-40 lg:w-40" />
+              <div className="relative z-10 flex w-full max-w-[440px] flex-col items-center justify-center gap-6 sm:max-w-[520px] sm:gap-8 lg:max-w-[560px]">
+                <div className="relative flex w-full items-end justify-center pt-4 sm:pt-6">
+                  <motion.div
+                    initial={{ scale: 0.84, rotate: -6 }}
+                    animate={{ scale: 1, rotate: 8 }}
+                    transition={{ type: 'spring', bounce: 0.34, duration: 1 }}
+                    className="relative z-10 flex h-[220px] w-[220px] items-center justify-center rounded-[3rem] border-4 border-brand-dark bg-brand-purple shadow-[16px_16px_0px_0px_#1A1A1A] sm:h-[290px] sm:w-[290px] lg:h-[360px] lg:w-[360px] lg:rounded-[4rem]"
+                  >
+                    <Sparkles className="h-24 w-24 text-white sm:h-32 sm:w-32 lg:h-40 lg:w-40" />
+                  </motion.div>
 
-                <div className="absolute -bottom-12 -left-20 flex h-14 w-[240px] rotate-[-18deg] items-center rounded-full border-4 border-brand-dark bg-brand-purple shadow-[8px_8px_0px_0px_#1A1A1A] sm:-left-24 sm:w-[280px] lg:-bottom-20 lg:-left-32 lg:h-20 lg:w-[400px]">
-                  <div className="flex h-full w-14 items-center justify-start rounded-l-full border-r-4 border-brand-dark bg-white pl-2 lg:w-16">
-                    <div className="h-0 w-0 border-b-[12px] border-r-[24px] border-t-[12px] border-b-transparent border-r-brand-dark border-t-transparent" />
-                  </div>
+                  <motion.div
+                    animate={{ x: [-6, 6, -6], rotate: [-10, -7, -10] }}
+                    transition={{ duration: 4.6, repeat: Infinity, ease: 'easeInOut' }}
+                    className="absolute bottom-2 left-1/2 z-20 flex h-14 w-[250px] -translate-x-[58%] rotate-[-10deg] items-center rounded-full border-4 border-brand-dark bg-brand-purple shadow-[8px_8px_0px_0px_#1A1A1A] sm:bottom-3 sm:h-16 sm:w-[320px] lg:bottom-5 lg:h-20 lg:w-[380px]"
+                  >
+                    <div className="ml-auto flex h-full w-14 items-center justify-start rounded-r-full border-l-4 border-brand-dark bg-white pl-4 sm:w-16 lg:w-[72px]">
+                      <div className="h-0 w-0 border-b-[12px] border-l-[24px] border-t-[12px] border-b-transparent border-l-brand-dark border-t-transparent sm:border-b-[14px] sm:border-l-[28px] sm:border-t-[14px]" />
+                    </div>
+                  </motion.div>
                 </div>
-              </motion.div>
 
-              <div className="absolute bottom-5 left-1/2 w-[min(88%,360px)] -translate-x-1/2 rounded-full border-2 border-brand-dark bg-white/90 px-5 py-3 text-center font-black shadow-[4px_4px_0px_0px_#1A1A1A] backdrop-blur-sm lg:bottom-8">
-                {t('home.hero.supportBadge')}
+                <div className="w-full max-w-[360px] rounded-full border-2 border-brand-dark bg-white/95 px-5 py-3 text-center font-black shadow-[4px_4px_0px_0px_#1A1A1A] backdrop-blur-sm sm:px-6 sm:py-3.5">
+                  {t('home.hero.supportBadge')}
+                </div>
               </div>
             </div>
           </motion.aside>

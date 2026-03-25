@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { AlertTriangle, CheckCircle, Clock, Flame, LoaderCircle, Sparkles, Stars, Trophy, Wifi, WifiOff, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle, CheckCircle2, Clock, Flame, LoaderCircle, Sparkles, Stars, Trophy, Wifi, WifiOff, XCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'motion/react';
 import Avatar, { extractNickname } from '../components/Avatar.tsx';
@@ -15,7 +15,7 @@ import {
 } from '../lib/firebaseRealtime.ts';
 import { getGameMode } from '../lib/gameModes.ts';
 import { getGameModeTone } from '../lib/gameModePresentation.ts';
-import { isPeerInstructionMode, requiresConfidenceLock } from '../lib/sessionModeRules.ts';
+import { isPeerInstructionMode, isUntimedMode, requiresConfidenceLock } from '../lib/sessionModeRules.ts';
 import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
 import { getParticipantToken } from '../lib/studentSession.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
@@ -138,6 +138,21 @@ function shouldQueueAnswerRetry(message: string) {
   );
 }
 
+function resolvePhaseSeconds(value: unknown, fallback = 30) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.floor(parsed));
+}
+
+function detectDeviceProfile() {
+  if (typeof window === 'undefined') return 'unknown';
+  const width = window.innerWidth || 0;
+  const hasTouch = typeof navigator !== 'undefined' && Number(navigator.maxTouchPoints || 0) > 0;
+  if (width > 0 && width < 640) return hasTouch ? 'mobile-touch' : 'mobile';
+  if (width > 0 && width < 1024) return hasTouch ? 'tablet-touch' : 'tablet';
+  return hasTouch ? 'hybrid' : 'desktop';
+}
+
 export default function StudentPlay() {
   const { pin } = useParams();
   const navigate = useNavigate();
@@ -148,6 +163,7 @@ export default function StudentPlay() {
   const [sessionMeta, setSessionMeta] = useState<any>(null);
   const [hasAnswered, setHasAnswered] = useState(false);
   const [score, setScore] = useState(0);
+  const [lastScoreAwarded, setLastScoreAwarded] = useState(0);
   const [startTime, setStartTime] = useState(0);
   const [timeLeft, setTimeLeft] = useState(30);
 
@@ -182,6 +198,10 @@ export default function StudentPlay() {
   const firstRoundChoiceRef = useRef<number | null>(null);
   const currentSelectedAnswerRef = useRef<number | null>(null);
   const pendingSubmissionRef = useRef<QueuedAnswerSubmission | null>(null);
+  const submissionRetryCountRef = useRef(0);
+  const reconnectCountRef = useRef(0);
+  const visibilityInterruptionsRef = useRef(0);
+  const connectionStateRef = useRef<'connecting' | 'live' | 'fallback'>('connecting');
 
   const focusLossDebounceRef = useRef(0);
   const idleThresholdMs = 4000;
@@ -199,6 +219,8 @@ export default function StudentPlay() {
   const gameTone = getGameModeTone(gameMode.id);
   const isPeerMode = isPeerInstructionMode(gameMode.id, modeConfig);
   const needsConfidence = requiresConfidenceLock(gameMode.id, modeConfig);
+  const isUntimedQuestionPhase =
+    (status === 'QUESTION_ACTIVE' || status === 'QUESTION_REVOTE') && isUntimedMode(gameMode.id, modeConfig);
   const isInteractivePhase = status === 'QUESTION_ACTIVE' || status === 'QUESTION_REVOTE';
   const isSelectionLocked = hasAnswered || Boolean(pendingSubmission) || (isPeerMode && status === 'QUESTION_ACTIVE' && hasLockedInitialVote);
   const selectedAnswerText =
@@ -226,6 +248,14 @@ export default function StudentPlay() {
     pendingSubmissionRef.current = pendingSubmission;
   }, [pendingSubmission]);
 
+  useEffect(() => {
+    const previousState = connectionStateRef.current;
+    if (previousState === 'fallback' && connectionState === 'live') {
+      reconnectCountRef.current += 1;
+    }
+    connectionStateRef.current = connectionState;
+  }, [connectionState]);
+
   const resetTelemetry = () => {
     firstInteractionMsRef.current = null;
     answerHistoryRef.current = [];
@@ -239,6 +269,9 @@ export default function StudentPlay() {
     keyboardActivityCountRef.current = 0;
     touchActivityCountRef.current = 0;
     sameAnswerReclicksRef.current = 0;
+    submissionRetryCountRef.current = 0;
+    reconnectCountRef.current = 0;
+    visibilityInterruptionsRef.current = 0;
     optionDwellRef.current = {};
     currentHoverOptionRef.current = null;
     hoverStartTimeRef.current = null;
@@ -300,11 +333,24 @@ export default function StudentPlay() {
     clearPendingSubmissionState();
     setHasAnswered(true);
     const scoreAwarded = Number(payload?.score_awarded || 0);
-    setScore((current) => current + scoreAwarded);
-    if (scoreAwarded > 0) {
-      setStreak((current) => current + 1);
-    } else {
-      setStreak(0);
+    const participantScoreTotal = Number(payload?.participant_score_total);
+    const participantStreak = Number(payload?.participant_streak);
+    setLastScoreAwarded(Math.max(0, scoreAwarded));
+
+    if (Number.isFinite(participantScoreTotal)) {
+      setScore(participantScoreTotal);
+    } else if (!payload?.duplicate) {
+      setScore((current) => current + scoreAwarded);
+    }
+
+    if (Number.isFinite(participantStreak)) {
+      setStreak(participantStreak);
+    } else if (!payload?.duplicate) {
+      if (scoreAwarded > 0) {
+        setStreak((current) => current + 1);
+      } else {
+        setStreak(0);
+      }
     }
 
     void publishAnswerProgress(String(pin || ''), {
@@ -338,7 +384,20 @@ export default function StudentPlay() {
     if (!pendingSubmission || isRetryingPendingSubmission) return;
     try {
       setIsRetryingPendingSubmission(true);
-      const payload = await postAnswerSubmission(pendingSubmission);
+      submissionRetryCountRef.current += 1;
+      const refreshedSubmission: QueuedAnswerSubmission = {
+        ...pendingSubmission,
+        telemetry: {
+          ...pendingSubmission.telemetry,
+          submission_retry_count: submissionRetryCountRef.current,
+          reconnect_count: reconnectCountRef.current,
+          visibility_interruptions: visibilityInterruptionsRef.current,
+          network_degraded: connectionStateRef.current !== 'live' || (typeof navigator !== 'undefined' && navigator.onLine === false),
+          device_profile: detectDeviceProfile(),
+        },
+      };
+      setPendingSubmission(refreshedSubmission);
+      const payload = await postAnswerSubmission(refreshedSubmission);
       applyAnswerSubmissionSuccess(payload);
       setActionError('');
     } catch (error: any) {
@@ -392,30 +451,32 @@ export default function StudentPlay() {
           clearPendingSubmissionState();
           setActionError('The room moved on before your queued answer could sync.');
         }
+        setLastScoreAwarded(0);
         setQuestion(nextQuestion);
         setHasAnswered(false);
         setHasLockedInitialVote(false);
         setFirstRoundChoice(null);
         setStartTime(Date.now());
-        setTimeLeft(nextQuestion?.time_limit_seconds || 30);
+        setTimeLeft(resolvePhaseSeconds(nextQuestion?.time_limit_seconds, 30));
         setCurrentSelectedAnswer(null);
         setSelectedConfidence(2);
         resetTelemetry();
       } else if (nextStatus === 'QUESTION_DISCUSSION') {
         if (nextQuestion) {
           setQuestion(nextQuestion);
-          setTimeLeft(nextQuestion.time_limit_seconds || Number(nextModeConfig?.discussion_seconds || 30));
+          setTimeLeft(resolvePhaseSeconds(nextQuestion.time_limit_seconds, Number(nextModeConfig?.discussion_seconds || 30)));
         } else {
-          setTimeLeft(Number(nextModeConfig?.discussion_seconds || 30));
+          setTimeLeft(resolvePhaseSeconds(nextModeConfig?.discussion_seconds, 30));
         }
         flushHoverDwell();
       } else if (nextStatus === 'QUESTION_REVOTE') {
         if (nextQuestion) {
           setQuestion(nextQuestion);
-          setTimeLeft(nextQuestion.time_limit_seconds || Number(nextModeConfig?.revote_seconds || 22));
+          setTimeLeft(resolvePhaseSeconds(nextQuestion.time_limit_seconds, Number(nextModeConfig?.revote_seconds || 22)));
         } else {
-          setTimeLeft(Number(nextModeConfig?.revote_seconds || 22));
+          setTimeLeft(resolvePhaseSeconds(nextModeConfig?.revote_seconds, 22));
         }
+        setLastScoreAwarded(0);
         setHasAnswered(false);
         setHasLockedInitialVote(false);
         setCurrentSelectedAnswer((current) => current ?? firstRoundChoiceRef.current);
@@ -482,8 +543,9 @@ export default function StudentPlay() {
         }
         setScore(Number(participantState?.score || 0));
         setStreak(Number(participantState?.streak || persistedState?.streak || 0));
+        setLastScoreAwarded(0);
         if (typeof sessionPayload?.current_question_index === 'number') {
-          setTimeLeft(Number(data?.question?.time_limit_seconds || 30));
+          setTimeLeft(resolvePhaseSeconds(data?.question?.time_limit_seconds, 30));
         }
         if (data?.question) {
           setQuestion(data.question);
@@ -495,6 +557,7 @@ export default function StudentPlay() {
           setSelectedConfidence(2);
           setFirstRoundChoice(Number(currentAnswer.chosen_index));
           setHasLockedInitialVote(false);
+          setLastScoreAwarded(Number(currentAnswer.score_awarded || 0));
           return;
         }
         if (queuedSubmission && data?.question && queuedSubmission.questionId === Number(data.question.id)) {
@@ -517,7 +580,7 @@ export default function StudentPlay() {
           navigate('/');
           return;
         }
-        setSessionError(error?.message || 'The session could not be loaded.');
+        setSessionError(error?.message || 'לא ניתן היה לטעון את הסשן.');
       })
       .finally(() => {
         if (cancelled) return;
@@ -652,12 +715,15 @@ export default function StudentPlay() {
 
   // Focus loss tracker
   useEffect(() => {
-    const registerFocusLoss = () => {
+    const registerFocusLoss = (reason: 'blur' | 'visibility') => {
       if (isInteractivePhase && !isSelectionLocked) {
         const now = Date.now();
         if (now - focusLossDebounceRef.current < 800) return;
         focusLossDebounceRef.current = now;
         focusLossCountRef.current += 1;
+        if (reason === 'visibility') {
+          visibilityInterruptionsRef.current += 1;
+        }
         if (blurStartRef.current === null) {
           blurStartRef.current = now;
         }
@@ -676,7 +742,7 @@ export default function StudentPlay() {
     };
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden') {
-        registerFocusLoss();
+        registerFocusLoss('visibility');
       } else if (blurStartRef.current !== null) {
         blurTimeMsRef.current += Math.max(0, Date.now() - blurStartRef.current);
         blurStartRef.current = null;
@@ -688,11 +754,12 @@ export default function StudentPlay() {
         blurStartRef.current = null;
       }
     };
-    window.addEventListener('blur', registerFocusLoss);
+    const handleBlur = () => registerFocusLoss('blur');
+    window.addEventListener('blur', handleBlur);
     window.addEventListener('focus', handleFocusRestore);
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
-      window.removeEventListener('blur', registerFocusLoss);
+      window.removeEventListener('blur', handleBlur);
       window.removeEventListener('focus', handleFocusRestore);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
@@ -730,7 +797,8 @@ export default function StudentPlay() {
       blurStartRef.current = null;
     }
     const responseMs = submitTime - startTime;
-    const timeLimitMs = (question?.time_limit_seconds || 30) * 1000;
+    const timeLimitSeconds = resolvePhaseSeconds(question?.time_limit_seconds, 30);
+    const timeLimitMs = timeLimitSeconds > 0 ? timeLimitSeconds * 1000 : 0;
     const tfi = firstInteractionMsRef.current || responseMs;
     const lastChangeTimestamp = submitHistory.length > 0 ? submitHistory[submitHistory.length - 1].timestamp : responseMs;
     const commitWindowMs = Math.max(0, responseMs - lastChangeTimestamp);
@@ -743,6 +811,7 @@ export default function StudentPlay() {
     }, 0);
     const panicSwaps = submitHistory.reduce((count: number, item: { timestamp: number }, index: number) => {
       if (index === 0) return count;
+      if (timeLimitMs <= 0) return count;
       return timeLimitMs - item.timestamp <= 5000 ? count + 1 : count;
     }, 0);
 
@@ -761,6 +830,11 @@ export default function StudentPlay() {
       touch_activity_count: touchActivityCountRef.current,
       same_answer_reclicks: sameAnswerReclicksRef.current,
       option_dwell_json: JSON.stringify(optionDwellRef.current),
+      submission_retry_count: submissionRetryCountRef.current,
+      reconnect_count: reconnectCountRef.current,
+      visibility_interruptions: visibilityInterruptionsRef.current,
+      network_degraded: connectionStateRef.current !== 'live' || (typeof navigator !== 'undefined' && navigator.onLine === false),
+      device_profile: detectDeviceProfile(),
     };
 
     const submission: QueuedAnswerSubmission = {
@@ -900,9 +974,9 @@ export default function StudentPlay() {
                      navigate(`/student/dashboard/${nickname}`);
                    }
                  }}
-                 className="flex h-11 w-11 items-center justify-center rounded-xl border-2 border-brand-dark bg-white shadow-[3px_3px_0px_0px_#1A1A1A] transition-all hover:bg-rose-50 hover:text-rose-600"
+                 className="game-icon-button h-11 w-11 hover:bg-rose-50 hover:text-rose-600"
                >
-                 <XCircle className="h-6 w-6 text-brand-dark/20" />
+                 <XCircle className="h-6 w-6 opacity-40" />
                </motion.button>
                <div className="rounded-2xl border-2 border-brand-dark px-4 py-1.5 text-xs font-black uppercase tracking-widest bg-brand-bg shadow-[3px_3px_0px_0px_#1A1A1A]">
                   {t('game.status.lobby')}
@@ -1084,7 +1158,9 @@ export default function StudentPlay() {
       ? 'You can keep or change your first answer before the final submit.'
       : isPeerMode
         ? 'Choose privately first. No discussion yet.'
-        : gameMode.quickSummary;
+        : gameMode.id === 'accuracy_quiz'
+          ? 'Every correct answer earns the same score. Accuracy matters more than speed in this round.'
+          : gameMode.quickSummary;
     const lockLabel = isRevote
       ? 'Submit Final Answer'
       : isPeerMode
@@ -1092,6 +1168,8 @@ export default function StudentPlay() {
         : needsConfidence
           ? 'Lock Answer + Confidence'
           : 'Lock It In';
+    const phaseTimerLabel = isUntimedQuestionPhase ? t('game.timer.untimed') : `${timeLeft}s`;
+    const phaseTimerDanger = !isUntimedQuestionPhase && timeLeft <= 5;
     const liveQuestionDensity = getLiveQuestionDensity({
       prompt: question?.prompt,
       answers: Array.isArray(question?.answers) ? question.answers : [],
@@ -1176,9 +1254,18 @@ export default function StudentPlay() {
                
                <div className="flex items-center gap-3">
                   <div className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                    <Clock className={`h-5 w-5 ${timeLeft <= 5 ? 'text-rose-500 animate-pulse' : 'text-brand-purple'}`} />
-                    <span className={`font-black text-lg ${timeLeft <= 5 ? 'text-rose-600' : ''}`}>{timeLeft}s</span>
+                    <Clock className={`h-5 w-5 ${phaseTimerDanger ? 'text-rose-500 animate-pulse' : 'text-brand-purple'}`} />
+                    <span className={`font-black text-lg ${phaseTimerDanger ? 'text-rose-600' : ''}`}>{phaseTimerLabel}</span>
                   </div>
+                  <motion.div
+                    key={`wait-score-${score}`}
+                    initial={{ scale: 1.2, rotate: -4 }}
+                    animate={{ scale: 1, rotate: 0 }}
+                    className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-brand-yellow px-4 shadow-[4px_4px_0px_0px_#1A1A1A]"
+                  >
+                    <Trophy className="h-5 w-5 fill-current text-brand-dark/30" />
+                    <span className="font-black text-lg">{score}</span>
+                  </motion.div>
                </div>
             </div>
           </div>
@@ -1238,6 +1325,25 @@ export default function StudentPlay() {
                   </div>
                 )}
 
+                {hasAnswered && lastScoreAwarded > 0 && (
+                  <motion.div
+                    initial={{ scale: 0.92, opacity: 0, y: 12 }}
+                    animate={{ scale: 1, opacity: 1, y: 0 }}
+                    className="mt-6 rounded-[2.5rem] border-4 border-brand-dark bg-brand-yellow p-6 text-left shadow-[8px_8px_0px_0px_#1A1A1A]"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-dark/50">Score Updated</p>
+                        <p className="mt-2 text-4xl font-black tracking-tight text-brand-dark">+{lastScoreAwarded}</p>
+                      </div>
+                      <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white px-4 py-3 text-right shadow-[4px_4px_0px_0px_#1A1A1A]">
+                        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-brand-dark/40">Total Score</p>
+                        <p className="mt-1 text-2xl font-black text-brand-dark">{score}</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
                 <div className="mt-12 flex items-center justify-center gap-4">
                    <div className="h-2.5 w-2.5 animate-bounce rounded-full bg-brand-purple" />
                    <div className="h-2.5 w-2.5 animate-bounce rounded-full bg-brand-yellow [animation-delay:0.2s]" />
@@ -1265,9 +1371,9 @@ export default function StudentPlay() {
                     navigate(`/student/dashboard/${nickname}`);
                   }
                 }}
-                className="flex h-11 w-11 items-center justify-center rounded-xl border-2 border-brand-dark bg-white shadow-[3px_3px_0px_0px_#1A1A1A] transition-all hover:bg-rose-50 hover:text-rose-600"
+                className="game-icon-button h-11 w-11 hover:bg-rose-50 hover:text-rose-600"
               >
-                <XCircle className="h-6 w-6 text-brand-dark/20" />
+                <XCircle className="h-6 w-6 opacity-40" />
               </motion.button>
               
               <div className="flex h-11 items-center gap-3 rounded-2xl border-2 border-brand-dark bg-brand-bg px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
@@ -1281,8 +1387,8 @@ export default function StudentPlay() {
 
             <div className="flex items-center gap-3">
               <div className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <Clock className={`h-5 w-5 ${timeLeft <= 5 ? 'text-rose-500 animate-pulse' : 'text-brand-purple'}`} />
-                <span className={`font-black text-lg ${timeLeft <= 5 ? 'text-rose-600' : ''}`}>{timeLeft}s</span>
+                <Clock className={`h-5 w-5 ${phaseTimerDanger ? 'text-rose-500 animate-pulse' : 'text-brand-purple'}`} />
+                <span className={`font-black text-lg ${phaseTimerDanger ? 'text-rose-600' : ''}`}>{phaseTimerLabel}</span>
               </div>
               
               <motion.div
@@ -1324,11 +1430,14 @@ export default function StudentPlay() {
             
             <div className="relative z-10 flex h-full w-full flex-col p-6 sm:p-8">
                {question?.image_url ? (
-                  <div className="flex flex-1 min-h-0 gap-8">
-                    <div className="hidden md:block aspect-square h-full shrink-0 overflow-hidden rounded-[2rem] border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A]">
-                       <img src={question.image_url} className="h-full w-full object-cover" />
-                    </div>
-                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                  <div className="flex flex-1 min-h-0 flex-col gap-5 lg:flex-row lg:items-center lg:gap-8">
+                    <QuestionImageCard
+                      imageUrl={question.image_url}
+                      alt={question?.prompt || 'Question image'}
+                      className="h-[220px] w-full shrink-0 sm:h-[280px] lg:h-[300px] lg:w-[320px] xl:h-[340px] xl:w-[360px]"
+                      imgClassName="h-full w-full bg-white"
+                    />
+                    <div className="flex min-w-0 flex-1 flex-col justify-center">
                        <h2 className={`${studentPromptClassName} font-black leading-[1.1] tracking-tight text-brand-dark text-balance`}>
                           {question?.prompt}
                        </h2>
@@ -1362,10 +1471,10 @@ export default function StudentPlay() {
                         transition={{ duration: 0.15 }}
                         onClick={() => handleAnswerSelect(i)}
                         className={`
-                          group relative flex ${studentAnswerMinHeightClass} items-center rounded-[2rem] border-4 border-brand-dark px-6 py-4 text-left transition-all sm:px-8
+                          student-answer-button group relative flex ${studentAnswerMinHeightClass} items-center rounded-[1.7rem] border-2 border-brand-dark px-6 py-4 text-left sm:px-8
                           ${isSelected
-                            ? 'bg-brand-dark text-white shadow-[8px_8px_0px_0px_#FF5A36]'
-                            : `${COLORS[i % 4].bg} ${COLORS[i % 4].text} shadow-[6px_6px_0px_0px_#1A1A1A] hoverShadowSmall`
+                            ? 'bg-brand-dark text-white shadow-[4px_4px_0px_0px_#FF5A36]'
+                            : `${COLORS[i % 4].bg} ${COLORS[i % 4].text} shadow-[4px_4px_0px_0px_#1A1A1A]`
                           }
                           ${isSelectionLocked && !isSelected ? 'opacity-30 grayscale-[0.8]' : ''}
                         `}
@@ -1416,10 +1525,10 @@ export default function StudentPlay() {
                            whileHover={{ scale: 1.05 }}
                            whileTap={{ scale: 0.95 }}
                            onClick={handleLockIn}
-                           className="flex h-14 items-center gap-3 rounded-2xl border-4 border-brand-dark bg-brand-dark px-10 text-base font-black text-white shadow-[6px_6px_0px_0px_#FF5A36] transition-all hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[8px_8px_0px_0px_#FF5A36]"
+                           className="game-action-button game-action-button--dark h-14 px-10 text-base"
                          >
                            <CheckCircle className="h-5 w-5 text-brand-yellow" />
-                           <span>Lock Choice</span>
+                           <span>{lockLabel}</span>
                          </motion.button>
                        )}
                        {hasAnswered && (
@@ -1514,8 +1623,20 @@ export default function StudentPlay() {
 
               <div className="mt-4 flex flex-wrap justify-center gap-3">
                  <PlayerMetricCard label="Score" value={score} tone="dark" />
+                 {lastScoreAwarded > 0 && <PlayerMetricCard label="This Round" value={`+${lastScoreAwarded}`} tone="warm" />}
                  <PlayerMetricCard label="Streak" value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
               </div>
+
+              {question?.image_url && (
+                 <div className="mt-5">
+                    <QuestionImageCard
+                      imageUrl={question.image_url}
+                      alt={question?.prompt || 'Question image'}
+                      className="mx-auto h-[200px] w-full max-w-xl sm:h-[240px]"
+                      imgClassName="h-full w-full bg-white"
+                    />
+                 </div>
+              )}
 
               {question?.explanation && (
                  <motion.div 
@@ -1547,6 +1668,10 @@ export default function StudentPlay() {
   }
 
   if (status === 'LEADERBOARD') {
+    const leaderboardHeading = gameMode.id === 'accuracy_quiz' ? 'Accuracy Standings' : 'Standings';
+    const leaderboardBody = gameMode.id === 'accuracy_quiz'
+      ? 'Correct answers matter most in this room. Watch the main stage for the latest order.'
+      : 'Eye on the prize! Watch the main stage.';
     return (
       <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
         <SessionSoundtrackPlayer status={status} modeConfig={modeConfig} />
@@ -1583,8 +1708,8 @@ export default function StudentPlay() {
                  <Trophy className="h-8 w-8 sm:h-10 sm:w-10" />
               </div>
 
-              <h2 className="mb-2 text-3xl font-black tracking-tighter text-brand-dark sm:text-5xl">Standings</h2>
-              <p className="mb-4 text-sm font-bold leading-tight text-brand-dark/40 sm:text-base">Eye on the prize! Watch the main stage.</p>
+              <h2 className="mb-2 text-3xl font-black tracking-tighter text-brand-dark sm:text-5xl">{leaderboardHeading}</h2>
+              <p className="mb-4 text-sm font-bold leading-tight text-brand-dark/40 sm:text-base">{leaderboardBody}</p>
 
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <PlayerMetricCard label="Score" value={score} tone="dark" />
@@ -1651,7 +1776,7 @@ export default function StudentPlay() {
                    whileHover={{ scale: 1.05 }}
                    whileTap={{ scale: 0.95 }}
                    onClick={() => navigate(`/student/dashboard/${nickname}`)}
-                   className="rounded-[1.5rem] border-4 border-brand-dark bg-brand-orange px-10 py-5 font-black text-white shadow-[6px_6px_0px_0px_#1A1A1A] transition-all hover:bg-brand-orange/90"
+                   className="game-action-button game-action-button--primary px-10 py-5 text-lg"
                  >
                    {t('game.ended.primary')}
                  </motion.button>
@@ -1659,7 +1784,7 @@ export default function StudentPlay() {
                    whileHover={{ scale: 1.05 }}
                    whileTap={{ scale: 0.95 }}
                    onClick={() => navigate('/')}
-                   className="rounded-[1.5rem] border-4 border-brand-dark bg-white px-10 py-5 font-black text-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A] transition-all hover:bg-brand-bg/50"
+                   className="game-action-button game-action-button--secondary px-10 py-5 text-lg"
                  >
                    {t('game.ended.secondary')}
                  </motion.button>
@@ -1754,7 +1879,7 @@ function StudentRealtimeBanner({
             type="button"
             onClick={onRetryPending}
             disabled={isRetryingPendingSubmission}
-            className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-xs font-black uppercase tracking-[0.2em] shadow-[2px_2px_0px_0px_#1A1A1A] disabled:cursor-not-allowed disabled:opacity-60"
+            className="game-action-button game-action-button--secondary px-4 py-2 text-xs uppercase tracking-[0.2em]"
           >
             {isRetryingPendingSubmission ? t('game.student.retrying') : t('game.student.retryNow')}
           </button>
@@ -1843,7 +1968,7 @@ function StudentShellFallback({
             {onRetry && (
               <button
                 onClick={onRetry}
-                className="rounded-2xl border-2 border-brand-dark bg-brand-dark px-6 py-4 font-black text-white shadow-[4px_4px_0px_0px_#FF5A36]"
+                className="game-action-button game-action-button--dark px-6 py-4"
               >
                 {t('dash.action.tryAgain')}
               </button>
@@ -1851,7 +1976,7 @@ function StudentShellFallback({
             {onExit && (
               <button
                 onClick={onExit}
-                className="rounded-2xl border-2 border-brand-dark bg-white px-6 py-4 font-black"
+                className="game-action-button game-action-button--secondary px-6 py-4"
               >
                 {t('game.action.next')}
               </button>
