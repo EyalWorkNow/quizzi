@@ -693,8 +693,8 @@ export default function TeacherCreatePack() {
     <div className="min-h-screen bg-brand-bg pb-20 font-sans text-brand-dark selection:bg-brand-orange selection:text-white">
       {/* Header */}
       <div className="bg-white border-b-4 border-brand-dark sticky top-0 z-20 shadow-[0_4px_0_0_#1A1A1A]">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-start sm:items-center gap-4">
             <button
               onClick={() => navigate('/teacher/dashboard')}
               className="w-12 h-12 flex items-center justify-center bg-white border-2 border-brand-dark rounded-full hover:bg-brand-yellow transition-colors shadow-[2px_2px_0px_0px_#1A1A1A] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-none active:bg-brand-orange"
@@ -708,7 +708,7 @@ export default function TeacherCreatePack() {
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-3 justify-end">
+          <div className="flex w-full flex-col sm:w-auto sm:flex-row flex-wrap gap-3 justify-end">
             <button
               onClick={handleSave}
               disabled={isSaving || isHosting || !title.trim() || questions.length === 0}
@@ -729,9 +729,9 @@ export default function TeacherCreatePack() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-6 mt-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-6 sm:mt-8">
         {/* Step Indicator */}
-        <div className="flex items-center justify-center gap-8 mb-12">
+        <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-8 mb-10 sm:mb-12">
           {[
             { id: 'CONTENT', label: createPackCopy.stepContent, icon: Sparkles },
             { id: 'QUESTIONS', label: createPackCopy.stepQuestions, icon: Layout },
@@ -741,7 +741,7 @@ export default function TeacherCreatePack() {
               <button
                 key={step.id}
                 onClick={() => setCreationStep(step.id as any)}
-                className={`flex items-center gap-3 px-8 py-4 rounded-2xl border-4 transition-all ${
+                className={`flex w-full sm:w-auto items-center justify-center gap-3 px-5 sm:px-8 py-4 rounded-2xl border-4 transition-all ${
                   isActive
                     ? 'bg-brand-orange text-white border-brand-dark shadow-[4px_4px_0px_0px_#1A1A1A] scale-105'
                     : 'bg-white text-brand-dark/40 border-brand-dark/5 hover:border-brand-dark/20'
@@ -790,7 +790,7 @@ export default function TeacherCreatePack() {
                           />
                         </div>
                         {/* More meta... abbreviated for replacement clarity but kept functional */}
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <input
                             type="text"
                             value={academicMeta.course_code}
@@ -826,7 +826,7 @@ export default function TeacherCreatePack() {
                         </div>
                       </div>
                       <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
                               <Hash className="w-3 h-3" /> Question Count
@@ -877,7 +877,7 @@ export default function TeacherCreatePack() {
                               className="overflow-hidden"
                             >
                               <div className="pt-2 grid grid-cols-1 gap-4">
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                   <div className="space-y-1.5">
                                     <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
                                       <Languages className="w-3 h-3" /> Language
@@ -907,7 +907,7 @@ export default function TeacherCreatePack() {
                                   </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                   <div className="space-y-1.5">
                                     <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
                                       <Brain className="w-3 h-3" /> Knowledge Depth
@@ -1137,7 +1137,7 @@ export default function TeacherCreatePack() {
 
               {/* Launch Settings */}
               <div className="lg:col-span-4 space-y-6">
-                <div className="premium-card p-10 sticky top-32">
+                <div className="premium-card p-6 sm:p-10 xl:sticky xl:top-32">
                    <div className="flex items-center gap-3 mb-8">
                      <Rocket className="w-8 h-8 text-brand-orange" />
                      <h2 className="text-2xl font-black uppercase tracking-widest">Launch Pad</h2>
@@ -1259,7 +1259,7 @@ export default function TeacherCreatePack() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 mb-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
                     <IntelPill label="Proven" value={questionBankSummary.proven} />
                     <IntelPill label="Needs revision" value={questionBankSummary.revise} />
                     <IntelPill label="Watchlist" value={questionBankSummary.watch} />
@@ -1302,7 +1302,7 @@ export default function TeacherCreatePack() {
                               </span>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 mb-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
                               <IntelPill label="Usage" value={Number(item?.usage_count || 0)} />
                               <IntelPill label="Accuracy" value={formatQuestionBankAccuracy(item?.accuracy)} />
                             </div>

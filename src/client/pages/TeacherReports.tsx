@@ -388,11 +388,11 @@ export default function TeacherReports() {
     <div
       dir={direction}
       data-no-translate="true"
-      className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white"
+      className="teacher-layout-shell"
     >
       <TeacherSidebar />
 
-      <main className="flex-1 h-screen overflow-y-auto p-6 lg:p-8 relative bg-brand-bg">
+      <main className="teacher-layout-main teacher-page-pad pt-20 lg:pt-8">
         <div className="max-w-[1200px] mx-auto relative z-10">
           <div className={`flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 ${isRtl ? 'md:flex-row-reverse' : ''}`}>
             <div className={isRtl ? 'text-right' : ''}>

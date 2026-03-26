@@ -355,10 +355,10 @@ export default function HelpCenter() {
     || localizedContent.resources[0];
 
   return (
-    <div className={`min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white`}>
+    <div className="teacher-layout-shell">
       {teacherSignedIn && <TeacherSidebar />}
 
-      <div className="flex-1 h-screen overflow-y-auto relative">
+      <div className="teacher-layout-main overflow-y-auto">
         <div className="absolute inset-x-0 top-0 h-[430px] bg-[radial-gradient(circle_at_top_left,_rgba(255,90,54,0.16),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(180,136,255,0.18),_transparent_36%)] pointer-events-none" />
 
         {!teacherSignedIn && (
@@ -379,7 +379,7 @@ export default function HelpCenter() {
           </nav>
         )}
 
-      <main className={`flex-1 min-h-screen overflow-y-auto p-6 lg:p-8 relative bg-brand-bg ${teacherSignedIn ? '' : 'pt-20'}`}>
+      <main className={`flex-1 min-h-screen overflow-y-auto teacher-page-pad relative bg-brand-bg ${teacherSignedIn ? 'pt-20 lg:pt-8' : 'pt-20'}`}>
         <div className="max-w-[1200px] mx-auto relative z-10">
           <div className="text-center mb-10">
             <h1 className="text-4xl lg:text-5xl font-black tracking-tight mb-4">{copy.title}</h1>

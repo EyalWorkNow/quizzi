@@ -163,11 +163,11 @@ export default function Explore() {
     <div
       dir={direction}
       data-no-translate="true"
-      className={`h-screen max-h-screen bg-brand-bg font-sans text-brand-dark flex overflow-hidden selection:bg-brand-orange selection:text-white`}
+      className="teacher-layout-shell"
     >
       {teacherSignedIn && <TeacherSidebar />}
 
-      <div className="flex-1 h-screen overflow-y-auto relative">
+      <div className="teacher-layout-main overflow-y-auto">
         <div className="absolute inset-x-0 top-0 h-[430px] bg-[radial-gradient(circle_at_top_left,_rgba(255,90,54,0.16),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(180,136,255,0.18),_transparent_36%)] pointer-events-none" />
 
         {!teacherSignedIn && (
@@ -188,7 +188,7 @@ export default function Explore() {
           </nav>
         )}
 
-        <main className={`page-shell-wide relative z-10 pb-20 ${teacherSignedIn ? 'pt-8' : ''}`}>
+        <main className={`page-shell-wide relative z-10 pb-20 ${teacherSignedIn ? 'pt-20 lg:pt-8' : ''}`}>
           <section className="pt-8 pb-10">
             <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-8 items-start">
               <div className={isRtl ? 'text-right' : ''}>

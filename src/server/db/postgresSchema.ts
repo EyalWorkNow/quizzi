@@ -17,6 +17,7 @@ export const POSTGRES_TABLE_ORDER = [
   'student_behavior_logs',
   'mastery',
   'practice_attempts',
+  'student_memory_snapshots',
 ] as const;
 
 const POSTGRES_SCHEMA_STATEMENTS = [
@@ -326,7 +327,27 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `,
+  `
+    CREATE TABLE IF NOT EXISTS student_memory_snapshots (
+      id SERIAL PRIMARY KEY,
+      identity_key TEXT NOT NULL UNIQUE,
+      nickname TEXT,
+      snapshot_json TEXT NOT NULL,
+      source_summary_json TEXT DEFAULT '{}',
+      teacher_note TEXT DEFAULT '',
+      teacher_note_updated_at TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
   `ALTER TABLE practice_attempts ADD COLUMN IF NOT EXISTS identity_key TEXT`,
+  `ALTER TABLE student_memory_snapshots ADD COLUMN IF NOT EXISTS nickname TEXT`,
+  `ALTER TABLE student_memory_snapshots ADD COLUMN IF NOT EXISTS snapshot_json TEXT DEFAULT '{}'`,
+  `ALTER TABLE student_memory_snapshots ADD COLUMN IF NOT EXISTS source_summary_json TEXT DEFAULT '{}'`,
+  `ALTER TABLE student_memory_snapshots ADD COLUMN IF NOT EXISTS teacher_note TEXT DEFAULT ''`,
+  `ALTER TABLE student_memory_snapshots ADD COLUMN IF NOT EXISTS teacher_note_updated_at TIMESTAMP`,
+  `ALTER TABLE student_memory_snapshots ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
+  `ALTER TABLE student_memory_snapshots ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
   'CREATE INDEX IF NOT EXISTS idx_sessions_pin ON sessions(pin)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_pack_status ON sessions(quiz_pack_id, status)',
   'CREATE INDEX IF NOT EXISTS idx_participants_session ON participants(session_id)',
@@ -342,6 +363,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_mastery_identity_tag_unique ON mastery(identity_key, tag)',
   'CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_question ON practice_attempts(nickname, question_id)',
   'CREATE INDEX IF NOT EXISTS idx_practice_attempts_identity_created ON practice_attempts(identity_key, created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_student_memory_identity_key ON student_memory_snapshots(identity_key)',
   'CREATE INDEX IF NOT EXISTS idx_generation_cache_lookup ON question_generation_cache(material_profile_id, difficulty, output_language, question_count)',
   'CREATE INDEX IF NOT EXISTS idx_quiz_packs_profile ON quiz_packs(material_profile_id)',
   'CREATE INDEX IF NOT EXISTS idx_quiz_packs_source_hash ON quiz_packs(source_hash)',

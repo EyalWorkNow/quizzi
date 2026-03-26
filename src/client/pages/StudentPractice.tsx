@@ -21,6 +21,11 @@ export default function StudentPractice() {
   const [questions, setQuestions] = useState<any[]>([]);
   const [strategy, setStrategy] = useState<any>(null);
   const [mission, setMission] = useState<any>(null);
+  const [memoryReason, setMemoryReason] = useState('');
+  const [memoryReasons, setMemoryReasons] = useState<string[]>([]);
+  const [memoryConfidence, setMemoryConfidence] = useState<any>(null);
+  const [coaching, setCoaching] = useState<any>(null);
+  const [memorySummary, setMemorySummary] = useState<any>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [status, setStatus] = useState<'LOADING' | 'ACTIVE' | 'FEEDBACK' | 'DONE' | 'ERROR'>('LOADING');
   const [feedback, setFeedback] = useState<any>(null);
@@ -129,6 +134,11 @@ export default function StudentPractice() {
         setQuestions(data.questions || []);
         setStrategy(data.strategy || null);
         setMission(data.mission || fallbackMission);
+        setMemoryReason(String(data.memory_reason || ''));
+        setMemoryReasons(Array.isArray(data.memory_reasons) ? data.memory_reasons : []);
+        setMemoryConfidence(data.memory_confidence || null);
+        setCoaching(data.coaching || null);
+        setMemorySummary(data.student_memory_summary || null);
         setStatus((data.questions || []).length > 0 ? 'ACTIVE' : 'DONE');
         setStartTime(Date.now());
       })
@@ -318,6 +328,26 @@ export default function StudentPractice() {
           <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500 mb-2">Mission Context</p>
           <h3 className="text-2xl font-black text-slate-900 mb-2">{missionTitle}</h3>
           <p className="text-slate-600 font-medium mb-4">{missionBody}</p>
+          {(memoryReason || memoryReasons.length > 0 || memoryConfidence) && (
+            <div className="rounded-[1.5rem] border border-indigo-100 bg-indigo-50/80 p-4 mb-4">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500 mb-2">Why this set</p>
+              {memoryReason && <p className="text-slate-700 font-semibold mb-3">{memoryReason}</p>}
+              {memoryReasons.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {memoryReasons.map((reason: string) => (
+                    <span key={reason} className="px-3 py-2 rounded-xl border border-indigo-200 bg-white text-sm font-bold text-slate-600">
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {memoryConfidence && (
+                <p className="text-sm font-bold text-slate-500">
+                  Memory trust: {String(memoryConfidence.confidence_band || 'low')} confidence from {Number(memoryConfidence.evidence_count || 0)} signals.
+                </p>
+              )}
+            </div>
+          )}
           {missionFocusTags.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {missionFocusTags.map((tag: string) => (
@@ -334,6 +364,25 @@ export default function StudentPractice() {
             <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500 mb-2">Practice Strategy</p>
             <h3 className="text-2xl font-black text-slate-900 mb-2">{strategy.headline}</h3>
             <p className="text-slate-600 font-medium">{strategy.body}</p>
+          </div>
+        )}
+
+        {(coaching || memorySummary) && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+            {coaching && (
+              <div className="rounded-[2rem] border border-emerald-200 bg-emerald-50 p-5">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-600 mb-2">Coach Note</p>
+                <p className="text-xl font-black text-slate-900 mb-2">{coaching.student_message}</p>
+                <p className="text-sm font-bold text-slate-600">{coaching.celebration}</p>
+              </div>
+            )}
+            {memorySummary && (
+              <div className="rounded-[2rem] border border-slate-200 bg-white p-5">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500 mb-2">Memory snapshot</p>
+                <p className="text-xl font-black text-slate-900 mb-2">{memorySummary.headline}</p>
+                <p className="text-sm font-medium text-slate-600">{memorySummary.body}</p>
+              </div>
+            )}
           </div>
         )}
 

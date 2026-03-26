@@ -1,15 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
-  ChevronLeft,
-  LogOut,
-  Plus,
-  Library,
-  Compass,
-  BarChart,
-  Users,
-  Settings,
-  HelpCircle,
   Save,
   User,
   Bell,
@@ -17,7 +7,6 @@ import {
   Paintbrush,
   CheckCircle2,
 } from 'lucide-react';
-import { motion } from 'motion/react';
 import {
   loadTeacherSettings,
   saveTeacherSettings,
@@ -25,28 +14,20 @@ import {
 } from '../lib/localData.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { useTeacherLanguage } from '../lib/teacherLanguage.ts';
-import { signOutTeacher } from '../lib/teacherAuth.ts';
+import TeacherSidebar from '../components/TeacherSidebar.tsx';
 
 const AVATARS = ['👩🏻‍🏫', '🧑🏽‍🏫', '👨🏼‍🏫', '🦉', '🚀'];
 type FeedbackKey = 'profileIncomplete' | 'fillSecurity' | 'passwordsMismatch' | 'saved';
 
 export default function TeacherSettings() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'security' | 'appearance'>('profile');
   const [settingsState, setSettingsState] = useState<TeacherSettingsState>(() => loadTeacherSettings());
   const [securityForm, setSecurityForm] = useState({ current: '', next: '', confirm: '' });
   const [feedbackKey, setFeedbackKey] = useState<FeedbackKey | ''>('');
-  const navigate = useNavigate();
   const { setLanguage } = useAppLanguage();
   const currentLanguage = settingsState.appearance.language;
   const { copy, direction } = useTeacherLanguage();
   const settingsCopy = copy.settings;
-  const navCopy = copy.nav;
-
-  const handleLogout = async () => {
-    await signOutTeacher();
-    navigate('/');
-  };
 
   useEffect(() => {
     setSettingsState(loadTeacherSettings());
@@ -106,80 +87,10 @@ export default function TeacherSettings() {
   };
 
   return (
-    <div lang={currentLanguage} className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white">
-      <motion.aside
-        animate={{ width: isSidebarOpen ? 256 : 80 }}
-        dir={direction}
-        className="h-screen bg-white border-r-2 border-brand-dark flex flex-col flex-shrink-0 transition-all duration-300 relative z-20 shadow-[4px_0px_0px_0px_#1A1A1A]"
-      >
-        <div className="h-20 flex items-center px-6 border-b-2 border-brand-dark">
-          {isSidebarOpen ? (
-            <div className="text-2xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
-              <span className="text-brand-orange">Quiz</span>zi
-            </div>
-          ) : (
-            <div className="w-10 h-10 bg-brand-yellow border-2 border-brand-dark text-brand-dark rounded-full flex items-center justify-center text-xl font-black mx-auto cursor-pointer" onClick={() => navigate('/')}>
-              Q
-            </div>
-          )}
-        </div>
+    <div lang={currentLanguage} className="teacher-layout-shell">
+      <TeacherSidebar />
 
-        <div className="p-4 border-b-2 border-brand-dark">
-          <button
-            onClick={() => navigate('/teacher/pack/create')}
-            className="w-full bg-brand-orange text-white border-2 border-brand-dark rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#e84d2a] transition-all shadow-[2px_2px_0px_0px_#1A1A1A] hover:translate-y-[1px] hover:translate-x-[1px] hover:shadow-[1px_1px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[2px] active:translate-x-[2px] py-3"
-          >
-            <Plus className="w-5 h-5" />
-            {isSidebarOpen && <span className="text-base">{navCopy.createQuiz}</span>}
-          </button>
-        </div>
-
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto hide-scrollbar">
-          <NavItem icon={<Library />} label={navCopy.myQuizzes} isOpen={isSidebarOpen} onClick={() => navigate('/teacher/dashboard')} />
-          <NavItem icon={<Compass />} label={navCopy.discover} isOpen={isSidebarOpen} onClick={() => navigate('/explore')} />
-          <NavItem icon={<BarChart />} label={navCopy.reports} isOpen={isSidebarOpen} onClick={() => navigate('/teacher/reports')} />
-          <NavItem icon={<Users />} label={navCopy.classes} isOpen={isSidebarOpen} onClick={() => navigate('/teacher/classes')} />
-
-          <div className="my-4 border-t-2 border-brand-dark relative">
-            <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="absolute -right-6 top-1/2 -translate-y-1/2 w-6 h-6 bg-brand-yellow rounded-full flex items-center justify-center border-2 border-brand-dark hover:bg-yellow-300 transition-colors z-10 shadow-[2px_2px_0px_0px_#1A1A1A]"
-            >
-              <ChevronLeft className={`w-4 h-4 transition-transform ${!isSidebarOpen ? 'rotate-180' : ''}`} />
-            </button>
-          </div>
-
-          <NavItem icon={<Settings />} label={navCopy.settings} isOpen={isSidebarOpen} active onClick={() => navigate('/teacher/settings')} />
-          <NavItem icon={<HelpCircle />} label={navCopy.helpCenter} isOpen={isSidebarOpen} onClick={() => navigate('/teacher/help')} />
-        </nav>
-
-        <div className="p-4 border-t-2 border-brand-dark bg-brand-purple/10">
-          <div className={`flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'} bg-white border-2 border-brand-dark p-2 rounded-xl shadow-[2px_2px_0px_0px_#1A1A1A]`}>
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-brand-yellow rounded-full flex items-center justify-center text-sm border-2 border-brand-dark overflow-hidden">
-                {profile.avatar}
-              </div>
-              {isSidebarOpen && (
-                <div>
-                  <p className="font-black text-xs">{profile.firstName} {profile.lastName}</p>
-                  <p className="text-[10px] font-bold text-brand-dark/60 truncate w-24">{profile.email}</p>
-                </div>
-              )}
-            </div>
-            {isSidebarOpen && (
-              <button
-                onClick={handleLogout}
-                className="w-8 h-8 bg-brand-bg border-2 border-brand-dark text-brand-dark rounded-lg flex items-center justify-center hover:bg-brand-orange hover:text-white transition-colors"
-                title={navCopy.logOut}
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
-      </motion.aside>
-
-      <main dir={direction} className="flex-1 h-screen overflow-y-auto p-6 lg:p-8 relative bg-brand-bg">
+      <main dir={direction} className="teacher-layout-main teacher-page-pad pt-20 lg:pt-8">
         <div className="max-w-[1000px] mx-auto relative z-10">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
             <div>
@@ -363,18 +274,5 @@ function ToggleRow({ label, checked, onChange }: { label: string; checked: boole
         <div className={`w-5 h-5 bg-white border-2 border-brand-dark rounded-full transition-transform ${checked ? 'translate-x-6' : 'translate-x-0'}`} />
       </button>
     </div>
-  );
-}
-
-function NavItem({ icon, label, isOpen, active, onClick }: { icon: React.ReactNode; label: string; isOpen: boolean; active?: boolean; onClick?: () => void }) {
-  return (
-    <button onClick={onClick} className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${active ? 'bg-brand-dark text-white border-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A]' : 'bg-transparent border-transparent text-brand-dark/70 hover:bg-white hover:border-brand-dark hover:text-brand-dark hover:shadow-[2px_2px_0px_0px_#1A1A1A]'}`}>
-      <div className="flex items-center gap-3">
-        <div className={`w-5 h-5 flex items-center justify-center ${active ? 'text-brand-yellow' : ''}`}>
-          {icon}
-        </div>
-        {isOpen && <span className="font-bold text-sm">{label}</span>}
-      </div>
-    </button>
   );
 }
