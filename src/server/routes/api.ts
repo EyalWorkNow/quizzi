@@ -3947,11 +3947,17 @@ router.post('/student-auth/social', async (req, res) => {
       studentUserId: Number(studentUser.id),
       email: studentUser.email,
       displayName: studentUser.display_name || displayName,
+      provider: 'google',
     });
     issueStudentSession(req, res, token);
     res.json({ ...session, token, student_user_id: Number(studentUser.id) });
   } catch (error: any) {
     console.error('[ERROR] Failed to verify Student Google ID token:', error);
+    const message = String(error?.message || '');
+    if (message.toLowerCase().includes('project id')) {
+      res.status(500).json({ error: 'Google sign-in is not configured correctly on the server.' });
+      return;
+    }
     res.status(401).json({ error: 'Failed to verify Google sign-in. Please try again.' });
   }
 });
@@ -4010,6 +4016,7 @@ router.post('/student-auth/register', async (req, res) => {
     studentUserId: Number(createdStudent.id),
     email: createdStudent.email,
     displayName: createdStudent.display_name || displayName,
+    provider: 'password',
   });
   issueStudentSession(req, res, token);
   res.status(201).json({ ...session, token, student_user_id: Number(createdStudent.id) });
@@ -4051,6 +4058,7 @@ router.post('/student-auth/login', async (req, res) => {
     studentUserId: Number(studentUser.id),
     email: studentUser.email,
     displayName: studentUser.display_name || studentUser.email,
+    provider: 'password',
   });
   issueStudentSession(req, res, token);
   res.json({ ...session, token, student_user_id: Number(studentUser.id) });
@@ -4080,6 +4088,7 @@ router.get('/student-auth/session', async (req, res) => {
       studentUserId: Number(studentUser.id),
       email: studentUser.email,
       displayName: studentUser.display_name || sessionData.displayName || studentUser.email,
+      provider: sessionData.provider === 'google' ? 'google' : 'password',
     });
     issueStudentSession(req, res, token);
 

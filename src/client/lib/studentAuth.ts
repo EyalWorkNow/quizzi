@@ -215,8 +215,8 @@ export async function signInStudentWithProvider({
   };
 
   try {
-    // Firebase popup flows can be blocked by browser COOP handling.
-    // Student sign-in is more reliable when we always prefer redirect.
+    // Student sign-in is more reliable with full-page redirect because
+    // browser extensions and strict popup policies often interfere with popup flows.
     await signInWithRedirect(auth, googleProvider);
     return null;
   } catch (error: any) {
@@ -224,7 +224,8 @@ export async function signInStudentWithProvider({
     if (
       error?.code === 'auth/popup-blocked' ||
       message.includes('cross-origin-opener-policy') ||
-      message.includes('window.closed')
+      message.includes('window.closed') ||
+      error?.code === 'auth/operation-not-supported-in-this-environment'
     ) {
       await signInWithRedirect(auth, googleProvider);
       return null;
