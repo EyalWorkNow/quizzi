@@ -8,6 +8,7 @@ import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { createServer as createViteServer } from 'vite';
+import cors from 'cors';
 
 import { seedAnalyticsShowcase, seedDemoData } from './src/server/db/seeding.js';
 import { flushPostgresMirror, getPostgresMirrorStatus, getSqliteStorageStatus } from './src/server/db/index.js';
@@ -162,40 +163,27 @@ async function startServer() {
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
-  app.use((req, res, next) => {
-    const origin = normalizeOrigin(String(req.headers.origin || ''));
-    const originAllowed = !origin || isAllowedBrowserOrigin(origin) || process.env.NODE_ENV !== 'production';
-    const requestedHeaders = String(req.headers['access-control-request-headers'] || '')
-      .split(',')
-      .map((header) => header.trim())
-      .filter(Boolean);
-    const responseAllowedHeaders = Array.from(new Set([...allowedHeaders, ...requestedHeaders]));
-
-    if (origin && originAllowed) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Methods', allowedMethods.join(', '));
-      res.setHeader('Access-Control-Allow-Headers', responseAllowedHeaders.join(', '));
-      res.vary('Origin');
-      res.vary('Access-Control-Request-Headers');
-    }
-
-    if (req.method === 'OPTIONS') {
-      if (!origin || originAllowed) {
-        res.status(204).end();
-        return;
+  // Using standard 'cors' middleware for reliable preflight/actual handling
+  app.use(cors({
+    origin: (origin, callback) => {
+      const allowed = !origin || isAllowedBrowserOrigin(origin) || process.env.NODE_ENV !== 'production';
+      if (allowed) {
+        callback(null, true);
+      } else {
+        console.warn(`[cors] Blocked origin: ${origin}`);
+        callback(new Error('Not allowed by CORS'));
       }
-      console.warn(`[cors] Blocked preflight origin: ${origin}`);
-      res.status(403).end();
-      return;
+    },
+    credentials: true,
+    methods: allowedMethods,
+    allowedHeaders: (req: any, _callback: any) => {
+      const requestedHeaders = String(req.headers['access-control-request-headers'] || '')
+        .split(',')
+        .map((header: string) => header.trim())
+        .filter(Boolean);
+      _callback(null, Array.from(new Set([...allowedHeaders, ...requestedHeaders])));
     }
-
-    if (origin && !originAllowed) {
-      console.warn(`[cors] Blocked origin: ${origin}`);
-    }
-
-    next();
-  });
+  }));
 
   // In production, we move seeding to background to avoid blocking port binding
   const initializeHeavyData = async () => {

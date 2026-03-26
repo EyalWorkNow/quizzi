@@ -12,7 +12,11 @@
   ],
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/api/(.*)",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/((?!assets/|favicon.ico|robots.txt|manifest.json).*)",
       "destination": "/index.html"
     }
   ]

@@ -276,14 +276,20 @@ export async function signInTeacherWithProvider({
   };
 
   try {
-    if (shouldPreferRedirectSignIn()) {
+    // In strict COOP environments (like Vercel), popups are prone to blocking.
+    // We prefer Redirect for maximum reliability.
+    await signInWithRedirect(auth, googleProvider);
+    return null;
+  } catch (error: any) {
+    const message = String(error?.message || '').toLowerCase();
+    if (
+      error?.code === 'auth/popup-blocked' ||
+      message.includes('cross-origin-opener-policy') ||
+      message.includes('window.closed')
+    ) {
       await signInWithRedirect(auth, googleProvider);
       return null;
-    } else {
-      const result = await signInWithPopup(auth, googleProvider);
-      return await completeGoogleServerSession(await result.user.getIdToken(), result.user.displayName);
     }
-  } catch (error: any) {
     if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') {
       throw new Error('Google sign-in was cancelled.');
     }

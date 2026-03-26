@@ -19,6 +19,7 @@ const DEFAULT_TRUSTED_ORIGINS = [
 ];
 const DEFAULT_TRUSTED_ORIGIN_PATTERNS = [
   /^https:\/\/quizzi(?:-[a-z0-9-]+)?\.vercel\.app$/i,
+  /^https:\/\/quizzi-.*\.vercel\.app$/i,
 ];
 
 const RATE_LIMIT_BUCKETS_MAX = parsePositiveInt(process.env.QUIZZI_RATE_LIMIT_BUCKETS_MAX, 50_000);
