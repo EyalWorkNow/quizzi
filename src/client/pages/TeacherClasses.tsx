@@ -59,24 +59,6 @@ const EMPTY_FORM: ClassFormState = {
   notes: '',
 };
 
-function formatRelativeTime(value?: string | null) {
-  if (!value) return 'Not run yet';
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return 'Recently';
-
-  const diffMs = Date.now() - timestamp;
-  const diffMinutes = Math.round(diffMs / 60000);
-  if (diffMinutes < 1) return 'Just now';
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  const diffHours = Math.round(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.round(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-
-  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(new Date(timestamp));
-}
-
-
 function normalizePayload(form: ClassFormState): TeacherClassPayload {
   return {
     name: form.name.trim(),
@@ -572,6 +554,11 @@ export default function TeacherClasses() {
   };
 
   const handleDeleteClass = async (classItem: TeacherClassCard) => {
+    if (classItem.active_session?.id || Number(classItem.stats?.active_session_count || 0) > 0) {
+      setFeedback({ tone: 'error', message: 'End the active class session before removing this class.' });
+      return;
+    }
+
     if (!window.confirm(`Remove ${classItem.name}?`)) {
       return;
     }
@@ -957,237 +944,105 @@ const ClassCard: React.FC<ClassCardProps> = ({
     total_participant_count: 0,
     average_accuracy: null,
   };
-  const safeInviteSummary = classItem.invite_summary || {
-    approved_count: 0,
-    pending_count: 0,
-    session_only_count: 0,
-    linked_count: 0,
-  };
-  const safeRetention = classItem.retention || {
-    level: 'low' as const,
-    headline:
-      language === 'he'
-        ? 'נראה יציב'
-        : language === 'ar'
-          ? 'يبدو مستقرًا'
-          : 'Looks stable',
-    body:
-      language === 'he'
-        ? 'עדיין אין מספיק נתונים כדי לבנות תמונת שימור מלאה לכיתה הזו.'
-        : language === 'ar'
-          ? 'لا توجد بيانات كافية بعد لبناء صورة احتفاظ كاملة لهذا الصف.'
-          : 'There is not enough data yet to build a full retention read for this class.',
-    active_last_7d: 0,
-    slipping: 0,
-    inactive_14d: 0,
-    never_started: 0,
-    started_count: 0,
-    needs_attention_count: 0,
-    watchlist_students: [],
-  };
   const hasReport = Boolean(classItem.latest_completed_session?.id);
   const hasAssignedPack = Boolean(classItem.pack?.id);
-  const hasOpenLiveRoom = Boolean(classItem.active_session?.id);
-  const sessionState = hasOpenLiveRoom
-    ? copy.liveRoomOpen
-    : classItem.latest_completed_session
-      ? `${copy.lastRun} ${formatRelativeTime(classItem.latest_completed_session.ended_at || classItem.latest_completed_session.started_at)}`
-      : copy.noLiveRun;
+  const sessionsValue = Number(safeStats.session_count || 0);
+  const accuracyValue = `${Math.round(Number(safeStats.average_accuracy || 0))}%`;
+  const actionButtonBase =
+    'flex min-h-[66px] min-w-0 items-center justify-center gap-2 rounded-full border-[3px] border-brand-dark px-3 sm:px-4 text-[0.76rem] sm:text-[0.92rem] font-black shadow-[6px_6px_0px_0px_#1A1A1A] transition-transform active:translate-x-[3px] active:translate-y-[3px] active:shadow-none disabled:opacity-40 disabled:active:translate-x-0 disabled:active:translate-y-0 disabled:active:shadow-[6px_6px_0px_0px_#1A1A1A]';
 
   return (
     <motion.article
       initial={{ opacity: 0, y: 18 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
-      className={`overflow-hidden rounded-[2rem] sm:rounded-[2.7rem] border-[3px] border-brand-dark bg-white shadow-[6px_6px_0px_0px_#1A1A1A] ${isRtl ? 'text-right' : 'text-left'}`}
+      className={`overflow-hidden rounded-[2.2rem] border-[4px] border-brand-dark bg-white p-4 sm:p-5 shadow-[8px_8px_0px_0px_#1A1A1A] ${isRtl ? 'text-right' : 'text-left'}`}
     >
-      {/* Lavender Header Area */}
-      <div className="bg-[#F3ECFA] px-4 pb-5 pt-4 sm:px-5 sm:pb-6 sm:pt-4">
-        <div className={`mb-3 flex items-start justify-between gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
-          <div className={`min-w-0 flex items-center gap-2 ${isRtl ? 'flex-row-reverse' : ''}`}>
-            <div className="h-3 w-3 rounded-full bg-brand-orange shadow-[0_0_10px_rgba(255,107,0,0.45)]" />
-            <span className="truncate text-[8px] sm:text-[9px] font-black uppercase tracking-[0.14em] sm:tracking-[0.18em] text-brand-dark/40">{copy.rosterLabel}</span>
+      <div className="flex flex-col gap-4 sm:gap-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="shrink-0 rounded-[1.45rem] bg-[#F3ECFF] p-1.5 sm:p-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onManage}
+                className="inline-flex min-h-[40px] items-center justify-center rounded-full border-[3px] border-brand-dark bg-white px-4 sm:px-5 text-[0.8rem] sm:text-[0.95rem] font-black text-brand-dark transition-transform active:translate-x-[2px] active:translate-y-[2px]"
+              >
+                {copy.manage}
+              </button>
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={isBusy}
+                className="flex h-[40px] w-[40px] items-center justify-center rounded-full border-[3px] border-brand-dark bg-white text-[#FF4B32] transition-transform active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4 sm:h-5 sm:w-5" />
+              </button>
+            </div>
           </div>
-          <div className={`flex shrink-0 items-center gap-2 ${isRtl ? 'flex-row-reverse' : ''}`}>
-            <button
-              type="button"
-              onClick={onManage}
-              className="rounded-[1.1rem] sm:rounded-[1.45rem] border-[3px] border-brand-dark bg-white px-4 sm:px-5 py-2 text-[11px] sm:text-[13px] font-black whitespace-nowrap shadow-[4px_4px_0px_0px_#1A1A1A] transition-all active:translate-x-1 active:translate-y-1 active:shadow-none"
-            >
-              {copy.manage}
-            </button>
-            <button
-              type="button"
-              onClick={onDelete}
-              disabled={isBusy}
-              className="flex h-10 w-10 items-center justify-center rounded-full border-[3px] border-brand-dark bg-white text-brand-orange shadow-[4px_4px_0px_0px_#1A1A1A] transition-all active:translate-x-1 active:translate-y-1 active:shadow-none disabled:opacity-50"
-            >
-              <Trash2 className="h-5 w-5" />
-            </button>
+
+          <div className="min-w-0 flex-1 pt-0.5">
+            <h3 className="line-clamp-2 text-right text-[1.45rem] leading-[0.92] sm:text-[2.15rem] font-black tracking-[-0.035em] text-brand-dark">
+              {classItem.name}
+            </h3>
           </div>
         </div>
 
-        <h3 className="mt-4 line-clamp-2 min-h-[3.6rem] text-center text-[1.65rem] leading-[0.98] sm:min-h-[4rem] sm:text-[2rem] font-black tracking-tight text-brand-dark">
-          {classItem.name}
-        </h3>
-        
-        <div className={`mt-5 flex items-center justify-center gap-2 overflow-hidden ${isRtl ? 'flex-row-reverse' : ''}`}>
-          <span className="max-w-[40%] truncate rounded-xl border-2 border-brand-dark/10 bg-white px-3 py-2 text-[12px] sm:text-[14px] font-black text-brand-dark/60 shadow-sm">{classItem.subject || 'General'}</span>
-          <span className="max-w-[40%] truncate rounded-xl border-2 border-brand-dark/10 bg-white px-3 py-2 text-[12px] sm:text-[14px] font-black text-brand-dark/60 shadow-sm">{classItem.grade || 'Mixed'}</span>
-          <span className="shrink-0 text-lg sm:text-xl font-light text-brand-dark/15 ml-1">/</span>
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <div className="space-y-4 px-4 pb-4 pt-4 sm:px-5 sm:pb-5 sm:pt-5">
-        {/* Row 1 Metrics: Sessions & Accuracy */}
-        <div className="grid grid-cols-2 gap-4">
-          {/* Accuracy Card */}
-          <div className="flex min-h-[132px] flex-col justify-between rounded-[1.5rem] sm:rounded-[1.9rem] border-[3px] border-brand-dark/10 bg-white p-4">
-            <div className={`flex items-start justify-between gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
-              <div className="rounded-xl bg-brand-yellow/20 p-2.5 text-brand-dark border-2 border-brand-dark/5">
-                <GraduationCap className="h-5 w-5 sm:h-6 sm:w-6" />
-              </div>
-              <p className="text-[9px] font-black uppercase tracking-[0.08em] text-brand-dark/40">{copy.accuracy}</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex min-h-[134px] flex-col items-center justify-center rounded-[1.7rem] border-[4px] border-black/10 bg-white px-3 py-4 text-center">
+            <div className="mb-3 flex h-[52px] w-[52px] items-center justify-center rounded-[1rem] border-[2px] border-[#DCCDFE] bg-[#F2EBFF] text-[#9B63FF]">
+              <ClipboardList className="h-5 w-5 sm:h-6 sm:w-6" />
             </div>
-            <div className={`${isRtl ? 'text-left' : 'text-right'}`}>
-              <p className="text-[2.1rem] sm:text-[2.6rem] font-black text-brand-dark">{Math.round(safeStats.average_accuracy || 0)}%</p>
-              <p className="mt-1 text-[13px] sm:text-[15px] font-black text-brand-dark tracking-tight">{copy.accuracy}</p>
-            </div>
+            <p className="text-[0.9rem] sm:text-[1.05rem] font-black text-brand-dark">{copy.sessions}</p>
+            <p className="mt-1 text-[2.15rem] leading-none sm:text-[2.9rem] font-black text-brand-dark">{sessionsValue}</p>
           </div>
 
-          {/* Sessions Card */}
-          <div className="flex min-h-[132px] flex-col justify-between rounded-[1.5rem] sm:rounded-[1.9rem] border-[3px] border-brand-dark/10 bg-white p-4">
-            <div className={`flex items-start justify-between gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
-              <div className="rounded-xl bg-brand-purple/10 p-2.5 text-brand-purple border-2 border-brand-dark/5">
-                <ClipboardList className="h-5 w-5 sm:h-6 sm:w-6" />
-              </div>
-              <p className="text-[9px] font-black uppercase tracking-[0.08em] text-brand-dark/40">{copy.sessions}</p>
+          <div className="flex min-h-[134px] flex-col items-center justify-center rounded-[1.7rem] border-[4px] border-black/10 bg-white px-3 py-4 text-center">
+            <div className="mb-3 flex h-[52px] w-[52px] items-center justify-center rounded-[1rem] border-[2px] border-[#F6E5AE] bg-[#FFF2C8] text-brand-dark">
+              <GraduationCap className="h-5 w-5 sm:h-6 sm:w-6" />
             </div>
-            <p className="text-right text-[2.1rem] sm:text-[2.6rem] font-black text-brand-dark">{safeStats.session_count || 0}</p>
+            <p className="text-[0.9rem] sm:text-[1.05rem] font-black text-brand-dark">{copy.accuracy}</p>
+            <p className="mt-1 text-[2.15rem] leading-none sm:text-[2.9rem] font-black text-brand-dark">{accuracyValue}</p>
           </div>
         </div>
 
-        {/* Big Attention Card */}
-        <div className={`flex items-center justify-between gap-3 rounded-[1.5rem] sm:rounded-[1.9rem] border-[3px] border-brand-dark/10 bg-white px-4 sm:px-6 py-4 sm:py-5 ${isRtl ? 'flex-row-reverse' : ''}`}>
-          <p className="shrink-0 text-[2rem] sm:text-[2.6rem] font-black text-brand-dark">
-            {safeRetention.needs_attention_count}
-          </p>
-          <div className={`min-w-0 flex items-center gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
-            <div className="rounded-2xl border-2 border-brand-dark/5 bg-brand-orange/10 p-3 text-brand-orange">
-              <AlertTriangle className="h-5 w-5 sm:h-7 sm:w-7" />
-            </div>
-            <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.08em] text-brand-dark/40">{copy.attention}</p>
-          </div>
-        </div>
-
-        {/* Status Breakdown Section */}
-        <div className="grid grid-cols-2 gap-4 pt-1">
-          {/* Pack Assignment Card */}
-          <div className="relative flex min-h-[220px] flex-col justify-between overflow-hidden rounded-[1.6rem] sm:rounded-[2rem] border-[3px] border-brand-dark bg-white p-4">
-            <div>
-               <div className={`mb-3 flex min-w-0 items-center justify-between gap-2 ${isRtl ? 'flex-row-reverse' : ''}`}>
-                  <p className="truncate text-[9px] font-black uppercase tracking-[0.08em] text-brand-dark/40">{copy.assignedPackLabel}</p>
-                  <BookOpen className="h-5 w-5 text-brand-purple/30" />
-               </div>
-               <p className="line-clamp-3 min-h-[6rem] text-[1.4rem] sm:text-[1.75rem] font-black text-brand-dark leading-[1.02]">
-                 {classItem.pack?.title || copy.noPack}
-               </p>
-            </div>
-            
-            <div className={`flex min-w-0 items-center gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
-               <div className={`flex ${isRtl ? 'flex-row-reverse -space-x-2.5 space-x-reverse' : '-space-x-2.5'}`}>
-                  <span className="z-30 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-brand-yellow font-black text-xs shadow-md">
-                    {safeInviteSummary.approved_count}
-                  </span>
-                  <span className="z-20 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-slate-100 font-black text-xs text-brand-dark/40 shadow-sm">
-                    {safeInviteSummary.pending_count}
-                  </span>
-                  <span className="z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-slate-50 font-black text-xs text-brand-dark/20 shadow-sm">
-                    {safeInviteSummary.session_only_count}
-                  </span>
-               </div>
-               <p className="truncate text-[8px] font-black uppercase text-brand-dark/30">
-                 {safeInviteSummary.approved_count}/{classItem.student_count} {copy.approved}
-               </p>
-            </div>
-          </div>
-
-          {/* Session State Card */}
-          <div className="flex min-h-[220px] flex-col rounded-[1.6rem] sm:rounded-[2rem] border-[3px] border-brand-dark bg-white p-4">
-             <div className={`mb-3 flex min-w-0 items-center gap-1.5 ${isRtl ? 'flex-row-reverse' : ''}`}>
-                <div className={`h-3 w-3 rounded-full border-2 border-white shadow-sm ${hasOpenLiveRoom ? 'animate-pulse bg-emerald-500' : 'bg-brand-dark/15'}`} />
-                <p className="truncate text-[9px] font-black uppercase tracking-[0.08em] text-brand-dark/40">{copy.sessionState}</p>
-             </div>
-             <div className="flex-1 flex flex-col justify-center">
-                <div className="mb-3">
-                  <p className="line-clamp-2 min-h-[3rem] text-[1.45rem] sm:text-[1.8rem] font-black text-brand-dark leading-[1.02]">
-                    {hasOpenLiveRoom ? copy.liveRoomOpen : copy.lastRun}
-                  </p>
-                  {!hasOpenLiveRoom && classItem.latest_completed_session && (
-                    <p className="mt-2 text-[1.1rem] sm:text-[1.3rem] font-black text-brand-dark">{formatRelativeTime(classItem.latest_completed_session.ended_at)}</p>
-                  )}
-                </div>
-                <span className="inline-flex max-w-full self-start truncate rounded-full bg-[#E8F8F1] border-2 border-brand-dark/5 px-3 py-1.5 text-[8px] font-black uppercase tracking-[0.08em] text-[#10B981]">
-                  {language === 'he' ? 'השתתפות בריאה' : language === 'ar' ? 'مشاركة مستقرة' : 'Participation looks healthy'}
-                </span>
-             </div>
-             <div className={`mt-4 line-clamp-2 border-brand-purple/20 italic text-[11px] sm:text-[13px] font-black text-brand-dark/30 leading-snug ${isRtl ? 'border-r-4 pr-3' : 'border-l-4 pl-3'}`}>
-               {language === 'he' ? 'השתתפות נראית בריאה' : language === 'ar' ? 'المشاركة تبدو مستقرة' : 'Participation looks healthy'}
-             </div>
-          </div>
-        </div>
-
-        {/* Action Button Grid - 2x2 Matrix */}
-        <div className="grid grid-cols-2 gap-4 pt-3">
-          {/* WHITE: Reports */}
-          <button
-            onClick={onViewReport}
-            disabled={!hasReport || isBusy}
-            className="flex min-h-[72px] items-center justify-center gap-3 rounded-[1.4rem] sm:rounded-[1.8rem] border-[3px] border-brand-dark bg-white px-4 text-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A] transition-all active:translate-x-1 active:translate-y-1 active:shadow-none disabled:opacity-40"
-          >
-            <ClipboardList className="h-6 w-6 shrink-0 text-brand-purple" />
-            <span className="truncate text-center text-[12px] sm:text-[14px] font-black tracking-tight">{copy.latestReport}</span>
-          </button>
-
-          {/* PURPLE: Host */}
+        <div className="grid grid-cols-2 gap-3 pt-0.5">
           <button
             onClick={onHost}
             disabled={!hasAssignedPack || isBusy}
-            className="flex min-h-[72px] items-center justify-center gap-3 rounded-[1.4rem] sm:rounded-[1.8rem] border-[3px] border-brand-dark bg-brand-purple px-4 text-white shadow-[6px_6px_0px_0px_#1A1A1A] transition-all active:translate-x-1 active:translate-y-1 active:shadow-none disabled:opacity-40"
+            className={`${actionButtonBase} bg-brand-purple text-white`}
           >
-            <Plus className="h-6 w-6 sm:h-8 sm:w-8 shrink-0" />
-            <span className="truncate text-center text-[12px] sm:text-[14px] font-black tracking-tight">{copy.host}</span>
+            <span className="min-w-0 flex-1 whitespace-normal break-words text-center leading-[1.05]">{copy.host}</span>
+            <Plus className="h-5 w-5 shrink-0 sm:h-6 sm:w-6" />
           </button>
 
-          {/* YELLOW: Open Page */}
           <button
-            onClick={onOpenClassPage}
-            disabled={isBusy}
-            className="flex min-h-[72px] items-center justify-center gap-3 rounded-[1.4rem] sm:rounded-[1.8rem] border-[3px] border-brand-dark bg-[#FFD646] px-4 text-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A] transition-all active:translate-x-1 active:translate-y-1 active:shadow-none disabled:opacity-40"
+            onClick={onViewReport}
+            disabled={!hasReport || isBusy}
+            className={`${actionButtonBase} bg-white text-brand-dark`}
           >
-            <ArrowRight className={`h-6 w-6 shrink-0 ${isRtl ? 'rotate-180' : ''}`} />
-            <span className="truncate text-center text-[12px] sm:text-[14px] font-black tracking-tight">{copy.openClassPage}</span>
+            <span className="min-w-0 flex-1 whitespace-normal break-words text-center leading-[1.05]">{copy.latestReport}</span>
+            <ClipboardList className="h-5 w-5 shrink-0 text-[#9B63FF] sm:h-6 sm:w-6" />
           </button>
 
-          {/* WHITE: Rematch */}
           <button
             onClick={onRematch}
             disabled={!hasReport || isBusy}
-            className="flex min-h-[72px] items-center justify-center gap-3 rounded-[1.4rem] sm:rounded-[1.8rem] border-[3px] border-brand-dark bg-white px-4 text-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A] transition-all active:translate-x-1 active:translate-y-1 active:shadow-none disabled:opacity-40"
+            className={`${actionButtonBase} bg-white text-brand-dark`}
           >
-            <RefreshCw className="h-6 w-6 shrink-0 text-brand-orange" />
-            <span className="truncate text-center text-[12px] sm:text-[14px] font-black tracking-tight">{copy.rematch}</span>
+            <span className="min-w-0 flex-1 whitespace-normal break-words text-center leading-[1.05]">{copy.rematch}</span>
+            <RefreshCw className="h-5 w-5 shrink-0 text-brand-orange sm:h-6 sm:w-6" />
+          </button>
+
+          <button
+            onClick={onOpenClassPage}
+            disabled={isBusy}
+            className={`${actionButtonBase} bg-[#FFD347] text-brand-dark`}
+          >
+            <span className="min-w-0 flex-1 whitespace-normal break-words text-center leading-[1.05]">{copy.openClassPage}</span>
+            <ArrowRight className={`h-5 w-5 shrink-0 sm:h-6 sm:w-6 ${isRtl ? 'rotate-180' : ''}`} />
           </button>
         </div>
       </div>
     </motion.article>
   );
 };
-
-
-function retentionLevelTone(level: 'low' | 'medium' | 'high') {
-  if (level === 'high') return 'border-rose-200 bg-rose-50 text-rose-600';
-  if (level === 'medium') return 'border-brand-yellow/30 bg-brand-yellow/10 text-brand-dark/75';
-  return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-}

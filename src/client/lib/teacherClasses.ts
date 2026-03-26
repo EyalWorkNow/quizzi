@@ -209,10 +209,27 @@ export async function resendTeacherClassStudentInvite(classId: number, studentId
 }
 
 export async function addPackToClass(classId: number, packId: number) {
-  return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/packs`, {
-    method: 'POST',
-    body: JSON.stringify({ packId }),
-  });
+  try {
+    return await apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/packs`, {
+      method: 'POST',
+      body: JSON.stringify({ packId }),
+    });
+  } catch (error: any) {
+    const message = String(error?.message || '');
+    if (!message.includes('API route not found')) {
+      throw error;
+    }
+
+    const existingClass = await getTeacherClass(classId);
+    return updateTeacherClass(classId, {
+      name: existingClass.name,
+      subject: existingClass.subject,
+      grade: existingClass.grade,
+      color: existingClass.color,
+      notes: existingClass.notes,
+      pack_id: packId,
+    });
+  }
 }
 
 export async function removePackFromClass(classId: number, packId: number) {

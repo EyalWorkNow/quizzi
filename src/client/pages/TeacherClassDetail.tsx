@@ -768,8 +768,13 @@ export default function TeacherClassDetail() {
     }
     try {
       setBusyKey('host');
+      let resolvedBoard = classBoard;
+      if (Number(classBoard.pack?.id || 0) !== Number(targetPackId)) {
+        resolvedBoard = await addPackToClass(classBoard.id, Number(targetPackId));
+        setClassBoard(resolvedBoard);
+      }
       const session = await createClassSession({
-        classId: classBoard.id,
+        classId: resolvedBoard.id,
         packId: targetPackId,
       });
       navigate(`/teacher/session/${session.pin}/host`, {
@@ -1025,7 +1030,7 @@ export default function TeacherClassDetail() {
                         : 'This page centralizes class settings, pack assignment, students, invites, mail health, and sessions.')}
                 </p>
               </div>
-              <div className="min-w-[300px] rounded-[1.8rem] border-2 border-brand-dark bg-white/80 p-5">
+              <div className="min-w-0 rounded-[1.8rem] border-2 border-brand-dark bg-white/80 p-5 lg:min-w-[300px]">
                 <p className="mb-3 text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{copy.settings}</p>
                 <div className="space-y-3 font-black text-brand-dark">
                   <div className="flex items-center justify-between gap-3"><span>{copy.roster}</span><span>{classBoard.student_count}</span></div>
@@ -1037,8 +1042,8 @@ export default function TeacherClassDetail() {
             </div>
           </section>
 
-          <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-            <div className="space-y-6">
+          <section className="grid gap-6 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+            <div className="min-w-0 space-y-6">
               <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
                 <div className="mb-5 flex items-center gap-3">
                   <Save className="h-6 w-6 text-brand-purple" />
@@ -1214,7 +1219,7 @@ export default function TeacherClassDetail() {
               </div>
             </div>
 
-            <div className="space-y-6">
+            <div className="min-w-0 space-y-6">
               <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
                 <div className="mb-5 flex items-center gap-3">
                   <AlertTriangle className="h-6 w-6 text-brand-orange" />
@@ -1366,75 +1371,139 @@ export default function TeacherClassDetail() {
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <BookOpen className="h-6 w-6 text-brand-purple" />
-                    <div>
-                      <h2 className="text-2xl font-black">{copy.library}</h2>
-                      <p className="text-sm font-bold text-brand-dark/55">{copy.noPacksInLibrary}</p>
+              <div className="overflow-hidden rounded-[2.2rem] border-2 border-brand-dark bg-white shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <div className="border-b-2 border-brand-dark/10 bg-[linear-gradient(135deg,#F3ECFF_0%,#FFF7D1_100%)] p-6">
+                  <div className="grid gap-5 2xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)] 2xl:items-end">
+                    <div className="min-w-0">
+                      <div className="mb-4 flex items-center gap-3">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-[1.25rem] border-2 border-brand-dark bg-white text-brand-purple shadow-[2px_2px_0px_0px_#1A1A1A]">
+                          <BookOpen className="h-5 w-5" />
+                        </div>
+                        <div className="rounded-full border border-brand-dark/15 bg-white/80 px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-brand-dark/50">
+                          {language === 'he' ? 'מרכז שיעורים' : language === 'ar' ? 'مركز الدروس' : 'Lesson hub'}
+                        </div>
+                      </div>
+                      <h2 className="text-3xl font-black tracking-tight text-brand-dark">{copy.library}</h2>
+                      <p className="mt-2 max-w-2xl text-sm font-bold leading-6 text-brand-dark/65">
+                        {language === 'he'
+                          ? 'ספרייה נקייה וברורה להפעלת שיעורים מהירים מתוך הכיתה, עם כרטיסים מאוזנים וטקסט שנשאר בשליטה.'
+                          : language === 'ar'
+                            ? 'مكتبة مرتبة وواضحة لتشغيل الدروس بسرعة من داخل الصف، ببطاقات متوازنة ونص يبقى تحت السيطرة.'
+                            : 'A cleaner lesson library for launching class-ready quizzes quickly, with balanced cards and controlled text flow.'}
+                      </p>
                     </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <select
-                      value={selectedPackId}
-                      onChange={(e) => setSelectedPackId(e.target.value)}
-                      className="rounded-xl border-2 border-brand-dark bg-brand-bg px-4 py-2 font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
-                    >
-                      <option value="">{copy.selectPack}</option>
-                      {packs
-                        .filter((p) => !(classBoard.packs || []).some((cp) => cp.id === p.id))
-                        .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.title}
-                          </option>
-                        ))}
-                    </select>
-                    <button
-                      onClick={() => void handleAddPack()}
-                      disabled={!selectedPackId || busyKey === 'add-pack'}
-                      className="rounded-xl border-2 border-brand-dark bg-brand-yellow px-5 py-2 font-black shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-50"
-                    >
-                      {copy.addQuiz}
-                    </button>
+
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                      <div className="rounded-[1.6rem] border-2 border-brand-dark bg-white/90 p-3 shadow-[2px_2px_0px_0px_#1A1A1A]">
+                        <label className="mb-2 block text-[11px] font-black uppercase tracking-[0.14em] text-brand-dark/45">
+                          {copy.selectPack}
+                        </label>
+                        <select
+                          value={selectedPackId}
+                          onChange={(e) => setSelectedPackId(e.target.value)}
+                          className="w-full min-w-0 rounded-[1rem] border-2 border-brand-dark bg-brand-bg px-4 py-3 font-black outline-none"
+                        >
+                          <option value="">{copy.selectPack}</option>
+                          {packs
+                            .filter((p) => !(classBoard.packs || []).some((cp) => cp.id === p.id))
+                            .map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.title}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+
+                      <button
+                        onClick={() => void handleAddPack()}
+                        disabled={!selectedPackId || busyKey === 'add-pack'}
+                        className="inline-flex min-h-[58px] items-center justify-center rounded-[1.3rem] border-2 border-brand-dark bg-brand-yellow px-5 py-3 text-sm font-black shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-50 lg:min-h-[78px] lg:rounded-[1.6rem]"
+                      >
+                        {copy.addQuiz}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="bg-white p-6">
+                <div className="mb-5 flex flex-wrap items-center gap-3">
+                  <div className="rounded-full border border-brand-dark/15 bg-brand-bg px-4 py-2 text-sm font-black text-brand-dark/65">
+                    {language === 'he' ? `${(classBoard.packs || []).length} שיעורים מחוברים` : language === 'ar' ? `${(classBoard.packs || []).length} دروس مرتبطة` : `${(classBoard.packs || []).length} linked lessons`}
+                  </div>
+                  <div className="rounded-full border border-brand-dark/15 bg-white px-4 py-2 text-sm font-bold text-brand-dark/50">
+                    {language === 'he'
+                      ? 'כל כרטיס מוכן להפעלה ישירה מתוך הכיתה'
+                      : language === 'ar'
+                        ? 'كل بطاقة جاهزة للتشغيل المباشر من الصف'
+                        : 'Each card is ready for direct launch from class'}
+                  </div>
+                </div>
+
+                <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
                   {(classBoard.packs || []).length > 0 ? (
                     (classBoard.packs || []).map((pack) => (
-                      <div key={`pack-${pack.id}`} className="flex flex-col rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5 shadow-[3px_3px_0px_0px_#1A1A1A]">
-                        <div className="mb-4 flex-1">
-                          <h3 className="text-xl font-black leading-tight text-brand-dark">
+                      <div
+                        key={`pack-${pack.id}`}
+                        className="group flex min-h-[228px] min-w-0 flex-col justify-between rounded-[1.85rem] border-2 border-brand-dark bg-[linear-gradient(180deg,#FFFFFF_0%,#FAF7FF_62%,#FFF6D8_100%)] p-4 shadow-[3px_3px_0px_0px_#1A1A1A] transition-transform hover:-translate-y-1 sm:p-5"
+                      >
+                        <div className="min-w-0">
+                          <div className="mb-4 flex items-start justify-between gap-2">
+                            <div className="min-w-0 rounded-full border border-brand-dark/10 bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-brand-dark/45 sm:text-[11px]">
+                              {language === 'he' ? 'שיעור פעיל' : language === 'ar' ? 'درس نشط' : 'Ready lesson'}
+                            </div>
+                            <div className="flex h-9 min-w-[56px] shrink-0 items-center justify-center rounded-[0.9rem] border-2 border-brand-dark bg-white px-2 text-xs font-black text-brand-dark/65 shadow-[2px_2px_0px_0px_#1A1A1A] sm:h-10 sm:min-w-[64px] sm:text-sm">
+                              {pack.question_count}
+                            </div>
+                          </div>
+
+                          <h3 className="line-clamp-3 min-h-[4.2rem] break-words text-[1.05rem] font-black leading-[1.16] text-brand-dark sm:min-h-[4.7rem] sm:text-[1.22rem] lg:text-[1.28rem]">
                             {pack.title || copy.unnamedQuiz}
                           </h3>
-                          <p className="mt-1 font-bold text-brand-dark/55">
-                            {pack.question_count} {(pack.question_count === 1) ? 'question' : 'questions'}
+                          <p className="mt-3 text-[13px] font-bold leading-5 text-brand-dark/55 sm:text-sm sm:leading-6">
+                            {language === 'he'
+                              ? `${pack.question_count} שאלות מוכנות להפעלה מיידית מתוך דף הכיתה.`
+                              : language === 'ar'
+                                ? `${pack.question_count} أسئلة جاهزة للتشغيل الفوري من صفحة الصف.`
+                                : `${pack.question_count} questions ready for immediate launch from the class page.`}
                           </p>
                         </div>
-                        <div className="flex flex-wrap gap-2 pt-4 border-t-2 border-brand-dark/5">
-                          <button
-                            onClick={() => void handleHost(pack.id)}
-                            className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-brand-orange px-4 py-2 text-sm font-black text-white"
-                          >
-                            <PlayCircle className="h-4 w-4" />
-                            {copy.hostSpecific}
-                          </button>
-                          <button
-                            onClick={() => void handleUnlinkPack(pack.id, pack.title)}
-                            className="inline-flex items-center justify-center rounded-full border-2 border-brand-dark bg-white p-2"
-                            title={copy.removeQuiz}
-                          >
-                            <Trash2 className="h-4 w-4 text-rose-500" />
-                          </button>
+
+                        <div className="mt-5 border-t-2 border-brand-dark/5 pt-4">
+                          <div className="flex items-center gap-2 sm:gap-3">
+                            <button
+                              onClick={() => void handleHost(pack.id)}
+                              className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-[1.15rem] border-2 border-brand-dark bg-brand-orange px-3 py-3 text-[13px] font-black text-white shadow-[2px_2px_0px_0px_#1A1A1A] sm:rounded-[1.3rem] sm:px-4 sm:text-sm"
+                            >
+                              <PlayCircle className="h-4 w-4 shrink-0" />
+                              <span className="min-w-0 truncate text-center">{copy.hostSpecific}</span>
+                            </button>
+                            <button
+                              onClick={() => void handleUnlinkPack(pack.id, pack.title)}
+                              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-brand-dark bg-white shadow-[2px_2px_0px_0px_#1A1A1A] sm:h-11 sm:w-11"
+                              title={copy.removeQuiz}
+                            >
+                              <Trash2 className="h-4 w-4 text-rose-500" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))
                   ) : (
-                    <div className="col-span-full rounded-2xl border-2 border-dashed border-brand-dark/20 py-12 text-center font-bold text-brand-dark/40">
-                      {copy.noPacksInLibrary}
+                    <div className="col-span-full rounded-[1.8rem] border-2 border-dashed border-brand-dark/20 bg-brand-bg/60 px-6 py-14 text-center">
+                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-[1.2rem] border-2 border-brand-dark/10 bg-white text-brand-purple">
+                        <BookOpen className="h-6 w-6" />
+                      </div>
+                      <p className="mt-4 text-lg font-black text-brand-dark">{copy.noPacksInLibrary}</p>
+                      <p className="mt-2 text-sm font-bold text-brand-dark/45">
+                        {language === 'he'
+                          ? 'בחר שאלון מהקולקציה למעלה כדי להתחיל לבנות ספריית שיעורים לכיתה הזו.'
+                          : language === 'ar'
+                            ? 'اختر اختبارًا من المجموعة أعلاه لبدء بناء مكتبة الدروس لهذا الصف.'
+                            : 'Choose a quiz from the selector above to start building this class library.'}
+                      </p>
                     </div>
                   )}
+                </div>
                 </div>
               </div>
 

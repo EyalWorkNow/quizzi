@@ -4239,6 +4239,33 @@ router.get('/teacher/classes/:id', requireTeacherSession, async (req, res) => {
   }
 });
 
+router.get('/teacher/classes/:id/packs', requireTeacherSession, async (req, res) => {
+  try {
+    const teacherUserId = await getTeacherUserIdFromRequest(req);
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-class-packs-detail', 180, 5 * 60 * 1000, teacherUserId, req.params.id)) return;
+
+    const classId = parsePositiveInt(req.params.id);
+    const classBoard = await getHydratedTeacherClass(classId, teacherUserId);
+    if (!classBoard) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+
+    res.json({
+      class_id: classBoard.id,
+      pack_id: classBoard.pack_id,
+      pack: classBoard.pack,
+      packs: Array.isArray(classBoard.packs) ? classBoard.packs : [],
+      linked_pack_count: Array.isArray(classBoard.packs) ? classBoard.packs.length : 0,
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Teacher class packs failed:', error);
+    respondWithServerError(res, 'Failed to load class packs');
+  }
+});
+
 router.post('/teacher/classes', requireTeacherSession, async (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
   try {
@@ -4656,7 +4683,12 @@ router.post('/teacher/classes/:id/packs', requireTeacherSession, async (req, res
       VALUES (?, ?)
     `).run(classId, packId);
 
-    db.prepare('UPDATE teacher_classes SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(classId);
+    db.prepare(`
+      UPDATE teacher_classes
+      SET pack_id = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(packId, classId);
 
     res.json((await getHydratedTeacherClass(classId, teacherUserId)));
   } catch (error: any) {
@@ -4689,7 +4721,24 @@ router.delete('/teacher/classes/:id/packs/:packId', requireTeacherSession, async
       WHERE class_id = ? AND pack_id = ?
     `).run(classId, packId);
 
-    db.prepare('UPDATE teacher_classes SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(classId);
+    const fallbackPack = (await db.prepare(`
+      SELECT pack_id
+      FROM teacher_class_packs
+      WHERE class_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `).get(classId)) as any;
+
+    if (Number(existingClass.pack_id || 0) === packId) {
+      db.prepare(`
+        UPDATE teacher_classes
+        SET pack_id = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(Number(fallbackPack?.pack_id || 0) || null, classId);
+    } else {
+      db.prepare('UPDATE teacher_classes SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(classId);
+    }
 
     res.json((await getHydratedTeacherClass(classId, teacherUserId)));
   } catch (error: any) {

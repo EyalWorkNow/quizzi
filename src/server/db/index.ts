@@ -94,8 +94,8 @@ try {
 }
 
 const postgresMirror = createPostgresMirror(db, { sqlitePath: dbPath });
-await postgresMirror.setup();
 postgresMirror.wrapDatabase();
+void postgresMirror.setup();
 
 async function columnExists(table: string, column: string) {
   return (await db
