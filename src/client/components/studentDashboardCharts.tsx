@@ -134,7 +134,7 @@ export function QuestionFlowChart({
         <LegendSwatch label={copy.legend.response} color="bg-brand-yellow" />
       </div>
       <div className="chart-scroll-shell">
-        <svg dir="ltr" viewBox={`0 0 ${width} ${height}`} className="h-[190px] min-w-[460px] w-full sm:h-[220px] sm:min-w-0">
+        <svg dir="ltr" viewBox={`0 0 ${width} ${height}`} className="h-[190px] min-w-[340px] w-full sm:h-[220px] sm:min-w-0">
           {[0, 25, 50, 75, 100].map((tick) => {
             const y = padding + ((100 - tick) / 100) * graphHeight;
             return (
@@ -237,7 +237,7 @@ export function SessionHistoryTrendChart({ rows }: { rows: any[] }) {
         <LegendSwatch label={copy.legend.score} color="bg-brand-yellow" />
       </div>
       <div className="chart-scroll-shell">
-        <svg dir="ltr" viewBox={`0 0 ${width} ${height}`} className="h-[190px] min-w-[460px] w-full sm:h-[224px] sm:min-w-0">
+        <svg dir="ltr" viewBox={`0 0 ${width} ${height}`} className="h-[190px] min-w-[340px] w-full sm:h-[224px] sm:min-w-0">
           {[0, 25, 50, 75, 100].map((tick) => {
             const y = padding + ((100 - tick) / 100) * graphHeight;
             return (

@@ -550,11 +550,11 @@ export default function TeacherDashboard() {
     <div
       dir={direction}
       data-no-translate="true"
-      className="h-screen max-h-screen bg-brand-bg font-sans text-brand-dark flex overflow-hidden selection:bg-brand-orange selection:text-white"
+      className="teacher-layout-shell"
     >
       <TeacherSidebar />
 
-      <div className="flex-1 h-screen flex flex-col overflow-hidden relative">
+      <div className="teacher-layout-main flex flex-col overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-[380px] bg-[radial-gradient(circle_at_top_left,_rgba(255,90,54,0.14),_transparent_32%),radial-gradient(circle_at_top_right,_rgba(180,136,255,0.16),_transparent_34%)] pointer-events-none" />
 
         <header className="page-shell-wide relative z-20 flex flex-wrap items-center justify-between gap-4 py-6 border-b-2 border-brand-dark/5">
@@ -573,7 +573,7 @@ export default function TeacherDashboard() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto page-shell-wide relative z-10 pt-6 pb-20">
+        <main className="flex-1 overflow-y-auto page-shell-wide relative z-10 pt-20 lg:pt-6 pb-20">
           <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 mb-6">
             <div className="max-w-3xl">
               <h1 className="text-4xl lg:text-5xl font-black tracking-tight leading-tight">{t('dash.header.title')}</h1>

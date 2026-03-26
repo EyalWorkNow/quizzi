@@ -8,6 +8,7 @@ import mammoth from 'mammoth';
 import { createRequire } from 'module';
 import { runPythonEngine } from '../services/pythonEngine.js';
 import { translateUiTexts } from '../services/uiTranslation.js';
+import { buildStudentMemorySnapshot, type StudentMemoryBuildInput, type StudentMemorySnapshot } from '../services/studentMemory.js';
 import { broadcastToSession, registerSseClient } from '../services/sseHub.js';
 import { buildRateLimitKey, checkRateLimit, isTrustedOrigin } from '../services/requestGuards.js';
 import { createBoundedTaskGate, defaultTaskConcurrency, envTaskConcurrency } from '../services/taskGate.js';
@@ -503,8 +504,338 @@ function getParticipantIdentityKey(participant: { identity_key?: string | null; 
   return resolveStudentIdentityKey(participant?.identity_key, participant?.nickname || '');
 }
 
+function humanizeTag(tag: unknown) {
+  return String(tag || '')
+    .trim()
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 async function getMasteryRows(identityKey: string) {
   return (await db.prepare('SELECT tag, score FROM mastery WHERE identity_key = ?').all(identityKey));
+}
+
+function parseMemorySnapshot(value: unknown): StudentMemorySnapshot | null {
+  try {
+    const parsed = JSON.parse(String(value || 'null'));
+    return parsed && typeof parsed === 'object' ? (parsed as StudentMemorySnapshot) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readStudentMemorySnapshot(identityKey: string) {
+  const row = (await db
+      .prepare('SELECT snapshot_json FROM student_memory_snapshots WHERE identity_key = ? LIMIT 1')
+      .get(identityKey)) as any;
+  return parseMemorySnapshot(row?.snapshot_json);
+}
+
+async function readStudentMemorySnapshotRow(identityKey: string) {
+  return (await db
+    .prepare(`
+      SELECT snapshot_json, teacher_note, teacher_note_updated_at, updated_at
+      FROM student_memory_snapshots
+      WHERE identity_key = ?
+      LIMIT 1
+    `)
+    .get(identityKey)) as any;
+}
+
+async function updateStudentMemorySnapshot(input: {
+  identityKey: string;
+  nickname: string;
+  overallAnalytics?: any;
+  sessionAnalytics?: any;
+  mastery?: any[];
+  answers?: any[];
+  practiceAttempts?: any[];
+  sessions?: any[];
+  questions?: any[];
+  teacherNote?: string | null;
+  teacherNoteUpdatedAt?: string | null;
+}) {
+  const existing = await readStudentMemorySnapshotRow(input.identityKey);
+  const teacherNote = sanitizeMultiline(existing?.teacher_note || '', 1200);
+  const teacherNoteUpdatedAt = existing?.teacher_note_updated_at ? String(existing.teacher_note_updated_at) : null;
+  const snapshot = buildStudentMemorySnapshot({
+    ...input,
+    teacherNote,
+    teacherNoteUpdatedAt,
+  });
+  const sourceSummary = {
+    sessions_played: Number(input.sessions?.length || 0),
+    answers_count: Number(input.answers?.length || 0),
+    practice_attempts_count: Number(input.practiceAttempts?.length || 0),
+    mastery_tags_count: Number(input.mastery?.length || 0),
+  };
+  await db
+    .prepare(`
+      INSERT INTO student_memory_snapshots (identity_key, nickname, snapshot_json, source_summary_json, updated_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(identity_key) DO UPDATE
+      SET nickname = excluded.nickname,
+          snapshot_json = excluded.snapshot_json,
+          source_summary_json = excluded.source_summary_json,
+          updated_at = CURRENT_TIMESTAMP
+    `)
+    .run(
+      input.identityKey,
+      input.nickname,
+      JSON.stringify(snapshot),
+      JSON.stringify(sourceSummary),
+    );
+  return snapshot;
+}
+
+async function saveStudentMemoryTeacherNote(identityKey: string, nickname: string, note: string) {
+  const sanitizedNote = sanitizeMultiline(note, 1200);
+  const existing = await readStudentMemorySnapshotRow(identityKey);
+  const snapshot = parseMemorySnapshot(existing?.snapshot_json) || buildStudentMemorySnapshot({
+    identityKey,
+    nickname,
+    teacherNote: sanitizedNote,
+    teacherNoteUpdatedAt: new Date().toISOString(),
+  });
+  const mergedSnapshot: StudentMemorySnapshot = {
+    ...snapshot,
+    teacher_notes: {
+      note: sanitizedNote,
+      updated_at: new Date().toISOString(),
+    },
+    updated_at: new Date().toISOString(),
+  };
+  await db
+    .prepare(`
+      INSERT INTO student_memory_snapshots (
+        identity_key,
+        nickname,
+        snapshot_json,
+        source_summary_json,
+        teacher_note,
+        teacher_note_updated_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT(identity_key) DO UPDATE
+      SET nickname = excluded.nickname,
+          snapshot_json = excluded.snapshot_json,
+          teacher_note = excluded.teacher_note,
+          teacher_note_updated_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+    `)
+    .run(
+      identityKey,
+      nickname,
+      JSON.stringify(mergedSnapshot),
+      existing?.source_summary_json || '{}',
+      sanitizedNote,
+    );
+  return mergedSnapshot;
+}
+
+async function buildClassMemorySummary(sessionId: number) {
+  const rows = (await db
+    .prepare(`
+      SELECT
+        p.id,
+        p.nickname,
+        p.identity_key,
+        sms.snapshot_json,
+        sms.teacher_note,
+        sms.teacher_note_updated_at
+      FROM participants p
+      LEFT JOIN student_memory_snapshots sms ON sms.identity_key = p.identity_key
+      WHERE p.session_id = ?
+    `)
+    .all(sessionId)) as any[];
+
+  const students = rows
+    .map((row: any) => {
+      const snapshot = parseMemorySnapshot(row?.snapshot_json);
+      if (!snapshot) return null;
+      return {
+        id: Number(row.id || 0),
+        nickname: String(row.nickname || snapshot.nickname || 'Student'),
+        identity_key: String(row.identity_key || snapshot.identity_key || ''),
+        action: snapshot.recommended_next_step?.action || 'monitor',
+        focus_tags: Array.isArray(snapshot.recommended_next_step?.focus_tags) ? snapshot.recommended_next_step.focus_tags : [],
+        confidence_band: snapshot.trust?.confidence_band || snapshot.behavior_baseline?.confidence_band || 'low',
+        stress_index: Number(snapshot.behavior_baseline?.stress_index || 0),
+        accuracy_pct: Number(snapshot.history_rollup?.accuracy_pct || 0),
+        headline: snapshot.summary?.headline || '',
+        coaching: snapshot.coaching || null,
+        trust: snapshot.trust || null,
+        teacher_note: String(row.teacher_note || snapshot.teacher_notes?.note || '').trim(),
+      };
+    })
+    .filter(Boolean) as any[];
+
+  const actionCounts = students.reduce((acc: Record<string, number>, student: any) => {
+    const key = String(student.action || 'monitor');
+    acc[key] = Number(acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const focusTagCounts = students.reduce((acc: Record<string, number>, student: any) => {
+    for (const tag of student.focus_tags || []) {
+      acc[tag] = Number(acc[tag] || 0) + 1;
+    }
+    return acc;
+  }, {});
+  const sortedTags = Object.entries(focusTagCounts).sort((left, right) => Number(right[1]) - Number(left[1]));
+
+  const alerts = [
+    actionCounts.confidence_reset
+      ? {
+          id: 'memory-confidence-reset',
+          severity: actionCounts.confidence_reset >= 3 ? 'high' : 'medium',
+          title: `${actionCounts.confidence_reset} students need a confidence reset`,
+          body: 'Their memory trace says pressure is distorting performance more than a new content push would help.',
+          count: actionCounts.confidence_reset,
+        }
+      : null,
+    sortedTags[0] && Number(sortedTags[0][1]) >= Math.max(2, Math.ceil(students.length * 0.25))
+      ? {
+          id: 'memory-shared-weak-tag',
+          severity: Number(sortedTags[0][1]) >= Math.max(3, Math.ceil(students.length * 0.4)) ? 'high' : 'medium',
+          title: `${humanizeTag(sortedTags[0][0])} keeps resurfacing across the class`,
+          body: `${sortedTags[0][1]} students have this tag in their remembered weak spots right now.`,
+          count: Number(sortedTags[0][1]),
+        }
+      : null,
+    students.filter((student: any) => String(student.confidence_band) === 'low').length
+      ? {
+          id: 'memory-low-confidence-band',
+          severity: students.filter((student: any) => String(student.confidence_band) === 'low').length >= 3 ? 'medium' : 'low',
+          title: `${students.filter((student: any) => String(student.confidence_band) === 'low').length} students still have low memory confidence`,
+          body: 'Those learners need more evidence before the board should treat the memory read as stable.',
+          count: students.filter((student: any) => String(student.confidence_band) === 'low').length,
+        }
+      : null,
+  ].filter(Boolean);
+
+  const groups = [
+    {
+      id: 'memory-confidence-reset',
+      label: 'Confidence Reset',
+      body: 'High pressure plus weak memory traces. Use calmer pacing and fewer questions.',
+      student_ids: students.filter((student: any) => student.action === 'confidence_reset').map((student: any) => student.id),
+      students: students.filter((student: any) => student.action === 'confidence_reset').map((student: any) => student.nickname),
+      focus_tags: Array.from(new Set(students.filter((student: any) => student.action === 'confidence_reset').flatMap((student: any) => student.focus_tags || []))).slice(0, 4),
+    },
+    {
+      id: 'memory-adaptive-practice',
+      label: 'Adaptive Practice',
+      body: 'Students ready for targeted same-material practice based on remembered weak tags.',
+      student_ids: students.filter((student: any) => student.action === 'adaptive_practice').map((student: any) => student.id),
+      students: students.filter((student: any) => student.action === 'adaptive_practice').map((student: any) => student.nickname),
+      focus_tags: Array.from(new Set(students.filter((student: any) => student.action === 'adaptive_practice').flatMap((student: any) => student.focus_tags || []))).slice(0, 4),
+    },
+    {
+      id: 'memory-momentum',
+      label: 'Momentum Keepers',
+      body: 'Students whose memory trace is stable enough for reinforcement instead of reteach.',
+      student_ids: students.filter((student: any) => student.action === 'keep_momentum').map((student: any) => student.id),
+      students: students.filter((student: any) => student.action === 'keep_momentum').map((student: any) => student.nickname),
+      focus_tags: Array.from(new Set(students.filter((student: any) => student.action === 'keep_momentum').flatMap((student: any) => student.focus_tags || []))).slice(0, 4),
+    },
+  ]
+    .map((group) => ({ ...group, count: group.student_ids.length }))
+    .filter((group) => group.count > 0);
+
+  const watchlist = students
+    .filter((student: any) =>
+      student.action === 'confidence_reset' ||
+      student.action === 'adaptive_practice' ||
+      student.accuracy_pct < 72 ||
+      student.stress_index >= 55,
+    )
+    .sort((left: any, right: any) =>
+      Number(right.stress_index || 0) - Number(left.stress_index || 0) ||
+      Number(left.accuracy_pct || 0) - Number(right.accuracy_pct || 0),
+    )
+    .slice(0, 6)
+    .map((student: any) => ({
+      id: student.id,
+      nickname: student.nickname,
+      action: student.action,
+      headline: student.headline,
+      focus_tags: student.focus_tags,
+      stress_index: student.stress_index,
+      accuracy_pct: student.accuracy_pct,
+      teacher_note: student.teacher_note,
+    }));
+
+  const autopilotQueue = watchlist.map((student: any) => ({
+    id: `autopilot-${student.id}`,
+    participant_id: student.id,
+    nickname: student.nickname,
+    title:
+      student.action === 'confidence_reset'
+        ? `Launch a calm confidence reset for ${student.nickname}`
+        : `Launch targeted memory practice for ${student.nickname}`,
+    body:
+      student.action === 'confidence_reset'
+        ? `Lower pressure around ${student.focus_tags.slice(0, 2).join(', ') || 'the weakest areas'} before the next live round.`
+        : `Use remembered weak tags ${student.focus_tags.slice(0, 3).join(', ') || 'from the memory trace'} for a same-material intervention.`,
+    focus_tags: student.focus_tags.slice(0, 4),
+    recommended_count: student.action === 'confidence_reset' ? 3 : 5,
+  }));
+
+  return {
+    students,
+    alerts,
+    groups,
+    watchlist,
+    autopilot_queue: autopilotQueue,
+    top_focus_tags: sortedTags.slice(0, 5).map(([tag, count]) => ({ tag, count })),
+    summary: {
+      snapshot_count: students.length,
+      confidence_reset_count: Number(actionCounts.confidence_reset || 0),
+      adaptive_practice_count: Number(actionCounts.adaptive_practice || 0),
+      keep_momentum_count: Number(actionCounts.keep_momentum || 0),
+    },
+  };
+}
+
+function buildMemoryInterventionPlan(context: any) {
+  const studentMemory = context?.studentMemory || {};
+  const recommendedAction = String(studentMemory?.recommended_next_step?.action || '');
+  const recommendedFocusTags = Array.isArray(studentMemory?.recommended_next_step?.focus_tags)
+    ? studentMemory.recommended_next_step.focus_tags
+    : [];
+  const focusTags = uniqueStrings([
+    ...recommendedFocusTags,
+    ...deriveAdaptiveFocusTags({
+      sessionAnalytics: context?.sessionAnalytics,
+      overallAnalytics: context?.overallAnalytics,
+      studentSummary: context?.studentSummary,
+      participant: context?.participant,
+    }),
+  ]).slice(0, 4);
+  const priorityQuestionIds = deriveAdaptivePriorityQuestionIds({
+    sessionAnalytics: context?.sessionAnalytics,
+    overallAnalytics: context?.overallAnalytics,
+    answers: context?.classPayload?.answers?.filter((answer: any) => Number(answer?.participant_id || 0) === Number(context?.participant?.id || 0)) || [],
+  });
+  const recommendedCount =
+    recommendedAction === 'confidence_reset'
+      ? 3
+      : recommendedAction === 'targeted_review'
+        ? 4
+        : 5;
+
+  return {
+    intervention_type: recommendedAction || 'adaptive_practice',
+    focus_tags: focusTags,
+    priority_question_ids: priorityQuestionIds,
+    recommended_count: recommendedCount,
+    reasons: Array.isArray(studentMemory?.recommended_next_step?.reasons) ? studentMemory.recommended_next_step.reasons : [],
+    title: String(studentMemory?.recommended_next_step?.title || 'Run memory intervention'),
+    body: String(studentMemory?.recommended_next_step?.body || 'Use the memory trace to shape the next support move.'),
+  };
 }
 
 const upsertMastery = db.prepare(`
@@ -2350,6 +2681,7 @@ async function getOverallStudentAnalytics({
     `)
         .all(identityKey)) as any[];
   const practiceAttempts = (await db.prepare('SELECT * FROM practice_attempts WHERE identity_key = ?').all(identityKey)) as any[];
+  const existingMemoryRow = await readStudentMemorySnapshotRow(identityKey);
   const dashboard = (await runStudentDashboardWithFallback({
     nickname,
     mastery,
@@ -2365,11 +2697,24 @@ async function getOverallStudentAnalytics({
     answers,
     practiceAttempts,
   });
+  const studentMemory = await updateStudentMemorySnapshot({
+    identityKey,
+    nickname,
+    overallAnalytics: dashboard,
+    mastery,
+    answers,
+    practiceAttempts,
+    sessions,
+    questions,
+    teacherNote: existingMemoryRow?.teacher_note || '',
+    teacherNoteUpdatedAt: existingMemoryRow?.teacher_note_updated_at ? String(existingMemoryRow.teacher_note_updated_at) : null,
+  });
 
   return {
     ...(dashboard || {}),
     engagement,
     comebackMission: engagement.comeback_mission,
+    student_memory: studentMemory,
   };
 }
 
@@ -2421,6 +2766,29 @@ async function getSessionStudentContext(sessionId: number, participantId: number
   const classDashboard = await runPythonEngine<any>('class-dashboard', classPayload);
   const studentSummary =
     classDashboard?.participants?.find((row: any) => Number(row.id) === participantId) || null;
+  const fullAnswers = (await db
+    .prepare(`
+      SELECT a.*
+      FROM answers a
+      JOIN participants p ON a.participant_id = p.id
+      WHERE p.identity_key = ?
+    `)
+    .all(identityKey)) as any[];
+  const identityParticipants = await getParticipantsForIdentityKey(identityKey);
+  const identitySessionIds = uniqueNumbers(identityParticipants.map((row: any) => row.session_id));
+  const identitySessions = (await getSessionsForIds(identitySessionIds)) as any[];
+  const identityQuestions = (await getQuestionsForPackIds(uniqueNumbers(identitySessions.map((row: any) => row.quiz_pack_id)))) as any[];
+  const studentMemory = await updateStudentMemorySnapshot({
+    identityKey,
+    nickname: participant.nickname,
+    overallAnalytics,
+    sessionAnalytics,
+    mastery,
+    answers: fullAnswers,
+    practiceAttempts: practice_attempts as any[],
+    sessions: identitySessions,
+    questions: identityQuestions,
+  });
 
   return {
     classPayload,
@@ -2430,6 +2798,7 @@ async function getSessionStudentContext(sessionId: number, participantId: number
     practice_attempts,
     sessionAnalytics,
     overallAnalytics,
+    studentMemory,
     analyticsComparison: buildAnalyticsComparison(sessionAnalytics, overallAnalytics),
     adaptivePreview,
     classDashboard,
@@ -4863,6 +5232,7 @@ router.get('/analytics/class/:sessionId', async (req, res) => {
     if (!payload) return res.status(404).json({ error: 'Session not found' });
 
     const dashboard = (await runPythonEngine<any>('class-dashboard', payload)) as Record<string, any>;
+    const memoryBoard = await buildClassMemorySummary(sessionId);
     const packDetail = (await getHydratedPackWithQuestions(Number(payload.pack?.id || ownedSession.quiz_pack_id)));
     const followUpEngine = buildFollowUpEnginePreview({
       participants: Array.isArray(dashboard?.participants) ? dashboard.participants : [],
@@ -4893,6 +5263,7 @@ router.get('/analytics/class/:sessionId', async (req, res) => {
 
     res.json({
       ...dashboard,
+      memory_board: memoryBoard,
       pack: packDetail,
       follow_up_engine: followUpEngine,
       cross_section_comparison: (await buildCrossSectionComparison(sessionId, teacherUserId)),
@@ -5293,12 +5664,43 @@ router.get('/analytics/class/:sessionId/student/:participantId', async (req, res
       class_distributions: context.classDashboard?.distributions || null,
       analytics: context.sessionAnalytics,
       overall_analytics: context.overallAnalytics,
+      student_memory: context.studentMemory,
+      memory_intervention_plan: buildMemoryInterventionPlan(context),
       session_vs_overall: context.analyticsComparison,
       adaptive_game_preview: context.adaptivePreview,
     });
   } catch (error: any) {
     console.error('[ERROR] Teacher student analytics failed:', error);
     respondWithServerError(res, 'Failed to load student session analytics');
+  }
+});
+
+router.post('/analytics/class/:sessionId/student/:participantId/memory-note', async (req, res) => {
+  const session = readTeacherSession(req);
+  if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = Number((await getTeacherUserByEmail(session.email))?.id || 0);
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const participantId = parsePositiveInt(req.params.participantId);
+    const ownedSession = (await getTeacherOwnedSession(sessionId, teacherUserId));
+    if (!ownedSession) return res.status(404).json({ error: 'Session not found' });
+    const ownedParticipant = (await getTeacherOwnedParticipant(participantId, teacherUserId));
+    if (!ownedParticipant || Number(ownedParticipant.live_session_id) !== sessionId) {
+      return res.status(404).json({ error: 'Student session analytics not found' });
+    }
+    const context = await getSessionStudentContext(sessionId, participantId);
+    if (!context) return res.status(404).json({ error: 'Student session analytics not found' });
+    const snapshot = await saveStudentMemoryTeacherNote(
+      context.identityKey,
+      String(context.participant?.nickname || 'Student'),
+      String(req.body?.note || ''),
+    );
+    res.json({ success: true, student_memory: snapshot });
+  } catch (error: any) {
+    console.error('[ERROR] Student memory note save failed:', error);
+    respondWithServerError(res, 'Failed to save student memory note');
   }
 });
 
@@ -5321,18 +5723,12 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
     }
     const context = await getSessionStudentContext(sessionId, participantId);
     if (!context) return res.status(404).json({ error: 'Student session analytics not found' });
-    const focusTags = deriveAdaptiveFocusTags({
-      sessionAnalytics: context.sessionAnalytics,
-      overallAnalytics: context.overallAnalytics,
-      studentSummary: context.studentSummary,
-      participant: context.participant,
-    });
-    const priorityQuestionIds = deriveAdaptivePriorityQuestionIds({
-      sessionAnalytics: context.sessionAnalytics,
-      overallAnalytics: context.overallAnalytics,
-      answers: context.classPayload.answers?.filter((answer: any) => Number(answer?.participant_id || 0) === participantId) || [],
-    });
+    const interventionPlan = buildMemoryInterventionPlan(context);
+    const focusTags = interventionPlan.focus_tags;
+    const priorityQuestionIds = interventionPlan.priority_question_ids;
     const notesExtra = [
+      `Intervention type: ${interventionPlan.intervention_type}`,
+      interventionPlan.reasons.length > 0 ? `Reasons: ${interventionPlan.reasons.join(' | ')}` : '',
       context.studentSummary?.recommendation ? `Recommendation: ${context.studentSummary.recommendation}` : '',
       context.studentSummary?.risk_level ? `Risk: ${context.studentSummary.risk_level}` : '',
     ]
@@ -5371,10 +5767,94 @@ router.post('/analytics/class/:sessionId/student/:participantId/adaptive-game', 
         nickname: context.participant.nickname,
       },
       source_pack_id: Number(context.classPayload.session.quiz_pack_id),
+      intervention_plan: interventionPlan,
     });
   } catch (error: any) {
     console.error('[ERROR] Adaptive game creation failed:', error);
     respondWithServerError(res, 'Failed to create adaptive game');
+  }
+});
+
+router.post('/analytics/class/:sessionId/memory-autopilot', async (req, res) => {
+  const session = readTeacherSession(req);
+  if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
+  try {
+    const teacherUserId = Number((await getTeacherUserByEmail(session.email))?.id || 0);
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceTrustedOrigin(req, res)) return;
+    if (!enforceRateLimit(req, res, 'memory-autopilot-create', 6, 15 * 60 * 1000, teacherUserId, req.params.sessionId)) return;
+    const sessionId = parsePositiveInt(req.params.sessionId);
+    const ownedSession = (await getTeacherOwnedSession(sessionId, teacherUserId));
+    if (!ownedSession) return res.status(404).json({ error: 'Session not found' });
+    const classPayload = await getSessionPayload(sessionId);
+    if (!classPayload) return res.status(404).json({ error: 'Session not found' });
+    const memoryBoard = await buildClassMemorySummary(sessionId);
+    const requestedParticipantIds = uniqueNumbers(Array.isArray(req.body?.participant_ids) ? req.body.participant_ids : []);
+    const autopilotIds = requestedParticipantIds.length > 0
+      ? requestedParticipantIds
+      : uniqueNumbers((memoryBoard?.watchlist || []).map((row: any) => row.id)).slice(0, 6);
+    if (!autopilotIds.length) {
+      return res.status(400).json({ error: 'No memory watchlist students are available for autopilot.' });
+    }
+
+    const createdPacks: any[] = [];
+    const failedStudents: any[] = [];
+    for (const participantId of autopilotIds) {
+      try {
+        const context = await getSessionStudentContext(sessionId, participantId);
+        if (!context) {
+          failedStudents.push({ participant_id: participantId, error: 'Student session analytics not found' });
+          continue;
+        }
+        const interventionPlan = buildMemoryInterventionPlan(context);
+        const adaptivePack = await createAdaptivePackForParticipant({
+          teacherUserId,
+          sourceSession: ownedSession,
+          sourcePack: context.classPayload.pack || {},
+          participant: context.participant,
+          mastery: context.mastery,
+          practiceAttempts: context.practice_attempts,
+          questions: context.classPayload.questions,
+          requestedCount: interventionPlan.recommended_count,
+          focusTags: interventionPlan.focus_tags,
+          priorityQuestionIds: interventionPlan.priority_question_ids,
+          notesExtra: [
+            `Autopilot intervention: ${interventionPlan.intervention_type}`,
+            interventionPlan.reasons.length > 0 ? `Reasons: ${interventionPlan.reasons.join(' | ')}` : '',
+          ].filter(Boolean).join(' | '),
+        });
+        createdPacks.push({
+          ...adaptivePack,
+          intervention_plan: interventionPlan,
+        });
+      } catch (error: any) {
+        failedStudents.push({
+          participant_id: participantId,
+          error: error?.message || 'Failed to build memory autopilot pack',
+        });
+      }
+    }
+
+    if (!createdPacks.length) {
+      return res.status(400).json({
+        error: 'No memory interventions could be created',
+        failed_students: failedStudents,
+      });
+    }
+
+    res.json({
+      source_session_id: sessionId,
+      requested_participants: autopilotIds.length,
+      created_count: createdPacks.filter((pack) => !pack.reused).length,
+      reused_count: createdPacks.filter((pack) => pack.reused).length,
+      failed_count: failedStudents.length,
+      created_packs: createdPacks,
+      failed_students: failedStudents,
+      watchlist_size: Number(memoryBoard?.watchlist?.length || 0),
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Memory autopilot creation failed:', error);
+    respondWithServerError(res, 'Failed to run memory autopilot');
   }
 });
 
@@ -5403,9 +5883,28 @@ router.get('/practice/:nickname', async (req, res) => {
     const identityKey = getParticipantIdentityKey(authorized.participant);
     if (!enforceRateLimit(req, res, 'practice-load', 90, 5 * 60 * 1000, authorized.participant.id)) return;
     const requestedCount = clampNumber(req.query?.count, 2, 8, 5);
-    const focusTags = uniqueStrings(String(req.query?.focus_tags || '').split(',').map((tag) => sanitizeLine(tag, 40))).slice(0, 4);
+    const requestedFocusTags = uniqueStrings(String(req.query?.focus_tags || '').split(',').map((tag) => sanitizeLine(tag, 40))).slice(0, 4);
     const requestedMissionId = sanitizeLine(req.query?.mission, 40);
     const requestedMissionLabel = sanitizeLine(req.query?.mission_label, 80);
+    const overallAnalytics = await getOverallStudentAnalytics({
+      identityKey,
+      nickname: authorized.participant.nickname,
+    });
+    const studentMemory = overallAnalytics?.student_memory || (await readStudentMemorySnapshot(identityKey));
+    const recommendedFocusTags = Array.isArray(studentMemory?.recommended_next_step?.focus_tags)
+      ? studentMemory.recommended_next_step.focus_tags
+      : [];
+    const focusTags = requestedFocusTags.length > 0 ? requestedFocusTags : recommendedFocusTags.slice(0, 4);
+    const recommendedAction = String(studentMemory?.recommended_next_step?.action || '');
+    const missionId =
+      requestedMissionId ||
+      (recommendedAction === 'confidence_reset'
+        ? 'reentry'
+        : recommendedAction === 'adaptive_practice'
+          ? 'targeted'
+          : recommendedAction === 'keep_momentum'
+            ? 'momentum'
+            : '');
     const practiceSet = await runPythonEngine<unknown>('practice-set', {
       nickname: authorized.participant.nickname,
       mastery: (await getMasteryRows(identityKey)),
@@ -5416,22 +5915,27 @@ router.get('/practice/:nickname', async (req, res) => {
     });
     const missionLabel =
       requestedMissionLabel ||
-      (requestedMissionId === 'reentry'
+      (missionId === 'reentry'
         ? 'Comeback Mission'
-        : requestedMissionId === 'targeted'
+        : missionId === 'targeted'
           ? 'Focus Sprint'
-          : requestedMissionId === 'momentum'
+          : missionId === 'momentum'
             ? 'Momentum Booster'
             : 'Adaptive Practice');
 
     res.json({
       ...(practiceSet && typeof practiceSet === 'object' ? practiceSet : {}),
       mission: {
-        id: requestedMissionId || null,
+        id: missionId || null,
         label: missionLabel,
         question_count: requestedCount,
         focus_tags: focusTags,
       },
+      memory_reason: studentMemory?.recommended_next_step?.body || null,
+      memory_reasons: Array.isArray(studentMemory?.recommended_next_step?.reasons) ? studentMemory.recommended_next_step.reasons : [],
+      memory_confidence: studentMemory?.trust || null,
+      coaching: studentMemory?.coaching || null,
+      student_memory_summary: studentMemory?.summary || null,
     });
   } catch (error: any) {
     console.error('[ERROR] Practice selection failed:', error);

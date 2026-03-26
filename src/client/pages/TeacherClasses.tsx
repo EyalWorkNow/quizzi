@@ -645,10 +645,10 @@ export default function TeacherClasses() {
   };
 
   return (
-    <div className="min-h-screen bg-brand-bg text-brand-dark font-sans flex overflow-hidden selection:bg-brand-orange selection:text-white">
+    <div className="teacher-layout-shell">
       <TeacherSidebar />
 
-      <main className="flex-1 h-screen overflow-y-auto p-6 lg:p-8 bg-brand-bg">
+      <main className="teacher-layout-main teacher-page-pad pt-20 lg:pt-8">
         <div className="max-w-[1360px] mx-auto">
           <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 mb-8">
             <div>

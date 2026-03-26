@@ -177,6 +177,7 @@ export default function StudentDashboard() {
   const latestSessionTitle = latestGame?.pack?.title || latestGame?.sessionHistory?.[0]?.pack_title;
   const engagement = overall?.engagement || null;
   const comebackMission = overall?.comebackMission || engagement?.comeback_mission || null;
+  const studentMemory = overall?.student_memory || null;
   const primaryPracticePath = buildStudentPracticePath(nickname || displayNickname || 'student', comebackMission, focusTags);
 
   const signalBaselines = useMemo(
@@ -229,7 +230,7 @@ export default function StudentDashboard() {
       <div className="absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(circle_at_top_left,_rgba(255,90,54,0.18),_transparent_36%),radial-gradient(circle_at_top_right,_rgba(180,136,255,0.16),_transparent_34%)] pointer-events-none" />
 
       <nav className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b-4 border-brand-dark shadow-[0_4px_0px_0px_#1A1A1A]">
-        <div className="max-w-[1400px] mx-auto px-6 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate('/')}
@@ -273,7 +274,7 @@ export default function StudentDashboard() {
         </div>
       </nav>
 
-      <main className="max-w-[1400px] mx-auto px-6 pt-10 relative z-10">
+      <main className="max-w-[1400px] mx-auto px-4 sm:px-6 pt-8 sm:pt-10 relative z-10">
         {error && (
           <div className="mb-6 px-5 py-4 bg-brand-yellow border-2 border-brand-dark rounded-[1.5rem] font-bold">
             {error}
@@ -377,6 +378,132 @@ export default function StudentDashboard() {
                   {formatActivityRecency(engagement.last_activity_at, engagement.days_since_last_activity)}
                 </p>
               </div>
+            </div>
+          </section>
+        )}
+
+        {studentMemory && (
+          <section className="grid grid-cols-1 xl:grid-cols-[1.02fr_0.98fr] gap-8 mb-8">
+            <div className="rounded-[2.6rem] border-4 border-brand-dark bg-white p-7 shadow-[8px_8px_0px_0px_#1A1A1A]">
+              <div className="flex items-start justify-between gap-4 mb-5">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Memory Snapshot</p>
+                  <h2 className="text-3xl font-black">{studentMemory.summary?.headline}</h2>
+                </div>
+                <span className="px-4 py-2 rounded-full border-2 border-brand-dark bg-brand-bg font-black text-sm">
+                  {studentMemory.behavior_baseline?.confidence_band || 'medium'} confidence
+                </span>
+              </div>
+              <p className="font-bold text-brand-dark/68 mb-6">{studentMemory.summary?.body}</p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+                <InsightTile
+                  label="Sessions remembered"
+                  value={studentMemory.history_rollup?.sessions_played || 0}
+                  helper="Live sessions in this memory trace"
+                  icon={<BarChart3 className="w-5 h-5" />}
+                />
+                <InsightTile
+                  label="Practice reps"
+                  value={studentMemory.history_rollup?.practice_attempts || 0}
+                  helper="Adaptive attempts stored in memory"
+                  icon={<Target className="w-5 h-5" />}
+                />
+                <InsightTile
+                  label="Baseline stress"
+                  value={`${Number(studentMemory.behavior_baseline?.stress_index || 0).toFixed(0)}%`}
+                  helper="Pressure trend across remembered work"
+                  icon={<Gauge className="w-5 h-5" />}
+                />
+                <InsightTile
+                  label="Baseline focus"
+                  value={`${Number(studentMemory.behavior_baseline?.focus_score || 0).toFixed(0)}`}
+                  helper="Attention stability across sessions"
+                  icon={<BrainCircuit className="w-5 h-5" />}
+                />
+              </div>
+
+              {(studentMemory.coaching || studentMemory.trust) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+                  {studentMemory.coaching && (
+                    <div className="rounded-[1.7rem] border-2 border-brand-dark bg-[#e9fff1] p-5">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700 mb-3">Coach note</p>
+                      <p className="text-xl font-black mb-2">{studentMemory.coaching.student_message}</p>
+                      <p className="font-medium text-brand-dark/70">{studentMemory.coaching.celebration}</p>
+                    </div>
+                  )}
+                  {studentMemory.trust && (
+                    <div className="rounded-[1.7rem] border-2 border-brand-dark bg-brand-bg p-5">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-3">Memory trust</p>
+                      <p className="text-xl font-black mb-2">{studentMemory.trust.confidence_band} confidence</p>
+                      <p className="font-medium text-brand-dark/70">
+                        Based on {studentMemory.trust.evidence_count} signals across {studentMemory.trust.session_count} sessions.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="rounded-[1.7rem] border-2 border-brand-dark bg-brand-bg p-5">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-3">Next best step</p>
+                <p className="text-2xl font-black mb-2">{studentMemory.recommended_next_step?.title}</p>
+                <p className="font-medium text-brand-dark/70 mb-4">{studentMemory.recommended_next_step?.body}</p>
+                {(studentMemory.recommended_next_step?.reasons || []).length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {(studentMemory.recommended_next_step?.reasons || []).map((reason: string) => (
+                      <span key={reason} className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
+                        {reason}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {(studentMemory.recommended_next_step?.focus_tags || []).map((tag: string) => (
+                    <span key={`memory-focus-${tag}`} className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[2.6rem] border-4 border-brand-dark bg-brand-dark text-white p-7 shadow-[8px_8px_0px_0px_#FF5A36]">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-3">Memory weak spots</p>
+              <div className="space-y-4 mb-6">
+                {(studentMemory.error_patterns || []).slice(0, 3).map((pattern: any) => (
+                  <div key={pattern.id} className="rounded-[1.6rem] border border-white/15 bg-white/10 p-4">
+                    <p className="text-lg font-black mb-2">{pattern.label}</p>
+                    <p className="font-medium text-white/78">{pattern.body}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {(studentMemory.focus_tags || []).map((tag: any) => (
+                  <div key={`memory-tag-${tag.tag}`} className="rounded-[1.6rem] border-2 border-brand-dark bg-white text-brand-dark p-4">
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{tag.status}</p>
+                    <p className="text-xl font-black mb-2">{tag.tag}</p>
+                    <p className="font-bold">{Number(tag.mastery_score || 0).toFixed(0)}% remembered mastery</p>
+                  </div>
+                ))}
+              </div>
+              {(studentMemory.memory_timeline || []).length > 0 && (
+                <div className="mt-6 rounded-[1.6rem] border border-white/15 bg-white/10 p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-3">Growth timeline</p>
+                  <div className="grid grid-cols-1 gap-3">
+                    {(studentMemory.memory_timeline || []).map((entry: any) => (
+                      <div key={entry.id} className="rounded-[1.2rem] bg-white/10 px-4 py-3">
+                        <div className="flex items-center justify-between gap-3 mb-1">
+                          <p className="font-black">{entry.label}</p>
+                          <p className="text-sm font-bold text-white/70">{Number(entry.accuracy_pct || 0).toFixed(0)}% accuracy</p>
+                        </div>
+                        <p className="text-sm font-medium text-white/75">
+                          Stress {Number(entry.stress_index || 0).toFixed(0)}% • Confidence {Number(entry.confidence_score || 0).toFixed(0)}%
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         )}

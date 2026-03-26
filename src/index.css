@@ -156,6 +156,18 @@
     @apply mx-auto w-full max-w-[1520px] px-4 sm:px-6 lg:px-8;
   }
 
+  .teacher-layout-shell {
+    @apply min-h-screen bg-brand-bg font-sans text-brand-dark selection:bg-brand-orange selection:text-white lg:flex lg:overflow-hidden;
+  }
+
+  .teacher-layout-main {
+    @apply relative min-h-screen flex-1 bg-brand-bg lg:h-screen lg:overflow-y-auto;
+  }
+
+  .teacher-page-pad {
+    @apply p-4 sm:p-6 lg:p-8;
+  }
+
   .action-row {
     @apply flex flex-wrap items-stretch gap-3;
   }

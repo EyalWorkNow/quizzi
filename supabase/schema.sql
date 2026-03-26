@@ -185,6 +185,18 @@ CREATE TABLE IF NOT EXISTS practice_attempts (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS student_memory_snapshots (
+  id SERIAL PRIMARY KEY,
+  identity_key TEXT NOT NULL UNIQUE,
+  nickname TEXT,
+  snapshot_json TEXT NOT NULL,
+  source_summary_json TEXT DEFAULT '{}',
+  teacher_note TEXT DEFAULT '',
+  teacher_note_updated_at TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 ALTER TABLE mastery ADD COLUMN IF NOT EXISTS identity_key TEXT;
 ALTER TABLE practice_attempts ADD COLUMN IF NOT EXISTS identity_key TEXT;
 
@@ -202,6 +214,7 @@ CREATE INDEX IF NOT EXISTS idx_mastery_identity_key ON mastery(identity_key);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mastery_identity_tag_unique ON mastery(identity_key, tag);
 CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_question ON practice_attempts(nickname, question_id);
 CREATE INDEX IF NOT EXISTS idx_practice_attempts_identity_created ON practice_attempts(identity_key, created_at);
+CREATE INDEX IF NOT EXISTS idx_student_memory_identity_key ON student_memory_snapshots(identity_key);
 CREATE INDEX IF NOT EXISTS idx_generation_cache_lookup ON question_generation_cache(material_profile_id, difficulty, output_language, question_count);
 CREATE INDEX IF NOT EXISTS idx_quiz_packs_profile ON quiz_packs(material_profile_id);
 CREATE INDEX IF NOT EXISTS idx_quiz_packs_source_hash ON quiz_packs(source_hash);

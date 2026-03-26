@@ -100,6 +100,8 @@ export default function TeacherStudentAnalytics() {
   const [error, setError] = useState('');
   const [isCreatingGame, setIsCreatingGame] = useState(false);
   const [snapshotCopied, setSnapshotCopied] = useState(false);
+  const [memoryNoteDraft, setMemoryNoteDraft] = useState('');
+  const [memoryNoteSaving, setMemoryNoteSaving] = useState(false);
   const copy = {
     he: {
       packLabel: 'חבילה',
@@ -188,6 +190,10 @@ export default function TeacherStudentAnalytics() {
   }, [sessionId, participantId]);
 
   useEffect(() => {
+    setMemoryNoteDraft(String(data?.student_memory?.teacher_notes?.note || ''));
+  }, [data?.student_memory?.teacher_notes?.note]);
+
+  useEffect(() => {
     if (!snapshotCopied) return;
     const timeout = window.setTimeout(() => setSnapshotCopied(false), 2200);
     return () => window.clearTimeout(timeout);
@@ -195,6 +201,7 @@ export default function TeacherStudentAnalytics() {
 
   const analytics = data?.analytics;
   const overallAnalytics = data?.overall_analytics;
+  const studentMemory = data?.student_memory;
   const comparison = data?.session_vs_overall || buildSessionComparison(analytics, overallAnalytics);
   const student = data?.student_summary;
   const classSummary = data?.class_summary;
@@ -205,6 +212,7 @@ export default function TeacherStudentAnalytics() {
   const gradingSafeMetrics = Array.isArray(analytics?.gradingSafeMetrics) ? analytics.gradingSafeMetrics.slice(0, 4) : [];
   const behaviorSignalMetrics = Array.isArray(analytics?.behaviorSignalMetrics) ? analytics.behaviorSignalMetrics.slice(0, 4) : [];
   const preview = data?.adaptive_game_preview;
+  const memoryInterventionPlan = data?.memory_intervention_plan;
   const questionReview = analytics?.questionReview || [];
   const revisionInsights = analytics?.revisionInsights || {};
   const deadlineProfile = analytics?.deadlineProfile || {};
@@ -233,6 +241,26 @@ export default function TeacherStudentAnalytics() {
   const sessionHistory = overallAnalytics?.sessionHistory || analytics?.sessionHistory || [];
   const signalComparisons =
     comparison?.behavior_signals?.length > 0 ? comparison.behavior_signals : buildSignalComparisons(analytics, overallAnalytics);
+
+  const saveMemoryNote = async () => {
+    if (!sessionId || !participantId) return;
+    try {
+      setMemoryNoteSaving(true);
+      const payload = await apiFetchJson(`/api/analytics/class/${sessionId}/student/${participantId}/memory-note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: memoryNoteDraft }),
+      });
+      setData((current: any) => ({
+        ...(current || {}),
+        student_memory: payload?.student_memory || current?.student_memory,
+      }));
+    } catch (saveError: any) {
+      setError(saveError?.message || 'Failed to save memory note');
+    } finally {
+      setMemoryNoteSaving(false);
+    }
+  };
 
   const teacherMoves = useMemo(() => {
     const moves: Array<{ title: string; body: string }> = [];
@@ -343,6 +371,24 @@ export default function TeacherStudentAnalytics() {
     }
   };
 
+  const handleRunMemoryIntervention = async () => {
+    if (!sessionId || !participantId) return;
+
+    try {
+      setIsCreatingGame(true);
+      const payload = await apiFetchJson(`/api/analytics/class/${sessionId}/student/${participantId}/adaptive-game`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: memoryInterventionPlan?.recommended_count || preview?.questions?.length || 5 }),
+      });
+      navigate(`/teacher/session/${payload.pin}/host`);
+    } catch (createError: any) {
+      window.alert(createError?.message || copy.adaptiveFailed);
+    } finally {
+      setIsCreatingGame(false);
+    }
+  };
+
   const handleCopySupportSnapshot = async () => {
     try {
       await navigator.clipboard.writeText(supportSnapshot.text);
@@ -385,7 +431,7 @@ export default function TeacherStudentAnalytics() {
       <div className="absolute inset-x-0 top-0 h-[380px] bg-[radial-gradient(circle_at_top_left,_rgba(255,90,54,0.16),_transparent_38%),radial-gradient(circle_at_top_right,_rgba(180,136,255,0.18),_transparent_36%)] pointer-events-none" />
 
       <div className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b-4 border-brand-dark shadow-[0_4px_0px_0px_#1A1A1A]">
-        <div className="max-w-[1450px] mx-auto px-6 py-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+        <div className="max-w-[1450px] mx-auto px-4 sm:px-6 py-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate(`/teacher/analytics/class/${sessionId}`)}
@@ -441,7 +487,7 @@ export default function TeacherStudentAnalytics() {
         </div>
       </div>
 
-      <main className="max-w-[1450px] mx-auto px-6 pt-10 relative z-10">
+      <main className="max-w-[1450px] mx-auto px-4 sm:px-6 pt-8 sm:pt-10 relative z-10">
         <section className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-8 mb-8">
           <div className="bg-brand-dark text-white rounded-[2.6rem] border-4 border-brand-dark shadow-[10px_10px_0px_0px_#FF5A36] p-8 overflow-hidden relative">
             <div className="absolute top-[-25px] right-[-20px] w-56 h-56 rounded-full bg-white/10" />
@@ -462,7 +508,7 @@ export default function TeacherStudentAnalytics() {
                 {analytics?.overallStory?.body || analytics?.profile?.body}
               </p>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <HeroStat label="Game Accuracy" value={`${Number(analytics?.stats?.accuracy || student?.accuracy || 0).toFixed(0)}%`} />
                 <HeroStat label="Stress" value={`${Number(analytics?.risk?.stress_index || student?.stress_index || 0).toFixed(0)}%`} />
                 <HeroStat label="Confidence" value={Number(analytics?.profile?.confidence_score || 0).toFixed(0)} />
@@ -477,7 +523,7 @@ export default function TeacherStudentAnalytics() {
               <h2 className="text-3xl font-black">Game Vs Overall Baseline</h2>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
               <DeltaCard label="Accuracy Delta" value={comparison?.accuracy_delta} helper={`Overall ${Number(overallAnalytics?.stats?.accuracy || 0).toFixed(1)}%`} />
               <DeltaCard label="Stress Delta" value={comparison?.stress_delta} helper={`Overall ${Number(overallAnalytics?.risk?.stress_index || 0).toFixed(1)}%`} />
               <DeltaCard label="Confidence Delta" value={comparison?.confidence_delta} helper={`Overall ${Number(overallAnalytics?.profile?.confidence_score || 0).toFixed(0)}`} />
@@ -530,7 +576,7 @@ export default function TeacherStudentAnalytics() {
               />
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-4">
               <TrustBadge label="Signal quality" value={analytics?.risk?.signal_quality || trust?.signal_quality || 'low'} />
               <TrustBadge label="Confidence band" value={analytics?.risk?.confidence_band || trust?.confidence_band || 'low'} />
               <TrustBadge label="Evidence count" value={analytics?.risk?.evidence_count ?? trust?.evidence_count ?? 0} />
@@ -635,7 +681,7 @@ export default function TeacherStudentAnalytics() {
               <RevisionCategoryChart categories={revisionInsights?.categories || []} />
             </div>
 
-            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
               <CompactMetric label="1st Choice" value={`${Number(revisionInsights?.first_choice_correct_rate || 0).toFixed(1)}%`} />
               <CompactMetric label="Recovered" value={`${Number(revisionInsights?.corrected_after_wrong_rate || 0).toFixed(1)}%`} />
               <CompactMetric label="Wrong Revision" value={`${Number(revisionInsights?.changed_away_from_correct_rate || 0).toFixed(1)}%`} />
@@ -679,14 +725,14 @@ export default function TeacherStudentAnalytics() {
                 <p className="font-medium text-brand-dark/70">{fatigueDrift?.body || 'There are not enough answered questions yet to estimate drift.'}</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <CompactMetric label="Recovery Rate" value={`${Number(recoveryProfile?.recovery_rate || 0).toFixed(1)}%`} />
                 <CompactMetric label="Pattern" value={recoveryProfile?.dominant_pattern || 'No misses yet'} />
                 <CompactMetric label="Early Accuracy" value={`${Number(fatigueDrift?.early_accuracy || 0).toFixed(0)}%`} />
                 <CompactMetric label="Late Accuracy" value={`${Number(fatigueDrift?.late_accuracy || 0).toFixed(0)}%`} />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <CompactMetric label="Resp Delta" value={formatDeltaMs(Number(fatigueDrift?.response_delta_ms || 0))} />
                 <CompactMetric label="Volatility Delta" value={formatSigned(Number(fatigueDrift?.volatility_delta || 0), '%')} />
                 <CompactMetric label="Pressure Errors" value={`${Number(deadlineProfile?.errors_under_pressure_rate || 0).toFixed(1)}%`} />
@@ -718,6 +764,159 @@ export default function TeacherStudentAnalytics() {
             </div>
           </TeacherSurface>
         </section>
+
+        {studentMemory && (
+          <section className="grid grid-cols-1 xl:grid-cols-[1.02fr_0.98fr] gap-6 mb-8">
+            <div className="bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
+              <div className="flex items-start justify-between gap-4 mb-5">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Student memory</p>
+                  <h2 className="text-3xl font-black">{studentMemory.summary?.headline}</h2>
+                </div>
+                <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black">
+                  {studentMemory.recommended_next_step?.action || 'monitor'}
+                </span>
+              </div>
+              <p className="font-bold text-brand-dark/68 mb-6">{studentMemory.summary?.body}</p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+                <DeltaCard label="Remembered accuracy" value={Number(studentMemory.history_rollup?.accuracy_pct || 0) - Number(overallAnalytics?.stats?.accuracy || 0)} helper={`${Number(studentMemory.history_rollup?.accuracy_pct || 0).toFixed(0)}% memory baseline`} />
+                <DeltaCard label="Stress baseline" value={Number(studentMemory.behavior_baseline?.stress_index || 0) - Number(overallAnalytics?.risk?.stress_index || 0)} helper={`${Number(studentMemory.behavior_baseline?.stress_index || 0).toFixed(0)}% memory stress`} />
+              </div>
+
+              <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-3">Memory next step</p>
+                <p className="text-2xl font-black mb-2">{studentMemory.recommended_next_step?.title}</p>
+                <p className="font-medium text-brand-dark/70 mb-4">{studentMemory.recommended_next_step?.body}</p>
+                {(studentMemory.recommended_next_step?.reasons || []).length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {(studentMemory.recommended_next_step?.reasons || []).map((reason: string) => (
+                      <span key={reason} className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
+                        {reason}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {(studentMemory.recommended_next_step?.focus_tags || []).map((tag: string) => (
+                    <span key={`teacher-memory-focus-${tag}`} className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
+                      {tag}
+                    </span>
+                    ))}
+                </div>
+              </div>
+
+              {(studentMemory.coaching || studentMemory.trust) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
+                  {studentMemory.coaching && (
+                    <div className="rounded-[1.5rem] border-2 border-brand-dark bg-[#e9fff1] p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700 mb-2">Coaching layer</p>
+                      <p className="font-black text-lg mb-2">{studentMemory.coaching.teacher_message}</p>
+                      <p className="font-medium text-brand-dark/70">{studentMemory.coaching.caution}</p>
+                    </div>
+                  )}
+                  {studentMemory.trust && (
+                    <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Trust layer</p>
+                      <p className="font-black text-lg mb-2">{studentMemory.trust.confidence_band} confidence</p>
+                      <p className="font-medium text-brand-dark/70">
+                        {studentMemory.trust.evidence_count} signals across {studentMemory.trust.session_count} sessions.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {memoryInterventionPlan && (
+                <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-yellow/70 p-5 mt-5">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/55 mb-2">Autopilot intervention</p>
+                  <p className="text-2xl font-black mb-2">{memoryInterventionPlan.title}</p>
+                  <p className="font-medium text-brand-dark/70 mb-4">{memoryInterventionPlan.body}</p>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {(memoryInterventionPlan.reasons || []).map((reason: string) => (
+                      <span key={reason} className="px-3 py-2 rounded-full border-2 border-brand-dark bg-white text-xs font-black">
+                        {reason}
+                      </span>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => void handleRunMemoryIntervention()}
+                    disabled={isCreatingGame}
+                    className="px-5 py-3 rounded-full border-2 border-brand-dark bg-brand-dark text-white font-black disabled:opacity-60"
+                  >
+                    {isCreatingGame ? 'Launching...' : 'Launch memory intervention'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-brand-dark text-white rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#FF5A36] p-7">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-3">Repeated patterns</p>
+              <div className="space-y-4 mb-5">
+                {(studentMemory.error_patterns || []).slice(0, 4).map((pattern: any) => (
+                  <div key={pattern.id} className="rounded-[1.5rem] border border-white/15 bg-white/10 p-4">
+                    <p className="text-lg font-black mb-2">{pattern.label}</p>
+                    <p className="font-medium text-white/78">{pattern.body}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {(studentMemory.focus_tags || []).map((tag: any) => (
+                  <div key={`teacher-memory-tag-${tag.tag}`} className="rounded-[1.5rem] border-2 border-brand-dark bg-white text-brand-dark p-4">
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{tag.status}</p>
+                    <p className="text-xl font-black mb-2">{tag.tag}</p>
+                    <p className="font-bold">{Number(tag.mastery_score || 0).toFixed(0)}% remembered mastery</p>
+                  </div>
+                ))}
+              </div>
+              {(studentMemory.memory_timeline || []).length > 0 && (
+                <div className="mt-5 rounded-[1.5rem] border border-white/15 bg-white/10 p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-3">Growth timeline</p>
+                  <div className="space-y-3">
+                    {(studentMemory.memory_timeline || []).map((entry: any) => (
+                      <div key={entry.id} className="rounded-[1.2rem] bg-white/10 px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-black">{entry.label}</p>
+                          <p className="text-sm font-bold text-white/70">{Number(entry.accuracy_pct || 0).toFixed(0)}%</p>
+                        </div>
+                        <p className="text-sm font-medium text-white/72">
+                          Stress {Number(entry.stress_index || 0).toFixed(0)}% • Confidence {Number(entry.confidence_score || 0).toFixed(0)}%
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="mt-5 rounded-[1.5rem] border-2 border-brand-dark bg-white text-brand-dark p-4">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Teacher note</p>
+                    <p className="font-medium text-brand-dark/65">Merge your human read into the memory layer.</p>
+                  </div>
+                  <button
+                    onClick={() => void saveMemoryNote()}
+                    disabled={memoryNoteSaving}
+                    className="px-4 py-2 rounded-full border-2 border-brand-dark bg-brand-yellow font-black disabled:opacity-60"
+                  >
+                    {memoryNoteSaving ? 'Saving...' : 'Save note'}
+                  </button>
+                </div>
+                <textarea
+                  value={memoryNoteDraft}
+                  onChange={(event) => setMemoryNoteDraft(event.target.value)}
+                  rows={4}
+                  className="w-full rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg px-4 py-3 font-medium outline-none"
+                  placeholder="Example: understands the idea verbally but freezes under timer pressure."
+                />
+                {studentMemory.teacher_notes?.updated_at && (
+                  <p className="mt-2 text-xs font-bold text-brand-dark/55">
+                    Last updated {new Date(studentMemory.teacher_notes.updated_at).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-8 mb-8">
           <TeacherSurface
@@ -767,7 +966,7 @@ export default function TeacherStudentAnalytics() {
                 ))}
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <CompactMetric label="Swaps" value={analytics?.aggregates?.total_swaps || 0} />
                 <CompactMetric label="Panic Swaps" value={analytics?.aggregates?.total_panic_swaps || 0} />
                 <CompactMetric label="Focus Loss" value={analytics?.aggregates?.total_focus_loss || 0} />
@@ -800,7 +999,7 @@ export default function TeacherStudentAnalytics() {
                         <MetricChip label="Stress" value={`${Number(session.avg_stress || 0).toFixed(0)}%`} />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <CompactMetric label="Commit Window" value={`${(Number(session.avg_commit_window_ms || 0) / 1000).toFixed(1)}s`} />
                       <CompactMetric label="Focus Events" value={session.focus_events} />
                       <CompactMetric label="1st Choice" value={`${Number(session.first_choice_accuracy || 0).toFixed(0)}%`} />
@@ -894,14 +1093,14 @@ export default function TeacherStudentAnalytics() {
                     <StatusBadge status={question.status} />
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                     <CompactMetric label="Response" value={`${(Number(question.response_ms || 0) / 1000).toFixed(1)}s`} />
                     <CompactMetric label="Stress" value={`${Number(question.stress_index || 0).toFixed(0)}%`} />
                     <CompactMetric label="Volatility" value={`${Number(question.decision_volatility || 0).toFixed(0)}%`} />
                     <CompactMetric label="Commit" value={question.commit_style} />
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                     <CompactMetric label="Swaps" value={question.total_swaps} />
                     <CompactMetric label="Flip-Flops" value={question.flip_flops} />
                     <CompactMetric label="Revisits" value={question.revisit_count} />
@@ -930,7 +1129,7 @@ export default function TeacherStudentAnalytics() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <CompactMetric label="Commit Latency" value={formatMs(Number(question.commitment_latency_ms || 0))} />
                       <CompactMetric label="1st Choice" value={question.first_choice_correct ? 'Right' : 'Wrong'} />
                       <CompactMetric label="Deadline Dep." value={question.deadline_dependent ? 'Yes' : 'No'} />
@@ -970,7 +1169,7 @@ export default function TeacherStudentAnalytics() {
                       )}
                     </div>
                     <p className="text-xl font-black mb-3">Q{question.question_index}. {question.prompt}</p>
-                    <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                       <CompactMetric label="Pace" value={question.pace_label} />
                       <CompactMetric label="Focus Loss" value={question.focus_loss_count} />
                       <CompactMetric label="Revision" value={question.revision_outcome_label} />
@@ -995,7 +1194,7 @@ export default function TeacherStudentAnalytics() {
                 <p className="font-medium text-white/80 mb-4">
                   Accuracy {Number(student?.accuracy || 0).toFixed(1)}% vs class average {Number(classSummary?.overall_accuracy || 0).toFixed(1)}%.
                 </p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <CompactMetric label="Class Stress" value={`${Number(classSummary?.stress_index || 0).toFixed(0)}%`} />
                   <CompactMetric label="Student Score" value={student?.total_score || 0} />
                 </div>
@@ -1094,7 +1293,7 @@ function TrustMetricGroup({
   return (
     <div>
       <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{title}</p>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {metrics.map((metric, index) => {
           const unit = String(metric?.unit || '').trim();
           const rawValue = metric?.value;

@@ -325,6 +325,7 @@ export default function TeacherAnalytics() {
   const [followUpBusyPlanId, setFollowUpBusyPlanId] = useState<string | null>(null);
   const [followUpNotice, setFollowUpNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [recoveryBuilderBusyKey, setRecoveryBuilderBusyKey] = useState<string | null>(null);
+  const [memoryAutopilotBusy, setMemoryAutopilotBusy] = useState(false);
   const [recoveryBuilderSummary, setRecoveryBuilderSummary] = useState<null | {
     targetLabel: string;
     createdCount: number;
@@ -454,10 +455,15 @@ export default function TeacherAnalytics() {
   const gameMode = getGameMode(data?.session?.game_type);
   const packMeta = data?.pack || null;
   const followUpEngine = data?.follow_up_engine || null;
+  const memoryBoard = data?.memory_board || null;
+  const memoryAlerts = Array.isArray(memoryBoard?.alerts) ? memoryBoard.alerts : [];
+  const memoryGroups = Array.isArray(memoryBoard?.groups) ? memoryBoard.groups : [];
+  const memoryWatchlist = Array.isArray(memoryBoard?.watchlist) ? memoryBoard.watchlist : [];
+  const memoryAutopilotQueue = Array.isArray(memoryBoard?.autopilot_queue) ? memoryBoard.autopilot_queue : [];
   const crossSectionComparison = data?.cross_section_comparison || null;
   const sortedAlerts = useMemo(
-    () => [...alertList].sort((left: any, right: any) => severityRank(right.severity) - severityRank(left.severity)),
-    [alertList],
+    () => [...alertList, ...memoryAlerts].sort((left: any, right: any) => severityRank(right.severity) - severityRank(left.severity)),
+    [alertList, memoryAlerts],
   );
   const leadAlert = sortedAlerts[0] || null;
   const leadQuestion = questionDiagnostics[0] || null;
@@ -1238,6 +1244,12 @@ export default function TeacherAnalytics() {
         action: () => scrollToBoardSection('teacher-board-students'),
       },
       {
+        id: 'memory',
+        label: 'Memory',
+        body: memoryAlerts[0]?.title || 'Student memory groups and alerts',
+        action: () => scrollToBoardSection('teacher-board-memory'),
+      },
+      {
         id: 'questions',
         label: 'Questions',
         body: leadQuestion ? `Question ${leadQuestion.question_index}` : 'Question Diagnostics',
@@ -1258,7 +1270,7 @@ export default function TeacherAnalytics() {
         },
       },
     ],
-    [executiveSummary.classStateTitle, followUpEngine?.plans, leadQuestion, showAdvancedPanels, topAttentionStudents.length],
+    [executiveSummary.classStateTitle, followUpEngine?.plans, leadQuestion, memoryAlerts, showAdvancedPanels, topAttentionStudents.length],
   );
 
   const prioritizedParticipants = useMemo(() => {
@@ -1442,6 +1454,36 @@ export default function TeacherAnalytics() {
     }
   };
 
+  const handleRunMemoryAutopilot = async (participantIds?: number[]) => {
+    if (!sessionId) return;
+
+    try {
+      setMemoryAutopilotBusy(true);
+      const payload = await apiFetchJson(`/api/analytics/class/${sessionId}/memory-autopilot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participant_ids: Array.isArray(participantIds) && participantIds.length > 0 ? participantIds : undefined,
+        }),
+      });
+      setRecoveryBuilderSummary({
+        targetLabel: participantIds?.length ? 'Memory autopilot selection' : 'Memory autopilot watchlist',
+        createdCount: Number(payload?.created_count || 0),
+        reusedCount: Number(payload?.reused_count || 0),
+        failedCount: Number(payload?.failed_count || 0),
+        createdPacks: Array.isArray(payload?.created_packs) ? payload.created_packs : [],
+      });
+      setFollowUpNotice({
+        tone: 'success',
+        message: `Memory autopilot created ${Number(payload?.created_count || 0)} packs and reused ${Number(payload?.reused_count || 0)}.`,
+      });
+    } catch (autopilotError: any) {
+      setFollowUpNotice({ tone: 'error', message: autopilotError?.message || 'Failed to run memory autopilot.' });
+    } finally {
+      setMemoryAutopilotBusy(false);
+    }
+  };
+
   const teacherActionQueue = useMemo(() => {
     const items: Array<{
       id: string;
@@ -1452,7 +1494,11 @@ export default function TeacherAnalytics() {
       metricValue: string;
       tone: 'bad' | 'mid' | 'good';
       actionLabel: string;
-      action: { type: 'scroll'; target: string } | { type: 'student'; studentId: number | string } | { type: 'follow-up'; planId: string };
+      action:
+        | { type: 'scroll'; target: string }
+        | { type: 'student'; studentId: number | string }
+        | { type: 'follow-up'; planId: string }
+        | { type: 'memory-autopilot'; participantIds?: number[] };
     }> = [];
 
     if (leadQuestion) {
@@ -1484,6 +1530,22 @@ export default function TeacherAnalytics() {
         tone: String(topAttentionStudents[0].risk_level || '') === 'high' ? 'bad' : 'mid',
         actionLabel: 'Open student dashboard',
         action: { type: 'student', studentId: topAttentionStudents[0].id },
+      });
+    }
+
+    if (memoryAlerts[0]) {
+      items.push({
+        id: 'memory-alert',
+        label: 'Memory alert',
+        title: memoryAlerts[0].title,
+        body: memoryAlerts[0].body,
+        metricLabel: 'Students',
+        metricValue: `${Number(memoryAlerts[0].count || 0)}`,
+        tone: String(memoryAlerts[0].severity || '') === 'high' ? 'bad' : 'mid',
+        actionLabel: memoryWatchlist.length > 0 ? 'Run autopilot' : 'Open cohorts',
+        action: memoryWatchlist.length > 0
+          ? { type: 'memory-autopilot', participantIds: memoryWatchlist.slice(0, 3).map((student: any) => Number(student.id)) }
+          : { type: 'scroll', target: 'teacher-board-memory' },
       });
     }
 
@@ -1530,7 +1592,7 @@ export default function TeacherAnalytics() {
     }
 
     return items.slice(0, 4);
-  }, [followUpEngine?.plans, leadMisconception, leadQuestion, participants.length, topAttentionStudents]);
+  }, [followUpEngine?.plans, leadMisconception, leadQuestion, memoryAlerts, memoryWatchlist, participants.length, topAttentionStudents]);
 
   useEffect(() => {
     if (!filteredParticipants.length) return;
@@ -1622,8 +1684,27 @@ export default function TeacherAnalytics() {
       .filter((cohort) => cohort.count > 0)
       .sort((left, right) => right.count - left.count);
 
-    return cohorts.slice(0, 4);
-  }, [leadMisconception, leadQuestion, leadQuestionTags, prioritizedParticipants]);
+    const memoryCohorts = memoryGroups.map((group: any) => ({
+      id: `memory-${group.id}`,
+      label: group.label,
+      title: `${group.label} from student memory`,
+      body: group.body,
+      tone: group.id === 'memory-confidence-reset' ? ('bad' as const) : group.id === 'memory-momentum' ? ('good' as const) : ('mid' as const),
+      actionLabel: 'Open matching students',
+      actionFilter:
+        group.id === 'memory-confidence-reset'
+          ? ('attention' as StudentBoardFilter)
+          : group.id === 'memory-momentum'
+            ? ('all' as StudentBoardFilter)
+            : ('low-accuracy' as StudentBoardFilter),
+      searchTerm: Array.isArray(group.focus_tags) && group.focus_tags[0] ? String(group.focus_tags[0]) : '',
+      count: Number(group.count || 0),
+      names: Array.isArray(group.students) ? group.students.slice(0, 4) : [],
+      focusTags: Array.isArray(group.focus_tags) ? group.focus_tags.slice(0, 4) : [],
+    }));
+
+    return [...memoryCohorts, ...cohorts].slice(0, 4);
+  }, [leadMisconception, leadQuestion, leadQuestionTags, memoryGroups, prioritizedParticipants]);
 
   const peerTutorMatches = useMemo(() => {
     const tutors = prioritizedParticipants
@@ -2061,13 +2142,23 @@ export default function TeacherAnalytics() {
     ];
   }, [conceptClinics, executiveSummary.actionBody, followUpEngine?.plans, interventionCohorts, leadQuestion]);
 
-  const runTeacherAction = async (action: { type: 'scroll'; target: string } | { type: 'student'; studentId: number | string } | { type: 'follow-up'; planId: string }) => {
+  const runTeacherAction = async (
+    action:
+      | { type: 'scroll'; target: string }
+      | { type: 'student'; studentId: number | string }
+      | { type: 'follow-up'; planId: string }
+      | { type: 'memory-autopilot'; participantIds?: number[] },
+  ) => {
     if (action.type === 'scroll') {
       scrollToBoardSection(action.target);
       return;
     }
     if (action.type === 'student') {
       openStudentDashboard(action.studentId);
+      return;
+    }
+    if (action.type === 'memory-autopilot') {
+      await handleRunMemoryAutopilot(action.participantIds);
       return;
     }
     await handleFollowUpAction(action.planId, false);
@@ -2107,7 +2198,7 @@ export default function TeacherAnalytics() {
       className="min-h-screen bg-brand-bg pb-20 font-sans text-brand-dark selection:bg-brand-orange selection:text-white"
     >
       <div className={`sticky top-0 z-30 border-b-4 border-brand-dark shadow-[0_4px_0px_0px_#1A1A1A] transition-all duration-300 ${isHeaderCondensed ? 'bg-white/85 backdrop-blur-md' : 'bg-white'}`}>
-        <div className={`max-w-[1520px] mx-auto px-6 transition-all duration-300 ${showExpandedHeader ? 'py-4 space-y-4' : 'py-2 space-y-1'}`}>
+        <div className={`max-w-[1520px] mx-auto px-4 sm:px-6 transition-all duration-300 ${showExpandedHeader ? 'py-4 space-y-4' : 'py-2 space-y-1'}`}>
           <div className={`flex flex-col justify-between gap-4 ${showExpandedHeader ? '2xl:flex-row 2xl:items-start' : 'xl:flex-row xl:items-center'} ${isRtl ? '2xl:flex-row-reverse xl:flex-row-reverse' : ''}`}>
             <div className={`flex items-start gap-4 min-w-0 ${isRtl ? 'flex-row-reverse' : ''}`}>
               <button
@@ -2223,7 +2314,7 @@ export default function TeacherAnalytics() {
         </div>
       </div>
 
-      <main className="max-w-[1520px] mx-auto px-6 pt-10">
+      <main className="max-w-[1520px] mx-auto px-4 sm:px-6 pt-8 sm:pt-10">
         <SectionIntro
           eyebrow="Immediate Read"
           title="Start with the verdict, not the telemetry"
@@ -2342,7 +2433,7 @@ export default function TeacherAnalytics() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
                   <SignalPill label="Signal Quality" value={summaryTrust?.signal_quality || 'low'} tone={riskTone(summaryTrust?.signal_quality)} />
                   <SignalPill label="Confidence Band" value={summaryTrust?.confidence_band || 'low'} tone={riskTone(summaryTrust?.confidence_band)} />
                   <SignalPill label="Evidence Count" value={summaryTrust?.evidence_count ?? 0} />
@@ -2353,7 +2444,7 @@ export default function TeacherAnalytics() {
                   <div className="mt-4 space-y-4">
                     <div>
                       <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{t('Grading-Safe Metrics')}</p>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {summaryGradingMetrics.map((metric: any, index: number) => (
                           <React.Fragment key={`grading-safe-${metric.label || index}`}>
                             <TrustMetricChip metric={metric} />
@@ -2363,7 +2454,7 @@ export default function TeacherAnalytics() {
                     </div>
                     <div>
                       <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{t('Behavior Signals')}</p>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {(summaryBehaviorMetrics.length > 0 ? summaryBehaviorMetrics : summaryRawFacts).map((metric: any, index: number) => (
                           <React.Fragment key={`behavior-signal-${metric.label || index}`}>
                             <TrustMetricChip metric={metric} />
@@ -2533,7 +2624,7 @@ export default function TeacherAnalytics() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 xl:grid-cols-[1.04fr_0.96fr] gap-8 mb-10">
+        <section id="teacher-board-memory" className="grid grid-cols-1 xl:grid-cols-[1.04fr_0.96fr] gap-8 mb-10">
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
             <div className="flex items-center gap-3 mb-4">
               <Target className="w-6 h-6 text-brand-orange" />
@@ -2557,6 +2648,49 @@ export default function TeacherAnalytics() {
                 </React.Fragment>
               ))}
             </div>
+
+            {memoryAutopilotQueue.length > 0 && (
+              <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-yellow mt-5 p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/55 mb-2">{t('Memory Autopilot')}</p>
+                    <p className="text-2xl font-black">{t('Launch the highest-value interventions from memory')}</p>
+                    <p className="font-medium text-brand-dark/70 mt-2">
+                      {t(`${memoryAutopilotQueue.length} students are ready for a same-material intervention right now.`)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => void handleRunMemoryAutopilot()}
+                    disabled={memoryAutopilotBusy}
+                    className="px-5 py-3 rounded-full border-2 border-brand-dark bg-brand-dark text-white font-black disabled:opacity-60"
+                  >
+                    {t(memoryAutopilotBusy ? 'Launching...' : 'Run watchlist autopilot')}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-4">
+                  {memoryAutopilotQueue.slice(0, 4).map((item: any) => (
+                    <div key={item.id} className="rounded-[1.3rem] border-2 border-brand-dark bg-white p-4">
+                      <p className="font-black text-lg mb-1">{t(item.title)}</p>
+                      <p className="font-medium text-brand-dark/70 mb-3">{t(item.body)}</p>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {(item.focus_tags || []).map((tag: string) => (
+                          <span key={`${item.id}-${tag}`} className="px-3 py-2 rounded-full border-2 border-brand-dark bg-brand-bg text-xs font-black">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => void handleRunMemoryAutopilot([Number(item.participant_id)])}
+                        disabled={memoryAutopilotBusy}
+                        className="px-4 py-2 rounded-full border-2 border-brand-dark bg-brand-purple text-white font-black disabled:opacity-60"
+                      >
+                        {t('Launch for this student')}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6 lg:p-7">
@@ -2594,6 +2728,32 @@ export default function TeacherAnalytics() {
                 </div>
               )}
             </div>
+
+            {memoryWatchlist.length > 0 && (
+              <div className="mt-5 rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Memory Watchlist')}</p>
+                <div className="space-y-3">
+                  {memoryWatchlist.slice(0, 5).map((student: any) => (
+                    <button
+                      key={`memory-watch-${student.id}`}
+                      onClick={() => openStudentDashboard(student.id)}
+                      className="w-full text-left rounded-[1.2rem] border-2 border-brand-dark bg-white p-4 hover:bg-brand-bg transition-colors"
+                    >
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <p className="font-black">{student.nickname}</p>
+                        <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em]">
+                          {student.action}
+                        </span>
+                      </div>
+                      <p className="font-medium text-brand-dark/70 mb-2">{student.headline}</p>
+                      <p className="text-xs font-black uppercase tracking-[0.16em] text-brand-dark/45">
+                        {t(`${Number(student.accuracy_pct || 0).toFixed(0)}% accuracy • ${Number(student.stress_index || 0).toFixed(0)}% stress`)}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
@@ -4940,7 +5100,7 @@ function AnalyticsSearchField({
   const { direction, isRtl, t } = useTeacherAnalyticsLanguage();
 
   return (
-    <label className="relative block flex-1 min-w-[260px]">
+    <label className="relative block flex-1 min-w-0 sm:min-w-[260px]">
       <Search className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 text-brand-dark/45 ${isRtl ? 'right-4' : 'left-4'}`} />
       <input
         dir={direction}
@@ -5063,7 +5223,7 @@ function ResearchLineChart({ rows }: { rows: any[] }) {
         <LegendSwatch label="Response Bars" color="bg-brand-yellow" />
       </div>
       <div className="rounded-[1.7rem] border-2 border-brand-dark bg-brand-bg p-4 overflow-x-auto">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[620px] h-[300px]">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-[260px] w-full min-w-[540px] sm:h-[300px] sm:min-w-[620px]">
           {[0, 25, 50, 75, 100].map((tick) => {
             const y = padding + ((100 - tick) / 100) * (height - padding * 2);
             return (
@@ -5680,7 +5840,7 @@ function DecisionRevisionFlowChart({ flow }: { flow: any }) {
       </div>
 
       <div className="rounded-[1.7rem] border-2 border-brand-dark bg-brand-bg p-4 overflow-x-auto">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[980px] h-auto" style={{ overflow: 'visible' }}>
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[760px] sm:min-w-[980px] h-auto" style={{ overflow: 'visible' }}>
           <defs>
             <filter id="decision-node-shadow" x="-20%" y="-20%" width="150%" height="150%">
               <feDropShadow dx="0" dy="6" stdDeviation="0" floodColor="#1A1A1A" floodOpacity="0.16" />
@@ -6019,7 +6179,7 @@ function DeadlineDependencyChart({ rows }: { rows: any[] }) {
         <LegendSwatch label="Changed Answer" color="bg-brand-yellow" />
       </div>
       <div className="rounded-[1.7rem] border-2 border-brand-dark bg-brand-bg p-4 overflow-x-auto">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[620px] h-[290px]">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-[250px] w-full min-w-[520px] sm:h-[290px] sm:min-w-[620px]">
           {[0, 25, 50, 75, 100].map((tick) => {
             const y = height - padding - (tick / 100) * (height - padding * 2);
             return (
@@ -6152,8 +6312,8 @@ function DistractorHeatmapChart({ heatmap }: { heatmap: any }) {
   const columns = `110px repeat(${heatmap.questions.length}, minmax(76px, 1fr))`;
 
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[760px] space-y-2">
+      <div className="overflow-x-auto">
+      <div className="min-w-[620px] sm:min-w-[760px] space-y-2">
         <div className="grid gap-2" style={{ gridTemplateColumns: columns }}>
           <div />
           {heatmap.questions.map((question: any) => (

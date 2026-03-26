@@ -379,6 +379,18 @@ export async function initDb() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS student_memory_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      identity_key TEXT NOT NULL UNIQUE,
+      nickname TEXT,
+      snapshot_json TEXT NOT NULL,
+      source_summary_json TEXT DEFAULT '{}',
+      teacher_note TEXT DEFAULT '',
+      teacher_note_updated_at DATETIME,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_sessions_pin ON sessions(pin);
     CREATE INDEX IF NOT EXISTS idx_sessions_pack_status ON sessions(quiz_pack_id, status);
@@ -394,6 +406,7 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_mastery_nickname ON mastery(nickname);
     CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_question ON practice_attempts(nickname, question_id);
     CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_created ON practice_attempts(nickname, created_at);
+    CREATE INDEX IF NOT EXISTS idx_student_memory_identity_key ON student_memory_snapshots(identity_key);
     CREATE INDEX IF NOT EXISTS idx_material_profiles_hash ON material_profiles(source_hash);
     CREATE INDEX IF NOT EXISTS idx_generation_cache_lookup ON question_generation_cache(material_profile_id, difficulty, output_language, question_count);
     CREATE INDEX IF NOT EXISTS idx_teacher_classes_teacher_archived ON teacher_classes(teacher_id, archived);
@@ -448,6 +461,13 @@ export async function initDb() {
   (await ensureColumn('participants', 'team_name', 'TEXT'));
   (await ensureColumn('participants', 'seat_index', 'INTEGER DEFAULT 0'));
   (await ensureColumn('practice_attempts', 'identity_key', 'TEXT'));
+  (await ensureColumn('student_memory_snapshots', 'nickname', 'TEXT'));
+  (await ensureColumn('student_memory_snapshots', 'snapshot_json', "TEXT DEFAULT '{}'"));
+  (await ensureColumn('student_memory_snapshots', 'source_summary_json', "TEXT DEFAULT '{}'"));
+  (await ensureColumn('student_memory_snapshots', 'teacher_note', "TEXT DEFAULT ''"));
+  (await ensureColumn('student_memory_snapshots', 'teacher_note_updated_at', 'DATETIME'));
+  (await ensureColumn('student_memory_snapshots', 'updated_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP'));
+  (await ensureColumn('student_memory_snapshots', 'created_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP'));
   (await ensureColumn('student_behavior_logs', 'blur_time_ms', 'INTEGER DEFAULT 0'));
   (await ensureColumn('student_behavior_logs', 'longest_idle_streak_ms', 'INTEGER DEFAULT 0'));
   (await ensureColumn('student_behavior_logs', 'pointer_activity_count', 'INTEGER DEFAULT 0'));
@@ -484,6 +504,7 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_participants_identity_key ON participants(identity_key, created_at);
     CREATE INDEX IF NOT EXISTS idx_mastery_identity_key ON mastery(identity_key);
     CREATE INDEX IF NOT EXISTS idx_practice_attempts_identity_created ON practice_attempts(identity_key, created_at);
+    CREATE INDEX IF NOT EXISTS idx_student_memory_identity_key ON student_memory_snapshots(identity_key);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_participants_session_nickname_unique ON participants(session_id, nickname COLLATE NOCASE);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_answers_unique_submission ON answers(session_id, question_id, participant_id);
     CREATE INDEX IF NOT EXISTS idx_pack_versions_pack ON quiz_pack_versions(pack_id, version_number DESC);
