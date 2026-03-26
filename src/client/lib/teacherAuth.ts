@@ -3,8 +3,6 @@ import {
   ensureFirebaseAuthReady,
   getRedirectResult,
   googleProvider,
-  shouldPreferRedirectSignIn,
-  signInWithPopup,
   signInWithRedirect,
   signOutFirebase,
 } from './firebase.ts';
@@ -276,21 +274,11 @@ export async function signInTeacherWithProvider({
   };
 
   try {
-    if (shouldPreferRedirectSignIn()) {
-      await signInWithRedirect(auth, googleProvider);
-      return null;
-    }
-
-    const result = await signInWithPopup(auth, googleProvider);
-    const idToken = await result.user.getIdToken();
-    return completeGoogleServerSession(idToken, result.user.displayName);
+    await signInWithRedirect(auth, googleProvider);
+    return null;
   } catch (error: any) {
     if (error?.code === 'auth/popup-closed-by-user') {
       throw new Error('Google sign-in was cancelled.');
-    }
-    if (error?.code === 'auth/popup-blocked') {
-      await signInWithRedirect(auth, googleProvider);
-      return null;
     }
     throw error;
   }
