@@ -3,6 +3,7 @@ import 'dotenv/config';
 console.log('[server] Environment loaded. NODE_ENV:', process.env.NODE_ENV);
 
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
@@ -133,8 +134,9 @@ async function startServer() {
 
 
   const app = express();
-  const PORT = Number(process.env.PORT || 3000);
+  const preferredPort = Number(process.env.PORT || 3000);
   const distDir = path.resolve(process.cwd(), 'dist');
+  const server = http.createServer(app);
   
   if (process.env.NODE_ENV === 'production') {
     const indexPath = path.join(distDir, 'index.html');
@@ -306,7 +308,12 @@ async function startServer() {
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: {
+          server,
+        },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -321,40 +328,70 @@ async function startServer() {
     });
   }
 
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[server] QUIZZI back-end listening on 0.0.0.0:${PORT}`);
-    console.log(`[server] Production mode: ${process.env.NODE_ENV === 'production'}`);
-    
-    // Start background tasks after the port is bound.
-    runHealthChecks();
-    if (process.env.NODE_ENV === 'production') {
-      initializeHeavyData();
-    }
-
-
-    // Automatic Keep-Alive Ping for Render Free Tier Instances
-    const rawAppUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
-    if (rawAppUrl) {
-      // Resolve localhost to 127.0.0.1 to avoid IPv6 resolution issues (::1) on some systems
-      const renderExternalUrl = rawAppUrl.replace('localhost', '127.0.0.1');
-      console.log(`[keep-alive] Auto-ping activated for ${renderExternalUrl}`);
-      const keepAliveTimer = setInterval(async () => {
-        try {
-          const res = await fetch(`${renderExternalUrl}/healthz`);
-          if (!res.ok) {
-             console.warn(`[keep-alive] Pinged ${renderExternalUrl}/healthz: ${res.status} ${res.statusText}`);
-          }
-        } catch (err: any) {
-          if (err?.code === 'ECONNREFUSED') {
-            // Silently ignore connection refused for local pings to avoid log noise if dev server isn't up
-            return;
-          }
-          console.error('[keep-alive] Ping failed:', err?.message || err);
+  const listenWithFallback = async (host: string, initialPort: number) => {
+    const maxAttempts = process.env.NODE_ENV === 'production' ? 1 : 10;
+    let currentPort = initialPort;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const handleListening = () => {
+            server.off('error', handleError);
+            resolve();
+          };
+          const handleError = (error: any) => {
+            server.off('listening', handleListening);
+            reject(error);
+          };
+          server.once('listening', handleListening);
+          server.once('error', handleError);
+          server.listen(currentPort, host);
+        });
+        return currentPort;
+      } catch (error: any) {
+        if (error?.code === 'EADDRINUSE' && process.env.NODE_ENV !== 'production' && attempt < maxAttempts - 1) {
+          console.warn(`[server] Port ${currentPort} is already in use. Retrying on ${currentPort + 1}...`);
+          currentPort += 1;
+          continue;
         }
-      }, 5 * 60 * 1000); // 5 minutes
-      keepAliveTimer.unref?.();
+        throw error;
+      }
     }
-  });
+    throw new Error(`Failed to bind Quizzi server after ${maxAttempts} attempts.`);
+  };
+
+  const boundPort = await listenWithFallback('0.0.0.0', preferredPort);
+
+  console.log(`[server] QUIZZI back-end listening on 0.0.0.0:${boundPort}`);
+  console.log(`[server] Production mode: ${process.env.NODE_ENV === 'production'}`);
+
+  // Start background tasks after the port is bound.
+  runHealthChecks();
+  if (process.env.NODE_ENV === 'production') {
+    initializeHeavyData();
+  }
+
+  // Automatic Keep-Alive Ping for Render Free Tier Instances
+  const rawAppUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
+  if (rawAppUrl) {
+    // Resolve localhost to 127.0.0.1 to avoid IPv6 resolution issues (::1) on some systems
+    const renderExternalUrl = rawAppUrl.replace('localhost', '127.0.0.1');
+    console.log(`[keep-alive] Auto-ping activated for ${renderExternalUrl}`);
+    const keepAliveTimer = setInterval(async () => {
+      try {
+        const res = await fetch(`${renderExternalUrl}/healthz`);
+        if (!res.ok) {
+          console.warn(`[keep-alive] Pinged ${renderExternalUrl}/healthz: ${res.status} ${res.statusText}`);
+        }
+      } catch (err: any) {
+        if (err?.code === 'ECONNREFUSED') {
+          // Silently ignore connection refused for local pings to avoid log noise if dev server isn't up
+          return;
+        }
+        console.error('[keep-alive] Ping failed:', err?.message || err);
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+    keepAliveTimer.unref?.();
+  }
 
   server.keepAliveTimeout = Number(process.env.QUIZZI_KEEP_ALIVE_TIMEOUT_MS || 5_000);
   server.headersTimeout = Number(process.env.QUIZZI_HEADERS_TIMEOUT_MS || 10_000);
@@ -397,4 +434,3 @@ try {
   console.error('[CRITICAL] Global execution error in server.ts:', globalError);
   setTimeout(() => process.exit(1), 1000);
 }
-

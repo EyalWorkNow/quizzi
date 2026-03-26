@@ -319,6 +319,9 @@ export async function initDb() {
       email TEXT DEFAULT '',
       student_user_id INTEGER,
       invite_status TEXT DEFAULT 'none',
+      invite_sent_at DATETIME,
+      invite_delivery_status TEXT DEFAULT 'none',
+      invite_last_error TEXT DEFAULT '',
       claimed_at DATETIME,
       last_seen_at DATETIME,
       joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -511,6 +514,9 @@ export async function initDb() {
   (await ensureColumn('teacher_class_students', 'email', "TEXT DEFAULT ''"));
   (await ensureColumn('teacher_class_students', 'student_user_id', 'INTEGER'));
   (await ensureColumn('teacher_class_students', 'invite_status', "TEXT DEFAULT 'none'"));
+  (await ensureColumn('teacher_class_students', 'invite_sent_at', 'DATETIME'));
+  (await ensureColumn('teacher_class_students', 'invite_delivery_status', "TEXT DEFAULT 'none'"));
+  (await ensureColumn('teacher_class_students', 'invite_last_error', "TEXT DEFAULT ''"));
   (await ensureColumn('teacher_class_students', 'claimed_at', 'DATETIME'));
   (await ensureColumn('teacher_class_students', 'last_seen_at', 'DATETIME'));
   (await ensureColumn('teacher_class_students', 'updated_at', 'DATETIME'));
@@ -592,7 +598,26 @@ export async function initDb() {
 
   db.exec(`
     UPDATE teacher_class_students
-    SET invite_status = COALESCE(NULLIF(invite_status, ''), CASE WHEN student_user_id IS NOT NULL AND student_user_id > 0 THEN 'claimed' ELSE 'none' END);
+    SET invite_status = COALESCE(
+      NULLIF(invite_status, ''),
+      CASE
+        WHEN claimed_at IS NOT NULL THEN 'claimed'
+        WHEN COALESCE(email, '') <> '' THEN 'invited'
+        ELSE 'none'
+      END
+    );
+
+    UPDATE teacher_class_students
+    SET invite_delivery_status = COALESCE(
+      NULLIF(invite_delivery_status, ''),
+      CASE
+        WHEN claimed_at IS NOT NULL THEN 'claimed'
+        ELSE 'none'
+      END
+    );
+
+    UPDATE teacher_class_students
+    SET invite_last_error = COALESCE(invite_last_error, '');
 
     UPDATE participants
     SET join_mode = COALESCE(NULLIF(join_mode, ''), CASE WHEN student_user_id IS NOT NULL AND student_user_id > 0 THEN 'account' ELSE 'anonymous' END),

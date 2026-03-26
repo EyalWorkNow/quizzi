@@ -48,7 +48,6 @@ import TeacherSidebar from '../components/TeacherSidebar.tsx';
 import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from '../../shared/sessionSoundtracks.ts';
-import { listTeacherClasses, type TeacherClassBoard } from '../lib/teacherClasses.ts';
 
 const SORT_OPTIONS = [
   { id: 'recent' },
@@ -147,11 +146,8 @@ function recommendModesForPack(pack: any) {
 
 export default function TeacherDashboard() {
   const [packs, setPacks] = useState<any[]>([]);
-  const [classes, setClasses] = useState<TeacherClassBoard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [classOverviewError, setClassOverviewError] = useState('');
-  const [hasLoadedClassOverview, setHasLoadedClassOverview] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState(ALL_CATEGORY_ID);
   const [sortBy, setSortBy] = useState<SortOption>('recent');
@@ -189,20 +185,9 @@ export default function TeacherDashboard() {
     }
   };
 
-  const loadClassOverview = async () => {
-    try {
-      setClassOverviewError('');
-      const payload = await listTeacherClasses();
-      setClasses(Array.isArray(payload) ? payload : []);
-      setHasLoadedClassOverview(true);
-    } catch (loadError: any) {
-      setClassOverviewError(loadError?.message || t('Failed to load classes.'));
-      setHasLoadedClassOverview(true);
-    }
-  };
 
   const refreshDashboard = async () => {
-    await Promise.allSettled([loadPacks(), loadClassOverview()]);
+    await Promise.allSettled([loadPacks()]);
   };
 
   useEffect(() => {
@@ -328,52 +313,6 @@ export default function TeacherDashboard() {
     ];
   }, [packs, t]);
 
-  const studentAccountCoverage = useMemo(() => {
-    const classRows = classes.map((classItem) => {
-      const rostered = classItem.students.length;
-      const linked = classItem.students.filter((student) => student.account_linked).length;
-      const readyToClaim = classItem.students.filter((student) => Boolean(student.email) && !student.account_linked).length;
-      const missingEmail = classItem.students.filter((student) => !String(student.email || '').trim()).length;
-      const coverage = rostered > 0 ? Math.round((linked / rostered) * 100) : 0;
-      return {
-        id: classItem.id,
-        name: classItem.name,
-        subject: classItem.subject,
-        grade: classItem.grade,
-        rostered,
-        linked,
-        readyToClaim,
-        missingEmail,
-        coverage,
-      };
-    });
-
-    const totalRostered = classRows.reduce((sum, classItem) => sum + classItem.rostered, 0);
-    const linkedStudents = classRows.reduce((sum, classItem) => sum + classItem.linked, 0);
-    const readyToClaim = classRows.reduce((sum, classItem) => sum + classItem.readyToClaim, 0);
-    const missingEmail = classRows.reduce((sum, classItem) => sum + classItem.missingEmail, 0);
-    const coveragePercent = totalRostered > 0 ? Math.round((linkedStudents / totalRostered) * 100) : 0;
-    const classesNeedingAttention = classRows.filter(
-      (classItem) => classItem.readyToClaim > 0 || classItem.missingEmail > 0,
-    );
-
-    return {
-      totalClasses: classRows.length,
-      totalRostered,
-      linkedStudents,
-      readyToClaim,
-      missingEmail,
-      coveragePercent,
-      classesNeedingAttention: classesNeedingAttention.length,
-      focusClasses: [...classRows]
-        .sort((left, right) => {
-          if (left.readyToClaim !== right.readyToClaim) return right.readyToClaim - left.readyToClaim;
-          if (left.coverage !== right.coverage) return left.coverage - right.coverage;
-          return left.name.localeCompare(right.name);
-        })
-        .slice(0, 3),
-    };
-  }, [classes]);
 
   const handleHost = async (packId: number, gameType = selectedGameMode, teamCount = selectedTeamCount) => {
     try {
@@ -692,112 +631,6 @@ export default function TeacherDashboard() {
             </div>
           )}
 
-          {!hasBlockingLoadError && (
-            <div className="mb-6 rounded-[2rem] border-4 border-brand-dark bg-white p-5 shadow-[8px_8px_0px_0px_#1A1A1A] lg:p-6">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="max-w-3xl">
-                  <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-brand-purple">
-                    {t('Student Account Coverage')}
-                  </p>
-                  <h2 className="text-2xl font-black tracking-tight lg:text-3xl">
-                    {t('See which rostered students are already linked to a persistent student profile.')}
-                  </h2>
-                  <p className="mt-3 max-w-[70ch] text-sm font-bold text-brand-dark/65">
-                    {t('This block helps you spot which classes are ready for longitudinal analytics, which students still need to claim an account, and where the board is still relying on session-only reads.')}
-                  </p>
-                </div>
-                <button
-                  onClick={() => navigate('/teacher/classes')}
-                  className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-5 py-3 font-black shadow-[3px_3px_0px_0px_#1A1A1A] hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all"
-                >
-                  {t('Open Classes')}
-                  <ArrowUpRight className="h-4 w-4" />
-                </button>
-              </div>
-
-              {classOverviewError ? (
-                <div className="mt-5 rounded-[1.4rem] border-2 border-brand-dark bg-brand-orange/10 p-4">
-                  <p className="font-black">{t('Classes did not load cleanly.')}</p>
-                  <p className="mt-1 text-sm font-bold text-brand-dark/65">{classOverviewError}</p>
-                </div>
-              ) : !hasLoadedClassOverview ? (
-                <div className="mt-5 grid gap-3 md:grid-cols-4">
-                  {Array.from({ length: 4 }).map((_, index) => (
-                    <div
-                      key={`coverage-skeleton-${index}`}
-                      className="h-24 animate-pulse rounded-[1.3rem] border-2 border-brand-dark bg-brand-bg"
-                    />
-                  ))}
-                </div>
-              ) : studentAccountCoverage.totalClasses === 0 ? (
-                <div className="mt-5 rounded-[1.4rem] border-2 border-dashed border-brand-dark/30 bg-brand-bg/80 p-6">
-                  <p className="text-lg font-black">{t('No classes yet. Add a class to start syncing student accounts with teacher analytics.')}</p>
-                </div>
-              ) : (
-                <>
-                  <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <CoverageMetric
-                      label={t('Rostered students')}
-                      value={studentAccountCoverage.totalRostered}
-                      detail={t('Across linked class rosters')}
-                    />
-                    <CoverageMetric
-                      label={t('Linked Students')}
-                      value={studentAccountCoverage.linkedStudents}
-                      detail={`${studentAccountCoverage.coveragePercent}% ${t('claim coverage')}`}
-                    />
-                    <CoverageMetric
-                      label={t('Ready to claim')}
-                      value={studentAccountCoverage.readyToClaim}
-                      detail={t('Students have an email on the roster but no claimed account yet')}
-                    />
-                    <CoverageMetric
-                      label={t('Classes need attention')}
-                      value={studentAccountCoverage.classesNeedingAttention}
-                      detail={studentAccountCoverage.missingEmail > 0 ? t('Some roster members are still missing an email address') : t('Focus these classes first')}
-                    />
-                  </div>
-
-                  <div className="mt-5 grid gap-3 xl:grid-cols-3">
-                    {studentAccountCoverage.focusClasses.map((classItem) => (
-                      <div
-                        key={classItem.id}
-                        className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4 shadow-[3px_3px_0px_0px_#1A1A1A]"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-lg font-black">{classItem.name}</p>
-                            <p className="text-sm font-bold text-brand-dark/55">
-                              {[classItem.subject, classItem.grade].filter(Boolean).join(' • ') || t('Classes')}
-                            </p>
-                          </div>
-                          <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black">
-                            {classItem.coverage}%
-                          </span>
-                        </div>
-
-                        <div className="mt-4 flex flex-wrap gap-2 text-xs font-black">
-                          <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">
-                            {classItem.linked}/{classItem.rostered} {t('linked')}
-                          </span>
-                          {classItem.readyToClaim > 0 && (
-                            <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-3 py-1">
-                              {classItem.readyToClaim} {t('Ready to claim')}
-                            </span>
-                          )}
-                          {classItem.missingEmail > 0 && (
-                            <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">
-                              {classItem.missingEmail} {t('missing emails')}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
 
           {!hasBlockingLoadError && (
             <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-5 lg:p-6 mb-6">
@@ -1618,23 +1451,6 @@ function NavItem({
   );
 }
 
-function CoverageMetric({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string | number;
-  detail: string;
-}) {
-  return (
-    <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4 shadow-[3px_3px_0px_0px_#1A1A1A]">
-      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-purple">{label}</p>
-      <p className="mt-2 text-3xl font-black leading-none">{value}</p>
-      <p className="mt-2 text-sm font-bold text-brand-dark/60">{detail}</p>
-    </div>
-  );
-}
 
 function PackMetric({ label, value }: { label: string; value: string | number }) {
   return (

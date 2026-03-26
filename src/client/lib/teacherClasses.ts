@@ -17,6 +17,9 @@ export type TeacherClassStudent = {
   email: string;
   student_user_id: number | null;
   invite_status: 'none' | 'invited' | 'claimed';
+  invite_sent_at: string | null;
+  invite_delivery_status: 'none' | 'sent' | 'failed' | 'not_configured' | 'claimed';
+  invite_last_error: string | null;
   claimed_at: string | null;
   last_seen_at: string | null;
   account_linked: boolean;
@@ -61,7 +64,30 @@ export type TeacherClassRetentionSummary = {
   watchlist_students: TeacherClassRetentionStudent[];
 };
 
-export type TeacherClassBoard = {
+export type TeacherClassPackSummary = {
+  id: number;
+  title: string;
+  question_count: number;
+};
+
+export type TeacherClassStats = {
+  student_count: number;
+  session_count: number;
+  active_session_count: number;
+  total_participant_count: number;
+  average_accuracy: number | null;
+};
+
+export type TeacherClassInviteSummary = {
+  approved_count: number;
+  pending_count: number;
+  session_only_count: number;
+  linked_count: number;
+};
+
+export type TeacherClassApprovalState = 'none' | 'invited' | 'claimed';
+
+export type TeacherClassCard = {
   id: number;
   teacher_id: number;
   name: string;
@@ -72,24 +98,33 @@ export type TeacherClassBoard = {
   pack_id: number | null;
   created_at: string;
   updated_at: string;
-  students: TeacherClassStudent[];
-  pack: {
-    id: number;
-    title: string;
-    question_count: number;
-  } | null;
-  stats: {
-    student_count: number;
-    session_count: number;
-    active_session_count: number;
-    total_participant_count: number;
-    average_accuracy: number | null;
-  };
+  pack: TeacherClassPackSummary | null;
+  stats: TeacherClassStats;
+  student_count: number;
+  pending_approval_count: number;
+  linked_account: boolean;
+  approval_state: TeacherClassApprovalState;
+  invite_delivery_state: 'none' | 'sent' | 'failed' | 'not_configured' | 'claimed';
+  invite_summary: TeacherClassInviteSummary;
+  active_session: TeacherClassSessionSummary | null;
   latest_session: TeacherClassSessionSummary | null;
   latest_completed_session: TeacherClassSessionSummary | null;
-  recent_sessions: TeacherClassSessionSummary[];
   retention: TeacherClassRetentionSummary;
 };
+
+export type TeacherClassWorkspace = TeacherClassCard & {
+  students: TeacherClassStudent[];
+  recent_sessions: TeacherClassSessionSummary[];
+  mail_health: {
+    configured: boolean;
+    mode: 'smtp' | 'gmail' | 'none';
+    from_address: string;
+    missing: string[];
+    hint: string | null;
+  };
+};
+
+export type TeacherClassBoard = TeacherClassWorkspace;
 
 export type TeacherClassPayload = {
   name: string;
@@ -102,18 +137,46 @@ export type TeacherClassPayload = {
 };
 
 export async function listTeacherClasses() {
-  return apiFetchJson<TeacherClassBoard[]>('/api/teacher/classes');
+  return apiFetchJson<TeacherClassCard[]>('/api/teacher/classes');
+}
+
+export async function getTeacherClass(classId: number) {
+  try {
+    return await apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}`);
+  } catch (error: any) {
+    const message = String(error?.message || '');
+    if (!message.includes('API route not found')) {
+      throw error;
+    }
+    const allClasses = await listTeacherClasses();
+    const matchedClass = allClasses.find((entry) => Number(entry.id) === Number(classId));
+    if (!matchedClass) {
+      throw error;
+    }
+    return {
+      ...matchedClass,
+      students: [],
+      recent_sessions: [],
+      mail_health: {
+        configured: false,
+        mode: 'none',
+        from_address: 'eyalatiyawork@gmail.com',
+        missing: [],
+        hint: null,
+      },
+    } satisfies TeacherClassWorkspace;
+  }
 }
 
 export async function createTeacherClass(payload: TeacherClassPayload) {
-  return apiFetchJson<TeacherClassBoard>('/api/teacher/classes', {
+  return apiFetchJson<TeacherClassWorkspace>('/api/teacher/classes', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
 }
 
 export async function updateTeacherClass(classId: number, payload: TeacherClassPayload) {
-  return apiFetchJson<TeacherClassBoard>(`/api/teacher/classes/${classId}`, {
+  return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}`, {
     method: 'PUT',
     body: JSON.stringify(payload),
   });
@@ -126,15 +189,21 @@ export async function deleteTeacherClass(classId: number) {
 }
 
 export async function addTeacherClassStudent(classId: number, name: string, email = '') {
-  return apiFetchJson<TeacherClassBoard>(`/api/teacher/classes/${classId}/students`, {
+  return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/students`, {
     method: 'POST',
     body: JSON.stringify({ name, email }),
   });
 }
 
 export async function removeTeacherClassStudent(classId: number, studentId: number) {
-  return apiFetchJson<TeacherClassBoard>(`/api/teacher/classes/${classId}/students/${studentId}`, {
+  return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/students/${studentId}`, {
     method: 'DELETE',
+  });
+}
+
+export async function resendTeacherClassStudentInvite(classId: number, studentId: number) {
+  return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/students/${studentId}/resend-invite`, {
+    method: 'POST',
   });
 }
 

@@ -1,4 +1,5 @@
 import db from '../db/index.js';
+import { getMailHealth, type MailHealth } from './mailer.js';
 
 export const TEACHER_CLASS_COLOR_OPTIONS = [
   'bg-brand-purple',
@@ -17,6 +18,9 @@ export type TeacherClassStudentRecord = {
   email: string;
   student_user_id: number | null;
   invite_status: 'none' | 'invited' | 'claimed';
+  invite_sent_at: string | null;
+  invite_delivery_status: 'none' | 'sent' | 'failed' | 'not_configured' | 'claimed';
+  invite_last_error: string | null;
   claimed_at: string | null;
   last_seen_at: string | null;
   account_linked: boolean;
@@ -61,7 +65,30 @@ export type TeacherClassRetentionSummary = {
   watchlist_students: TeacherClassRetentionStudent[];
 };
 
-export type TeacherClassBoard = {
+export type TeacherClassPackSummary = {
+  id: number;
+  title: string;
+  question_count: number;
+};
+
+export type TeacherClassStats = {
+  student_count: number;
+  session_count: number;
+  active_session_count: number;
+  total_participant_count: number;
+  average_accuracy: number | null;
+};
+
+export type TeacherClassInviteSummary = {
+  approved_count: number;
+  pending_count: number;
+  session_only_count: number;
+  linked_count: number;
+};
+
+export type TeacherClassApprovalState = 'none' | 'invited' | 'claimed';
+
+export type TeacherClassBase = {
   id: number;
   teacher_id: number;
   name: string;
@@ -72,23 +99,64 @@ export type TeacherClassBoard = {
   pack_id: number | null;
   created_at: string;
   updated_at: string;
+  pack: TeacherClassPackSummary | null;
+  stats: TeacherClassStats;
+  student_count: number;
+  pending_approval_count: number;
+  linked_account: boolean;
+  approval_state: TeacherClassApprovalState;
+  invite_delivery_state: 'none' | 'sent' | 'failed' | 'not_configured' | 'claimed';
+  invite_summary: TeacherClassInviteSummary;
+  active_session: TeacherClassSessionSummary | null;
+  latest_session: TeacherClassSessionSummary | null;
+  latest_completed_session: TeacherClassSessionSummary | null;
+  retention: TeacherClassRetentionSummary;
+};
+
+export type TeacherClassCard = TeacherClassBase;
+
+export type TeacherClassWorkspace = TeacherClassBase & {
   students: TeacherClassStudentRecord[];
-  pack: {
-    id: number;
-    title: string;
-    question_count: number;
-  } | null;
+  recent_sessions: TeacherClassSessionSummary[];
+  mail_health: MailHealth;
+};
+
+export type TeacherClassBoard = TeacherClassWorkspace;
+
+export type StudentClassWorkspace = {
+  id: number;
+  class_id: number;
+  teacher_id: number | null;
+  teacher_name: string;
+  teacher_email: string;
+  name: string;
+  email: string;
+  invite_status: 'none' | 'invited' | 'claimed';
+  invite_sent_at: string | null;
+  invite_delivery_status: 'none' | 'sent' | 'failed' | 'not_configured' | 'claimed';
+  invite_last_error: string | null;
+  claimed_at: string | null;
+  last_seen_at: string | null;
+  approval_state: TeacherClassApprovalState;
+  linked_account: boolean;
+  invite_delivery_state: 'none' | 'sent' | 'failed' | 'not_configured' | 'claimed';
+  class_name: string;
+  class_subject: string;
+  class_grade: string;
+  class_color: string;
+  class_notes: string;
+  pack: TeacherClassPackSummary | null;
   stats: {
-    student_count: number;
     session_count: number;
     active_session_count: number;
-    total_participant_count: number;
     average_accuracy: number | null;
   };
+  student_count: number;
+  pending_approval_count: number;
+  active_session: TeacherClassSessionSummary | null;
   latest_session: TeacherClassSessionSummary | null;
   latest_completed_session: TeacherClassSessionSummary | null;
   recent_sessions: TeacherClassSessionSummary[];
-  retention: TeacherClassRetentionSummary;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -285,6 +353,37 @@ function uniqueNumbers(values: Array<number | string | null | undefined>) {
   );
 }
 
+function buildSqlPlaceholders(count: number) {
+  return Array.from({ length: Math.max(0, count) }, () => '?').join(', ');
+}
+
+function buildInviteSummary(students: TeacherClassStudentRecord[]): TeacherClassInviteSummary {
+  return {
+    approved_count: students.filter((student) => String(student.invite_status || 'none') === 'claimed').length,
+    pending_count: students.filter((student) => String(student.invite_status || 'none') === 'invited').length,
+    session_only_count: students.filter((student) => !String(student.email || '').trim()).length,
+    linked_count: students.filter((student) => Boolean(student.account_linked)).length,
+  };
+}
+
+function buildClassApprovalState(students: TeacherClassStudentRecord[]): TeacherClassApprovalState {
+  if (!students.length) return 'none';
+  if (students.some((student) => String(student.invite_status || 'none') === 'invited')) return 'invited';
+  if (students.some((student) => String(student.invite_status || 'none') === 'claimed')) return 'claimed';
+  return 'none';
+}
+
+function buildClassInviteDeliveryState(
+  students: TeacherClassStudentRecord[],
+): TeacherClassWorkspace['invite_delivery_state'] {
+  const deliveryStates = students.map((student) => String(student.invite_delivery_status || 'none').trim().toLowerCase());
+  if (deliveryStates.includes('failed')) return 'failed';
+  if (deliveryStates.includes('not_configured')) return 'not_configured';
+  if (deliveryStates.includes('sent')) return 'sent';
+  if (deliveryStates.includes('claimed')) return 'claimed';
+  return 'none';
+}
+
 async function bootstrapTeacherClassesFromUnlinkedSessions(teacherUserId: number) {
   const packRows = (await db
       .prepare(`
@@ -434,10 +533,10 @@ function mapSessionSummary(row: any): TeacherClassSessionSummary {
   };
 }
 
-export async function listTeacherClasses(
+async function listTeacherClassWorkspaces(
   teacherUserId: number,
   options: { includeArchived?: boolean; recentSessionLimit?: number } = {},
-): Promise<TeacherClassBoard[]> {
+): Promise<TeacherClassWorkspace[]> {
   const includeArchived = Boolean(options.includeArchived);
   const recentSessionLimit = Math.max(1, Math.min(8, Number(options.recentSessionLimit || 4)));
   const archiveFilter = includeArchived ? '' : 'AND COALESCE(tc.archived, 0) = 0';
@@ -576,6 +675,11 @@ export async function listTeacherClasses(
       email: String(student.email || ''),
       student_user_id: Number(student.student_user_id || 0) || null,
       invite_status: (String(student.invite_status || 'none') as TeacherClassStudentRecord['invite_status']) || 'none',
+      invite_sent_at: student.invite_sent_at || null,
+      invite_delivery_status:
+        (String(student.invite_delivery_status || (Number(student.student_user_id || 0) ? 'claimed' : 'none')) as TeacherClassStudentRecord['invite_delivery_status']) ||
+        'none',
+      invite_last_error: student.invite_last_error || null,
       claimed_at: student.claimed_at || null,
       last_seen_at: student.last_seen_at || null,
       account_linked: Boolean(Number(student.student_user_id || 0)),
@@ -644,12 +748,29 @@ export async function listTeacherClasses(
     const classId = Number(row.id);
     const students = studentsByClassId.get(classId) || [];
     const sessions = sessionsByClassId.get(classId) || [];
+    const activeSession =
+      sessions.find((session) => String(session.status || '').toUpperCase() !== 'ENDED') || null;
     const latestCompletedSession =
       sessions.find((session) => String(session.status || '').toUpperCase() === 'ENDED') || null;
     const totalParticipantCount = sessions.reduce(
       (sum, session) => sum + Number(session.participant_count || 0),
       0,
     );
+    const inviteSummary = buildInviteSummary(students);
+    const approvalState = buildClassApprovalState(students);
+    const inviteDeliveryState = buildClassInviteDeliveryState(students);
+    const stats: TeacherClassStats = {
+      student_count: students.length,
+      session_count: sessions.length,
+      active_session_count: sessions.filter((session) => String(session.status || '').toUpperCase() !== 'ENDED').length,
+      total_participant_count: totalParticipantCount,
+      average_accuracy: accuracyByClassId.get(classId) ?? null,
+    };
+    const retention = buildTeacherRetentionSummary({
+      students,
+      participantSignals: participantSignalsByClassId.get(classId) || [],
+      practiceByIdentity,
+    });
 
     return {
       id: classId,
@@ -670,26 +791,258 @@ export async function listTeacherClasses(
             question_count: Number(row.pack_question_count || 0),
           }
         : null,
-      stats: {
-        student_count: students.length,
-        session_count: sessions.length,
-        active_session_count: sessions.filter((session) => String(session.status || '').toUpperCase() !== 'ENDED').length,
-        total_participant_count: totalParticipantCount,
-        average_accuracy: accuracyByClassId.get(classId) ?? null,
-      },
+      stats,
+      student_count: students.length,
+      pending_approval_count: inviteSummary.pending_count,
+      linked_account: inviteSummary.linked_count > 0,
+      approval_state: approvalState,
+      invite_delivery_state: inviteDeliveryState,
+      invite_summary: inviteSummary,
+      active_session: activeSession,
       latest_session: sessions[0] || null,
       latest_completed_session: latestCompletedSession,
       recent_sessions: sessions.slice(0, recentSessionLimit),
-      retention: buildTeacherRetentionSummary({
-        students,
-        participantSignals: participantSignalsByClassId.get(classId) || [],
-        practiceByIdentity,
-      }),
+      retention,
+      mail_health: getMailHealth(),
     };
   });
 }
 
-export async function getHydratedTeacherClass(classId: number, teacherUserId: number, includeArchived = false) {
-  const classes = await listTeacherClasses(teacherUserId, { includeArchived, recentSessionLimit: 5 });
+function mapTeacherClassWorkspaceToCard(workspace: TeacherClassWorkspace): TeacherClassCard {
+  return {
+    id: workspace.id,
+    teacher_id: workspace.teacher_id,
+    name: workspace.name,
+    subject: workspace.subject,
+    grade: workspace.grade,
+    color: workspace.color,
+    notes: workspace.notes,
+    pack_id: workspace.pack_id,
+    created_at: workspace.created_at,
+    updated_at: workspace.updated_at,
+    pack: workspace.pack,
+    stats: workspace.stats,
+    student_count: workspace.student_count,
+    pending_approval_count: workspace.pending_approval_count,
+    linked_account: workspace.linked_account,
+    approval_state: workspace.approval_state,
+    invite_delivery_state: workspace.invite_delivery_state,
+    invite_summary: workspace.invite_summary,
+    active_session: workspace.active_session,
+    latest_session: workspace.latest_session,
+    latest_completed_session: workspace.latest_completed_session,
+    retention: workspace.retention,
+  };
+}
+
+function buildTeacherDisplayName(row: any) {
+  const displayName = [row.teacher_first_name, row.teacher_last_name]
+    .map((value: any) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  return displayName || String(row.teacher_email || '').trim() || 'Teacher';
+}
+
+export async function listStudentClassWorkspaces(studentUserId: number): Promise<StudentClassWorkspace[]> {
+  const studentId = Math.max(0, Math.floor(Number(studentUserId) || 0));
+  if (!studentId) return [];
+
+  const classRows = (await db
+    .prepare(`
+      SELECT
+        tcs.*,
+        tc.teacher_id AS class_teacher_id,
+        tc.name AS class_name,
+        tc.subject AS class_subject,
+        tc.grade AS class_grade,
+        tc.color AS class_color,
+        tc.notes AS class_notes,
+        tc.pack_id AS class_pack_id,
+        u.first_name AS teacher_first_name,
+        u.last_name AS teacher_last_name,
+        u.email AS teacher_email
+      FROM teacher_class_students tcs
+      JOIN teacher_classes tc ON tc.id = tcs.class_id
+      LEFT JOIN users u ON u.id = tc.teacher_id
+      WHERE tcs.student_user_id = ?
+      ORDER BY COALESCE(tcs.last_seen_at, tcs.updated_at, tcs.created_at) DESC, tcs.id DESC
+    `)
+    .all(studentId)) as any[];
+
+  const classIds = uniqueNumbers(classRows.map((row: any) => row.class_id));
+  if (!classIds.length) return [];
+
+  const placeholders = buildSqlPlaceholders(classIds.length);
+  const classCountRows = (await db
+    .prepare(`
+      SELECT
+        class_id,
+        COUNT(*) AS student_count,
+        SUM(CASE WHEN LOWER(COALESCE(invite_status, 'none')) = 'invited' THEN 1 ELSE 0 END) AS pending_approval_count
+      FROM teacher_class_students
+      WHERE class_id IN (${placeholders})
+      GROUP BY class_id
+    `)
+    .all(...classIds)) as any[];
+  const sessionRows = (await db
+    .prepare(`
+      SELECT
+        s.*,
+        COALESCE(pc.participant_count, 0) AS participant_count,
+        aa.accuracy_rate
+      FROM sessions s
+      LEFT JOIN (
+        SELECT session_id, COUNT(*) AS participant_count
+        FROM participants
+        GROUP BY session_id
+      ) pc ON pc.session_id = s.id
+      LEFT JOIN (
+        SELECT session_id, AVG(CASE WHEN is_correct = 1 THEN 100.0 ELSE 0.0 END) AS accuracy_rate
+        FROM answers
+        GROUP BY session_id
+      ) aa ON aa.session_id = s.id
+      WHERE s.teacher_class_id IN (${placeholders})
+      ORDER BY
+        CASE WHEN UPPER(COALESCE(s.status, '')) <> 'ENDED' THEN 1 ELSE 0 END DESC,
+        COALESCE(s.started_at, s.ended_at, '1970-01-01 00:00:00') DESC,
+        s.id DESC
+    `)
+    .all(...classIds)) as any[];
+  const accuracyRows = (await db
+    .prepare(`
+      SELECT
+        s.teacher_class_id,
+        AVG(CASE WHEN a.is_correct = 1 THEN 100.0 ELSE 0.0 END) AS accuracy_rate
+      FROM sessions s
+      JOIN answers a ON a.session_id = s.id
+      WHERE s.teacher_class_id IN (${placeholders})
+      GROUP BY s.teacher_class_id
+    `)
+    .all(...classIds)) as any[];
+  const packIds = uniqueNumbers([
+    ...classRows.map((row: any) => row.class_pack_id),
+    ...sessionRows.map((row: any) => row.quiz_pack_id),
+  ]);
+  const packRows = packIds.length
+    ? ((await db
+        .prepare(`
+          SELECT id, title, COALESCE(question_count_cache, 0) AS question_count
+          FROM quiz_packs
+          WHERE id IN (${buildSqlPlaceholders(packIds.length)})
+        `)
+        .all(...packIds)) as any[])
+    : [];
+
+  const sessionsByClassId = new Map<number, TeacherClassSessionSummary[]>();
+  sessionRows.forEach((row: any) => {
+    const classId = Number(row.teacher_class_id || 0);
+    if (!classId) return;
+    const current = sessionsByClassId.get(classId) || [];
+    current.push(mapSessionSummary(row));
+    sessionsByClassId.set(classId, current);
+  });
+
+  const accuracyByClassId = new Map<number, number | null>();
+  accuracyRows.forEach((row: any) => {
+    accuracyByClassId.set(
+      Number(row.teacher_class_id || 0),
+      row.accuracy_rate === null || row.accuracy_rate === undefined ? null : Number(row.accuracy_rate),
+    );
+  });
+
+  const packById = new Map<number, TeacherClassPackSummary>();
+  packRows.forEach((row: any) => {
+    packById.set(Number(row.id || 0), {
+      id: Number(row.id || 0),
+      title: String(row.title || ''),
+      question_count: Number(row.question_count || 0),
+    });
+  });
+
+  const classCountsById = new Map<number, { student_count: number; pending_approval_count: number }>();
+  classCountRows.forEach((row: any) => {
+    classCountsById.set(Number(row.class_id || 0), {
+      student_count: Number(row.student_count || 0),
+      pending_approval_count: Number(row.pending_approval_count || 0),
+    });
+  });
+
+  return classRows.map((row: any) => {
+    const classId = Number(row.class_id || 0);
+    const sessions = sessionsByClassId.get(classId) || [];
+    const activeSession = sessions.find((session) => String(session.status || '').toUpperCase() !== 'ENDED') || null;
+    const latestCompletedSession = sessions.find((session) => String(session.status || '').toUpperCase() === 'ENDED') || null;
+    const normalizedInviteStatus = String(row.invite_status || 'none').trim().toLowerCase() as StudentClassWorkspace['invite_status'];
+    const approvalState =
+      normalizedInviteStatus === 'claimed'
+        ? 'claimed'
+        : normalizedInviteStatus === 'invited'
+          ? 'invited'
+          : 'none';
+    const inviteDeliveryState = String(
+      row.invite_delivery_status || (Number(row.student_user_id || 0) ? 'claimed' : 'none'),
+    ).trim().toLowerCase() as StudentClassWorkspace['invite_delivery_state'];
+    const classCounts = classCountsById.get(classId) || { student_count: 0, pending_approval_count: 0 };
+
+    return {
+      id: Number(row.id || 0),
+      class_id: classId,
+      teacher_id: Number(row.class_teacher_id || 0) || null,
+      teacher_name: buildTeacherDisplayName(row),
+      teacher_email: String(row.teacher_email || '').trim(),
+      name: String(row.name || ''),
+      email: String(row.email || ''),
+      invite_status: normalizedInviteStatus,
+      invite_sent_at: row.invite_sent_at || null,
+      invite_delivery_status: inviteDeliveryState,
+      invite_last_error: row.invite_last_error || null,
+      claimed_at: row.claimed_at || null,
+      last_seen_at: row.last_seen_at || null,
+      approval_state: approvalState,
+      linked_account: Boolean(Number(row.student_user_id || 0)),
+      invite_delivery_state: inviteDeliveryState,
+      class_name: String(row.class_name || ''),
+      class_subject: String(row.class_subject || ''),
+      class_grade: String(row.class_grade || ''),
+      class_color: String(row.class_color || ''),
+      class_notes: String(row.class_notes || ''),
+      pack:
+        Number(row.class_pack_id || 0) > 0
+          ? packById.get(Number(row.class_pack_id || 0)) || {
+              id: Number(row.class_pack_id || 0),
+              title: `Pack ${row.class_pack_id}`,
+              question_count: 0,
+            }
+          : null,
+      stats: {
+        session_count: sessions.length,
+        active_session_count: sessions.filter((session) => String(session.status || '').toUpperCase() !== 'ENDED').length,
+        average_accuracy: accuracyByClassId.get(classId) ?? null,
+      },
+      student_count: classCounts.student_count,
+      pending_approval_count: classCounts.pending_approval_count,
+      active_session: activeSession,
+      latest_session: sessions[0] || null,
+      latest_completed_session: latestCompletedSession,
+      recent_sessions: sessions.slice(0, 5),
+    };
+  });
+}
+
+export async function listTeacherClasses(
+  teacherUserId: number,
+  options: { includeArchived?: boolean; recentSessionLimit?: number } = {},
+): Promise<TeacherClassCard[]> {
+  const workspaces = await listTeacherClassWorkspaces(teacherUserId, options);
+  return workspaces.map(mapTeacherClassWorkspaceToCard);
+}
+
+export async function getHydratedTeacherClass(
+  classId: number,
+  teacherUserId: number,
+  includeArchived = false,
+): Promise<TeacherClassWorkspace | null> {
+  const classes = await listTeacherClassWorkspaces(teacherUserId, { includeArchived, recentSessionLimit: 5 });
   return classes.find((entry) => Number(entry.id) === Number(classId)) || null;
 }
