@@ -152,14 +152,6 @@ async function startServer() {
 
   const allowedMethods = ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'];
 
-  const allowedHeaders = [
-    'Content-Type',
-    'Authorization',
-    'Accept',
-    'X-Requested-With',
-    'X-Quizzi-Participant-Token',
-    'X-Quizzi-Teacher-Auth-Retry',
-  ];
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
@@ -176,7 +168,6 @@ async function startServer() {
     },
     credentials: true,
     methods: allowedMethods,
-    allowedHeaders: allowedHeaders,
     exposedHeaders: ['X-Quizzi-Participant-Token', 'X-Request-Id'],
   }));
 
