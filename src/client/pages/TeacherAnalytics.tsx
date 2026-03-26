@@ -2355,7 +2355,9 @@ export default function TeacherAnalytics() {
                       <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{t('Grading-Safe Metrics')}</p>
                       <div className="grid grid-cols-2 gap-2">
                         {summaryGradingMetrics.map((metric: any, index: number) => (
-                          <TrustMetricChip key={`grading-safe-${metric.label || index}`} metric={metric} />
+                          <React.Fragment key={`grading-safe-${metric.label || index}`}>
+                            <TrustMetricChip metric={metric} />
+                          </React.Fragment>
                         ))}
                       </div>
                     </div>
@@ -2363,7 +2365,9 @@ export default function TeacherAnalytics() {
                       <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{t('Behavior Signals')}</p>
                       <div className="grid grid-cols-2 gap-2">
                         {(summaryBehaviorMetrics.length > 0 ? summaryBehaviorMetrics : summaryRawFacts).map((metric: any, index: number) => (
-                          <TrustMetricChip key={`behavior-signal-${metric.label || index}`} metric={metric} />
+                          <React.Fragment key={`behavior-signal-${metric.label || index}`}>
+                            <TrustMetricChip metric={metric} />
+                          </React.Fragment>
                         ))}
                       </div>
                     </div>
@@ -6289,7 +6293,14 @@ function TrustReadCard({
   );
 }
 
-function TrustMetricChip({ metric }: { metric: any }) {
+interface MetricData {
+  label?: string;
+  value?: string | number;
+  unit?: string;
+  [key: string]: any;
+}
+
+function TrustMetricChip({ metric }: { metric: MetricData }) {
   const { t } = useTeacherAnalyticsLanguage();
   const unit = String(metric?.unit || '').trim();
   const rawValue = metric?.value;
