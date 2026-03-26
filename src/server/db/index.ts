@@ -94,8 +94,8 @@ try {
 }
 
 const postgresMirror = createPostgresMirror(db, { sqlitePath: dbPath });
-await postgresMirror.setup();
 postgresMirror.wrapDatabase();
+void postgresMirror.setup();
 
 async function columnExists(table: string, column: string) {
   return (await db
@@ -310,6 +310,14 @@ export async function initDb() {
       archived INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS teacher_class_packs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      class_id INTEGER NOT NULL,
+      pack_id INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(class_id, pack_id)
     );
 
     CREATE TABLE IF NOT EXISTS teacher_class_students (
@@ -658,6 +666,12 @@ export async function initDb() {
     UPDATE teacher_classes
     SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
     WHERE updated_at IS NULL;
+
+    INSERT INTO teacher_class_packs (class_id, pack_id)
+    SELECT id, pack_id
+    FROM teacher_classes
+    WHERE pack_id IS NOT NULL
+      AND id NOT IN (SELECT class_id FROM teacher_class_packs);
 
     UPDATE teacher_class_students
     SET joined_at = COALESCE(joined_at, created_at, CURRENT_TIMESTAMP),

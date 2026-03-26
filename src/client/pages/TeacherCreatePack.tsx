@@ -3,7 +3,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Library, Search, Layout, Rocket, Play, PlusCircle, ChevronDown, ChevronUp, Monitor, Brain, MessageSquare, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
-import { listTeacherClasses, updateTeacherClass, type TeacherClassCard } from '../lib/teacherClasses.ts';
+import { listTeacherClasses, addPackToClass, type TeacherClassCard } from '../lib/teacherClasses.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
 import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
 import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from '../../shared/sessionSoundtracks.ts';
@@ -587,14 +587,7 @@ export default function TeacherCreatePack() {
       if (targetClassId) {
         const classToUpdate = teacherClasses.find(c => String(c.id) === targetClassId);
         if (classToUpdate) {
-          await updateTeacherClass(classToUpdate.id, {
-            name: classToUpdate.name,
-            subject: classToUpdate.subject,
-            grade: classToUpdate.grade,
-            color: classToUpdate.color,
-            notes: classToUpdate.notes,
-            pack_id: savedPack.id,
-          });
+          await addPackToClass(classToUpdate.id, savedPack.id);
         }
       }
 
@@ -620,14 +613,7 @@ export default function TeacherCreatePack() {
       if (targetClassId) {
         const classToUpdate = teacherClasses.find(c => String(c.id) === targetClassId);
         if (classToUpdate) {
-          await updateTeacherClass(classToUpdate.id, {
-            name: classToUpdate.name,
-            subject: classToUpdate.subject,
-            grade: classToUpdate.grade,
-            color: classToUpdate.color,
-            notes: classToUpdate.notes,
-            pack_id: savedPack.id,
-          });
+          await addPackToClass(classToUpdate.id, savedPack.id);
         }
       }
 

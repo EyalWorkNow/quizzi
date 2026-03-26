@@ -110,6 +110,7 @@ export type TeacherClassCard = {
   latest_session: TeacherClassSessionSummary | null;
   latest_completed_session: TeacherClassSessionSummary | null;
   retention: TeacherClassRetentionSummary;
+  packs: TeacherClassPackSummary[];
 };
 
 export type TeacherClassWorkspace = TeacherClassCard & {
@@ -204,6 +205,36 @@ export async function removeTeacherClassStudent(classId: number, studentId: numb
 export async function resendTeacherClassStudentInvite(classId: number, studentId: number) {
   return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/students/${studentId}/resend-invite`, {
     method: 'POST',
+  });
+}
+
+export async function addPackToClass(classId: number, packId: number) {
+  try {
+    return await apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/packs`, {
+      method: 'POST',
+      body: JSON.stringify({ packId }),
+    });
+  } catch (error: any) {
+    const message = String(error?.message || '');
+    if (!message.includes('API route not found')) {
+      throw error;
+    }
+
+    const existingClass = await getTeacherClass(classId);
+    return updateTeacherClass(classId, {
+      name: existingClass.name,
+      subject: existingClass.subject,
+      grade: existingClass.grade,
+      color: existingClass.color,
+      notes: existingClass.notes,
+      pack_id: packId,
+    });
+  }
+}
+
+export async function removePackFromClass(classId: number, packId: number) {
+  return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/packs/${packId}`, {
+    method: 'DELETE',
   });
 }
 
