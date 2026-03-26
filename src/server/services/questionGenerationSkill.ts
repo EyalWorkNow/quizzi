@@ -18,7 +18,14 @@ type QuestionGenerationSkillPromptInput = {
   questionFormat: string;
   cognitiveLevel: string;
   explanationDetail: string;
+  contentFocus?: string;
+  distractorStyle?: string;
+  gradeLevel?: string;
   material: string;
+  sourceLanguage?: string;
+  topicFingerprint?: string[];
+  keyPoints?: string[];
+  supportingExcerpts?: string[];
   retryFeedback?: string;
 };
 
@@ -35,7 +42,7 @@ export type QuestionGenerationValidationResult = {
   summary: string;
 };
 
-export const QUIZZI_QUESTION_GENERATION_SKILL_VERSION = 'quizzi-packsmith-v1';
+export const QUIZZI_QUESTION_GENERATION_SKILL_VERSION = 'quizzi-packsmith-v2';
 
 const HEBREW_CHARACTERS = /[\u0590-\u05FF]/;
 const LATIN_WORDS = /[A-Za-z]{2,}/g;
@@ -146,6 +153,28 @@ function buildQuestionFormatInstruction(questionFormat: string, languageSkill: R
   return 'Generate standard multiple-choice questions only. Every "answers" array must contain exactly 4 answer choices.';
 }
 
+function buildDifficultyInstruction(difficulty: string) {
+  const normalizedDifficulty = normalizeTextToken(difficulty);
+  if (normalizedDifficulty === 'easy') {
+    return [
+      'Prefer direct wording, one-step reasoning, and highly recognizable distractors.',
+      'Keep most items answerable from core definitions, examples, or basic interpretation.',
+      'Avoid stacking two tricky conditions into the same question.',
+    ].join(' ');
+  }
+  if (normalizedDifficulty === 'hard') {
+    return [
+      'Prefer multi-step reasoning, close distractors, and application to less-obvious cases.',
+      'At least half of the set should require inference, comparison, or transfer instead of plain recall.',
+      'Make distractors competitive without becoming ambiguous.',
+    ].join(' ');
+  }
+  return [
+    'Aim for medium difficulty with a balance of straightforward and moderately challenging items.',
+    'Most questions should require understanding or application rather than verbatim recall.',
+  ].join(' ');
+}
+
 function buildCognitiveInstruction(cognitiveLevel: string) {
   const normalizedLevel = normalizeTextToken(cognitiveLevel);
   if (normalizedLevel === 'higher order') {
@@ -168,6 +197,51 @@ function buildExplanationInstruction(explanationDetail: string) {
   return 'Each explanation should be concise, concrete, and easy for a student to understand quickly.';
 }
 
+function buildContentFocusInstruction(contentFocus: string) {
+  const normalizedFocus = normalizeTextToken(contentFocus);
+  if (normalizedFocus === 'core concepts') {
+    return 'Prioritize the foundational concepts, definitions, and distinctions that the teacher most needs the class to retain.';
+  }
+  if (normalizedFocus === 'chronology & sequence') {
+    return 'Prefer timeline, order, sequence, progression, and before/after reasoning when the material supports it.';
+  }
+  if (normalizedFocus === 'cause & effect') {
+    return 'Prefer causal reasoning, consequences, drivers, and explanation of why outcomes happened.';
+  }
+  if (normalizedFocus === 'misconceptions') {
+    return 'Prefer questions that expose likely confusions, near-miss distractors, and concept-boundary mistakes.';
+  }
+  return 'Keep a balanced mix of core ideas, supporting details, and applied understanding.';
+}
+
+function buildDistractorInstruction(distractorStyle: string) {
+  const normalizedStyle = normalizeTextToken(distractorStyle);
+  if (normalizedStyle === 'challenging') {
+    return 'Use close, plausible distractors that require careful reading, but keep one clearly best answer.';
+  }
+  if (normalizedStyle === 'diagnostic') {
+    return 'Use distractors that reveal common misconceptions so the teacher can learn exactly how students are confused.';
+  }
+  return 'Use standard classroom distractors that are plausible but not tricky for their own sake.';
+}
+
+function buildGradeLevelInstruction(gradeLevel: string) {
+  const normalizedLevel = normalizeTextToken(gradeLevel);
+  if (!normalizedLevel || normalizedLevel === 'auto') {
+    return 'Infer an age-appropriate classroom level from the source material and keep wording comfortably teachable for that level.';
+  }
+  if (normalizedLevel.includes('elementary')) {
+    return 'Use short, concrete wording, low abstraction, and school-friendly examples suitable for elementary learners.';
+  }
+  if (normalizedLevel.includes('middle')) {
+    return 'Use clear school-level wording suitable for middle school students, with moderate abstraction and guided reasoning.';
+  }
+  if (normalizedLevel.includes('high school') || normalizedLevel.includes('secondary') || normalizedLevel.includes('bagrut')) {
+    return 'Use academically stronger wording suitable for high-school learners, with more precise terminology and multi-step reasoning when appropriate.';
+  }
+  return `Match the wording, abstraction level, and distractor subtlety to this learner level: ${gradeLevel}.`;
+}
+
 function buildRetryInstruction(retryFeedback?: string) {
   const normalizedFeedback = String(retryFeedback || '').trim();
   if (!normalizedFeedback) return '';
@@ -178,6 +252,56 @@ Fix every listed issue before responding.`;
 
 function buildBloomInstruction(languageSkill: ResolvedQuestionGenerationLanguage) {
   return `If you include "bloom_level", it must be exactly one of: ${languageSkill.bloomLevels.join(' | ')}.`;
+}
+
+function buildCoverageInstruction(topicFingerprint: string[] = [], keyPoints: string[] = []) {
+  const topics = topicFingerprint.filter(Boolean).slice(0, 6);
+  const anchors = keyPoints.filter(Boolean).slice(0, 4);
+
+  if (!topics.length && !anchors.length) {
+    return 'Distribute the questions across the most important ideas in the material instead of clustering around one paragraph.';
+  }
+
+  return [
+    topics.length
+      ? `Cover these core concepts across the set: ${topics.join(', ')}. Avoid repeating the same concept in every question.`
+      : '',
+    anchors.length
+      ? `Use these content anchors when deciding what deserves assessment: ${anchors.map((item) => `"${item}"`).join(' | ')}.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function buildPreferencePriorityBlock(input: QuestionGenerationSkillPromptInput, languageSkill: ResolvedQuestionGenerationLanguage) {
+  return [
+    `Respect the selected preferences as hard requirements, not soft suggestions.`,
+    `Difficulty preference: ${buildDifficultyInstruction(input.difficulty)}`,
+    `Format preference: ${buildQuestionFormatInstruction(input.questionFormat, languageSkill)}`,
+    `Cognitive preference: ${buildCognitiveInstruction(input.cognitiveLevel)}`,
+    `Explanation preference: ${buildExplanationInstruction(input.explanationDetail)}`,
+    `Content focus preference: ${buildContentFocusInstruction(input.contentFocus || 'Balanced')}`,
+    `Distractor style preference: ${buildDistractorInstruction(input.distractorStyle || 'Standard')}`,
+    `Learner level preference: ${buildGradeLevelInstruction(input.gradeLevel || 'Auto')}`,
+    buildCoverageInstruction(input.topicFingerprint, input.keyPoints),
+  ]
+    .filter(Boolean)
+    .map((line) => `- ${line}`)
+    .join('\n');
+}
+
+function buildSourceAnalysisBlock(input: QuestionGenerationSkillPromptInput) {
+  const lines = [
+    input.sourceLanguage ? `Source language: ${input.sourceLanguage}` : '',
+    input.topicFingerprint?.length ? `Core concepts: ${input.topicFingerprint.slice(0, 8).join(', ')}` : '',
+    input.keyPoints?.length ? `Key teaching points:\n${input.keyPoints.slice(0, 5).map((point) => `- ${point}`).join('\n')}` : '',
+    input.supportingExcerpts?.length
+      ? `Supporting excerpts:\n${input.supportingExcerpts.slice(0, 3).map((excerpt, index) => `${index + 1}. ${excerpt}`).join('\n')}`
+      : '',
+  ].filter(Boolean);
+
+  return lines.join('\n\n');
 }
 
 export function resolveQuestionGenerationLanguage(language: string) {
@@ -209,15 +333,18 @@ Generation Settings:
 Language Contract:
 ${languageSkill.contract.map((rule) => `- ${rule}`).join('\n')}
 
+Preference Priorities:
+${buildPreferencePriorityBlock(input, languageSkill)}
+
 Question Rules:
 - The set must contain exactly ${input.count} questions after validation.
 - Keep each question anchored to the provided source material.
 - Use plausible distractors instead of joke answers.
 - Avoid duplicated questions, duplicated explanations, and repeated distractor patterns.
-- ${buildQuestionFormatInstruction(input.questionFormat, languageSkill)}
-- ${buildCognitiveInstruction(input.cognitiveLevel)}
-- ${buildExplanationInstruction(input.explanationDetail)}
 - ${buildBloomInstruction(languageSkill)}
+- Include a short, concrete "learning_objective" for every question.
+- Vary the correct answer position across the full set.
+- Keep tags specific and content-based, not generic labels like "quiz" or "study".
 
 Schema:
 {
@@ -237,6 +364,9 @@ Schema:
 
 ${buildRetryInstruction(input.retryFeedback)}
 
+Material Analysis Snapshot:
+${buildSourceAnalysisBlock(input)}
+
 Educational Material:
 ${input.material}`;
 }
@@ -251,6 +381,7 @@ export function validateQuestionGenerationOutput({
   const languageSkill = resolveQuestionGenerationLanguage(language);
   const normalizedFormat = normalizeTextToken(questionFormat);
   const normalizedQuestions = Array.isArray(questions) ? questions : [];
+  const seenPrompts = new Set<string>();
 
   if (normalizedQuestions.length !== count) {
     issues.push(`Expected exactly ${count} valid questions but received ${normalizedQuestions.length}.`);
@@ -259,11 +390,16 @@ export function validateQuestionGenerationOutput({
   normalizedQuestions.forEach((question, index) => {
     const questionLabel = `Q${index + 1}`;
     const answers = Array.isArray(question?.answers) ? question.answers : [];
+    const prompt = String(question?.prompt || '').trim();
+    const explanation = String(question?.explanation || '').trim();
+    const learningObjective = String(question?.learning_objective || '').trim();
+    const bloomLevel = String(question?.bloom_level || '').trim();
+    const promptKey = prompt.toLowerCase().replace(/\s+/g, ' ').replace(/[?!.,:;"'`~()\-[\]{}]/g, '').trim();
     const visibleFields: Array<[string, string]> = [
-      [`${questionLabel}.prompt`, String(question?.prompt || '')],
-      [`${questionLabel}.explanation`, String(question?.explanation || '')],
-      [`${questionLabel}.learning_objective`, String(question?.learning_objective || '')],
-      [`${questionLabel}.bloom_level`, String(question?.bloom_level || '')],
+      [`${questionLabel}.prompt`, prompt],
+      [`${questionLabel}.explanation`, explanation],
+      [`${questionLabel}.learning_objective`, learningObjective],
+      [`${questionLabel}.bloom_level`, bloomLevel],
       ...answers.map((answer: any, answerIndex: number) => [`${questionLabel}.answers[${answerIndex}]`, String(answer || '')]),
       ...(Array.isArray(question?.tags) ? question.tags : []).map((tag: any, tagIndex: number) => [`${questionLabel}.tags[${tagIndex}]`, String(tag || '')]),
     ];
@@ -281,6 +417,30 @@ export function validateQuestionGenerationOutput({
       }
     }
 
+    if (!prompt || prompt.length < 12) {
+      issues.push(`${questionLabel} prompt is too short or empty.`);
+    }
+
+    if (promptKey) {
+      if (seenPrompts.has(promptKey)) {
+        issues.push(`${questionLabel} duplicates an earlier prompt.`);
+      } else {
+        seenPrompts.add(promptKey);
+      }
+    }
+
+    if (!explanation || explanation.length < 10) {
+      issues.push(`${questionLabel} explanation is missing or too weak.`);
+    }
+
+    if (!learningObjective || learningObjective.length < 4) {
+      issues.push(`${questionLabel} is missing a useful learning_objective.`);
+    }
+
+    if (bloomLevel && !languageSkill.bloomLevels.includes(bloomLevel)) {
+      issues.push(`${questionLabel} bloom_level must match the allowed taxonomy labels.`);
+    }
+
     if (normalizedFormat === 'multiple choice' && answers.length !== 4) {
       issues.push(`${questionLabel} must contain exactly 4 answer choices for Multiple Choice mode.`);
     }
@@ -291,6 +451,13 @@ export function validateQuestionGenerationOutput({
 
     if (normalizedFormat === 'mixed' && ![2, 4].includes(answers.length)) {
       issues.push(`${questionLabel} must contain either 2 or 4 answer choices for Mixed mode.`);
+    }
+
+    if (normalizedFormat === 'true/false' || answers.length === 2) {
+      const expected = languageSkill.trueFalseAnswers;
+      if (answers[0] !== expected[0] || answers[1] !== expected[1]) {
+        issues.push(`${questionLabel} true/false answers must be exactly "${expected[0]}" and "${expected[1]}".`);
+      }
     }
 
     if (typeof question?.correct_index !== 'number' || question.correct_index < 0 || question.correct_index >= answers.length) {

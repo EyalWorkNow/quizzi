@@ -14,6 +14,12 @@ export type TeacherClassStudent = {
   id: number;
   class_id: number;
   name: string;
+  email: string;
+  student_user_id: number | null;
+  invite_status: 'none' | 'invited' | 'claimed';
+  claimed_at: string | null;
+  last_seen_at: string | null;
+  account_linked: boolean;
   joined_at: string;
   created_at: string;
   updated_at: string;
@@ -92,7 +98,7 @@ export type TeacherClassPayload = {
   color: TeacherClassColor;
   notes: string;
   pack_id: number | null;
-  students?: Array<{ name: string }>;
+  students?: Array<{ name: string; email?: string }>;
 };
 
 export async function listTeacherClasses() {
@@ -119,10 +125,10 @@ export async function deleteTeacherClass(classId: number) {
   });
 }
 
-export async function addTeacherClassStudent(classId: number, name: string) {
+export async function addTeacherClassStudent(classId: number, name: string, email = '') {
   return apiFetchJson<TeacherClassBoard>(`/api/teacher/classes/${classId}/students`, {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, email }),
   });
 }
 

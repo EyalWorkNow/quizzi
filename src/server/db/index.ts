@@ -193,6 +193,32 @@ export async function initDb() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS student_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE,
+      password_hash TEXT,
+      display_name TEXT,
+      first_name TEXT,
+      last_name TEXT,
+      avatar_url TEXT DEFAULT '',
+      preferred_language TEXT DEFAULT 'en',
+      status TEXT DEFAULT 'active',
+      email_verified_at DATETIME,
+      last_login_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS student_identity_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_user_id INTEGER NOT NULL,
+      identity_key TEXT NOT NULL UNIQUE,
+      source TEXT DEFAULT 'claimed_device',
+      is_primary INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS quiz_packs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       teacher_id INTEGER,
@@ -290,6 +316,11 @@ export async function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       class_id INTEGER NOT NULL,
       name TEXT,
+      email TEXT DEFAULT '',
+      student_user_id INTEGER,
+      invite_status TEXT DEFAULT 'none',
+      claimed_at DATETIME,
+      last_seen_at DATETIME,
       joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -314,6 +345,10 @@ export async function initDb() {
       session_id INTEGER,
       identity_key TEXT,
       nickname TEXT,
+      student_user_id INTEGER,
+      class_student_id INTEGER,
+      join_mode TEXT DEFAULT 'anonymous',
+      display_name_snapshot TEXT DEFAULT '',
       team_id INTEGER DEFAULT 0,
       team_name TEXT,
       seat_index INTEGER DEFAULT 0,
@@ -422,6 +457,33 @@ export async function initDb() {
   (await ensureColumn('users', 'school', 'TEXT'));
   (await ensureColumn('users', 'auth_provider', "TEXT DEFAULT 'password'"));
   (await ensureColumn('users', 'updated_at', 'DATETIME'));
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS student_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE,
+      password_hash TEXT,
+      display_name TEXT,
+      first_name TEXT,
+      last_name TEXT,
+      avatar_url TEXT DEFAULT '',
+      preferred_language TEXT DEFAULT 'en',
+      status TEXT DEFAULT 'active',
+      email_verified_at DATETIME,
+      last_login_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS student_identity_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_user_id INTEGER NOT NULL,
+      identity_key TEXT NOT NULL UNIQUE,
+      source TEXT DEFAULT 'claimed_device',
+      is_primary INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
   (await ensureColumn('quiz_packs', 'source_excerpt', 'TEXT'));
   (await ensureColumn('quiz_packs', 'source_language', "TEXT DEFAULT 'English'"));
   (await ensureColumn('quiz_packs', 'source_word_count', 'INTEGER DEFAULT 0'));
@@ -446,6 +508,11 @@ export async function initDb() {
   (await ensureColumn('teacher_classes', 'archived', 'INTEGER DEFAULT 0'));
   (await ensureColumn('teacher_classes', 'updated_at', 'DATETIME'));
   (await ensureColumn('teacher_class_students', 'joined_at', 'DATETIME'));
+  (await ensureColumn('teacher_class_students', 'email', "TEXT DEFAULT ''"));
+  (await ensureColumn('teacher_class_students', 'student_user_id', 'INTEGER'));
+  (await ensureColumn('teacher_class_students', 'invite_status', "TEXT DEFAULT 'none'"));
+  (await ensureColumn('teacher_class_students', 'claimed_at', 'DATETIME'));
+  (await ensureColumn('teacher_class_students', 'last_seen_at', 'DATETIME'));
   (await ensureColumn('teacher_class_students', 'updated_at', 'DATETIME'));
   (await ensureColumn('questions', 'question_order', 'INTEGER DEFAULT 0'));
   (await ensureColumn('questions', 'learning_objective', "TEXT DEFAULT ''"));
@@ -457,6 +524,10 @@ export async function initDb() {
   (await ensureColumn('sessions', 'mode_config_json', "TEXT DEFAULT '{}'"));
   (await ensureColumn('quiz_packs', 'is_public', 'INTEGER DEFAULT 0'));
   (await ensureColumn('participants', 'identity_key', 'TEXT'));
+  (await ensureColumn('participants', 'student_user_id', 'INTEGER'));
+  (await ensureColumn('participants', 'class_student_id', 'INTEGER'));
+  (await ensureColumn('participants', 'join_mode', "TEXT DEFAULT 'anonymous'"));
+  (await ensureColumn('participants', 'display_name_snapshot', "TEXT DEFAULT ''"));
   (await ensureColumn('participants', 'team_id', 'INTEGER DEFAULT 0'));
   (await ensureColumn('participants', 'team_name', 'TEXT'));
   (await ensureColumn('participants', 'seat_index', 'INTEGER DEFAULT 0'));
@@ -493,15 +564,21 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_quiz_packs_source_hash ON quiz_packs(source_hash);
     CREATE INDEX IF NOT EXISTS idx_quiz_packs_course_code ON quiz_packs(course_code);
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    CREATE INDEX IF NOT EXISTS idx_student_users_email ON student_users(email);
+    CREATE INDEX IF NOT EXISTS idx_student_identity_links_student ON student_identity_links(student_user_id, is_primary, created_at);
+    CREATE INDEX IF NOT EXISTS idx_student_identity_links_identity ON student_identity_links(identity_key);
     CREATE INDEX IF NOT EXISTS idx_questions_pack_question_order ON questions(quiz_pack_id, question_order, id);
     CREATE INDEX IF NOT EXISTS idx_questions_learning_objective ON questions(learning_objective);
     CREATE INDEX IF NOT EXISTS idx_sessions_game_type ON sessions(game_type);
     CREATE INDEX IF NOT EXISTS idx_teacher_classes_teacher_archived ON teacher_classes(teacher_id, archived);
     CREATE INDEX IF NOT EXISTS idx_teacher_classes_pack ON teacher_classes(pack_id);
     CREATE INDEX IF NOT EXISTS idx_teacher_class_students_class ON teacher_class_students(class_id);
+    CREATE INDEX IF NOT EXISTS idx_teacher_class_students_email ON teacher_class_students(email);
+    CREATE INDEX IF NOT EXISTS idx_teacher_class_students_student_user ON teacher_class_students(student_user_id, class_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_teacher_class ON sessions(teacher_class_id, status);
     CREATE INDEX IF NOT EXISTS idx_participants_session_team ON participants(session_id, team_id);
     CREATE INDEX IF NOT EXISTS idx_participants_identity_key ON participants(identity_key, created_at);
+    CREATE INDEX IF NOT EXISTS idx_participants_student_user_id ON participants(student_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_mastery_identity_key ON mastery(identity_key);
     CREATE INDEX IF NOT EXISTS idx_practice_attempts_identity_created ON practice_attempts(identity_key, created_at);
     CREATE INDEX IF NOT EXISTS idx_student_memory_identity_key ON student_memory_snapshots(identity_key);
@@ -514,6 +591,13 @@ export async function initDb() {
   await backfillPracticeAttemptIdentityKeys();
 
   db.exec(`
+    UPDATE teacher_class_students
+    SET invite_status = COALESCE(NULLIF(invite_status, ''), CASE WHEN student_user_id IS NOT NULL AND student_user_id > 0 THEN 'claimed' ELSE 'none' END);
+
+    UPDATE participants
+    SET join_mode = COALESCE(NULLIF(join_mode, ''), CASE WHEN student_user_id IS NOT NULL AND student_user_id > 0 THEN 'account' ELSE 'anonymous' END),
+        display_name_snapshot = COALESCE(NULLIF(display_name_snapshot, ''), nickname, '');
+
     UPDATE questions
     SET question_order = id
     WHERE question_order IS NULL OR question_order = 0;

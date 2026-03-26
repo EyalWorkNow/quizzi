@@ -11,12 +11,25 @@ const API_BASE = import.meta.env.VITE_API_PROXY_TARGET || (import.meta.env.PROD 
 const TEACHER_AUTH_KEY = 'quizzi.teacher.auth';
 const TEACHER_TOKEN_KEY = 'quizzi.teacher.token';
 const TEACHER_AUTH_RETRY_HEADER = 'X-Quizzi-Teacher-Auth-Retry';
+const STUDENT_AUTH_KEY = 'quizzi.student.auth';
+const STUDENT_TOKEN_KEY = 'quizzi.student.token';
+const STUDENT_AUTH_RETRY_HEADER = 'X-Quizzi-Student-Auth-Retry';
 
 function clearTeacherAuthCache() {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.removeItem(TEACHER_AUTH_KEY);
     window.localStorage.removeItem(TEACHER_TOKEN_KEY);
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function clearStudentAuthCache() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(STUDENT_AUTH_KEY);
+    window.localStorage.removeItem(STUDENT_TOKEN_KEY);
   } catch {
     // Ignore storage errors.
   }
@@ -51,6 +64,10 @@ function isTeacherProtectedPath(pathname: string) {
   );
 }
 
+function isStudentProtectedPath(pathname: string) {
+  return pathname.startsWith('/api/student/');
+}
+
 function shouldRetryTeacherAuth(url: string, headers: Headers, response: Response) {
   if (typeof window === 'undefined') return false;
   if (response.status !== 401) return false;
@@ -74,6 +91,11 @@ function shouldRetryTeacherAuth(url: string, headers: Headers, response: Respons
 async function refreshTeacherSessionForRetry() {
   const teacherAuth = await import('./teacherAuth.ts');
   return teacherAuth.refreshTeacherSession().catch(() => null);
+}
+
+async function refreshStudentSessionForRetry() {
+  const studentAuth = await import('./studentAuth.ts');
+  return studentAuth.refreshStudentSession().catch(() => null);
 }
 
 function shouldSetJsonContentType(init?: RequestInit) {
@@ -104,6 +126,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   
   // Also check for Teacher Token in localStorage for cross-origin Bearer Auth
   let teacherToken = '';
+  let studentToken = '';
   if (typeof window !== 'undefined') {
     teacherToken = window.localStorage.getItem(TEACHER_TOKEN_KEY) || '';
     if (!teacherToken) {
@@ -127,6 +150,29 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
         // Ignore storage error
       }
     }
+
+    studentToken = window.localStorage.getItem(STUDENT_TOKEN_KEY) || '';
+    if (!studentToken) {
+      const rawStudentAuth = window.localStorage.getItem(STUDENT_AUTH_KEY);
+      if (rawStudentAuth) {
+        try {
+          const session = JSON.parse(rawStudentAuth);
+          studentToken = session?.token || '';
+        } catch {
+          // Ignore parse error
+        }
+      }
+    }
+    if (studentToken) {
+      studentToken = String(studentToken).trim();
+    }
+    if (!studentToken) {
+      try {
+        window.localStorage.removeItem(STUDENT_TOKEN_KEY);
+      } catch {
+        // Ignore storage error
+      }
+    }
   }
 
   const headers = new Headers(init?.headers || undefined);
@@ -136,6 +182,9 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   
   if (teacherToken && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${teacherToken}`);
+  }
+  if (studentToken && !headers.has('X-Quizzi-Student-Auth')) {
+    headers.set('X-Quizzi-Student-Auth', studentToken);
   }
 
   let response = await executeApiFetch(url, init, headers);
@@ -150,6 +199,26 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     }
   }
 
+  if (typeof url === 'string' && typeof window !== 'undefined' && response.status === 401 && !headers.has(STUDENT_AUTH_RETRY_HEADER)) {
+    const pathname = (() => {
+      try {
+        return new URL(url, window.location.origin).pathname;
+      } catch {
+        return '';
+      }
+    })();
+
+    if (isStudentProtectedPath(pathname)) {
+      const refreshedSession = await refreshStudentSessionForRetry();
+      if (refreshedSession?.token) {
+        const retryHeaders = new Headers(headers);
+        retryHeaders.set(STUDENT_AUTH_RETRY_HEADER, '1');
+        retryHeaders.set('X-Quizzi-Student-Auth', refreshedSession.token);
+        response = await executeApiFetch(url, init, retryHeaders);
+      }
+    }
+  }
+
   if (typeof url === 'string') {
     const pathname = (() => {
       try {
@@ -161,6 +230,9 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
 
     if (response.status === 401 && isTeacherProtectedPath(pathname)) {
       clearTeacherAuthCache();
+    }
+    if (response.status === 401 && isStudentProtectedPath(pathname)) {
+      clearStudentAuthCache();
     }
   }
 

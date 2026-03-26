@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { handleContactSubmission } from '../api/contact.js';
-import { createHash, randomInt } from 'crypto';
+import { createHash, randomInt, randomUUID } from 'crypto';
 import db from '../db/index.js';
 import { seedDemoDataForTeacher } from '../db/seeding.js';
 import multer from 'multer';
@@ -34,6 +34,30 @@ import {
   verifyDemoPassword,
 } from '../services/demoAuth.js';
 import {
+  clearStudentSession,
+  createStudentSession,
+  issueStudentSession,
+  readStudentSession,
+  requireStudentSession,
+} from '../services/studentAuth.js';
+import {
+  claimRosterRowsForStudentUser,
+  getPrimaryIdentityKey,
+  linkStudentIdentity,
+  listStudentIdentityKeys,
+} from '../services/studentIdentityLinks.js';
+import {
+  createStudentUser,
+  getStudentUserByEmail,
+  getStudentUserById,
+  normalizeStudentEmail,
+  updateStudentLastLogin,
+  updateStudentPreferredLanguage,
+  validateStudentEmail,
+  validateStudentPassword,
+  verifyStudentPassword,
+} from '../services/studentUsers.js';
+import {
   createTeacherUser,
   getTeacherUserByEmail,
   validateTeacherEmail,
@@ -55,7 +79,7 @@ import {
   normalizeGeneratedQuestions,
   syncPackDerivedData,
 } from '../services/materialIntel.js';
-import { generateQuestionsFromSource } from '../services/questionGeneration.js';
+import { generateQuestionsFromSource, improveQuestionsFromSource } from '../services/questionGeneration.js';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
 
@@ -185,6 +209,32 @@ function sanitizeTranslateTexts(value: unknown) {
     )
     .filter(Boolean)
     .slice(0, 20);
+}
+
+function getRequestedUiLanguage(req: any) {
+  const candidate = String(req.query?.ui_language || req.query?.lang || req.headers['x-ui-language'] || '').trim().toLowerCase();
+  return SUPPORTED_UI_LANGUAGES.has(candidate) ? candidate : '';
+}
+
+async function translateAnalyticsFields<T>(payload: T, targetLanguage: string, selectors: Array<(root: any) => Array<{ holder: any; key: string }>>) {
+  if (!payload || !targetLanguage || targetLanguage === 'en') return payload;
+
+  const entries = selectors.flatMap((selector) => selector(payload));
+  const originals = entries
+    .map(({ holder, key }) => ({ holder, key, value: typeof holder?.[key] === 'string' ? String(holder[key]).trim() : '' }))
+    .filter((entry) => entry.value);
+
+  if (!originals.length) return payload;
+
+  const uniqueTexts = Array.from(new Set(originals.map((entry) => entry.value)));
+  const translations = await translateUiTexts(uniqueTexts, targetLanguage as 'he' | 'ar');
+  const translationMap = new Map(uniqueTexts.map((text, index) => [text, String(translations[index] || text)]));
+
+  originals.forEach(({ holder, key, value }) => {
+    holder[key] = translationMap.get(value) || value;
+  });
+
+  return payload;
 }
 
 function parsePositiveInt(value: unknown, fallback = 0) {
@@ -321,6 +371,14 @@ function sanitizeTeacherClassPayload(value: any) {
 
 function sanitizeTeacherStudentName(value: unknown) {
   return sanitizeLine(value, 120);
+}
+
+function sanitizeStudentDisplayName(value: unknown) {
+  return sanitizeLine(value, 160);
+}
+
+function sanitizeStudentEmailInput(value: unknown) {
+  return normalizeStudentEmail(String(value || ''));
 }
 
 function sanitizeQuestionImage(value: unknown) {
@@ -643,11 +701,17 @@ async function buildClassMemorySummary(sessionId: number) {
         p.id,
         p.nickname,
         p.identity_key,
+        p.student_user_id,
+        sil.identity_key AS primary_identity_key,
         sms.snapshot_json,
         sms.teacher_note,
         sms.teacher_note_updated_at
       FROM participants p
-      LEFT JOIN student_memory_snapshots sms ON sms.identity_key = p.identity_key
+      LEFT JOIN student_identity_links sil
+        ON sil.student_user_id = p.student_user_id
+       AND COALESCE(sil.is_primary, 0) = 1
+      LEFT JOIN student_memory_snapshots sms
+        ON sms.identity_key = COALESCE(sil.identity_key, p.identity_key)
       WHERE p.session_id = ?
     `)
     .all(sessionId)) as any[];
@@ -659,7 +723,9 @@ async function buildClassMemorySummary(sessionId: number) {
       return {
         id: Number(row.id || 0),
         nickname: String(row.nickname || snapshot.nickname || 'Student'),
-        identity_key: String(row.identity_key || snapshot.identity_key || ''),
+        identity_key: String(row.primary_identity_key || row.identity_key || snapshot.identity_key || ''),
+        account_linked: Boolean(Number(row.student_user_id || 0)),
+        profile_mode: Number(row.student_user_id || 0) ? 'longitudinal' : 'session-only',
         action: snapshot.recommended_next_step?.action || 'monitor',
         focus_tags: Array.isArray(snapshot.recommended_next_step?.focus_tags) ? snapshot.recommended_next_step.focus_tags : [],
         confidence_band: snapshot.trust?.confidence_band || snapshot.behavior_baseline?.confidence_band || 'low',
@@ -954,6 +1020,223 @@ async function getParticipantsForIdentityKey(identityKey: string) {
   return (await db.prepare('SELECT * FROM participants WHERE identity_key = ?').all(identityKey));
 }
 
+function buildSqlPlaceholders(count: number) {
+  return Array.from({ length: count }, () => '?').join(', ');
+}
+
+function mergeMasteryRows(rows: any[]) {
+  const byTag = new Map<string, { tag: string; score: number; updated_at: string }>();
+  rows.forEach((row: any) => {
+    const tag = sanitizeLine(row?.tag, 64);
+    if (!tag) return;
+    const updatedAt = String(row?.updated_at || '');
+    const score = Number(row?.score || 0);
+    const existing = byTag.get(tag);
+    if (!existing || updatedAt > existing.updated_at || score > existing.score) {
+      byTag.set(tag, {
+        tag,
+        score,
+        updated_at: updatedAt,
+      });
+    }
+  });
+  return Array.from(byTag.values()).sort((left, right) => left.tag.localeCompare(right.tag));
+}
+
+async function listResolvedIdentityKeys({
+  studentUserId,
+  identityKey,
+}: {
+  studentUserId?: number;
+  identityKey?: string | null;
+}) {
+  const keys = new Set<string>();
+  const safeIdentityKey = resolveStudentIdentityKey(identityKey, '');
+  if (safeIdentityKey) {
+    keys.add(safeIdentityKey);
+  }
+
+  const studentId = Math.max(0, Math.floor(Number(studentUserId) || 0));
+  if (!studentId) {
+    return Array.from(keys);
+  }
+
+  (await listStudentIdentityKeys(studentId)).forEach((key) => {
+    const safeKey = resolveStudentIdentityKey(key, '');
+    if (safeKey) keys.add(safeKey);
+  });
+
+  const participantIdentityRows = (await db
+    .prepare(`
+      SELECT DISTINCT identity_key
+      FROM participants
+      WHERE student_user_id = ?
+        AND TRIM(COALESCE(identity_key, '')) <> ''
+    `)
+    .all(studentId)) as any[];
+  participantIdentityRows.forEach((row: any) => {
+    const safeKey = resolveStudentIdentityKey(row?.identity_key, '');
+    if (safeKey) keys.add(safeKey);
+  });
+
+  return Array.from(keys);
+}
+
+async function getParticipantsForStudentScope({
+  studentUserId,
+  identityKeys,
+}: {
+  studentUserId?: number;
+  identityKeys: string[];
+}) {
+  const studentId = Math.max(0, Math.floor(Number(studentUserId) || 0));
+  const safeKeys = uniqueStrings(identityKeys.map((key) => resolveStudentIdentityKey(key, '')));
+  if (!studentId && !safeKeys.length) return [];
+
+  if (studentId && safeKeys.length) {
+    return (await db
+      .prepare(`
+        SELECT *
+        FROM participants
+        WHERE student_user_id = ?
+           OR identity_key IN (${buildSqlPlaceholders(safeKeys.length)})
+        ORDER BY created_at DESC, id DESC
+      `)
+      .all(studentId, ...safeKeys)) as any[];
+  }
+
+  if (studentId) {
+    return (await db
+      .prepare(`
+        SELECT *
+        FROM participants
+        WHERE student_user_id = ?
+        ORDER BY created_at DESC, id DESC
+      `)
+      .all(studentId)) as any[];
+  }
+
+  return (await db
+    .prepare(`
+      SELECT *
+      FROM participants
+      WHERE identity_key IN (${buildSqlPlaceholders(safeKeys.length)})
+      ORDER BY created_at DESC, id DESC
+    `)
+    .all(...safeKeys)) as any[];
+}
+
+async function getAnswersForParticipantIds(participantIds: number[]) {
+  const ids = uniqueNumbers(participantIds);
+  if (!ids.length) return [];
+  return (await db
+    .prepare(`
+      SELECT *
+      FROM answers
+      WHERE participant_id IN (${buildSqlPlaceholders(ids.length)})
+      ORDER BY created_at DESC, id DESC
+    `)
+    .all(...ids)) as any[];
+}
+
+async function getPracticeAttemptsForIdentityKeys(identityKeys: string[]) {
+  const safeKeys = uniqueStrings(identityKeys.map((key) => resolveStudentIdentityKey(key, '')));
+  if (!safeKeys.length) return [];
+  return (await db
+    .prepare(`
+      SELECT *
+      FROM practice_attempts
+      WHERE identity_key IN (${buildSqlPlaceholders(safeKeys.length)})
+      ORDER BY created_at DESC, id DESC
+    `)
+    .all(...safeKeys)) as any[];
+}
+
+async function getMasteryRowsForIdentityKeys(identityKeys: string[]) {
+  const safeKeys = uniqueStrings(identityKeys.map((key) => resolveStudentIdentityKey(key, '')));
+  if (!safeKeys.length) return [];
+  const rows = (await db
+    .prepare(`
+      SELECT tag, score, updated_at
+      FROM mastery
+      WHERE identity_key IN (${buildSqlPlaceholders(safeKeys.length)})
+      ORDER BY updated_at DESC, id DESC
+    `)
+    .all(...safeKeys)) as any[];
+  return mergeMasteryRows(rows);
+}
+
+async function getStudentClassesForUser(studentUserId: number) {
+  const studentId = Math.max(0, Math.floor(Number(studentUserId) || 0));
+  if (!studentId) return [];
+  return (await db
+    .prepare(`
+      SELECT
+        tcs.*,
+        tc.name AS class_name,
+        tc.subject AS class_subject,
+        tc.grade AS class_grade,
+        tc.color AS class_color
+      FROM teacher_class_students tcs
+      JOIN teacher_classes tc ON tc.id = tcs.class_id
+      WHERE tcs.student_user_id = ?
+      ORDER BY COALESCE(tcs.last_seen_at, tcs.updated_at, tcs.created_at) DESC, tcs.id DESC
+    `)
+    .all(studentId)) as any[];
+}
+
+async function buildStudentAnalyticsContext({
+  studentUserId,
+  identityKey,
+  nickname,
+  displayName,
+}: {
+  studentUserId?: number;
+  identityKey?: string | null;
+  nickname?: string | null;
+  displayName?: string | null;
+}) {
+  const identityKeys = await listResolvedIdentityKeys({ studentUserId, identityKey });
+  const participants = await getParticipantsForStudentScope({ studentUserId, identityKeys });
+  const participantIds = uniqueNumbers(participants.map((row: any) => row.id));
+  const sessionIds = uniqueNumbers(participants.map((row: any) => row.session_id));
+  const sessions = await getSessionsForIds(sessionIds);
+  const packs = await getPacksForIds(uniqueNumbers(sessions.map((row: any) => row.quiz_pack_id)));
+  const questions = await getQuestionsForPackIds(uniqueNumbers(packs.map((row: any) => row.id)));
+  const answers = await getAnswersForParticipantIds(participantIds);
+  const practiceAttempts = await getPracticeAttemptsForIdentityKeys(identityKeys);
+  const mastery = await getMasteryRowsForIdentityKeys(identityKeys);
+  const behaviorLogs = await getLogsForParticipantIds(participantIds);
+  const primaryIdentityKey =
+    (studentUserId ? await getPrimaryIdentityKey(studentUserId) : '') ||
+    identityKeys[0] ||
+    resolveStudentIdentityKey(identityKey, nickname || displayName || '');
+  const latestParticipant = participants[0] || null;
+  const canonicalNickname =
+    sanitizeStudentDisplayName(displayName) ||
+    sanitizeStudentDisplayName(nickname) ||
+    sanitizeStudentDisplayName(latestParticipant?.display_name_snapshot) ||
+    sanitizeStudentDisplayName(latestParticipant?.nickname) ||
+    'Student';
+
+  return {
+    student_user_id: Math.max(0, Math.floor(Number(studentUserId) || 0)) || null,
+    primary_identity_key: primaryIdentityKey,
+    identity_keys: identityKeys,
+    canonical_nickname: canonicalNickname,
+    latest_participant: latestParticipant,
+    participants,
+    participant_ids: participantIds,
+    sessions,
+    packs,
+    questions,
+    answers,
+    practice_attempts: practiceAttempts,
+    mastery,
+    behavior_logs: behaviorLogs,
+  };
+}
+
 async function getAuthorizedParticipantAccess(req: any) {
   const access = readParticipantAccessToken(req);
   if (!access) return null;
@@ -1034,6 +1317,9 @@ function buildQuestionGenerationInFlightKey(input: {
   questionFormat: string;
   cognitiveLevel: string;
   explanationDetail: string;
+  contentFocus: string;
+  distractorStyle: string;
+  gradeLevel: string;
   providerId?: string | null;
   modelId?: string | null;
 }) {
@@ -1045,6 +1331,9 @@ function buildQuestionGenerationInFlightKey(input: {
     question_format: String(input.questionFormat || '').trim().toLowerCase(),
     cognitive_level: String(input.cognitiveLevel || '').trim().toLowerCase(),
     explanation_detail: String(input.explanationDetail || '').trim().toLowerCase(),
+    content_focus: String(input.contentFocus || '').trim().toLowerCase(),
+    distractor_style: String(input.distractorStyle || '').trim().toLowerCase(),
+    grade_level: String(input.gradeLevel || '').trim().toLowerCase(),
     provider_id: String(input.providerId || 'default-provider').trim().toLowerCase(),
     model_id: String(input.modelId || 'default-model').trim().toLowerCase(),
   });
@@ -2659,59 +2948,60 @@ function buildStudentEngagementEnvelope({
 }
 
 async function getOverallStudentAnalytics({
+  studentUserId,
   identityKey,
   nickname,
+  displayName,
 }: {
-  identityKey: string;
-  nickname: string;
+  studentUserId?: number;
+  identityKey?: string | null;
+  nickname?: string | null;
+  displayName?: string | null;
 }): Promise<any> {
-  const participants = (await getParticipantsForIdentityKey(identityKey));
-  const participantIds = uniqueNumbers(participants.map((row: any) => row.id));
-  const sessionIds = uniqueNumbers(participants.map((row: any) => row.session_id));
-  const sessions = (await getSessionsForIds(sessionIds));
-  const packs = (await getPacksForIds(uniqueNumbers(sessions.map((row: any) => row.quiz_pack_id))));
-  const questions = (await getQuestionsForPackIds(uniqueNumbers(packs.map((row: any) => row.id))));
-  const mastery = (await getMasteryRows(identityKey));
-  const answers = (await db
-        .prepare(`
-      SELECT a.*
-      FROM answers a
-      JOIN participants p ON a.participant_id = p.id
-        WHERE p.identity_key = ?
-    `)
-        .all(identityKey)) as any[];
-  const practiceAttempts = (await db.prepare('SELECT * FROM practice_attempts WHERE identity_key = ?').all(identityKey)) as any[];
-  const existingMemoryRow = await readStudentMemorySnapshotRow(identityKey);
-  const dashboard = (await runStudentDashboardWithFallback({
+  const context = await buildStudentAnalyticsContext({
+    studentUserId,
+    identityKey,
     nickname,
-    mastery,
-    answers,
-    questions,
-    behavior_logs: (await getLogsForParticipantIds(participantIds)),
-    practice_attempts: practiceAttempts,
-    sessions,
-    packs,
+    displayName,
+  });
+  const existingMemoryRow = await readStudentMemorySnapshotRow(context.primary_identity_key);
+  const dashboard = (await runStudentDashboardWithFallback({
+    nickname: context.canonical_nickname,
+    mastery: context.mastery,
+    answers: context.answers,
+    questions: context.questions,
+    behavior_logs: context.behavior_logs,
+    practice_attempts: context.practice_attempts,
+    sessions: context.sessions,
+    packs: context.packs,
   })) as Record<string, any>;
   const engagement = buildStudentEngagementEnvelope({
     analytics: dashboard || {},
-    answers,
-    practiceAttempts,
+    answers: context.answers,
+    practiceAttempts: context.practice_attempts,
   });
   const studentMemory = await updateStudentMemorySnapshot({
-    identityKey,
-    nickname,
+    identityKey: context.primary_identity_key,
+    nickname: context.canonical_nickname,
     overallAnalytics: dashboard,
-    mastery,
-    answers,
-    practiceAttempts,
-    sessions,
-    questions,
+    mastery: context.mastery,
+    answers: context.answers,
+    practiceAttempts: context.practice_attempts,
+    sessions: context.sessions,
+    questions: context.questions,
     teacherNote: existingMemoryRow?.teacher_note || '',
     teacherNoteUpdatedAt: existingMemoryRow?.teacher_note_updated_at ? String(existingMemoryRow.teacher_note_updated_at) : null,
   });
 
   return {
     ...(dashboard || {}),
+    identity_scope: {
+      student_user_id: context.student_user_id,
+      identity_keys: context.identity_keys,
+      primary_identity_key: context.primary_identity_key,
+      profile_mode: context.student_user_id ? 'longitudinal' : 'session-only',
+      account_linked: Boolean(context.student_user_id),
+    },
     engagement,
     comebackMission: engagement.comeback_mission,
     student_memory: studentMemory,
@@ -2726,13 +3016,19 @@ async function getSessionStudentContext(sessionId: number, participantId: number
   if (!participant) return null;
 
   const identityKey = getParticipantIdentityKey(participant);
-  const mastery = (await getMasteryRows(identityKey));
-  const practice_attempts = (await db.prepare('SELECT * FROM practice_attempts WHERE identity_key = ?').all(identityKey));
+  const studentScope = await buildStudentAnalyticsContext({
+    studentUserId: Number(participant?.student_user_id || 0),
+    identityKey,
+    nickname: participant?.nickname,
+    displayName: participant?.display_name_snapshot || participant?.nickname,
+  });
+  const mastery = studentScope.mastery;
+  const practice_attempts = studentScope.practice_attempts;
   const answers = classPayload.answers.filter((answer: any) => Number(answer.participant_id) === participantId);
   const behavior_logs = classPayload.behavior_logs.filter((log: any) => Number(log.participant_id) === participantId);
 
   const sessionAnalytics = await runStudentDashboardWithFallback({
-    nickname: participant.nickname,
+    nickname: studentScope.canonical_nickname,
     mastery,
     answers,
     questions: classPayload.questions,
@@ -2742,15 +3038,17 @@ async function getSessionStudentContext(sessionId: number, participantId: number
     packs: classPayload.pack ? [classPayload.pack] : [],
   });
   const overallAnalytics = await getOverallStudentAnalytics({
+    studentUserId: studentScope.student_user_id || undefined,
     identityKey,
-    nickname: participant.nickname,
+    nickname: studentScope.canonical_nickname,
+    displayName: participant?.display_name_snapshot || participant?.nickname,
   });
 
   const adaptivePreview = await runPythonEngine<any>('practice-set', {
-    nickname: participant.nickname,
-    mastery,
-    questions: classPayload.questions,
-    practice_attempts,
+      nickname: studentScope.canonical_nickname,
+      mastery,
+      questions: classPayload.questions,
+      practice_attempts,
     count: Math.min(5, Math.max(1, classPayload.questions.length || 1)),
     focus_tags:
       sessionAnalytics?.adaptiveTargets?.focus_tags ||
@@ -2766,33 +3064,25 @@ async function getSessionStudentContext(sessionId: number, participantId: number
   const classDashboard = await runPythonEngine<any>('class-dashboard', classPayload);
   const studentSummary =
     classDashboard?.participants?.find((row: any) => Number(row.id) === participantId) || null;
-  const fullAnswers = (await db
-    .prepare(`
-      SELECT a.*
-      FROM answers a
-      JOIN participants p ON a.participant_id = p.id
-      WHERE p.identity_key = ?
-    `)
-    .all(identityKey)) as any[];
-  const identityParticipants = await getParticipantsForIdentityKey(identityKey);
-  const identitySessionIds = uniqueNumbers(identityParticipants.map((row: any) => row.session_id));
-  const identitySessions = (await getSessionsForIds(identitySessionIds)) as any[];
-  const identityQuestions = (await getQuestionsForPackIds(uniqueNumbers(identitySessions.map((row: any) => row.quiz_pack_id)))) as any[];
   const studentMemory = await updateStudentMemorySnapshot({
-    identityKey,
-    nickname: participant.nickname,
+    identityKey: studentScope.primary_identity_key,
+    nickname: studentScope.canonical_nickname,
     overallAnalytics,
     sessionAnalytics,
     mastery,
-    answers: fullAnswers,
+    answers: studentScope.answers,
     practiceAttempts: practice_attempts as any[],
-    sessions: identitySessions,
-    questions: identityQuestions,
+    sessions: studentScope.sessions,
+    questions: studentScope.questions,
   });
 
   return {
     classPayload,
-    participant,
+    participant: {
+      ...participant,
+      account_linked: Boolean(studentScope.student_user_id),
+      profile_mode: studentScope.student_user_id ? 'longitudinal' : 'session-only',
+    },
     identityKey,
     mastery,
     practice_attempts,
@@ -2803,6 +3093,7 @@ async function getSessionStudentContext(sessionId: number, participantId: number
     adaptivePreview,
     classDashboard,
     studentSummary,
+    studentScope,
   };
 }
 
@@ -2829,6 +3120,138 @@ async function getClassFollowUpContext(sessionId: number) {
     classDashboard,
     packDetail,
     followUpEngine,
+  };
+}
+
+function sortByNewestTimestamp<T extends Record<string, any>>(rows: T[], ...keys: string[]) {
+  return [...rows].sort((left, right) => {
+    const leftTimestamp = Math.max(
+      ...keys.map((key) => new Date(String(left?.[key] || 0)).getTime() || 0),
+    );
+    const rightTimestamp = Math.max(
+      ...keys.map((key) => new Date(String(right?.[key] || 0)).getTime() || 0),
+    );
+    return rightTimestamp - leftTimestamp;
+  });
+}
+
+function buildFallbackStudentSessionHistory({
+  participants,
+  sessions,
+  packs,
+  answers,
+}: {
+  participants: any[];
+  sessions: any[];
+  packs: any[];
+  answers: any[];
+}) {
+  const sessionById = new Map(sessions.map((session: any) => [Number(session.id), session] as const));
+  const packById = new Map(packs.map((pack: any) => [Number(pack.id), pack] as const));
+  const answersByParticipantId = new Map<number, any[]>();
+  answers.forEach((answer: any) => {
+    const participantId = Number(answer?.participant_id || 0);
+    const current = answersByParticipantId.get(participantId) || [];
+    current.push(answer);
+    answersByParticipantId.set(participantId, current);
+  });
+
+  return sortByNewestTimestamp(participants, 'created_at').slice(0, 12).map((participant: any) => {
+    const session = sessionById.get(Number(participant.session_id || 0)) || null;
+    const pack = session ? packById.get(Number(session.quiz_pack_id || 0)) || null : null;
+    const participantAnswers = answersByParticipantId.get(Number(participant.id || 0)) || [];
+    const correctCount = participantAnswers.filter((answer: any) => Number(answer?.is_correct || 0) > 0).length;
+    const accuracy = participantAnswers.length ? Math.round((correctCount / participantAnswers.length) * 100) : 0;
+    return {
+      session_id: Number(session?.id || participant.session_id || 0),
+      participant_id: Number(participant.id || 0),
+      pack_id: Number(pack?.id || session?.quiz_pack_id || 0) || null,
+      pack_title: String(pack?.title || `Pack ${session?.quiz_pack_id || ''}`).trim(),
+      status: String(session?.status || 'ENDED'),
+      joined_at: participant.created_at || null,
+      started_at: session?.started_at || participant.created_at || null,
+      ended_at: session?.ended_at || null,
+      accuracy_pct: accuracy,
+      answer_count: participantAnswers.length,
+      nickname: String(participant.display_name_snapshot || participant.nickname || 'Student'),
+    };
+  });
+}
+
+async function buildStudentPortalPayload(studentUserId: number) {
+  const studentUser = await getStudentUserById(studentUserId);
+  if (!studentUser?.id || String(studentUser.status || 'active') !== 'active') {
+    return null;
+  }
+
+  const classes = await getStudentClassesForUser(studentUserId);
+  const analytics = await getOverallStudentAnalytics({
+    studentUserId,
+    displayName: studentUser.display_name || studentUser.email,
+    nickname: studentUser.display_name || studentUser.email,
+  });
+  const context = await buildStudentAnalyticsContext({
+    studentUserId,
+    displayName: studentUser.display_name || studentUser.email,
+    nickname: studentUser.display_name || studentUser.email,
+  });
+  const packById = new Map<number, any>(context.packs.map((pack: any) => [Number(pack.id), pack] as const));
+  const sortedSessions = sortByNewestTimestamp(context.sessions, 'started_at', 'ended_at');
+  const latestSession = sortedSessions[0] || null;
+  const latestPack = latestSession ? packById.get(Number(latestSession.quiz_pack_id || 0)) || null : null;
+  const sessionHistory = Array.isArray(analytics?.sessionHistory) && analytics.sessionHistory.length > 0
+    ? analytics.sessionHistory
+    : buildFallbackStudentSessionHistory({
+        participants: context.participants,
+        sessions: context.sessions,
+        packs: context.packs,
+        answers: context.answers,
+      });
+  const recommendations = {
+    next_step: analytics?.student_memory?.recommended_next_step || null,
+    comeback_mission: analytics?.comebackMission || analytics?.engagement?.comeback_mission || null,
+    weak_tags: Array.isArray(analytics?.profile?.weak_tags) ? analytics.profile.weak_tags : [],
+  };
+
+  return {
+    student: {
+      id: Number(studentUser.id),
+      email: String(studentUser.email || ''),
+      display_name: String(studentUser.display_name || studentUser.email || 'Student'),
+      preferred_language: String(studentUser.preferred_language || ''),
+      status: String(studentUser.status || 'active'),
+      created_at: studentUser.created_at || null,
+      last_login_at: studentUser.last_login_at || null,
+    },
+    classes: classes.map((row: any) => ({
+      id: Number(row.id || 0),
+      class_id: Number(row.class_id || 0),
+      name: String(row.name || ''),
+      email: String(row.email || ''),
+      invite_status: String(row.invite_status || 'none'),
+      claimed_at: row.claimed_at || null,
+      last_seen_at: row.last_seen_at || null,
+      class_name: String(row.class_name || ''),
+      class_subject: String(row.class_subject || ''),
+      class_grade: String(row.class_grade || ''),
+      class_color: String(row.class_color || ''),
+    })),
+    latest_session: latestSession
+      ? {
+          id: Number(latestSession.id || 0),
+          status: String(latestSession.status || 'LOBBY'),
+          pin: String(latestSession.pin || ''),
+          quiz_pack_id: Number(latestSession.quiz_pack_id || 0),
+          pack_title: String(latestPack?.title || `Pack ${latestSession.quiz_pack_id || ''}`),
+          started_at: latestSession.started_at || null,
+          ended_at: latestSession.ended_at || null,
+        }
+      : null,
+    overall_analytics: analytics,
+    recommendations,
+    student_memory: analytics?.student_memory || null,
+    session_history: sessionHistory,
+    practice_defaults: analytics?.comebackMission?.practice_query || null,
   };
 }
 
@@ -3391,6 +3814,212 @@ router.post('/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
+router.post('/student-auth/social', async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  if (!enforceRateLimit(req, res, 'student-auth-social', 15, 10 * 60 * 1000)) return;
+
+  const { provider, idToken, identity_key } = req.body || {};
+  if (provider !== 'google' || !idToken) {
+    return res.status(400).json({ error: 'Invalid provider or missing token.' });
+  }
+
+  try {
+    const decodedToken = await getFirebaseAdminAuth().verifyIdToken(idToken);
+    const email = normalizeStudentEmail(decodedToken.email || '');
+    if (!email) {
+      return res.status(400).json({ error: 'Google account has no valid email address.' });
+    }
+    if (decodedToken.email_verified === false) {
+      return res.status(400).json({ error: 'Google account email must be verified before signing in.' });
+    }
+
+    const displayName = sanitizeStudentDisplayName(decodedToken.name || '');
+    const identityKey = resolveStudentIdentityKey(identity_key, displayName || email);
+
+    let studentUser = await getStudentUserByEmail(email);
+    if (!studentUser) {
+      // Auto-register the student if they don't exist
+      studentUser = await createStudentUser({
+        email,
+        password: randomUUID(), // Placeholder password for social accounts
+        displayName: displayName || email,
+      });
+    } else {
+      await updateStudentLastLogin(Number(studentUser.id));
+    }
+
+    await linkStudentIdentity({
+      studentUserId: Number(studentUser.id),
+      identityKey,
+      source: 'social_login',
+    });
+
+    await claimRosterRowsForStudentUser({
+      studentUserId: Number(studentUser.id),
+      email: studentUser.email,
+    });
+
+    const { session, token } = createStudentSession({
+      studentUserId: Number(studentUser.id),
+      email: studentUser.email,
+      displayName: studentUser.display_name || displayName,
+    });
+    issueStudentSession(req, res, token);
+    res.json({ ...session, token, student_user_id: Number(studentUser.id) });
+  } catch (error: any) {
+    console.error('[ERROR] Failed to verify Student Google ID token:', error);
+    res.status(401).json({ error: 'Failed to verify Google sign-in. Please try again.' });
+  }
+});
+
+router.post('/student-auth/register', async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  if (!enforceRateLimit(req, res, 'student-auth-register', 10, 10 * 60 * 1000)) return;
+
+  const email = sanitizeStudentEmailInput(req.body?.email);
+  const password = String(req.body?.password || '');
+  const displayName = sanitizeStudentDisplayName(req.body?.display_name ?? req.body?.displayName ?? req.body?.name);
+  const identityKey = resolveStudentIdentityKey(req.body?.identity_key, displayName || email);
+
+  const emailError = validateStudentEmail(email);
+  if (emailError) {
+    return res.status(400).json({ error: emailError });
+  }
+
+  const passwordError = validateStudentPassword(password);
+  if (passwordError) {
+    return res.status(400).json({ error: passwordError });
+  }
+
+  if (!displayName) {
+    return res.status(400).json({ error: 'Display name is required.' });
+  }
+
+  const existingStudent = await getStudentUserByEmail(email);
+  if (existingStudent?.id) {
+    return res.status(409).json({ error: 'A student account with this email already exists. Try signing in instead.' });
+  }
+
+  const createdStudent = await createStudentUser({
+    email,
+    password,
+    displayName,
+  });
+
+  await linkStudentIdentity({
+    studentUserId: Number(createdStudent.id),
+    identityKey,
+    source: 'claimed_device',
+    makePrimary: true,
+  });
+  await claimRosterRowsForStudentUser({
+    studentUserId: Number(createdStudent.id),
+    email: createdStudent.email,
+  });
+
+  const uiLanguage = getRequestedUiLanguage(req);
+  if (uiLanguage) {
+    await updateStudentPreferredLanguage(Number(createdStudent.id), uiLanguage);
+  }
+
+  const { session, token } = createStudentSession({
+    studentUserId: Number(createdStudent.id),
+    email: createdStudent.email,
+    displayName: createdStudent.display_name || displayName,
+  });
+  issueStudentSession(req, res, token);
+  res.status(201).json({ ...session, token, student_user_id: Number(createdStudent.id) });
+});
+
+router.post('/student-auth/login', async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  if (!enforceRateLimit(req, res, 'student-auth-login', 12, 10 * 60 * 1000)) return;
+
+  const email = sanitizeStudentEmailInput(req.body?.email);
+  const password = String(req.body?.password || '');
+  const identityKey = resolveStudentIdentityKey(req.body?.identity_key, email);
+
+  const studentUser = await getStudentUserByEmail(email);
+  if (!studentUser?.id || !verifyStudentPassword(password, studentUser.password_hash)) {
+    return res.status(401).json({ error: 'Invalid email or password.' });
+  }
+  if (String(studentUser.status || 'active') !== 'active') {
+    return res.status(403).json({ error: 'This student account is not active.' });
+  }
+
+  await updateStudentLastLogin(Number(studentUser.id));
+  await linkStudentIdentity({
+    studentUserId: Number(studentUser.id),
+    identityKey,
+    source: 'account_join',
+  });
+  await claimRosterRowsForStudentUser({
+    studentUserId: Number(studentUser.id),
+    email: studentUser.email,
+  });
+
+  const uiLanguage = getRequestedUiLanguage(req);
+  if (uiLanguage) {
+    await updateStudentPreferredLanguage(Number(studentUser.id), uiLanguage);
+  }
+
+  const { session, token } = createStudentSession({
+    studentUserId: Number(studentUser.id),
+    email: studentUser.email,
+    displayName: studentUser.display_name || studentUser.email,
+  });
+  issueStudentSession(req, res, token);
+  res.json({ ...session, token, student_user_id: Number(studentUser.id) });
+});
+
+router.get('/student-auth/session', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const sessionData = readStudentSession(req);
+    if (!sessionData) {
+      clearStudentSession(req, res);
+      return res.status(401).json({ error: 'Not signed in' });
+    }
+
+    const studentUser = await getStudentUserById(Number(sessionData.studentUserId));
+    if (!studentUser?.id || String(studentUser.status || 'active') !== 'active') {
+      clearStudentSession(req, res);
+      return res.status(401).json({ error: 'Student account no longer exists. Please sign in again.' });
+    }
+
+    const uiLanguage = getRequestedUiLanguage(req);
+    if (uiLanguage) {
+      await updateStudentPreferredLanguage(Number(studentUser.id), uiLanguage);
+    }
+
+    const { session, token } = createStudentSession({
+      studentUserId: Number(studentUser.id),
+      email: studentUser.email,
+      displayName: studentUser.display_name || sessionData.displayName || studentUser.email,
+    });
+    issueStudentSession(req, res, token);
+
+    const claimedClasses = await getStudentClassesForUser(Number(studentUser.id));
+    res.json({
+      ...session,
+      token,
+      student_user_id: Number(studentUser.id),
+      preferred_language: String(studentUser.preferred_language || ''),
+      claimed_classes_count: claimedClasses.length,
+    });
+  } catch (error: any) {
+    console.error('[student-auth/session] Failed to restore student session:', error);
+    clearStudentSession(req, res);
+    res.status(500).json({ error: 'Failed to restore student session.' });
+  }
+});
+
+router.post('/student-auth/logout', (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  clearStudentSession(req, res);
+  res.json({ success: true });
+});
+
 router.get('/discover/packs', async (_req, res) => {
   console.log('[DEBUG] GET /api/discover/packs request received');
   try {
@@ -3527,14 +4156,35 @@ router.post('/teacher/classes', requireTeacherSession, async (req, res) => {
       }
     }
 
-    const studentNames = Array.isArray(req.body?.students)
+    const studentRoster = Array.isArray(req.body?.students)
       ? req.body.students
-          .map((student: any) => sanitizeTeacherStudentName(student?.name ?? student))
-          .filter(Boolean)
+          .map((student: any) => {
+            const name = sanitizeTeacherStudentName(student?.name ?? student);
+            const email = sanitizeStudentEmailInput(student?.email);
+            return { name, email };
+          })
+          .filter((student: any) => Boolean(student.name))
           .slice(0, 120)
       : [];
+    const invalidRosterEmail = studentRoster.find((student: any) => student.email && validateStudentEmail(student.email));
+    if (invalidRosterEmail?.email) {
+      return res.status(400).json({ error: validateStudentEmail(invalidRosterEmail.email) });
+    }
+    const rosterEmails = uniqueStrings(studentRoster.map((student: any) => student.email).filter(Boolean));
+    const existingStudentUsers = rosterEmails.length
+      ? ((await db
+            .prepare(`
+              SELECT id, email
+              FROM student_users
+              WHERE LOWER(email) IN (${buildSqlPlaceholders(rosterEmails.length)})
+            `)
+            .all(...rosterEmails)) as any[])
+      : [];
+    const linkedStudentByEmail = new Map(
+      existingStudentUsers.map((student: any) => [normalizeStudentEmail(student.email), Number(student.id)] as const),
+    );
 
-    const createTeacherClass = db.transaction((input: typeof payload, roster: string[]) => {
+    const createTeacherClass = db.transaction((input: typeof payload, roster: Array<{ name: string; email: string }>) => {
       const info = db
         .prepare(`
           INSERT INTO teacher_classes (teacher_id, name, subject, grade, color, notes, pack_id, archived, created_at, updated_at)
@@ -3552,18 +4202,39 @@ router.post('/teacher/classes', requireTeacherSession, async (req, res) => {
 
       const classId = Number(info.lastInsertRowid);
       const insertStudent = db.prepare(`
-        INSERT INTO teacher_class_students (class_id, name, joined_at, created_at, updated_at)
-        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO teacher_class_students (
+          class_id,
+          name,
+          email,
+          student_user_id,
+          invite_status,
+          claimed_at,
+          last_seen_at,
+          joined_at,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `);
 
-      roster.forEach((studentName) => {
-        insertStudent.run(classId, studentName);
+      roster.forEach((student) => {
+        const linkedStudentId = student.email ? linkedStudentByEmail.get(normalizeStudentEmail(student.email)) || null : null;
+        const isClaimed = Boolean(linkedStudentId);
+        insertStudent.run(
+          classId,
+          student.name,
+          student.email || '',
+          linkedStudentId,
+          isClaimed ? 'claimed' : student.email ? 'invited' : 'none',
+          isClaimed ? new Date().toISOString() : null,
+          isClaimed ? new Date().toISOString() : null,
+        );
       });
 
       return classId;
     });
 
-    const classId = createTeacherClass(payload, studentNames);
+    const classId = createTeacherClass(payload, studentRoster);
     res.status(201).json((await getHydratedTeacherClass(classId, teacherUserId)));
   } catch (error: any) {
     console.error('[ERROR] Create teacher class failed:', error);
@@ -3682,16 +4353,44 @@ router.post('/teacher/classes/:id/students', requireTeacherSession, async (req, 
     }
 
     const studentName = sanitizeTeacherStudentName(req.body?.name);
+    const studentEmail = sanitizeStudentEmailInput(req.body?.email);
     if (!studentName) {
       return res.status(400).json({ error: 'Student name is required.' });
     }
+    if (studentEmail) {
+      const emailError = validateStudentEmail(studentEmail);
+      if (emailError) {
+        return res.status(400).json({ error: emailError });
+      }
+    }
+
+    const linkedStudent = studentEmail ? await getStudentUserByEmail(studentEmail) : null;
 
     (await db
         .prepare(`
-        INSERT INTO teacher_class_students (class_id, name, joined_at, created_at, updated_at)
-        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO teacher_class_students (
+          class_id,
+          name,
+          email,
+          student_user_id,
+          invite_status,
+          claimed_at,
+          last_seen_at,
+          joined_at,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `)
-        .run(classId, studentName));
+        .run(
+          classId,
+          studentName,
+          studentEmail || '',
+          linkedStudent?.id ? Number(linkedStudent.id) : null,
+          linkedStudent?.id ? 'claimed' : studentEmail ? 'invited' : 'none',
+          linkedStudent?.id ? new Date().toISOString() : null,
+          linkedStudent?.id ? new Date().toISOString() : null,
+        ));
     (await db
         .prepare('UPDATE teacher_classes SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND teacher_id = ?')
         .run(classId, teacherUserId));
@@ -4211,6 +4910,9 @@ router.post('/packs/generate', requireTeacherSession, async (req, res) => {
   const questionFormat = sanitizeLine(req.body?.question_format || 'Multiple Choice', 32);
   const cognitiveLevel = sanitizeLine(req.body?.cognitive_level || 'Mixed', 32);
   const explanationDetail = sanitizeLine(req.body?.explanation_detail || 'Concise', 32);
+  const contentFocus = sanitizeLine(req.body?.content_focus || 'Balanced', 40);
+  const distractorStyle = sanitizeLine(req.body?.distractor_style || 'Standard', 32);
+  const gradeLevel = sanitizeLine(req.body?.grade_level || 'Auto', 40);
   const providerId = sanitizeLine(req.body?.provider_id || req.body?.providerId, 24) || null;
   const modelId = sanitizeLine(req.body?.model_id || req.body?.modelId, 80) || null;
 
@@ -4227,6 +4929,9 @@ router.post('/packs/generate', requireTeacherSession, async (req, res) => {
       questionFormat,
       cognitiveLevel,
       explanationDetail,
+      contentFocus,
+      distractorStyle,
+      gradeLevel,
       providerId,
       modelId,
     });
@@ -4240,6 +4945,9 @@ router.post('/packs/generate', requireTeacherSession, async (req, res) => {
         questionFormat,
         cognitiveLevel,
         explanationDetail,
+        contentFocus,
+        distractorStyle,
+        gradeLevel,
         providerId,
         modelId,
       }));
@@ -4252,6 +4960,54 @@ router.post('/packs/generate', requireTeacherSession, async (req, res) => {
       return;
     }
     respondWithServerError(res, 'Failed to generate questions');
+  }
+});
+
+router.post('/packs/improve-questions', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  const teacherUserId = (await getTeacherUserIdFromRequest(req));
+  if (!teacherUserId) {
+    return res.status(401).json({ error: 'Teacher authentication required' });
+  }
+  if (!enforceRateLimit(req, res, 'teacher-pack-improve', 20, 10 * 60 * 1000, teacherUserId)) return;
+
+  const source_text = sanitizeMultiline(req.body?.source_text, 120000);
+  const existingQuestions = Array.isArray(req.body?.existing_questions) ? req.body.existing_questions : [];
+  const count = Math.min(20, Math.max(1, parsePositiveInt(req.body?.count, existingQuestions.length || 5)));
+  const difficulty = sanitizeLine(req.body?.difficulty || 'Medium', 24);
+  const language = sanitizeLine(req.body?.language || 'English', 24);
+  const questionFormat = sanitizeLine(req.body?.question_format || 'Multiple Choice', 32);
+  const cognitiveLevel = sanitizeLine(req.body?.cognitive_level || 'Mixed', 32);
+  const explanationDetail = sanitizeLine(req.body?.explanation_detail || 'Concise', 32);
+  const contentFocus = sanitizeLine(req.body?.content_focus || 'Balanced', 40);
+  const distractorStyle = sanitizeLine(req.body?.distractor_style || 'Standard', 32);
+  const gradeLevel = sanitizeLine(req.body?.grade_level || 'Auto', 40);
+  const providerId = sanitizeLine(req.body?.provider_id || req.body?.providerId, 24) || null;
+  const modelId = sanitizeLine(req.body?.model_id || req.body?.modelId, 80) || null;
+
+  if (!source_text) return res.status(400).json({ error: 'Source text is required' });
+  if (!existingQuestions.length) return res.status(400).json({ error: 'existing_questions is required' });
+
+  try {
+    const payload = await improveQuestionsFromSource({
+      sourceText: source_text,
+      count,
+      difficulty,
+      language,
+      questionFormat,
+      cognitiveLevel,
+      explanationDetail,
+      contentFocus,
+      distractorStyle,
+      gradeLevel,
+      providerId,
+      modelId,
+      existingQuestions,
+    });
+    res.json(payload);
+  } catch (error: any) {
+    console.error('[ERROR] Improve questions route crash:', error);
+    respondWithServerError(res, 'Failed to improve questions');
   }
 });
 
@@ -4585,14 +5341,48 @@ router.get('/teacher/sessions/pin/:pin/participants', requireTeacherSession, asy
         p.team_name,
         p.seat_index,
         p.created_at,
+        p.student_user_id,
+        p.class_student_id,
+        p.join_mode,
+        p.display_name_snapshot,
+        CASE
+          WHEN COALESCE(p.student_user_id, 0) > 0 THEN 1
+          ELSE 0
+        END AS account_linked,
+        CASE
+          WHEN COALESCE(p.student_user_id, 0) > 0 THEN 'longitudinal'
+          ELSE 'session-only'
+        END AS profile_mode,
+        tcs.name AS class_student_name,
+        tcs.email AS class_student_email,
+        tcs.invite_status,
+        tcs.claimed_at,
+        tcs.last_seen_at,
         COALESCE(SUM(a.score_awarded), 0) AS score,
         COALESCE(SUM(CASE WHEN a.is_correct = 1 THEN 1 ELSE 0 END), 0) AS correct_count
       FROM participants p
+      LEFT JOIN teacher_class_students tcs
+        ON tcs.id = p.class_student_id
       LEFT JOIN answers a
         ON a.session_id = p.session_id
        AND a.participant_id = p.id
       WHERE p.session_id = ?
-      GROUP BY p.id, p.nickname, p.team_id, p.team_name, p.seat_index, p.created_at
+      GROUP BY
+        p.id,
+        p.nickname,
+        p.team_id,
+        p.team_name,
+        p.seat_index,
+        p.created_at,
+        p.student_user_id,
+        p.class_student_id,
+        p.join_mode,
+        p.display_name_snapshot,
+        tcs.name,
+        tcs.email,
+        tcs.invite_status,
+        tcs.claimed_at,
+        tcs.last_seen_at
       ORDER BY p.created_at ASC, p.id ASC
     `)
         .all(session.id));
@@ -4819,6 +5609,24 @@ router.post('/sessions/:pin/join', async (req, res) => {
   const pin = sanitizeSessionPin(req.params.pin);
   const nickname = sanitizeLine(req.body?.nickname, 24);
   const identityKey = resolveStudentIdentityKey(req.body?.identity_key, nickname);
+  const studentSession = readStudentSession(req);
+  const activeStudentUser =
+    studentSession?.studentUserId ? await getStudentUserById(Number(studentSession.studentUserId)) : null;
+  const studentUserId =
+    activeStudentUser?.id && String(activeStudentUser.status || 'active') === 'active'
+      ? Number(activeStudentUser.id)
+      : 0;
+  if (studentUserId) {
+    await linkStudentIdentity({
+      studentUserId,
+      identityKey,
+      source: 'account_join',
+    });
+    await claimRosterRowsForStudentUser({
+      studentUserId,
+      email: String(activeStudentUser.email || ''),
+    });
+  }
   if (!enforceRateLimit(req, res, 'student-join', 20, 5 * 60 * 1000, pin, nickname.toLowerCase())) return;
 
   const session = hydrateSessionRow(await db.prepare('SELECT * FROM sessions WHERE pin = ?').get(pin));
@@ -4834,21 +5642,104 @@ router.post('/sessions/:pin/join', async (req, res) => {
         throw new Error('Session has ended');
       }
 
+      let matchedClassStudent: any = null;
+      if (Number(latestSession.teacher_class_id || 0) > 0 && studentUserId) {
+        matchedClassStudent = db
+          .prepare(`
+            SELECT *
+            FROM teacher_class_students
+            WHERE class_id = ?
+              AND (
+                student_user_id = ?
+                OR LOWER(COALESCE(email, '')) = LOWER(?)
+              )
+            ORDER BY
+              CASE WHEN student_user_id = ? THEN 0 ELSE 1 END,
+              id ASC
+            LIMIT 1
+          `)
+          .get(
+            Number(latestSession.teacher_class_id || 0),
+            studentUserId,
+            String(activeStudentUser?.email || ''),
+            studentUserId,
+          ) as any;
+        if (matchedClassStudent?.id) {
+          db
+            .prepare(`
+              UPDATE teacher_class_students
+              SET student_user_id = ?,
+                  invite_status = 'claimed',
+                  claimed_at = COALESCE(claimed_at, CURRENT_TIMESTAMP),
+                  last_seen_at = CURRENT_TIMESTAMP,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?
+            `)
+            .run(studentUserId, Number(matchedClassStudent.id));
+          matchedClassStudent = db
+            .prepare('SELECT * FROM teacher_class_students WHERE id = ? LIMIT 1')
+            .get(Number(matchedClassStudent.id)) as any;
+        }
+      }
+
       const existing = db
               .prepare('SELECT * FROM participants WHERE session_id = ? AND LOWER(nickname) = LOWER(?)')
               .get(session.id, nickname);
       
       if (existing) {
         // If identity key matches, allow re-join
-        if (existing.identity_key === identityKey) {
+        if (existing.identity_key === identityKey || (studentUserId && Number(existing.student_user_id || 0) === studentUserId)) {
+          if (studentUserId) {
+            db
+              .prepare(`
+                UPDATE participants
+                SET identity_key = ?,
+                    student_user_id = ?,
+                    class_student_id = COALESCE(?, class_student_id),
+                    join_mode = ?,
+                    display_name_snapshot = ?
+                WHERE id = ?
+              `)
+              .run(
+                identityKey,
+                studentUserId,
+                Number(matchedClassStudent?.id || 0) || null,
+                Number(existing.student_user_id || 0) > 0 ? 'account' : 'claimed_anonymous',
+                nickname,
+                Number(existing.id),
+              );
+            if (matchedClassStudent?.id) {
+              db
+                .prepare(`
+                  UPDATE teacher_class_students
+                  SET last_seen_at = CURRENT_TIMESTAMP,
+                      invite_status = 'claimed',
+                      claimed_at = COALESCE(claimed_at, CURRENT_TIMESTAMP),
+                      updated_at = CURRENT_TIMESTAMP
+                  WHERE id = ?
+                `)
+                .run(Number(matchedClassStudent.id));
+            }
+          }
+          const refreshedExisting = db
+            .prepare('SELECT * FROM participants WHERE id = ? LIMIT 1')
+            .get(Number(existing.id)) as any;
           return {
-            participant_id: existing.id,
+            participant_id: Number(existing.id),
             total: Number(db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(session.id).count || 0),
-            assignedTeamId: existing.team_id,
-            assignedTeamName: existing.team_name,
-            seatIndex: existing.seat_index,
-            identityKey: existing.identity_key,
-            rejoined: true
+            assignedTeamId: Number(refreshedExisting?.team_id || existing.team_id || 0),
+            assignedTeamName: refreshedExisting?.team_name || existing.team_name,
+            seatIndex: Number(refreshedExisting?.seat_index || existing.seat_index || 0),
+            identityKey: getParticipantIdentityKey(refreshedExisting || existing),
+            studentUserId: Number(refreshedExisting?.student_user_id || existing.student_user_id || 0) || null,
+            classStudentId: Number(refreshedExisting?.class_student_id || existing.class_student_id || 0) || null,
+            joinMode: String(refreshedExisting?.join_mode || existing.join_mode || (studentUserId ? 'claimed_anonymous' : 'anonymous')),
+            accountLinked: Boolean(Number(refreshedExisting?.student_user_id || existing.student_user_id || 0)),
+            profileMode: Number(refreshedExisting?.student_user_id || existing.student_user_id || 0) > 0 ? 'longitudinal' : 'session-only',
+            classStudentName: String(matchedClassStudent?.name || ''),
+            classStudentEmail: String(matchedClassStudent?.email || ''),
+            inviteStatus: String(matchedClassStudent?.invite_status || 'none'),
+            rejoined: true,
           };
         }
         throw new Error('Nickname taken');
@@ -4876,12 +5767,47 @@ router.post('/sessions/:pin/join', async (req, res) => {
 
       const info = db
               .prepare(`
-          INSERT OR IGNORE INTO participants (session_id, identity_key, nickname, team_id, team_name, seat_index)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT OR IGNORE INTO participants (
+            session_id,
+            identity_key,
+            nickname,
+            student_user_id,
+            class_student_id,
+            join_mode,
+            display_name_snapshot,
+            team_id,
+            team_name,
+            seat_index
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
-              .run(session.id, identityKey, nickname, assignedTeamId, assignedTeamName, seatIndex);
+              .run(
+                session.id,
+                identityKey,
+                nickname,
+                studentUserId || null,
+                Number(matchedClassStudent?.id || 0) || null,
+                studentUserId ? 'account' : 'anonymous',
+                nickname,
+                assignedTeamId,
+                assignedTeamName,
+                seatIndex,
+              );
       if (!Number(info.changes || 0)) {
         throw new Error('Nickname taken');
+      }
+
+      if (matchedClassStudent?.id) {
+        db
+          .prepare(`
+            UPDATE teacher_class_students
+            SET last_seen_at = CURRENT_TIMESTAMP,
+                invite_status = 'claimed',
+                claimed_at = COALESCE(claimed_at, CURRENT_TIMESTAMP),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `)
+          .run(Number(matchedClassStudent.id));
       }
 
       const total = Number(
@@ -4895,7 +5821,15 @@ router.post('/sessions/:pin/join', async (req, res) => {
         assignedTeamName,
         seatIndex,
         identityKey,
-        rejoined: false
+        studentUserId: studentUserId || null,
+        classStudentId: Number(matchedClassStudent?.id || 0) || null,
+        joinMode: studentUserId ? 'account' : 'anonymous',
+        accountLinked: Boolean(studentUserId),
+        profileMode: studentUserId ? 'longitudinal' : 'session-only',
+        classStudentName: String(matchedClassStudent?.name || ''),
+        classStudentEmail: String(matchedClassStudent?.email || ''),
+        inviteStatus: String(matchedClassStudent?.invite_status || 'none'),
+        rejoined: false,
       };
     })();
 
@@ -4912,6 +5846,16 @@ router.post('/sessions/:pin/join', async (req, res) => {
       total_participants: joinResult.total,
       team_id: joinResult.assignedTeamId,
       team_name: joinResult.assignedTeamName,
+      seat_index: joinResult.seatIndex,
+      student_user_id: joinResult.studentUserId,
+      class_student_id: joinResult.classStudentId,
+      join_mode: joinResult.joinMode,
+      account_linked: joinResult.accountLinked,
+      profile_mode: joinResult.profileMode,
+      display_name_snapshot: nickname,
+      class_student_name: joinResult.classStudentName,
+      class_student_email: joinResult.classStudentEmail,
+      invite_status: joinResult.inviteStatus,
       game_type: session.game_type,
     });
 
@@ -4923,6 +5867,15 @@ router.post('/sessions/:pin/join', async (req, res) => {
       team_name: joinResult.assignedTeamName,
       seat_index: joinResult.seatIndex,
       identity_key: joinResult.identityKey,
+      student_user_id: joinResult.studentUserId,
+      class_student_id: joinResult.classStudentId,
+      join_mode: joinResult.joinMode,
+      account_linked: joinResult.accountLinked,
+      profile_mode: joinResult.profileMode,
+      display_name_snapshot: nickname,
+      class_student_name: joinResult.classStudentName,
+      class_student_email: joinResult.classStudentEmail,
+      invite_status: joinResult.inviteStatus,
       participant_token: participantToken,
     });
   } catch (error: any) {
@@ -5254,19 +6207,75 @@ router.get('/analytics/class/:sessionId', async (req, res) => {
         },
       ]),
     );
+    const participantMeta = new Map(
+      (Array.isArray(payload.participants) ? payload.participants : []).map((participant: any) => [
+        Number(participant.id),
+        {
+          student_user_id: Number(participant.student_user_id || 0) || null,
+          class_student_id: Number(participant.class_student_id || 0) || null,
+          account_linked: Boolean(Number(participant.student_user_id || 0)),
+          profile_mode: Number(participant.student_user_id || 0) ? 'longitudinal' : 'session-only',
+          display_name_snapshot: String(participant.display_name_snapshot || ''),
+          join_mode: String(participant.join_mode || 'anonymous'),
+        },
+      ] as const),
+    );
+    const classRosterRows = Number(ownedSession.teacher_class_id || 0)
+      ? ((await db
+            .prepare(`
+              SELECT id, invite_status, claimed_at, last_seen_at
+              FROM teacher_class_students
+              WHERE class_id = ?
+            `)
+            .all(Number(ownedSession.teacher_class_id || 0))) as any[])
+      : [];
+    const rosterMetaById = new Map(
+      classRosterRows.map((row: any) => [
+        Number(row.id),
+        {
+          invite_status: String(row.invite_status || 'none'),
+          claimed_at: row.claimed_at || null,
+          last_seen_at: row.last_seen_at || null,
+        },
+      ] as const),
+    );
     const mapQuestionMeta = (question: any) =>
       Object.assign(
         {},
         question && typeof question === 'object' ? question : {},
         questionMeta.get(Number(question?.question_id || question?.id)) || {},
       );
+    const mapParticipantMeta = (participant: any) => {
+      const meta = participantMeta.get(Number(participant?.id || 0)) || null;
+      const rosterMeta = meta?.class_student_id ? rosterMetaById.get(Number(meta.class_student_id || 0)) || null : null;
+      return {
+        ...(participant && typeof participant === 'object' ? participant : {}),
+        ...(meta || {}),
+        ...(rosterMeta || {}),
+      };
+    };
+    const mapStudentCollectionEntries = (entries: any[]) =>
+      Array.isArray(entries) ? entries.map((entry: any) => mapParticipantMeta(entry)) : entries;
 
-    res.json({
+    const responsePayload = {
       ...dashboard,
-      memory_board: memoryBoard,
+      memory_board: memoryBoard
+        ? {
+            ...memoryBoard,
+            watchlist: mapStudentCollectionEntries(memoryBoard.watchlist),
+            autopilot_queue: mapStudentCollectionEntries(memoryBoard.autopilot_queue),
+          }
+        : memoryBoard,
       pack: packDetail,
       follow_up_engine: followUpEngine,
       cross_section_comparison: (await buildCrossSectionComparison(sessionId, teacherUserId)),
+      participants: Array.isArray(dashboard?.participants) ? dashboard.participants.map(mapParticipantMeta) : dashboard?.participants,
+      studentSpotlight: dashboard?.studentSpotlight
+        ? {
+            ...dashboard.studentSpotlight,
+            attention_needed: mapStudentCollectionEntries(dashboard.studentSpotlight.attention_needed),
+          }
+        : dashboard?.studentSpotlight,
       questions: Array.isArray(dashboard?.questions) ? dashboard.questions.map(mapQuestionMeta) : dashboard?.questions,
       research: {
         ...(dashboard?.research || {}),
@@ -5274,7 +6283,29 @@ router.get('/analytics/class/:sessionId', async (req, res) => {
           ? dashboard.research.question_diagnostics.map(mapQuestionMeta)
           : dashboard?.research?.question_diagnostics,
       },
-    });
+    };
+
+    const uiLanguage = getRequestedUiLanguage(req);
+    await translateAnalyticsFields(responsePayload, uiLanguage, [
+      (root) => (Array.isArray(root?.questions) ? root.questions : []).flatMap((question: any) => [
+        { holder: question, key: 'prompt' },
+        { holder: question, key: 'question_prompt' },
+        { holder: question, key: 'learning_objective' },
+      ]),
+      (root) => (Array.isArray(root?.questions) ? root.questions : []).flatMap((question: any) =>
+        Array.isArray(question?.tags) ? question.tags.map((_tag: string, index: number) => ({ holder: question.tags, key: String(index) })) : []),
+      (root) => (Array.isArray(root?.research?.question_diagnostics) ? root.research.question_diagnostics : []).flatMap((question: any) => [
+        { holder: question, key: 'question_prompt' },
+        { holder: question, key: 'recommendation' },
+        { holder: question, key: 'learning_objective' },
+      ]),
+      (root) => (Array.isArray(root?.research?.question_diagnostics) ? root.research.question_diagnostics : []).flatMap((question: any) =>
+        Array.isArray(question?.tags) ? question.tags.map((_tag: string, index: number) => ({ holder: question.tags, key: String(index) })) : []),
+      (root) => (Array.isArray(root?.research?.topic_behavior_profiles) ? root.research.topic_behavior_profiles : []).map((row: any) => ({ holder: row, key: 'tag' })),
+      (root) => (Array.isArray(root?.participants) ? root.participants : []).map((row: any) => ({ holder: row, key: 'recommendation' })),
+    ]);
+
+    res.json(responsePayload);
   } catch (error: any) {
     console.error('[ERROR] Class analytics failed:', error);
     respondWithServerError(res, 'Failed to load class analytics');
@@ -5651,7 +6682,7 @@ router.get('/analytics/class/:sessionId/student/:participantId', async (req, res
     const context = await getSessionStudentContext(sessionId, participantId);
     if (!context) return res.status(404).json({ error: 'Student session analytics not found' });
 
-    res.json({
+    const responsePayload = {
       session: {
         id: Number(context.classPayload.session.id),
         pin: context.classPayload.session.pin,
@@ -5659,7 +6690,13 @@ router.get('/analytics/class/:sessionId/student/:participantId', async (req, res
       },
       pack: context.classPayload.pack,
       participant: context.participant,
-      student_summary: context.studentSummary,
+      student_summary: context.studentSummary
+        ? {
+            ...context.studentSummary,
+            account_linked: Boolean(context.studentScope?.student_user_id),
+            profile_mode: context.studentScope?.student_user_id ? 'longitudinal' : 'session-only',
+          }
+        : null,
       class_summary: context.classDashboard?.summary || null,
       class_distributions: context.classDashboard?.distributions || null,
       analytics: context.sessionAnalytics,
@@ -5668,7 +6705,32 @@ router.get('/analytics/class/:sessionId/student/:participantId', async (req, res
       memory_intervention_plan: buildMemoryInterventionPlan(context),
       session_vs_overall: context.analyticsComparison,
       adaptive_game_preview: context.adaptivePreview,
-    });
+    };
+
+    const uiLanguage = getRequestedUiLanguage(req);
+    await translateAnalyticsFields(responsePayload, uiLanguage, [
+      (root) => (Array.isArray(root?.adaptive_game_preview?.questions) ? root.adaptive_game_preview.questions : []).flatMap((question: any) => [
+        { holder: question, key: 'prompt' },
+        { holder: question, key: 'learning_objective' },
+      ]),
+      (root) => (Array.isArray(root?.adaptive_game_preview?.questions) ? root.adaptive_game_preview.questions : []).flatMap((question: any) =>
+        Array.isArray(question?.tags) ? question.tags.map((_tag: string, index: number) => ({ holder: question.tags, key: String(index) })) : []),
+      (root) => (Array.isArray(root?.analytics?.questionReview) ? root.analytics.questionReview : []).flatMap((question: any) => [
+        { holder: question, key: 'prompt' },
+        { holder: question, key: 'recommendation' },
+        { holder: question, key: 'first_choice_text' },
+        { holder: question, key: 'final_choice_text' },
+      ]),
+      (root) => (Array.isArray(root?.analytics?.questionReview) ? root.analytics.questionReview : []).flatMap((question: any) =>
+        Array.isArray(question?.tags) ? question.tags.map((_tag: string, index: number) => ({ holder: question.tags, key: String(index) })) : []),
+      (root) => (Array.isArray(root?.analytics?.tagPerformance) ? root.analytics.tagPerformance : []).map((row: any) => ({ holder: row, key: 'tag' })),
+      (root) => (Array.isArray(root?.student_memory?.focus_tags) ? root.student_memory.focus_tags : []).map((row: any) => ({ holder: row, key: 'tag' })),
+      (root) => (Array.isArray(root?.student_memory?.recommended_next_step?.focus_tags)
+        ? root.student_memory.recommended_next_step.focus_tags.map((_tag: string, index: number) => ({ holder: root.student_memory.recommended_next_step.focus_tags, key: String(index) }))
+        : []),
+    ]);
+
+    res.json(responsePayload);
   } catch (error: any) {
     console.error('[ERROR] Teacher student analytics failed:', error);
     respondWithServerError(res, 'Failed to load student session analytics');
@@ -5693,8 +6755,8 @@ router.post('/analytics/class/:sessionId/student/:participantId/memory-note', as
     const context = await getSessionStudentContext(sessionId, participantId);
     if (!context) return res.status(404).json({ error: 'Student session analytics not found' });
     const snapshot = await saveStudentMemoryTeacherNote(
-      context.identityKey,
-      String(context.participant?.nickname || 'Student'),
+      context.studentScope?.primary_identity_key || context.identityKey,
+      String(context.studentScope?.canonical_nickname || context.participant?.nickname || 'Student'),
       String(req.body?.note || ''),
     );
     res.json({ success: true, student_memory: snapshot });
@@ -5858,6 +6920,75 @@ router.post('/analytics/class/:sessionId/memory-autopilot', async (req, res) => 
   }
 });
 
+router.get('/student/me', requireStudentSession, async (req, res) => {
+  try {
+    const studentSession = readStudentSession(req);
+    const studentUserId = Number(studentSession?.studentUserId || 0);
+    if (!studentUserId) {
+      return res.status(401).json({ error: 'Student authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'student-me', 120, 5 * 60 * 1000, studentUserId)) return;
+    const payload = await buildStudentPortalPayload(studentUserId);
+    if (!payload) {
+      clearStudentSession(req, res);
+      return res.status(401).json({ error: 'Student account no longer exists. Please sign in again.' });
+    }
+    res.json(payload);
+  } catch (error: any) {
+    console.error('[ERROR] Student portal load failed:', error);
+    respondWithServerError(res, 'Failed to load student portal');
+  }
+});
+
+router.get('/student/me/history', requireStudentSession, async (req, res) => {
+  try {
+    const studentSession = readStudentSession(req);
+    const studentUserId = Number(studentSession?.studentUserId || 0);
+    if (!studentUserId) {
+      return res.status(401).json({ error: 'Student authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'student-me-history', 120, 5 * 60 * 1000, studentUserId)) return;
+    const payload = await buildStudentPortalPayload(studentUserId);
+    if (!payload) {
+      clearStudentSession(req, res);
+      return res.status(401).json({ error: 'Student account no longer exists. Please sign in again.' });
+    }
+    res.json({
+      student: payload.student,
+      session_history: payload.session_history,
+      latest_session: payload.latest_session,
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Student history load failed:', error);
+    respondWithServerError(res, 'Failed to load student history');
+  }
+});
+
+router.get('/student/me/recommendations', requireStudentSession, async (req, res) => {
+  try {
+    const studentSession = readStudentSession(req);
+    const studentUserId = Number(studentSession?.studentUserId || 0);
+    if (!studentUserId) {
+      return res.status(401).json({ error: 'Student authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'student-me-recommendations', 120, 5 * 60 * 1000, studentUserId)) return;
+    const payload = await buildStudentPortalPayload(studentUserId);
+    if (!payload) {
+      clearStudentSession(req, res);
+      return res.status(401).json({ error: 'Student account no longer exists. Please sign in again.' });
+    }
+    res.json({
+      student: payload.student,
+      recommendations: payload.recommendations,
+      student_memory: payload.student_memory,
+      practice_defaults: payload.practice_defaults,
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Student recommendations load failed:', error);
+    respondWithServerError(res, 'Failed to load student recommendations');
+  }
+});
+
 router.get('/analytics/student/:nickname', async (req, res) => {
   try {
     const authorized = await getAuthorizedParticipantAccess(req);
@@ -5876,6 +7007,168 @@ router.get('/analytics/student/:nickname', async (req, res) => {
 });
 
 // --- Adaptive Practice ---
+router.get('/student/me/practice', requireStudentSession, async (req, res) => {
+  try {
+    const studentSession = readStudentSession(req);
+    const studentUserId = Number(studentSession?.studentUserId || 0);
+    if (!studentUserId) {
+      return res.status(401).json({ error: 'Student authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'student-me-practice', 90, 5 * 60 * 1000, studentUserId)) return;
+
+    const studentUser = await getStudentUserById(studentUserId);
+    if (!studentUser?.id) {
+      clearStudentSession(req, res);
+      return res.status(401).json({ error: 'Student account no longer exists. Please sign in again.' });
+    }
+
+    const requestedCount = clampNumber(req.query?.count, 2, 8, 5);
+    const requestedFocusTags = uniqueStrings(String(req.query?.focus_tags || '').split(',').map((tag) => sanitizeLine(tag, 40))).slice(0, 4);
+    const requestedMissionId = sanitizeLine(req.query?.mission, 40);
+    const requestedMissionLabel = sanitizeLine(req.query?.mission_label, 80);
+    const overallAnalytics = await getOverallStudentAnalytics({
+      studentUserId,
+      displayName: studentUser.display_name || studentUser.email,
+      nickname: studentUser.display_name || studentUser.email,
+    });
+    const studentContext = await buildStudentAnalyticsContext({
+      studentUserId,
+      displayName: studentUser.display_name || studentUser.email,
+      nickname: studentUser.display_name || studentUser.email,
+    });
+    const studentMemory = overallAnalytics?.student_memory || (await readStudentMemorySnapshot(studentContext.primary_identity_key));
+    const recommendedFocusTags = Array.isArray(studentMemory?.recommended_next_step?.focus_tags)
+      ? studentMemory.recommended_next_step.focus_tags
+      : [];
+    const focusTags = requestedFocusTags.length > 0 ? requestedFocusTags : recommendedFocusTags.slice(0, 4);
+    const recommendedAction = String(studentMemory?.recommended_next_step?.action || '');
+    const missionId =
+      requestedMissionId ||
+      (recommendedAction === 'confidence_reset'
+        ? 'reentry'
+        : recommendedAction === 'adaptive_practice'
+          ? 'targeted'
+          : recommendedAction === 'keep_momentum'
+            ? 'momentum'
+            : '');
+    const availableQuestions = studentContext.questions.length > 0
+      ? studentContext.questions
+      : ((await db.prepare('SELECT * FROM questions').all()) as any[]);
+    const practiceSet = await runPythonEngine<unknown>('practice-set', {
+      nickname: studentContext.canonical_nickname,
+      mastery: studentContext.mastery,
+      questions: availableQuestions,
+      practice_attempts: studentContext.practice_attempts,
+      count: requestedCount,
+      focus_tags: focusTags,
+    });
+    const missionLabel =
+      requestedMissionLabel ||
+      (missionId === 'reentry'
+        ? 'Comeback Mission'
+        : missionId === 'targeted'
+          ? 'Focus Sprint'
+          : missionId === 'momentum'
+            ? 'Momentum Booster'
+            : 'Adaptive Practice');
+
+    res.json({
+      ...(practiceSet && typeof practiceSet === 'object' ? practiceSet : {}),
+      mission: {
+        id: missionId || null,
+        label: missionLabel,
+        question_count: requestedCount,
+        focus_tags: focusTags,
+      },
+      memory_reason: studentMemory?.recommended_next_step?.body || null,
+      memory_reasons: Array.isArray(studentMemory?.recommended_next_step?.reasons) ? studentMemory.recommended_next_step.reasons : [],
+      memory_confidence: studentMemory?.trust || null,
+      coaching: studentMemory?.coaching || null,
+      student_memory_summary: studentMemory?.summary || null,
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Student account practice selection failed:', error);
+    respondWithServerError(res, 'Failed to load adaptive practice');
+  }
+});
+
+router.post('/student/me/practice/answer', requireStudentSession, async (req, res) => {
+  const question_id = parsePositiveInt(req.body?.question_id);
+  const chosenIndexValue = Number(req.body?.chosen_index);
+  const response_ms = clampNumber(req.body?.response_ms, 0, 300_000, 0);
+  if (!question_id) return res.status(400).json({ error: 'question_id is required' });
+  if (!Number.isFinite(chosenIndexValue) || chosenIndexValue < 0) {
+    return res.status(400).json({ error: 'chosen_index is required' });
+  }
+  if (!enforceTrustedOrigin(req, res)) return;
+
+  try {
+    const studentSession = readStudentSession(req);
+    const studentUserId = Number(studentSession?.studentUserId || 0);
+    if (!studentUserId) {
+      return res.status(401).json({ error: 'Student authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'student-me-practice-answer', 120, 5 * 60 * 1000, studentUserId, question_id)) return;
+
+    const studentUser = await getStudentUserById(studentUserId);
+    if (!studentUser?.id) {
+      clearStudentSession(req, res);
+      return res.status(401).json({ error: 'Student account no longer exists. Please sign in again.' });
+    }
+
+    const studentContext = await buildStudentAnalyticsContext({
+      studentUserId,
+      displayName: studentUser.display_name || studentUser.email,
+      nickname: studentUser.display_name || studentUser.email,
+    });
+    const question = (await db
+      .prepare('SELECT correct_index, explanation, tags_json, time_limit_seconds, answers_json FROM questions WHERE id = ?')
+      .get(question_id)) as any;
+    if (!question) return res.status(404).json({ error: 'Question not found' });
+    const answers = parseJsonArray(question.answers_json);
+    if (Math.floor(chosenIndexValue) >= answers.length) {
+      return res.status(400).json({ error: 'Invalid answer choice' });
+    }
+    const chosen_index = Math.floor(chosenIndexValue);
+    const isCorrect = Number(chosen_index) === Number(question.correct_index);
+
+    const outcome = await runPythonEngine<{
+      mastery_updates: Array<{ tag: string; score: number }>;
+    }>('answer-outcome', {
+      mode: 'practice',
+      is_correct: isCorrect,
+      response_ms,
+      time_limit_seconds: question.time_limit_seconds,
+      tags: parseJsonArray(question.tags_json),
+      current_mastery: studentContext.mastery,
+    });
+
+    await db.prepare(`
+      INSERT INTO practice_attempts (identity_key, nickname, question_id, is_correct, response_ms)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      studentContext.primary_identity_key,
+      studentContext.canonical_nickname,
+      question_id,
+      isCorrect ? 1 : 0,
+      response_ms,
+    );
+
+    if (outcome.mastery_updates.length > 0) {
+      applyMasteryUpdates(studentContext.primary_identity_key, studentContext.canonical_nickname, outcome.mastery_updates);
+    }
+
+    res.json({
+      is_correct: isCorrect,
+      correct_index: question.correct_index,
+      explanation: question.explanation,
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Student account practice answer failed:', error);
+    respondWithServerError(res, 'Failed to submit practice answer');
+  }
+});
+
 router.get('/practice/:nickname', async (req, res) => {
   try {
     const authorized = await getAuthorizedParticipantAccess(req);

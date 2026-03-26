@@ -9,6 +9,197 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Back to Reports': 'חזרה לדוחות',
   'Teacher Command Board': 'לוח הפיקוד של המורה',
   'Session analytics': 'אנליטיקות סשן',
+  'Student Drill-Down': 'ניתוח עומק לתלמיד',
+  'Fallback data loaded': 'נטענו נתוני גיבוי',
+  'Print Snapshot': 'הדפס תקציר',
+  'RISK': 'סיכון',
+  'Session-Specific Read': 'קריאת סשן ממוקדת',
+  'Game Accuracy': 'דיוק במשחק',
+  'Game Vs Overall Baseline': 'המשחק מול קו הבסיס הכללי',
+  'Accuracy Delta': 'פער דיוק',
+  'Stress Delta': 'פער לחץ',
+  'Confidence Delta': 'פער ביטחון',
+  'Focus Delta': 'פער ריכוז',
+  'Teacher Recommendation': 'המלצת מורה',
+  'Why we think this is true': 'למה אנחנו חושבים שזה נכון',
+  'Every student read is now split into observed facts, interpretation, and the next teaching move.':
+    'כל קריאת תלמיד מחולקת עכשיו לעובדות נצפות, פרשנות, ומהלך ההוראה הבא.',
+  'The system has not produced an evidence read for this student yet.': 'המערכת עדיין לא הפיקה קריאת ראיות עבור התלמיד הזה.',
+  'Session-specific interpretation': 'פרשנות ייעודית לסשן',
+  'No interpretation was produced yet.': 'עדיין לא הופקה פרשנות.',
+  'Watch the next game for a cleaner signal before changing the instruction plan.':
+    'עקוב אחרי המשחק הבא כדי לקבל אות נקי יותר לפני שינוי תוכנית ההוראה.',
+  'Assessment vs behavior': 'הערכה מול התנהגות',
+  'Separate grading-safe evidence from game-behavior signals before you act on the report.':
+    'הפרד בין ראיות בטוחות להערכה לבין אותות התנהגותיים של המשחק לפני שפועלים על הדוח.',
+  'Support Snapshot': 'תמונת תמיכה',
+  'A short plain-language summary you can reuse with a parent, advisor, coordinator, or support teacher.':
+    'סיכום קצר בשפה פשוטה שאפשר להשתמש בו שוב מול הורה, יועץ, רכז או מורה תומך.',
+  'Recommended next move': 'המהלך הבא המומלץ',
+  'Weakest Tags': 'תגיות חלשות',
+  'Strongest Tags': 'תגיות חזקות',
+  'Teacher Moves': 'מהלכי הוראה',
+  'No extra intervention signal was generated for this student.': 'לא הופק אות התערבות נוסף עבור התלמיד הזה.',
+  'This learner is close, but still has unstable moments under pressure.': 'הלומד הזה קרוב, אבל עדיין חווה רגעים לא יציבים תחת לחץ.',
+  'Total answers': 'סך התשובות',
+  'Total score': 'ציון כולל',
+  'First-choice accuracy': 'דיוק בבחירה ראשונה',
+  'Stress index': 'מדד לחץ',
+  'Focus score': 'ציון ריכוז',
+  'Confidence score': 'ציון ביטחון',
+  'What happened in this game': 'מה קרה במשחק הזה',
+  'What the student already shows': 'מה התלמיד כבר מראה',
+  'Where support is needed': 'איפה דרושה תמיכה',
+  'A short same-topic check-in this week should be enough to keep momentum stable.':
+    'בדיקת המשך קצרה באותו נושא השבוע אמורה להספיק כדי לשמור על מומנטום יציב.',
+  'Coach commitment after correct starts': 'אמן נעילה אחרי התחלה נכונה',
+  'This learner sometimes begins on the right answer and revises away from it. Add short explain-your-choice pauses before lock-in.':
+    'הלומד הזה לפעמים מתחיל בתשובה הנכונה ואז משנה ממנה. הוסף הפסקות קצרות של "הסבר את הבחירה שלך" לפני הנעילה.',
+  'Gets hesitant after misses': 'נהיה מהוסס אחרי טעויות',
+  'How quickly the student converges on an answer without oscillation.':
+    'כמה מהר התלמיד מתכנס לתשובה בלי להתנדנד.',
+  'How well attention holds under the pace of the quiz.':
+    'עד כמה הקשב מחזיק תחת קצב החידון.',
+  'Accuracy when the answer landed near the deadline or with panic changes.':
+    'דיוק כשהתשובה ננעלה סמוך לדדליין או אחרי שינויי פאניקה.',
+  'How often the student rebounds correctly after a miss.':
+    'באיזו תדירות התלמיד מתאושש נכון אחרי טעות.',
+  'How stable the student\'s pace and stress profile stay across questions.':
+    'עד כמה פרופיל הקצב והלחץ של התלמיד נשאר יציב לאורך השאלות.',
+  'How well behavior-backed confidence matches actual correctness.':
+    'עד כמה ביטחון שמגובה בהתנהגות תואם את הנכונות בפועל.',
+  'How little the student was pulled into blur, idle, and focus-loss drag.':
+    'עד כמה מעט התלמיד נמשך לטשטוש, חוסר פעילות וגרירת איבוד פוקוס.',
+  'How controlled the option-scanning pattern stayed before the final lock-in.':
+    'עד כמה דפוס סריקת האפשרויות נשאר נשלט לפני הנעילה הסופית.',
+  'The student\'s pace stayed relatively stable.': 'הקצב של התלמיד נשאר יחסית יציב.',
+  'No strong fatigue or recovery trend appeared across the session.':
+    'לא הופיעה לאורך הסשן מגמה חזקה של עייפות או התאוששות.',
+  'This concept looked stable in this session.': 'המושג הזה נראה יציב בסשן הזה.',
+  'Bring this exact concept back in the adaptive follow-up.': 'החזר את המושג המדויק הזה בהמשך האדפטיבי.',
+  'Decision Intelligence': 'אינטליגנציית החלטה',
+  'Separate content knowledge from hesitation, revision quality, and last-second dependency.':
+    'הפרד בין שליטה בתוכן לבין היסוס, איכות תיקון ותלות בשנייה האחרונה.',
+  'Commit Latency': 'זמן לנעילה',
+  'Deadline Dep.': 'תלות בדדליין',
+  'Verified Correct': 'נכון מאומת',
+  'Stayed Wrong': 'נשאר שגוי',
+  'Recovery And Fatigue': 'התאוששות ועייפות',
+  'What happens after errors, and whether the student fades or stabilizes as the game goes on.':
+    'מה קורה אחרי שגיאות, והאם התלמיד דועך או מתייצב ככל שהמשחק מתקדם.',
+  'Fatigue Drift': 'שחיקת עייפות',
+  'No drift estimate yet': 'עדיין אין הערכת שחיקה',
+  'There are not enough answered questions yet to estimate drift.': 'עדיין אין מספיק שאלות שנענו כדי להעריך שחיקה.',
+  'Pattern': 'דפוס',
+  'Resp Delta': 'פער תגובה',
+  'Volatility Delta': 'פער תנודתיות',
+  'Pressure Errors': 'שגיאות תחת לחץ',
+  'Last-second Success': 'הצלחה ברגע האחרון',
+  'Topic behavior profile': 'פרופיל התנהגות לפי נושא',
+  'Repeated misconception pattern': 'דפוס שגיאה חוזר',
+  'Student memory': 'זיכרון תלמיד',
+  'Remembered accuracy': 'דיוק נזכר',
+  'Stress baseline': 'קו בסיס של לחץ',
+  'Memory next step': 'השלב הבא בזיכרון',
+  'Coaching layer': 'שכבת אימון',
+  'Trust layer': 'שכבת אמון',
+  'Autopilot intervention': 'התערבות של טייס אוטומטי',
+  'Launch memory intervention': 'הפעל התערבות בזיכרון',
+  'Repeated patterns': 'דפוסים חוזרים',
+  'Teacher note': 'הערת מורה',
+  'Merge your human read into the memory layer.': 'שלב את הקריאה האנושית שלך בתוך שכבת הזיכרון.',
+  'Saving...': 'שומר...',
+  'Save note': 'שמור הערה',
+  'Example: understands the idea verbally but freezes under timer pressure.':
+    'דוגמה: מבין את הרעיון מילולית אבל קופא תחת לחץ טיימר.',
+  'Behavior Architecture': 'ארכיטקטורת התנהגות',
+  'How this game\'s behavior compares to the student\'s longer-term baseline.':
+    'כך ההתנהגות במשחק הזה משתווה לקו הבסיס ארוך הטווח של התלמיד.',
+  'Session Flow': 'זרימת הסשן',
+  'Momentum, fatigue, and pressure across the opening, middle, and closing of the game.':
+    'מומנטום, עייפות ולחץ לאורך פתיחת המשחק, אמצעו וסיומו.',
+  Momentum: 'מומנטום',
+  Swaps: 'החלפות',
+  'Panic Swaps': 'החלפות בלחץ',
+  'Focus Loss': 'איבוד פוקוס',
+  'Avg Idle': 'חוסר פעילות ממוצע',
+  'Cross-Session Trajectory': 'מסלול בין סשנים',
+  'Whether this session is an anomaly or part of a longer pattern.':
+    'האם הסשן הזה חריג או חלק מדפוס מתמשך יותר.',
+  'No session history yet': 'עדיין אין היסטוריית סשנים',
+  'As the student completes more hosted games, this card will show whether today reflects a persistent pattern or a one-off event.':
+    'ככל שהתלמיד ישלים יותר משחקים מתארחים, הכרטיס הזה יראה אם היום משקף דפוס קבוע או אירוע חד-פעמי.',
+  Score: 'ציון',
+  'Commit Window': 'חלון נעילה',
+  'Focus Events': 'אירועי פוקוס',
+  'Adaptive Game Studio': 'סטודיו למשחק אדפטיבי',
+  'Build a hostable follow-up from the same source material, tuned to this learner\'s weak spots.':
+    'בנה המשך שניתן לארח מאותו חומר מקור, מכוון לנקודות החולשה של הלומד הזה.',
+  Strategy: 'אסטרטגיה',
+  'Adaptive same-material follow-up': 'המשך אדפטיבי מאותו חומר',
+  Creating: 'יוצר',
+  'Build And Host Now': 'בנה והפעל עכשיו',
+  'Question-By-Question Lab': 'מעבדת שאלה-אחר-שאלה',
+  'A deep read of hesitation, volatility, and confidence for every item in this game.':
+    'קריאה עמוקה של היסוס, תנודתיות וביטחון עבור כל פריט במשחק הזה.',
+  Response: 'תגובה',
+  Volatility: 'תנודתיות',
+  Commit: 'נעילה',
+  'Flip-Flops': 'שינויי כיוון',
+  Revisits: 'חזרות',
+  'Deadline Buffer': 'מרווח לפני דדליין',
+  'Choice Journey': 'מסלול בחירה',
+  'First choice': 'בחירה ראשונה',
+  'Final choice': 'בחירה סופית',
+  Verified: 'אומת',
+  Right: 'נכון',
+  Wrong: 'שגוי',
+  Yes: 'כן',
+  Normal: 'רגיל',
+  'Attention Queue': 'תור תשומת לב',
+  'All Students': 'כל התלמידים',
+  'All Questions': 'כל השאלות',
+  'Teach Now': 'למד עכשיו',
+  'Low Accuracy': 'דיוק נמוך',
+  'High Stress': 'לחץ גבוה',
+  Distractor: 'מסיח',
+  Fatigue: 'עייפות',
+  'Focus watch students': 'תלמידי מעקב קשב',
+  'High-risk students': 'תלמידים בסיכון גבוה',
+  'Class accuracy': 'דיוק כיתתי',
+  'Completion rate': 'שיעור השלמה',
+  Participants: 'משתתפים',
+  Risk: 'סיכון',
+  'Open misconception block': 'פתח את בלוק התפיסה השגויה',
+  'Memory Autopilot': 'טייס אוטומטי לזיכרון',
+  'Memory Watchlist': 'רשימת מעקב זיכרון',
+  'Adaptive Practice from student memory': 'תרגול אדפטיבי מזיכרון התלמיד',
+  'Launch targeted memory practice': 'הפעל תרגול זיכרון ממוקד',
+  '1 minute': 'דקה אחת',
+  '3 minutes': '3 דקות',
+  'After class': 'אחרי השיעור',
+  Main: 'ראשי',
+  'The student-specific items that most deserve intervention before the next game.':
+    'הפריטים הספציפיים לתלמיד שהכי ראויים להתערבות לפני המשחק הבא.',
+  'Reteach this concept': 'ללמד מחדש את המושג',
+  'Stabilize this concept': 'לייצב את המושג',
+  Pace: 'קצב',
+  Revision: 'תיקון',
+  'Healthy session': 'סשן בריא',
+  'No unstable questions were detected in this game.': 'לא זוהו שאלות לא יציבות במשחק הזה.',
+  'The student solved the current pack without clear behavioral fragility. Use overall weak tags to decide whether to deepen or broaden practice.':
+    'התלמיד פתר את החבילה הנוכחית בלי שבריריות התנהגותית ברורה. השתמש בתגיות החלשות הכוללות כדי להחליט אם להעמיק או להרחיב את התרגול.',
+  'Class Position': 'מיקום בכיתה',
+  'Class Stress': 'לחץ כיתתי',
+  'Student Score': 'ציון תלמיד',
+  'Student dashboard unavailable': 'ניתוח התלמיד אינו זמין',
+  'No data returned.': 'לא התקבלו נתונים.',
+  'Back to Class Analytics': 'חזרה לאנליטיקות הכיתה',
+  'Failed to save memory note': 'שמירת הערת הזיכרון נכשלה',
+  'No tag signal yet for this student.': 'עדיין אין אות תגיות עבור התלמיד הזה.',
+  Metric: 'מדד',
+  Missed: 'שגוי',
+  'Correct But Shaky': 'נכון אבל שברירי',
   'Read the class state, locate the misconception, then decide who needs follow-up. This header is intentionally tuned for a fast teaching decision.':
     'קרא את מצב הכיתה, זהה את הטעות המרכזית, ואז החלט מי צריך מעקב. הכותרת הזו בנויה לקבלת החלטת הוראה מהירה.',
   Session: 'סשן',
@@ -130,7 +321,6 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Needs calmer pacing': 'צריך קצב רגוע יותר',
   'Ready for stretch': 'מוכן לאתגר',
   Monitor: 'מעקב',
-  Yes: 'כן',
   No: 'לא',
   'Academic Mapping': 'מיפוי אקדמי',
   'Keep this session anchored to the course structure, not just the game.':
@@ -147,18 +337,15 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Accuracy delta': 'פער דיוק',
   'Peer avg accuracy': 'דיוק ממוצע בקבוצות אחרות',
   'Peer avg attendance': 'נוכחות ממוצעת בקבוצות אחרות',
-  Main: 'ראשי',
   'Current session': 'הסשן הנוכחי',
   'Unmapped session': 'סשן ללא מיפוי',
   'Instructional Diagnosis': 'אבחון הוראתי',
   'Turn the signal into a teaching move': 'הפוך את האות למהלך הוראה',
   'These sections prioritize verdicts, misconceptions, and revision behavior so the page answers what to reteach, what to slow down, and who to support.':
     'החלקים האלה נותנים עדיפות למסקנות, טעויות חוזרות והתנהגות שינוי תשובה, כדי שהדף יענה מה ללמד מחדש, איפה להאט, ובמי לתמוך.',
-  'Decision Intelligence': 'אינטליגנציית החלטה',
   'Three verdicts first, then the evidence underneath.': 'קודם שלוש מסקנות, ואז הראיות שמתחתיהן.',
   'Recovery + Drift': 'התאוששות ושחיקה',
   'Recovery Rate': 'שיעור התאוששות',
-  'Commit Window': 'חלון נעילה',
   'Early Accuracy': 'דיוק בתחילת הסשן',
   'Late Accuracy': 'דיוק בסוף הסשן',
   'So what?': 'אז מה זה אומר?',
@@ -210,6 +397,10 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Auto-built groups from this session': 'קבוצות שנבנו אוטומטית מתוך הסשן הזה',
   'Instead of one giant class response, use these groups to differentiate the next move.':
     'במקום תגובה כיתתית אחת גדולה, השתמש בקבוצות האלה כדי להתאים את המהלך הבא.',
+  'Peer Tutor Matching': 'זיווגי תמיכת עמיתים',
+  'Who can stabilize whom right now': 'מי יכול לייצב את מי עכשיו',
+  'These matches pair a stable student with a learner who needs support on the same concept cluster.':
+    'הזיווגים האלה מחברים בין תלמיד יציב לבין תלמיד שצריך תמיכה באותו אשכול מושגים.',
   'Pivot Moments': 'רגעי מפנה',
   'Where the session stopped feeling stable': 'איפה הסשן הפסיק להרגיש יציב',
   'These are the moments where the class bent under pressure, hesitation, or confusion.':
@@ -262,7 +453,6 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   Focus: 'ריכוז',
   '1st Choice': 'בחירה ראשונה',
   Recovery: 'התאוששות',
-  Commit: 'נעילה',
   Stability: 'יציבות',
   'Recommended move': 'מהלך מומלץ',
   'Open Personal Dashboard': 'פתח לוח אישי',
@@ -288,7 +478,6 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Median Buffer': 'חציון מרווח זמן',
   'Clusters and Outliers': 'אשכולות וחריגים',
   'Team BI Board': 'לוח BI קבוצתי',
-  Score: 'ציון',
   'Mode Bonus': 'בונוס מצב',
   Coverage: 'כיסוי',
   Consensus: 'קונצנזוס',
@@ -313,12 +502,56 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Stress bands': 'טווחי לחץ',
   'Risk bands': 'טווחי סיכון',
   'Question Diagnostics': 'אבחון שאלות',
+  'Intervention Queue': 'תור התערבות',
+  'What deserves attention first': 'מה דורש תשומת לב קודם',
+  'Memory alert': 'התראת זיכרון',
+  'Misconception': 'תפיסה שגויה',
+  'Next lesson': 'השיעור הבא',
+  'Open student dashboard': 'פתח לוח תלמיד',
+  'Open question triage': 'פתח את question triage',
+  'Run autopilot': 'הפעל אוטופיילוט',
+  'Open cohorts': 'פתח קבוצות',
+  'Recovery Tools': 'כלי התאוששות',
+  'Session Replay': 'שחזור סשן',
+  'Peer Support': 'תמיכת עמיתים',
+  'Reteach Clinic': 'קליניקת הוראה מחדש',
+  'Confidence Rescue': 'חילוץ ביטחון',
+  'Fatigue Reset': 'איפוס עייפות',
+  'Peer Leads': 'מובילי עמיתים',
+  'Students who knew it, then lost it': 'תלמידים שידעו ואז איבדו את זה',
+  'Students fading late in the run': 'תלמידים שנחלשו בסוף ההרצה',
+  'Stable students who can anchor the room': 'תלמידים יציבים שיכולים לייצב את הכיתה',
+  'See likely peer leads': 'הצג תלמידי הובלה אפשריים',
+  'Open fatigue group': 'פתח קבוצת עייפות',
+  'Open confidence wobble group': 'פתח קבוצת תנודתיות ביטחון',
+  'Open matching students': 'פתח את matching students',
+  'Targeted Recovery Builder': 'בונה התאוששות ממוקדת',
+  'Build personal games for the right cohort': 'בנה משחקים אישיים לקבוצה הנכונה',
+  'Build personal games': 'בנה משחקים אישיים',
+  'Question repair round created.': 'סבב תיקון לשאלה נוצר.',
+  'Failed to create question repair round.': 'יצירת סבב תיקון לשאלה נכשלה.',
+  'Session Replay Timeline': 'ציר זמן של שחזור הסשן',
+  'Copy replay timeline': 'העתק ציר זמן שחזור',
+  'Copy full list': 'העתק רשימה מלאה',
+  'Copy invite': 'העתק הזמנה',
+  'Priority follow-up': 'מעקב בעדיפות גבוהה',
+  'This item behaved normally and can stay in the rotation.': 'הפריט הזה התנהג באופן תקין ויכול להישאר ברוטציה.',
+  'This queue turns the board into a decision tool: what to reteach, who to support, and what to launch next.':
+    'התור הזה הופך את הלוח לכלי החלטה: מה ללמד מחדש, במי לתמוך, ומה להפעיל אחר כך.',
+  '0% accuracy with visible confusion on this item.': '0% דיוק עם בלבול נראה לעין בפריט הזה.',
+  'Question by question, where the room held or slipped': 'שאלה אחר שאלה, איפה הכיתה החזיקה או נשברה',
+  'Use this when you need the exact lesson arc: where confidence held, where stress rose, and where the class needed a pivot.':
+    'השתמש בזה כשצריך את קשת השיעור המדויקת: איפה הביטחון החזיק, איפה הלחץ עלה, ואיפה הכיתה הייתה צריכה תפנית.',
+  'Instead of building for the whole class, create personal recovery games only for the students who need them most.':
+    'במקום לבנות לכל הכיתה, צור משחקי התאוששות אישיים רק לתלמידים שהכי צריכים אותם.',
+  adaptive_practice: 'תרגול אדפטיבי',
+  'What deserves attention first\nThis queue turns the board into a decision tool: what to reteach, who to support, and what to launch next.':
+    'מה דורש תשומת לב קודם\nהתור הזה הופך את הלוח לכלי החלטה: מה ללמד מחדש, במי לתמוך, ומה להפעיל אחר כך.',
   'Open with the hardest items first. The rest stay tucked behind a single click so the page keeps its hierarchy.':
     'התחל מהפריטים הקשים ביותר. השאר נשמרים מאחורי פתיחה אחת כדי לשמור על היררכיה ברורה בדף.',
   'Export Diagnostics CSV': 'ייצוא CSV של אבחון',
   Difficulty: 'קושי',
   Discrimination: 'הבחנה',
-  Response: 'תגובה',
   'Top vs Bottom Gap': 'פער בין חזקים לחלשים',
   Recovered: 'התאושש',
   'Top distractor': 'המסיח המרכזי',
@@ -332,7 +565,6 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Question Pressure Map': 'מפת לחץ לפי שאלה',
   'Every item is scored on both mastery and behavioral pressure.':
     'כל פריט מדורג גם לפי שליטה בחומר וגם לפי לחץ התנהגותי.',
-  'Attention Queue': 'תור תשומת לב',
   'Data Pack': 'חבילת נתונים',
   'Research export ready': 'ייצוא המחקר מוכן',
   'Exported response rows include timing, swaps, focus-loss, commit window, volatility, and question metadata so the session can be reused later for statistical analysis.':
@@ -364,12 +596,17 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Did Not Change': 'לא שינו',
   'Finished Correct': 'סיימו נכון',
   'Finished Wrong': 'סיימו שגוי',
-  'First choice': 'בחירה ראשונה',
-  Revision: 'שינוי תשובה',
   'Final answer': 'תשובה סופית',
   'Helpful path': 'מסלול מועיל',
   'Neutral path': 'מסלול ניטרלי',
   'Harmful path': 'מסלול מזיק',
+  'of all response rows followed this path.': 'מכל שורות התשובה הלכו במסלול הזה.',
+  'Who started right versus who entered the question confused.': 'מי התחיל נכון לעומת מי נכנס לשאלה מבולבל.',
+  'Whether students held the line or changed answers after inspecting options.': 'האם התלמידים נשארו עם הבחירה או שינו תשובה אחרי בדיקת האפשרויות.',
+  'Where the class finished after that decision path played out.': 'איפה הכיתה סיימה אחרי שמסלול ההחלטה הזה התפתח.',
+  'Revisions that moved students into a correct final answer.': 'תיקונים שהעבירו תלמידים לתשובה סופית נכונה.',
+  'Students held or changed without improving overall accuracy.': 'התלמידים נשארו או שינו תשובה בלי לשפר את הדיוק הכולל.',
+  'Students moved away from the right answer or stayed trapped in error.': 'התלמידים התרחקו מהתשובה הנכונה או נשארו תקועים בטעות.',
   'Strong path': 'מסלול חזק',
   'Watch path': 'מסלול למעקב',
   'Risk path': 'מסלול סיכון',
@@ -393,7 +630,6 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Rolling Hesitation': 'היסוס מתגלגל',
   'No deadline dependency data is available.': 'אין נתוני תלות בדדליין זמינים.',
   'Changed Answer': 'שינו תשובה',
-  Volatility: 'תנודתיות',
   'No commitment-latency distribution is available yet.': 'עדיין אין התפלגות של זמן עד נעילה.',
   responses: 'תשובות',
   'No re-engagement pattern was detected in this session.': 'לא זוהה דפוס חזרה לקשב בסשן הזה.',
@@ -681,6 +917,403 @@ const HEBREW_PATTERN_RULES: PatternRule[] = [
   {
     pattern: /^Open (.+)$/,
     translate: ([, name]) => `פתח את ${name}`,
+  },
+  {
+    pattern: /^Overall (\d+(?:\.\d+)?)%$/,
+    translate: ([, value]) => `ממוצע כללי ${value}%`,
+  },
+  {
+    pattern: /^Overall (\d+(?:\.\d+)?)$/,
+    translate: ([, value]) => `ממוצע כללי ${value}`,
+  },
+  {
+    pattern: /^([A-Z]+) RISK$/,
+    translate: ([, level]) => `${translateTeacherAnalyticsText(level, 'he')} סיכון`,
+  },
+  {
+    pattern: /^([A-Za-z][A-Za-z\s-]+) (\d+(?:\.\d+)?)% • Confidence (\d+(?:\.\d+)?)%$/,
+    translate: ([, label, stress, confidence]) =>
+      `${translateTeacherAnalyticsText(label, 'he')} ${stress}% • ביטחון ${confidence}%`,
+  },
+  {
+    pattern: /^Support Snapshot: (.+)$/,
+    translate: ([, name]) => `תמונת תמיכה: ${name}`,
+  },
+  {
+    pattern: /^Session: (.+) \(#(\d+)\)$/,
+    translate: ([, title, id]) => `סשן: ${title} (#${id})`,
+  },
+  {
+    pattern: /^Teacher next move: (.+)$/,
+    translate: ([, move]) => `המהלך הבא של המורה: ${translateTeacherAnalyticsText(move, 'he')}`,
+  },
+  {
+    pattern: /^Home \/ advisor note: (.+)$/,
+    translate: ([, note]) => `הערה לבית / ליועץ: ${translateTeacherAnalyticsText(note, 'he')}`,
+  },
+  {
+    pattern: /^Strongest areas right now: (.+)\.$/,
+    translate: ([, tags]) => `האזורים החזקים ביותר כרגע: ${tags}.`,
+  },
+  {
+    pattern: /^Main support areas: (.+)\.$/,
+    translate: ([, tags]) => `אזורי התמיכה המרכזיים: ${tags}.`,
+  },
+  {
+    pattern: /^(.+) finished this session with (\d+(?:\.\d+)?)% accuracy at (\d+(?:\.\d+)?)% stress\.$/,
+    translate: ([, name, accuracy, stress]) => `${name} סיים/ה את הסשן הזה עם ${accuracy}% דיוק ו-${stress}% לחץ.`,
+  },
+  {
+    pattern: /^Focus the adaptive game on (.+) before returning to mixed review\.$/,
+    translate: ([, tags]) => `מקד את המשחק האדפטיבי ב-${tags} לפני שחוזרים לחזרה מעורבת.`,
+  },
+  {
+    pattern: /^The question after an error often stays unstable\. A short reteach loop immediately after mistakes should help\.$/,
+    translate: () => 'השאלה שאחרי טעות לעיתים קרובות נשארת לא יציבה. לולאת לימוד מחדש קצרה מיד אחרי טעויות אמורה לעזור.',
+  },
+  {
+    pattern: /^This learner needs targeted reinforcement and pacing support\.$/,
+    translate: () => 'הלומד הזה צריך חיזוק ממוקד ותמיכה בקצב.',
+  },
+  {
+    pattern: /^Use the weak-topic and session-pressure signals together\. A student can know the material and still lose points through hesitation\.$/,
+    translate: () => 'השתמש יחד באותות של נושאים חלשים ולחץ בסשן. תלמיד יכול להכיר את החומר ועדיין לאבד נקודות בגלל היסוס.',
+  },
+  {
+    pattern: /^([A-Za-z][A-Za-z\s-]+) is currently remembered at (\d+(?:\.\d+)?)% mastery, so that is the best next target\.$/,
+    translate: ([, tag, value]) => `${translateTeacherAnalyticsText(tag, 'he')} נזכר כרגע ברמת שליטה של ${value}%, ולכן זה היעד הבא הטוב ביותר.`,
+  },
+  {
+    pattern: /^This learner needs consistency more than another fast round$/,
+    translate: () => 'הלומד הזה צריך עקביות יותר מאשר עוד סבב מהיר',
+  },
+  {
+    pattern: /^Accuracy is (\d+(?:\.\d+)?)% with (\d+(?:\.\d+)?)% stress, so the next step should reduce pressure and tighten the concept loop\.$/,
+    translate: ([, accuracy, stress]) => `הדיוק הוא ${accuracy}% עם ${stress}% לחץ, ולכן הצעד הבא צריך להפחית לחץ ולהדק את לולאת המושג.`,
+  },
+  {
+    pattern: /^Start an adaptive practice set from memory$/,
+    translate: () => 'התחל סט תרגול אדפטיבי מהזיכרון',
+  },
+  {
+    pattern: /^Build the next practice around (.+)\.$/,
+    translate: ([, tags]) => `בנה את התרגול הבא סביב ${tags}.`,
+  },
+  {
+    pattern: /^(\d+(?:\.\d+)?)% accuracy across (\d+) captured answers, (\d+(?:\.\d+)?) stress, and (\d+) focus-loss events\.$/,
+    translate: ([, accuracy, answers, stress, focusLoss]) => `${accuracy}% דיוק על פני ${answers} תשובות שנקלטו, ${stress} לחץ, ו-${focusLoss} אירועי איבוד פוקוס.`,
+  },
+  {
+    pattern: /^Reteach (.+) before the next checkpoint and keep the same material visible while the learner rebuilds accuracy\.$/,
+    translate: ([, tags]) => `למד מחדש את ${tags} לפני נקודת הבדיקה הבאה והשאר את אותו חומר גלוי בזמן שהלומד בונה מחדש את הדיוק.`,
+  },
+  {
+    pattern: /^(\d+(?:\.\d+)?)% class accuracy across (\d+) answers, (\d+(?:\.\d+)?)% completion, and (\d+(?:\.\d+)?) stress\.$/,
+    translate: ([, accuracy, answers, completion, stress]) => `${accuracy}% דיוק כיתתי על פני ${answers} תשובות, ${completion}% השלמה ו-${stress} לחץ.`,
+  },
+  {
+    pattern: /^Pause for a guided recap before the next graded checkpoint; the class has not shown enough stable accuracy yet\.$/,
+    translate: () => 'בצע עצירה לחזרה מונחית לפני נקודת ההערכה הבאה; הכיתה עדיין לא הראתה מספיק דיוק יציב.',
+  },
+  {
+    pattern: /^(\d+) students still have low memory confidence$/,
+    translate: ([, count]) => `${count} תלמידים עדיין עם ביטחון זיכרון נמוך`,
+  },
+  {
+    pattern: /^Those learners need more evidence before the board should treat the memory read as stable\.$/,
+    translate: () => 'הלומדים האלה צריכים עוד ראיות לפני שהלוח יתייחס לקריאת הזיכרון כיציבה.',
+  },
+  {
+    pattern: /^(\d+) recommended actions$/,
+    translate: ([, count]) => `${count} פעולות מומלצות`,
+  },
+  {
+    pattern: /^Split off (\d+) students for a targeted reset$/,
+    translate: ([, count]) => `פצל ${count} תלמידים לאיפוס ממוקד`,
+  },
+  {
+    pattern: /^Students ready for targeted same-material practice based on remembered weak tags\.$/,
+    translate: () => 'תלמידים מוכנים לתרגול ממוקד מאותו חומר על סמך תגיות חלשות שנזכרו.',
+  },
+  {
+    pattern: /^Launch the highest-value interventions from memory$/,
+    translate: () => 'הפעל את ההתערבויות בעלות הערך הגבוה ביותר מהזיכרון',
+  },
+  {
+    pattern: /^Run watchlist autopilot$/,
+    translate: () => 'הפעל אוטופיילוט לרשימת המעקב',
+  },
+  {
+    pattern: /^Launch targeted memory practice for (.+)$/,
+    translate: ([, name]) => `הפעל תרגול זיכרון ממוקד עבור ${name}`,
+  },
+  {
+    pattern: /^No clear peer-support pair emerged from this session$/,
+    translate: () => 'לא נוצר זוג תמיכת עמיתים ברור מהסשן הזה',
+  },
+  {
+    pattern: /^As soon as the board sees stable high performers and overlapping weak-tag patterns, it will suggest live peer pairings here\.$/,
+    translate: () => 'ברגע שהלוח יזהה מבצעים יציבים ודפוסי תגיות חלשות חופפים, הוא יציע כאן זיווגי עמיתים בזמן אמת.',
+  },
+  {
+    pattern: /^See matching students$/,
+    translate: () => 'הצג תלמידים מתאימים',
+  },
+  {
+    pattern: /^See matching questions$/,
+    translate: () => 'הצג שאלות מתאימות',
+  },
+  {
+    pattern: /^Launch for this student$/,
+    translate: () => 'הפעל עבור התלמיד הזה',
+  },
+  {
+    pattern: /^(\d+) students ready$/,
+    translate: ([, count]) => `${count} תלמידים מוכנים`,
+  },
+  {
+    pattern: /^(\d+) questions$/,
+    translate: ([, count]) => `${count} שאלות`,
+  },
+  {
+    pattern: /^(\d+)questions$/,
+    translate: ([, count]) => `${count} שאלות`,
+  },
+  {
+    pattern: /^Stress (\d+(?:\.\d+)?)%$/,
+    translate: ([, value]) => `לחץ ${value}%`,
+  },
+  {
+    pattern: /^Commit (\d+(?:\.\d+)?)s$/,
+    translate: ([, value]) => `נעילה ${value}ש׳`,
+  },
+  {
+    pattern: /^Last updated (.+)$/,
+    translate: ([, value]) => `עודכן לאחרונה ${value}`,
+  },
+  {
+    pattern: /^Keeps landing on ([A-Z?])\. (.+) across (\d+) questions\.$/,
+    translate: ([, label, text, count]) => `ממשיך לנחות על ${label}. ${translateTeacherAnalyticsText(text, 'he')} לאורך ${count} שאלות.`,
+  },
+  {
+    pattern: /^Distractor ([A-Z?]) pulled (\d+(?:\.\d+)?)% of the class\.$/,
+    translate: ([, label, rate]) => `מסיח ${label} משך ${rate}% מהכיתה.`,
+  },
+  {
+    pattern: /^Search a question, tag, distractor, or objective$/,
+    translate: () => 'חפש שאלה, תגית, מסיח או יעד',
+  },
+  {
+    pattern: /^Search by student, weak topic, decision style, or recommendation$/,
+    translate: () => 'חפש לפי תלמיד, נושא חלש, סגנון החלטה או המלצה',
+  },
+  {
+    pattern: /^Showing (\d+) of (\d+) questions in the triage view\.$/,
+    translate: ([, shown, total]) => `מוצגות ${shown} מתוך ${total} שאלות בתצוגת המיון.`,
+  },
+  {
+    pattern: /^Showing (\d+) of (\d+) students in the command center\.$/,
+    translate: ([, shown, total]) => `מוצגים ${shown} מתוך ${total} תלמידים במרכז הפיקוד.`,
+  },
+  {
+    pattern: /^Simple view keeps (\d+) students open out of (\d+) matches\.$/,
+    translate: ([, open, total]) => `התצוגה הפשוטה משאירה ${open} תלמידים פתוחים מתוך ${total} התאמות.`,
+  },
+  {
+    pattern: /^Question (\d+) needs a reset$/,
+    translate: ([, index]) => `שאלה ${index} דורשת איפוס`,
+  },
+  {
+    pattern: /^(.+) is spreading$/,
+    translate: ([, topic]) => `${translateTeacherAnalyticsText(topic, 'he')} מתפשט`,
+  },
+  {
+    pattern: /^(\d+) students converged on distractor ([A-Z?]) in question (\d+)\.$/,
+    translate: ([, count, label, question]) => `${count} תלמידים התכנסו למסיח ${label} בשאלה ${question}.`,
+  },
+  {
+    pattern: /^(\d+) students are ready for a same-material intervention right now\.$/,
+    translate: ([, count]) => `${count} תלמידים מוכנים עכשיו להתערבות מאותו חומר.`,
+  },
+  {
+    pattern: /^Use remembered weak tags (.+) for a same-material intervention\.$/,
+    translate: ([, tags]) => `השתמש בתגיות החלשות שנזכרו ${tags} עבור התערבות מאותו חומר.`,
+  },
+  {
+    pattern: /^(\d+(?:\.\d+)?)% accuracy • (\d+(?:\.\d+)?)% stress$/,
+    translate: ([, accuracy, stress]) => `${accuracy}% דיוק • ${stress}% לחץ`,
+  },
+  {
+    pattern: /^Create a repair round from question (\d+) only$/,
+    translate: ([, index]) => `צור סבב תיקון על סמך שאלה ${index} בלבד`,
+  },
+  {
+    pattern: /^(.+) needs follow-up$/,
+    translate: ([, name]) => `${name} צריך/ה מעקב`,
+  },
+  {
+    pattern: /^Students who missed question (\d+)$/,
+    translate: ([, index]) => `תלמידים שפספסו את שאלה ${index}`,
+  },
+  {
+    pattern: /^Built around (.+) and the distractor pattern that spread across the room\.$/,
+    translate: ([, topic]) => `נבנה סביב ${topic} ודפוס המסיח שהתפשט בכיתה.`,
+  },
+  {
+    pattern: /^Use this group for a short same-material reteach before the next live round\.$/,
+    translate: () => 'השתמש בקבוצה הזו ללימוד מחדש קצר מאותו חומר לפני הסבב החי הבא.',
+  },
+  {
+    pattern: /^These learners are close to mastery but unstable under pressure\. They need a calmer re-check, not a brand-new lesson\.$/,
+    translate: () => 'הלומדים האלה קרובים לשליטה אבל לא יציבים תחת לחץ. הם צריכים בדיקה חוזרת רגועה יותר, לא שיעור חדש לגמרי.',
+  },
+  {
+    pattern: /^Students are unstable even when they get close\. Re-explain the distinction and rehearse it immediately\.$/,
+    translate: () => 'התלמידים לא יציבים גם כשהם מתקרבים. הסבר מחדש את ההבחנה ותרגל אותה מיד.',
+  },
+  {
+    pattern: /^Use a short reteach, one contrast example, and one fast re-check to close this gap\.$/,
+    translate: () => 'השתמש בלימוד מחדש קצר, דוגמת ניגוד אחת, ובדיקה מהירה נוספת כדי לסגור את הפער הזה.',
+  },
+  {
+    pattern: /^Use a slower pacing move, shorter bursts, or one extra scaffold before the next live block\.$/,
+    translate: () => 'השתמש במהלך עם קצב איטי יותר, מקטעים קצרים יותר, או שכבת תמיכה נוספת לפני הבלוק החי הבא.',
+  },
+  {
+    pattern: /^These students can model reasoning, lead a pair check, or stabilize table talk during the next round\.$/,
+    translate: () => 'התלמידים האלה יכולים להדגים נימוק, להוביל בדיקת זוגות, או לייצב את השיח בשולחנות בסבב הבא.',
+  },
+  {
+    pattern: /^Accuracy broke at question (\d+)$/,
+    translate: ([, index]) => `הדיוק נשבר בשאלה ${index}`,
+  },
+  {
+    pattern: /^Pressure spiked at question (\d+)$/,
+    translate: ([, index]) => `הלחץ זינק בשאלה ${index}`,
+  },
+  {
+    pattern: /^Choice stability slipped at question (\d+)$/,
+    translate: ([, index]) => `יציבות הבחירה נשחקה בשאלה ${index}`,
+  },
+  {
+    pattern: /^Rolling accuracy fell by (\d+(?:\.\d+)?) points compared with the previous step\.$/,
+    translate: ([, value]) => `הדיוק המתגלגל ירד ב-${value} נקודות לעומת הצעד הקודם.`,
+  },
+  {
+    pattern: /^More students waited until the deadline on this item than on the previous question\.$/,
+    translate: () => 'יותר תלמידים חיכו עד הדדליין בפריט הזה לעומת השאלה הקודמת.',
+  },
+  {
+    pattern: /^Answer movement widened here, suggesting wobble rather than confident revision\.$/,
+    translate: () => 'תנועת התשובות התרחבה כאן, מה שמרמז על היסוס ולא על תיקון בטוח.',
+  },
+  {
+    pattern: /^Stable checkpoint$/,
+    translate: () => 'נקודת יציבות',
+  },
+  {
+    pattern: /^Reteach trigger$/,
+    translate: () => 'טריגר ללימוד מחדש',
+  },
+  {
+    pattern: /^Confusion or pressure spike$/,
+    translate: () => 'בלבול או קפיצת לחץ',
+  },
+  {
+    pattern: /^Keep the pace and use this question as an anchor for what the class currently understands\.$/,
+    translate: () => 'שמור על הקצב והשתמש בשאלה הזו כעוגן למה שהכיתה מבינה כרגע.',
+  },
+  {
+    pattern: /^Re-open the core distinction before asking the class to move on\.$/,
+    translate: () => 'פתח מחדש את ההבחנה המרכזית לפני שמבקשים מהכיתה להמשיך.',
+  },
+  {
+    pattern: /^Contrast the sticky distractor with the correct idea and give the room one calmer re-check\.$/,
+    translate: () => 'השווה בין המסיח הדביק לבין הרעיון הנכון ותן לכיתה בדיקה חוזרת רגועה יותר.',
+  },
+  {
+    pattern: /^Office Hours Auto-Invite: (.+)$/,
+    translate: ([, title]) => `הזמנה אוטומטית לשעות קבלה: ${title}`,
+  },
+  {
+    pattern: /^Hi (.+),$/,
+    translate: ([, name]) => `היי ${name},`,
+  },
+  {
+    pattern: /^I want to pull you into a short Quizzi support check because (.+)\.$/,
+    translate: ([, reason]) => `אני רוצה להזמין אותך לבדיקת תמיכה קצרה ב-Quizzi כי ${translateTeacherAnalyticsText(reason, 'he')}.`,
+  },
+  {
+    pattern: /^We will focus on: (.+)\.$/,
+    translate: ([, topics]) => `נתמקד ב: ${topics}.`,
+  },
+  {
+    pattern: /^We will focus on the concept cluster that felt least stable in the last session\.$/,
+    translate: () => 'נתמקד באשכול המושגים שהרגיש הכי פחות יציב בסשן האחרון.',
+  },
+  {
+    pattern: /^Plan for a short, low-pressure reset rather than a full reteach\.$/,
+    translate: () => 'נתכנן איפוס קצר ונטול לחץ במקום לימוד מחדש מלא.',
+  },
+  {
+    pattern: /^Build personal recovery games for the students who need follow-up first\.$/,
+    translate: () => 'בנה משחקי התאוששות אישיים לתלמידים שצריכים קודם מעקב.',
+  },
+  {
+    pattern: /^Build the lightest same-material recovery games for the students with the most fragile signal\.$/,
+    translate: () => 'בנה את משחקי ההתאוששות הקלים ביותר מאותו חומר עבור התלמידים עם האות השברירי ביותר.',
+  },
+  {
+    pattern: /^Build recovery games for the students who faded late or lost focus repeatedly\.$/,
+    translate: () => 'בנה משחקי התאוששות לתלמידים שנחלשו מאוחר או איבדו מיקוד שוב ושוב.',
+  },
+  {
+    pattern: /^(.+) needs a whole-class reset$/,
+    translate: ([, topic]) => `${topic} צריך איפוס כיתתי מלא`,
+  },
+  {
+    pattern: /^(.+) needs a short clinic$/,
+    translate: ([, topic]) => `${topic} צריך קליניקה קצרה`,
+  },
+  {
+    pattern: /^Session Replay Timeline: (.+)$/,
+    translate: ([, title]) => `ציר זמן של שחזור הסשן: ${title}`,
+  },
+  {
+    pattern: /^Next move: (.+)$/,
+    translate: ([, move]) => `המהלך הבא: ${translateTeacherAnalyticsText(move, 'he')}`,
+  },
+  {
+    pattern: /^(\d+) question checkpoints are ready$/,
+    translate: ([, count]) => `${count} נקודות בדיקת שאלות מוכנות`,
+  },
+  {
+    pattern: /^Question-by-question replay stays in full view$/,
+    translate: () => 'שחזור שאלה-אחר-שאלה נשאר זמין בתצוגה המלאה',
+  },
+  {
+    pattern: /^(\d+) support matches were identified$/,
+    translate: ([, count]) => `זוהו ${count} התאמות תמיכה`,
+  },
+  {
+    pattern: /^Peer tutoring suggestions stay in full view$/,
+    translate: () => 'הצעות לתמיכת עמיתים נשארות זמינות בתצוגה המלאה',
+  },
+  {
+    pattern: /^(.+) can stabilize (.+) around (.+)\.$/,
+    translate: ([, tutor, learner, overlap]) => `${tutor} יכול/ה לייצב את ${learner} סביב ${overlap}.`,
+  },
+  {
+    pattern: /^Targeted recovery tools stay available in full view$/,
+    translate: () => 'כלי התאוששות ממוקדים נשארים זמינים בתצוגה המלאה',
+  },
+  {
+    pattern: /^Open full view to build personal recovery games and copy-ready intervention packets\.$/,
+    translate: () => 'פתח את התצוגה המלאה כדי לבנות משחקי התאוששות אישיים וחבילות התערבות מוכנות להעתקה.',
+  },
+  {
+    pattern: /^Use full view for live peer-support pairings, richer cohorts, and extra classroom operations\.$/,
+    translate: () => 'השתמש בתצוגה המלאה לזיווגי תמיכת עמיתים בזמן אמת, קבוצות עשירות יותר, ופעולות כיתה נוספות.',
   },
   {
     pattern: /^Session #(\d+)$/,

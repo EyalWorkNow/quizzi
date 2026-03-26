@@ -19,6 +19,12 @@ function recommendModesForDraft(questionCount: number, topicCount: number) {
 }
 
 const BLOOM_LEVELS = ['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create'] as const;
+const GENERATION_PRESETS = [
+  { id: 'quick-test', label: 'Quick Test', difficulty: 'Medium', questionFormat: 'Multiple Choice', cognitiveLevel: 'Mixed', explanationDetail: 'Concise', contentFocus: 'Core Concepts', distractorStyle: 'Standard', questionCount: 5 },
+  { id: 'bagrut-review', label: 'Bagrut Review', difficulty: 'Hard', questionFormat: 'Multiple Choice', cognitiveLevel: 'Higher Order', explanationDetail: 'Detailed', contentFocus: 'Cause & Effect', distractorStyle: 'Challenging', questionCount: 10 },
+  { id: 'misconception-check', label: 'Misconception Check', difficulty: 'Medium', questionFormat: 'Mixed', cognitiveLevel: 'Mixed', explanationDetail: 'Concise', contentFocus: 'Misconceptions', distractorStyle: 'Diagnostic', questionCount: 5 },
+  { id: 'calm-practice', label: 'Calm Practice', difficulty: 'Easy', questionFormat: 'Multiple Choice', cognitiveLevel: 'Foundational', explanationDetail: 'Concise', contentFocus: 'Balanced', distractorStyle: 'Standard', questionCount: 5 },
+] as const;
 
 function parseCsvList(value: string) {
   return value
@@ -142,6 +148,11 @@ export default function TeacherCreatePack() {
   const [questionFormat, setQuestionFormat] = useState('Multiple Choice');
   const [cognitiveLevel, setCognitiveLevel] = useState('Mixed');
   const [explanationDetail, setExplanationDetail] = useState('Concise');
+  const [contentFocus, setContentFocus] = useState('Balanced');
+  const [distractorStyle, setDistractorStyle] = useState('Standard');
+  const [gradeLevel, setGradeLevel] = useState('Auto');
+  const [generationMode, setGenerationMode] = useState<'generate' | 'improve'>('generate');
+  const [selectedPreset, setSelectedPreset] = useState('');
   const [showAdvancedGen, setShowAdvancedGen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedLaunchMode, setSelectedLaunchMode] = useState<GameModeId>('classic_quiz');
@@ -393,6 +404,10 @@ export default function TeacherCreatePack() {
 
   const handleGenerate = async () => {
     if (!sourceText.trim()) return;
+    if (generationMode === 'improve' && questions.length === 0) {
+      setGenError('Add or generate some questions first, then use improve mode.');
+      return;
+    }
     setIsGenerating(true);
     setGenError('');
     setSaveError('');
@@ -403,7 +418,7 @@ export default function TeacherCreatePack() {
       setTimeout(() => setGenerationStep('Formulating questions...'), 1500);
       setTimeout(() => setGenerationStep('Crafting tricky answers...'), 3000);
 
-      const data = await apiFetchJson('/api/packs/generate', {
+      const data = await apiFetchJson(generationMode === 'improve' ? '/api/packs/improve-questions' : '/api/packs/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -414,6 +429,10 @@ export default function TeacherCreatePack() {
           question_format: questionFormat,
           cognitive_level: cognitiveLevel,
           explanation_detail: explanationDetail,
+          content_focus: contentFocus,
+          distractor_style: distractorStyle,
+          grade_level: gradeLevel,
+          existing_questions: generationMode === 'improve' ? questions : undefined,
         })
       });
       if (data.questions) {
@@ -429,6 +448,19 @@ export default function TeacherCreatePack() {
       setIsGenerating(false);
       setGenerationStep('');
     }
+  };
+
+  const applyPreset = (presetId: string) => {
+    const preset = GENERATION_PRESETS.find((item) => item.id === presetId);
+    if (!preset) return;
+    setSelectedPreset(presetId);
+    setDifficulty(preset.difficulty);
+    setQuestionFormat(preset.questionFormat);
+    setCognitiveLevel(preset.cognitiveLevel);
+    setExplanationDetail(preset.explanationDetail);
+    setContentFocus(preset.contentFocus);
+    setDistractorStyle(preset.distractorStyle);
+    setQuestionCount(preset.questionCount);
   };
 
   const persistPack = async () => {
@@ -826,6 +858,56 @@ export default function TeacherCreatePack() {
                         </div>
                       </div>
                       <div className="space-y-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
+                            <Sparkles className="w-3 h-3" /> Ready Presets
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            {GENERATION_PRESETS.map((preset) => (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() => applyPreset(preset.id)}
+                                className={`px-3 py-2 rounded-full border-2 border-brand-dark text-xs font-black ${selectedPreset === preset.id ? 'bg-brand-dark text-white' : 'bg-white text-brand-dark'}`}
+                              >
+                                {preset.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
+                              <Wand2 className="w-3 h-3" /> AI Mode
+                            </label>
+                            <select
+                              value={generationMode}
+                              onChange={e => setGenerationMode(e.target.value as 'generate' | 'improve')}
+                              className="w-full p-4 bg-white border-2 border-brand-dark rounded-xl font-bold shadow-[2px_2px_0px_0px_#1A1A1A] outline-none"
+                            >
+                              <option value="generate">Generate New Questions</option>
+                              <option value="improve">Fix Existing Questions</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
+                              <Globe className="w-3 h-3" /> Student Level
+                            </label>
+                            <select
+                              value={gradeLevel}
+                              onChange={e => setGradeLevel(e.target.value)}
+                              className="w-full p-4 bg-white border-2 border-brand-dark rounded-xl font-bold shadow-[2px_2px_0px_0px_#1A1A1A] outline-none"
+                            >
+                              <option value="Auto">Auto Detect</option>
+                              <option value="Elementary">Elementary</option>
+                              <option value="Middle School">Middle School</option>
+                              <option value="High School">High School</option>
+                              <option value="Bagrut">Bagrut / Exam Prep</option>
+                            </select>
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
@@ -935,6 +1017,44 @@ export default function TeacherCreatePack() {
                                       <option value="Detailed">Academic Detail</option>
                                     </select>
                                   </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                  <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
+                                      <BookOpen className="w-3 h-3" /> Content Focus
+                                    </label>
+                                    <select
+                                      value={contentFocus}
+                                      onChange={e => setContentFocus(e.target.value)}
+                                      className="w-full p-3 bg-white border-2 border-brand-dark rounded-xl font-bold text-sm"
+                                    >
+                                      <option value="Balanced">Balanced Coverage</option>
+                                      <option value="Core Concepts">Core Concepts</option>
+                                      <option value="Chronology & Sequence">Chronology & Sequence</option>
+                                      <option value="Cause & Effect">Cause & Effect</option>
+                                      <option value="Misconceptions">Expose Misconceptions</option>
+                                    </select>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black text-brand-dark/40 uppercase tracking-widest flex items-center gap-2">
+                                      <Sparkles className="w-3 h-3" /> Distractors
+                                    </label>
+                                    <select
+                                      value={distractorStyle}
+                                      onChange={e => setDistractorStyle(e.target.value)}
+                                      className="w-full p-3 bg-white border-2 border-brand-dark rounded-xl font-bold text-sm"
+                                    >
+                                      <option value="Standard">Standard</option>
+                                      <option value="Challenging">Challenging</option>
+                                      <option value="Diagnostic">Diagnostic</option>
+                                    </select>
+                                  </div>
+                                </div>
+
+                                <div className="rounded-2xl border-2 border-brand-dark bg-brand-bg px-4 py-3 text-sm font-bold text-brand-dark/80">
+                                  AI will now use your tuning as a real generation brief:
+                                  {` ${difficulty}, ${questionFormat}, ${cognitiveLevel}, ${contentFocus}, ${distractorStyle} distractors.`}
                                 </div>
                               </div>
                             </motion.div>

@@ -95,6 +95,14 @@ export default function StudentPractice() {
     },
   }[language];
   const queryString = searchParams.toString();
+  const isAccountMode = !nickname;
+  const practicePath = isAccountMode
+    ? (queryString ? `/api/student/me/practice?${queryString}` : '/api/student/me/practice')
+    : (queryString ? `/api/practice/${nickname}?${queryString}` : `/api/practice/${nickname}`);
+  const practiceAnswerPath = isAccountMode
+    ? '/api/student/me/practice/answer'
+    : `/api/practice/${nickname}/answer`;
+  const dashboardPath = isAccountMode ? '/student/me' : `/student/dashboard/${nickname}`;
   const fallbackMission = useMemo(
     () => ({
       id: String(searchParams.get('mission') || '').trim() || null,
@@ -127,7 +135,6 @@ export default function StudentPractice() {
     let cancelled = false;
     setStatus('LOADING');
     setError('');
-    const practicePath = queryString ? `/api/practice/${nickname}?${queryString}` : `/api/practice/${nickname}`;
     apiFetchJson(practicePath)
       .then(data => {
         if (cancelled) return;
@@ -151,7 +158,7 @@ export default function StudentPractice() {
     return () => {
       cancelled = true;
     };
-  }, [fallbackMission, nickname, queryString]);
+  }, [fallbackMission, practicePath, queryString]);
 
   const handleAnswer = async (index: number) => {
     if (status !== 'ACTIVE') return;
@@ -161,7 +168,7 @@ export default function StudentPractice() {
     setError('');
     
     try {
-      const data = await apiFetchJson(`/api/practice/${nickname}/answer`, {
+      const data = await apiFetchJson(practiceAnswerPath, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -223,7 +230,7 @@ export default function StudentPractice() {
               {copy.retry}
             </button>
             <button
-              onClick={() => navigate(`/student/dashboard/${nickname}`)}
+              onClick={() => navigate(dashboardPath)}
               className="px-6 py-4 rounded-2xl border-2 border-brand-dark bg-white font-black"
             >
               {copy.backToDashboard}
@@ -271,7 +278,7 @@ export default function StudentPractice() {
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => navigate(`/student/dashboard/${nickname}`)}
+            onClick={() => navigate(dashboardPath)}
             className="w-full bg-white text-indigo-600 px-8 py-5 rounded-2xl font-black text-2xl transition-all shadow-[0_8px_0_0_rgba(255,255,255,0.5)] hover:shadow-[0_4px_0_0_rgba(255,255,255,0.5)] hover:translate-y-1 active:shadow-none active:translate-y-2 flex items-center justify-center gap-3"
           >
             {copy.backToDashboard}
@@ -300,7 +307,7 @@ export default function StudentPractice() {
             <button 
               onClick={() => {
                 if(window.confirm('Are you sure you want to end practice early?')) {
-                  navigate(`/student/dashboard/${nickname}`);
+                  navigate(dashboardPath);
                 }
               }}
               className="p-2 hover:bg-rose-50 text-slate-400 hover:text-rose-500 rounded-full transition-colors"

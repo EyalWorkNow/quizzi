@@ -14,6 +14,12 @@ export type TeacherClassStudentRecord = {
   id: number;
   class_id: number;
   name: string;
+  email: string;
+  student_user_id: number | null;
+  invite_status: 'none' | 'invited' | 'claimed';
+  claimed_at: string | null;
+  last_seen_at: string | null;
+  account_linked: boolean;
   joined_at: string;
   created_at: string;
   updated_at: string;
@@ -122,6 +128,7 @@ function buildTeacherRetentionSummary({
   participantSignals: Array<{
     nickname: string;
     identity_key: string;
+    student_user_id: number | null;
     last_live_activity_at: string | null;
     live_answers_7d: number;
     live_answers_total: number;
@@ -153,7 +160,9 @@ function buildTeacherRetentionSummary({
   students.forEach((student) => {
     const normalizedStudentName = normalizeRosterName(student.name);
     const matchedParticipants = participantSignals.filter(
-      (entry) => normalizeRosterName(entry.nickname) === normalizedStudentName,
+      (entry) =>
+        (student.student_user_id && Number(entry.student_user_id || 0) === Number(student.student_user_id || 0)) ||
+        normalizeRosterName(entry.nickname) === normalizedStudentName,
     );
     const matchedIdentityKeys = Array.from(
       new Set(
@@ -523,6 +532,7 @@ export async function listTeacherClasses(
           p.session_id,
           p.identity_key,
           p.nickname,
+          p.student_user_id,
           p.created_at AS joined_at,
           MAX(COALESCE(a.created_at, p.created_at)) AS last_activity_at,
           SUM(CASE WHEN a.id IS NOT NULL AND a.created_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) AS live_answers_7d,
@@ -563,6 +573,12 @@ export async function listTeacherClasses(
       id: Number(student.id),
       class_id: classId,
       name: String(student.name || ''),
+      email: String(student.email || ''),
+      student_user_id: Number(student.student_user_id || 0) || null,
+      invite_status: (String(student.invite_status || 'none') as TeacherClassStudentRecord['invite_status']) || 'none',
+      claimed_at: student.claimed_at || null,
+      last_seen_at: student.last_seen_at || null,
+      account_linked: Boolean(Number(student.student_user_id || 0)),
       joined_at: student.joined_at || student.created_at || new Date().toISOString(),
       created_at: student.created_at || student.joined_at || new Date().toISOString(),
       updated_at: student.updated_at || student.created_at || student.joined_at || new Date().toISOString(),
@@ -596,6 +612,7 @@ export async function listTeacherClasses(
     Array<{
       nickname: string;
       identity_key: string;
+      student_user_id: number | null;
       last_live_activity_at: string | null;
       live_answers_7d: number;
       live_answers_total: number;
@@ -608,6 +625,7 @@ export async function listTeacherClasses(
     current.push({
       nickname: String(row.nickname || ''),
       identity_key: String(row.identity_key || '').trim(),
+      student_user_id: Number(row.student_user_id || 0) || null,
       last_live_activity_at: row.last_activity_at || row.joined_at || null,
       live_answers_7d: Number(row.live_answers_7d || 0),
       live_answers_total: Number(row.live_answers_total || 0),
