@@ -270,7 +270,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       WHERE con.conrelid = 'mastery'::regclass
         AND con.contype = 'u'
         AND (
-          SELECT array_agg(att.attname ORDER BY key_columns.ordinality)
+          SELECT array_agg(att.attname::text ORDER BY key_columns.ordinality)
           FROM unnest(con.conkey) WITH ORDINALITY AS key_columns(attnum, ordinality)
           JOIN pg_attribute att
             ON att.attrelid = con.conrelid

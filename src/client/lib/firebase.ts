@@ -7,6 +7,7 @@ import {
   GoogleAuthProvider,
   setPersistence,
   signInAnonymously,
+  signInWithPopup,
   signInWithRedirect,
   signOut,
   type Auth,
@@ -18,7 +19,7 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 googleProvider.addScope('email');
 googleProvider.addScope('profile');
 
-export { signInWithRedirect, getRedirectResult, signOut as signOutFirebase };
+export { signInWithPopup, signInWithRedirect, getRedirectResult, signOut as signOutFirebase };
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyAh6g2xKQgJBwZSzvFyD5gw2mtAMBVcstw',

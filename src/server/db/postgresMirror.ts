@@ -459,6 +459,10 @@ function normalizeSqliteValueForPostgres(table: string, column: string, value: u
 function normalizePostgresValueForSqlite(table: string, column: string, value: unknown) {
   if (value === undefined || value === null) return null;
 
+  if (typeof value === 'boolean') {
+    return Number(value);
+  }
+
   if (SQLITE_BOOLEAN_COLUMNS.get(table)?.has(column)) {
     return Number(Boolean(value));
   }
