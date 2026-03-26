@@ -4306,6 +4306,13 @@ router.post('/teacher/classes', requireTeacherSession, async (req, res) => {
         );
 
       const classId = Number(info.lastInsertRowid);
+
+      if (input.pack_id) {
+        db.prepare(`
+          INSERT INTO teacher_class_packs (class_id, pack_id)
+          VALUES (?, ?)
+        `).run(classId, input.pack_id);
+      }
       const insertStudent = db.prepare(`
         INSERT INTO teacher_class_students (
           class_id,
@@ -4622,6 +4629,72 @@ router.delete('/teacher/classes/:classId/students/:studentId', requireTeacherSes
   } catch (error: any) {
     console.error('[ERROR] Remove class student failed:', error);
     respondWithServerError(res, 'Failed to remove student');
+  }
+});
+
+router.post('/teacher/classes/:id/packs', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+
+    const classId = parsePositiveInt(req.params.id);
+    const packId = parsePositiveInt(req.body?.packId || req.body?.pack_id);
+    if (!classId || !packId) {
+      return res.status(400).json({ error: 'Class ID and Pack ID are required.' });
+    }
+
+    const existingClass = await getTeacherOwnedClass(classId, teacherUserId);
+    if (!existingClass) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+
+    db.prepare(`
+      INSERT OR IGNORE INTO teacher_class_packs (class_id, pack_id)
+      VALUES (?, ?)
+    `).run(classId, packId);
+
+    db.prepare('UPDATE teacher_classes SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(classId);
+
+    res.json((await getHydratedTeacherClass(classId, teacherUserId)));
+  } catch (error: any) {
+    console.error('[ERROR] Link pack to class failed:', error);
+    respondWithServerError(res, 'Failed to add quiz to class');
+  }
+});
+
+router.delete('/teacher/classes/:id/packs/:packId', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+
+    const classId = parsePositiveInt(req.params.id);
+    const packId = parsePositiveInt(req.params.packId);
+    if (!classId || !packId) {
+      return res.status(400).json({ error: 'Class ID and Pack ID are required.' });
+    }
+
+    const existingClass = await getTeacherOwnedClass(classId, teacherUserId);
+    if (!existingClass) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+
+    db.prepare(`
+      DELETE FROM teacher_class_packs
+      WHERE class_id = ? AND pack_id = ?
+    `).run(classId, packId);
+
+    db.prepare('UPDATE teacher_classes SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(classId);
+
+    res.json((await getHydratedTeacherClass(classId, teacherUserId)));
+  } catch (error: any) {
+    console.error('[ERROR] Unlink pack from class failed:', error);
+    respondWithServerError(res, 'Failed to remove quiz from class');
   }
 });
 

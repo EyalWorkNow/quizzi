@@ -110,6 +110,7 @@ export type TeacherClassCard = {
   latest_session: TeacherClassSessionSummary | null;
   latest_completed_session: TeacherClassSessionSummary | null;
   retention: TeacherClassRetentionSummary;
+  packs: TeacherClassPackSummary[];
 };
 
 export type TeacherClassWorkspace = TeacherClassCard & {
@@ -204,6 +205,19 @@ export async function removeTeacherClassStudent(classId: number, studentId: numb
 export async function resendTeacherClassStudentInvite(classId: number, studentId: number) {
   return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/students/${studentId}/resend-invite`, {
     method: 'POST',
+  });
+}
+
+export async function addPackToClass(classId: number, packId: number) {
+  return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/packs`, {
+    method: 'POST',
+    body: JSON.stringify({ packId }),
+  });
+}
+
+export async function removePackFromClass(classId: number, packId: number) {
+  return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/packs/${packId}`, {
+    method: 'DELETE',
   });
 }
 

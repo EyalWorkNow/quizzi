@@ -19,9 +19,11 @@ import TeacherSidebar from '../components/TeacherSidebar.tsx';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { apiFetchJson } from '../lib/api.ts';
 import {
+  addPackToClass,
   addTeacherClassStudent,
   createClassSession,
   getTeacherClass,
+  removePackFromClass,
   removeTeacherClassStudent,
   resendTeacherClassStudentInvite,
   TEACHER_CLASS_COLOR_OPTIONS,
@@ -104,6 +106,7 @@ export default function TeacherClassDetail() {
   const [studentEmail, setStudentEmail] = useState('');
   const [copiedReminderKey, setCopiedReminderKey] = useState('');
   const [copiedClassLink, setCopiedClassLink] = useState(false);
+  const [selectedPackId, setSelectedPackId] = useState('');
 
   const copy = ({
     he: {
@@ -195,6 +198,13 @@ export default function TeacherClassDetail() {
       livePin: 'PIN',
       pendingAccess: 'ממתינים לגישה',
       shareHint: 'אפשר לשלוח את הקישור הזה לכל תלמידי הכיתה. אחרי כניסה עם המייל שלהם, הכיתה תופיע אצלם לאישור או ככיתה פעילה.',
+      library: 'ספריית שיעורים',
+      addQuiz: 'הוסף שאלון לכיתה',
+      removeQuiz: 'הסר מהכיתה',
+      unnamedQuiz: 'שאלון ללא שם',
+      selectPack: 'בחר שאלון מהקולקציה שלך...',
+      noPacksInLibrary: 'עדיין אין שאלונים בתיקיית הכיתה הזאת.',
+      hostSpecific: 'הפעל שיעור זה',
     },
     ar: {
       back: 'العودة إلى لوحة الصفوف',
@@ -236,16 +246,16 @@ export default function TeacherClassDetail() {
       accountState: 'الحساب',
       activityState: 'النشاط',
       followUpTitle: 'ماذا نفعل الآن',
-      followUpBody: 'هذا الطابور يحول حالات الدعوة إلى أفعال قصيرة: لمن نرسل تذكيرًا، لمن نعيد الإرسال، وعلى من لا يمكن بعد بناء متابعة موثوقة.',
+      followUpBody: 'هذا الطابور يحول حالات الدعوة إلى أفعال قصيرة: لمن نرسل تذكيرًا، لمن نعيد الإرسال، ومن لا يمكن تتبعه بشكل موثوق.',
       followUpEmpty: 'لا يوجد الآن طلاب يحتاجون إلى متابعة فورية.',
       manualReminder: 'انسخ تذكيرًا',
       copiedReminder: 'تم نسخ التذكير للطالب.',
       needsEmail: 'يجب إضافة بريد إلكتروني',
       pendingInviteAction: 'ما زال بانتظار الموافقة على الصف',
-      deliveryIssueAction: 'الدعوة لم تصل بشكل ثابت',
-      sessionOnlyAction: 'لا يزال الطالب غير قابل للمتابعة طويلة المدى',
+      deliveryIssueAction: 'فشل إرسال الدعوة',
+      sessionOnlyAction: 'لا يزال الطالب غير قابل للمتابعة',
       linkedButQuietAction: 'الحساب مرتبط لكن لا توجد عودة للنشاط بعد',
-      queueReason: 'لماذا يهم هذا الآن',
+      queueReason: 'لماذا يهم هذا',
       noSyncRows: 'لا يوجد طلاب في هذا الصف بعد.',
       inviteSentShort: 'أُرسلت',
       inviteMissingShort: 'لم تُرسل',
@@ -266,7 +276,7 @@ export default function TeacherClassDetail() {
       classSaved: 'تم حفظ تغييرات الصف.',
       studentAdded: 'تمت إضافة الطالب إلى الصف.',
       studentRemoved: 'تمت إزالة الطالب من الصف.',
-      assignPackFirst: 'يجب ربط حزمة قبل فتح جلسة حية.',
+      assignPackFirst: 'أضف حزمة قبل فتح جلسة حية.',
       fillRequired: 'املأ اسم الصف والمادة والمستوى قبل الحفظ.',
       configureMail: 'إعدادات البريد الناقصة: ',
       linkedAccount: 'حساب طالب مرتبط',
@@ -284,7 +294,14 @@ export default function TeacherClassDetail() {
       liveClosed: 'لا توجد غرفة حية الآن',
       livePin: 'PIN',
       pendingAccess: 'بانتظار الوصول',
-      shareHint: 'يمكنك إرسال هذا الرابط إلى طلاب الصف. بعد الدخول ببريدهم سيظهر الصف عندهم للموافقة أو كصف نشط.',
+      shareHint: 'يمكنك إرسال هذا الرابط إلى طلاب الصف. بعد الدخول ببريدهم، سيظهر الصف للموافقة أو كصف نشط.',
+      library: 'مكتبة الدروس',
+      addQuiz: 'إضافة اختبار للصف',
+      removeQuiz: 'إزالة من الصف',
+      unnamedQuiz: 'اختبار بدون اسم',
+      selectPack: 'اختر اختبارًا من مجموعتك...',
+      noPacksInLibrary: 'لا توجد اختبارات في مجلد هذا الصف بعد.',
+      hostSpecific: 'شغل هذا الدرس',
     },
     en: {
       back: 'Back to classes',
@@ -375,6 +392,13 @@ export default function TeacherClassDetail() {
       livePin: 'PIN',
       pendingAccess: 'Pending access',
       shareHint: 'You can send this link to any student in the class. After they sign in with their email, the class will appear for approval or as an active class.',
+      library: 'Lesson Library',
+      addQuiz: 'Add quiz to class',
+      removeQuiz: 'Remove from class',
+      unnamedQuiz: 'Unnamed Quiz',
+      selectPack: 'Select a quiz from your collection...',
+      noPacksInLibrary: 'No quizzes in this class folder yet.',
+      hostSpecific: 'Host this quiz',
     },
   } as const)[language as 'he' | 'ar' | 'en'] || {
     back: 'Back to classes',
@@ -465,6 +489,13 @@ export default function TeacherClassDetail() {
     livePin: 'PIN',
     pendingAccess: 'Pending access',
     shareHint: 'Share this link with students in the class.',
+    library: 'Lesson Library',
+    addQuiz: 'Add quiz to class',
+    removeQuiz: 'Remove from class',
+    unnamedQuiz: 'Unnamed Quiz',
+    selectPack: 'Select a quiz from your collection...',
+    noPacksInLibrary: 'No quizzes in this class folder yet.',
+    hostSpecific: 'Host this quiz',
   };
 
   const classId = useMemo(() => Number(id || 0), [id]);
@@ -665,6 +696,36 @@ export default function TeacherClassDetail() {
     }
   };
 
+  const handleAddPack = async () => {
+    if (!classBoard || !selectedPackId) return;
+    try {
+      setBusyKey('add-pack');
+      const refreshed = await addPackToClass(classBoard.id, Number(selectedPackId));
+      setClassBoard(refreshed);
+      setSelectedPackId('');
+      setFeedback('Quiz added to class library.');
+    } catch (err: any) {
+      setFeedback(err?.message || 'Failed to add quiz.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const handleUnlinkPack = async (packId: number, packTitle: string) => {
+    if (!classBoard) return;
+    if (!window.confirm(`Remove "${packTitle}" from ${classBoard.name}'s library?`)) return;
+    try {
+      setBusyKey(`remove-pack-${packId}`);
+      const refreshed = await removePackFromClass(classBoard.id, packId);
+      setClassBoard(refreshed);
+      setFeedback('Quiz removed from class.');
+    } catch (err: any) {
+      setFeedback(err?.message || 'Failed to remove quiz.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
   const handleAddStudent = async () => {
     if (!classBoard) return;
     if (!studentName.trim()) {
@@ -685,18 +746,23 @@ export default function TeacherClassDetail() {
     }
   };
 
-  const handleHost = async () => {
+  const handleHost = async (packId?: number) => {
     if (!classBoard) return;
+    
+    // If hosting an active session, just jump in
     if (classBoard.active_session?.pin) {
       navigate(`/teacher/session/${classBoard.active_session.pin}/host`, {
         state: {
           sessionId: classBoard.active_session.id,
-          packId: classBoard.pack?.id,
+          packId: classBoard.active_session.quiz_pack_id,
         },
       });
       return;
     }
-    if (!classBoard.pack?.id) {
+
+    const targetPackId = packId || classBoard.pack?.id || (classBoard.packs.length === 1 ? classBoard.packs[0].id : null);
+    
+    if (!targetPackId) {
       setFeedback(copy.assignPackFirst);
       return;
     }
@@ -704,12 +770,12 @@ export default function TeacherClassDetail() {
       setBusyKey('host');
       const session = await createClassSession({
         classId: classBoard.id,
-        packId: classBoard.pack.id,
+        packId: targetPackId,
       });
       navigate(`/teacher/session/${session.pin}/host`, {
         state: {
           sessionId: session.id,
-          packId: classBoard.pack.id,
+          packId: targetPackId,
         },
       });
     } catch (hostError: any) {
@@ -985,21 +1051,7 @@ export default function TeacherClassDetail() {
                   <Field label={copy.className} value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
                   <Field label={copy.subject} value={form.subject} onChange={(value) => setForm((current) => ({ ...current, subject: value }))} />
                   <Field label={copy.grade} value={form.grade} onChange={(value) => setForm((current) => ({ ...current, grade: value }))} />
-                  <div>
-                    <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{copy.pack}</label>
-                    <select
-                      value={form.packId}
-                      onChange={(event) => setForm((current) => ({ ...current, packId: event.target.value }))}
-                      className="w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
-                    >
-                      <option value="">{copy.noPack}</option>
-                      {packs.map((pack) => (
-                        <option key={pack.id} value={pack.id}>
-                          {pack.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <Field label={copy.grade} value={form.grade} onChange={(value) => setForm((current) => ({ ...current, grade: value }))} />
                 </div>
                 <div className="mt-4">
                   <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{copy.color}</label>
@@ -1315,24 +1367,75 @@ export default function TeacherClassDetail() {
               </div>
 
               <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <div className="mb-5 flex items-center gap-3">
-                  <BookOpen className="h-6 w-6 text-brand-purple" />
-                  <h2 className="text-2xl font-black">{copy.linkedPack}</h2>
-                </div>
-                {classPack ? (
-                  <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-5">
-                    <p className="text-2xl font-black">{classPack.title}</p>
-                    <p className="mt-2 font-bold text-brand-dark/65">{classPack.question_count} questions</p>
-                    <button
-                      onClick={() => navigate(`/teacher/pack/${classPack?.id}/edit`)}
-                      className="mt-4 rounded-full border-2 border-brand-dark bg-white px-4 py-2 font-black"
+                <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <BookOpen className="h-6 w-6 text-brand-purple" />
+                    <div>
+                      <h2 className="text-2xl font-black">{copy.library}</h2>
+                      <p className="text-sm font-bold text-brand-dark/55">{copy.noPacksInLibrary}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <select
+                      value={selectedPackId}
+                      onChange={(e) => setSelectedPackId(e.target.value)}
+                      className="rounded-xl border-2 border-brand-dark bg-brand-bg px-4 py-2 font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
                     >
-                      {copy.openPack}
+                      <option value="">{copy.selectPack}</option>
+                      {packs
+                        .filter((p) => !(classBoard.packs || []).some((cp) => cp.id === p.id))
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.title}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      onClick={() => void handleAddPack()}
+                      disabled={!selectedPackId || busyKey === 'add-pack'}
+                      className="rounded-xl border-2 border-brand-dark bg-brand-yellow px-5 py-2 font-black shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-50"
+                    >
+                      {copy.addQuiz}
                     </button>
                   </div>
-                ) : (
-                  <p className="font-bold text-brand-dark/60">{copy.noPack}</p>
-                )}
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {(classBoard.packs || []).length > 0 ? (
+                    (classBoard.packs || []).map((pack) => (
+                      <div key={`pack-${pack.id}`} className="flex flex-col rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5 shadow-[3px_3px_0px_0px_#1A1A1A]">
+                        <div className="mb-4 flex-1">
+                          <h3 className="text-xl font-black leading-tight text-brand-dark">
+                            {pack.title || copy.unnamedQuiz}
+                          </h3>
+                          <p className="mt-1 font-bold text-brand-dark/55">
+                            {pack.question_count} {(pack.question_count === 1) ? 'question' : 'questions'}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 pt-4 border-t-2 border-brand-dark/5">
+                          <button
+                            onClick={() => void handleHost(pack.id)}
+                            className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-brand-orange px-4 py-2 text-sm font-black text-white"
+                          >
+                            <PlayCircle className="h-4 w-4" />
+                            {copy.hostSpecific}
+                          </button>
+                          <button
+                            onClick={() => void handleUnlinkPack(pack.id, pack.title)}
+                            className="inline-flex items-center justify-center rounded-full border-2 border-brand-dark bg-white p-2"
+                            title={copy.removeQuiz}
+                          >
+                            <Trash2 className="h-4 w-4 text-rose-500" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-span-full rounded-2xl border-2 border-dashed border-brand-dark/20 py-12 text-center font-bold text-brand-dark/40">
+                      {copy.noPacksInLibrary}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">

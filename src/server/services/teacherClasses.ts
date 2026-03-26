@@ -100,6 +100,7 @@ export type TeacherClassBase = {
   created_at: string;
   updated_at: string;
   pack: TeacherClassPackSummary | null;
+  packs: TeacherClassPackSummary[];
   stats: TeacherClassStats;
   student_count: number;
   pending_approval_count: number;
@@ -580,6 +581,21 @@ async function listTeacherClassWorkspaces(
   if (!classIds.length) return [];
 
   const placeholders = classIds.map(() => '?').join(', ');
+
+  const classPackRows = (await db
+    .prepare(`
+      SELECT
+        tcp.class_id,
+        qp.id,
+        qp.title,
+        COALESCE(qp.question_count_cache, 0) AS question_count
+      FROM teacher_class_packs tcp
+      JOIN quiz_packs qp ON qp.id = tcp.pack_id
+      WHERE tcp.class_id IN (${placeholders})
+      ORDER BY tcp.created_at DESC
+    `)
+    .all(...classIds)) as any[];
+
   const studentRows = (await db
       .prepare(`
       SELECT *
@@ -690,6 +706,18 @@ async function listTeacherClassWorkspaces(
     studentsByClassId.set(classId, current);
   }
 
+  const packsByClassId = new Map<number, TeacherClassPackSummary[]>();
+  for (const row of classPackRows) {
+    const classId = Number(row.class_id || 0);
+    const current = packsByClassId.get(classId) || [];
+    current.push({
+      id: Number(row.id),
+      title: String(row.title || ''),
+      question_count: Number(row.question_count || 0),
+    });
+    packsByClassId.set(classId, current);
+  }
+
   const sessionsByClassId = new Map<number, TeacherClassSessionSummary[]>();
   for (const session of sessionRows) {
     const classId = Number(session.teacher_class_id || 0);
@@ -791,6 +819,7 @@ async function listTeacherClassWorkspaces(
             question_count: Number(row.pack_question_count || 0),
           }
         : null,
+      packs: packsByClassId.get(classId) || [],
       stats,
       student_count: students.length,
       pending_approval_count: inviteSummary.pending_count,
@@ -821,6 +850,7 @@ function mapTeacherClassWorkspaceToCard(workspace: TeacherClassWorkspace): Teach
     created_at: workspace.created_at,
     updated_at: workspace.updated_at,
     pack: workspace.pack,
+    packs: workspace.packs,
     stats: workspace.stats,
     student_count: workspace.student_count,
     pending_approval_count: workspace.pending_approval_count,
