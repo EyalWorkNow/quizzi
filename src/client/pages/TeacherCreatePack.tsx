@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Library, Search, Layout, Rocket, Play, PlusCircle, ChevronDown, ChevronUp, Monitor, Brain, MessageSquare, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
@@ -183,9 +183,10 @@ export default function TeacherCreatePack() {
       saveAndHost: 'Save & Host',
       stepContent: '1. Material & Magic',
       stepQuestions: '2. Review & Launch',
-      assignToClass: 'Assign to Class (Auto-Update)',
-      noClassSelected: 'No class selected',
+      assignToClass: 'Target Class (Auto-Update)',
+      noClassSelected: 'Select destination class...',
       improveError: 'Add or generate some questions first, then use improve mode.',
+      targetClassLabel: 'Destination Class',
     },
     he: {
       extractFailed: 'חילוץ הטקסט מהקובץ נכשל',
@@ -202,9 +203,10 @@ export default function TeacherCreatePack() {
       saveAndHost: 'שמור וארח',
       stepContent: '1. חומר וקסם',
       stepQuestions: '2. סקירה והפעלה',
-      assignToClass: 'שיוך אוטומטי לכיתה',
-      noClassSelected: 'ללא שיוך לכיתה',
+      assignToClass: 'כיתת יעד (שיוך אוטומטי)',
+      noClassSelected: 'בחר כיתה לשיוך...',
       improveError: '⚠️ תחילה הוסף או צור כמה שאלות, ולאחר מכן השתמש במצב שיפור.',
+      targetClassLabel: 'כיתת יעד',
     },
     ar: {
       extractFailed: 'تعذر استخراج النص من الملف',
@@ -221,9 +223,10 @@ export default function TeacherCreatePack() {
       saveAndHost: 'احفظ واستضف',
       stepContent: '1. المادة والشرارة',
       stepQuestions: '2. المراجعة والإطلاق',
-      assignToClass: 'تعيين تلقائي للفصل',
-      noClassSelected: 'لا يوجد فصل محدد',
+      assignToClass: 'الفصل المستهدف (تعيين تلقائي)',
+      noClassSelected: 'اختر الفضل المرتبط...',
       improveError: '⚠️ أضف أو أنشئ بعض الأسئلة أولاً، ثم استخدم وضع التحسين.',
+      targetClassLabel: 'الفصل المستهدف',
     },
   } as const)[appLanguage as 'he' | 'ar' | 'en'] || {
     extractFailed: 'Failed to extract text',
@@ -240,9 +243,10 @@ export default function TeacherCreatePack() {
     saveAndHost: 'Save & Host',
     stepContent: '1. Material & Magic',
     stepQuestions: '2. Review & Launch',
-    assignToClass: 'Assign to Class',
-    noClassSelected: 'No class selected',
+    assignToClass: 'Target Class',
+    noClassSelected: 'Select class...',
     improveError: 'Add questions first.',
+    targetClassLabel: 'Target Class',
   };
   const recommendedLaunchModes = useMemo(
     () => recommendModesForDraft(questions.length || questionCount, materialProfile?.topic_fingerprint?.length || 0),
@@ -336,6 +340,15 @@ export default function TeacherCreatePack() {
       cancelled = true;
     };
   }, [editPackId, isEditMode]);
+
+  const location = useLocation();
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const classIdParam = params.get('class_id');
+    if (classIdParam && !targetClassId) {
+      setTargetClassId(classIdParam);
+    }
+  }, [location, targetClassId]);
 
   useEffect(() => {
     listTeacherClasses()
@@ -913,25 +926,6 @@ export default function TeacherCreatePack() {
                           placeholder="Teaching notes & framing..."
                           className="w-full min-h-[140px] p-4 bg-white border-2 border-brand-dark rounded-xl font-bold resize-none"
                         />
-
-                        {/* Class Assignment */}
-                        <div className="pt-4 border-t-2 border-brand-dark/5">
-                          <label className="block text-[10px] font-black text-brand-dark/40 mb-2 uppercase tracking-[0.2em]">
-                            {createPackCopy.assignToClass}
-                          </label>
-                          <select
-                            value={targetClassId}
-                            onChange={(e) => setTargetClassId(e.target.value)}
-                            className="w-full p-4 bg-brand-yellow/5 border-2 border-brand-dark rounded-xl font-bold outline-none shadow-[2px_2px_0px_0px_#1A1A1A] focus:translate-y-[1px] focus:translate-x-[1px] focus:shadow-none transition-all"
-                          >
-                            <option value="">{createPackCopy.noClassSelected}</option>
-                            {teacherClasses.map((c) => (
-                              <option key={c.id} value={String(c.id)}>
-                                {c.name} ({c.subject})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
                       </div>
                     </div>
 
@@ -1030,7 +1024,7 @@ export default function TeacherCreatePack() {
                         >
                           <div className="flex items-center gap-3">
                             <div className="p-1.5 bg-white border-2 border-brand-dark rounded-lg shadow-[1px_1px_0px_0px_#1A1A1A] group-hover:bg-brand-yellow transition-colors">
-                              <Settings2 className="w-4 h-4 text-brand-dark" />
+                              <Settings2 className="w-4 h-4" />
                             </div>
                             <span className="text-sm font-black text-brand-dark uppercase tracking-widest">Advanced Tuning</span>
                           </div>
@@ -1418,22 +1412,43 @@ export default function TeacherCreatePack() {
                        compact
                      />
 
-                     <button
-                       onClick={handleSaveAndHost}
-                       disabled={isSaving || isHosting || questions.length === 0}
-                       className="w-full py-6 bg-brand-orange text-white rounded-[2rem] border-4 border-brand-dark font-black text-2xl shadow-[8px_8px_0px_0px_#1A1A1A] hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all flex items-center justify-center gap-4 disabled:opacity-50"
-                     >
-                       <Play className="w-8 h-8 fill-white" />
-                       FIRE AWAY
-                     </button>
+                     {/* Class Assignment - High Visibility */}
+                     <div className="pt-2">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-brand-dark/40 mb-3 block">
+                         {createPackCopy.targetClassLabel}
+                       </label>
+                       <select
+                         value={targetClassId}
+                         onChange={(e) => setTargetClassId(e.target.value)}
+                         className="w-full p-4 bg-brand-yellow/30 border-4 border-brand-dark rounded-[1.4rem] font-bold outline-none shadow-[4px_4px_0px_0px_#1A1A1A] focus:translate-y-[1px] focus:translate-x-[1px] focus:shadow-none transition-all"
+                       >
+                         <option value="">{createPackCopy.noClassSelected}</option>
+                         {teacherClasses.map((c) => (
+                           <option key={c.id} value={String(c.id)}>
+                             {c.name} ({c.subject})
+                           </option>
+                         ))}
+                       </select>
+                     </div>
 
-                     <button
-                       onClick={handleSave}
-                       disabled={isSaving || questions.length === 0}
-                       className="w-full py-4 text-brand-dark font-black uppercase tracking-widest hover:underline disabled:opacity-30"
-                     >
-                       Save to Library only
-                     </button>
+                     <div className="pt-4 space-y-4">
+                       <button
+                         onClick={handleSaveAndHost}
+                         disabled={isSaving || isHosting || questions.length === 0}
+                         className="w-full py-6 bg-brand-orange text-white rounded-[2rem] border-4 border-brand-dark font-black text-2xl shadow-[8px_8px_0px_0px_#1A1A1A] hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all flex items-center justify-center gap-4 disabled:opacity-50"
+                       >
+                         <Play className="w-8 h-8 fill-white" />
+                         FIRE AWAY
+                       </button>
+
+                       <button
+                         onClick={handleSave}
+                         disabled={isSaving || questions.length === 0}
+                         className="w-full py-4 text-brand-dark font-black uppercase tracking-widest hover:underline disabled:opacity-30"
+                       >
+                         Save to Library only
+                       </button>
+                     </div>
                    </div>
                 </div>
 
