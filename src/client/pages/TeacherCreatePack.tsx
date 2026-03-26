@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Library, Search, Layout, Rocket, Play, PlusCircle, ChevronDown, ChevronUp, Monitor, Brain, MessageSquare, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
+import { listTeacherClasses, updateTeacherClass, type TeacherClassCard } from '../lib/teacherClasses.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
 import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
 import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from '../../shared/sessionSoundtracks.ts';
@@ -155,6 +156,8 @@ export default function TeacherCreatePack() {
   const [selectedPreset, setSelectedPreset] = useState('');
   const [showAdvancedGen, setShowAdvancedGen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [teacherClasses, setTeacherClasses] = useState<TeacherClassCard[]>([]);
+  const [targetClassId, setTargetClassId] = useState<string>('');
   const [selectedLaunchMode, setSelectedLaunchMode] = useState<GameModeId>('classic_quiz');
   const [selectedTeamCount, setSelectedTeamCount] = useState<number>(4);
   const [selectedLobbyTrackId, setSelectedLobbyTrackId] = useState<SessionSoundtrackChoice>(
@@ -164,7 +167,26 @@ export default function TeacherCreatePack() {
     DEFAULT_SESSION_SOUNDTRACKS.gameplay_track_id,
   );
   const [creationStep, setCreationStep] = useState<'CONTENT' | 'QUESTIONS'>('CONTENT');
-  const createPackCopy = {
+  const createPackCopy = ({
+    en: {
+      extractFailed: 'Failed to extract text from file',
+      editPack: 'Edit Quiz Pack',
+      createPack: 'Create Quiz Pack',
+      editBody: 'Refine questions, keep the classroom flow, and publish a safer revision when needed',
+      createBody: 'Design your questions or let AI help',
+      updating: 'Updating...',
+      saving: 'Saving...',
+      updatePack: 'Update Pack',
+      savePack: 'Save Pack',
+      launching: 'Launching...',
+      updateAndHost: 'Update & Host',
+      saveAndHost: 'Save & Host',
+      stepContent: '1. Material & Magic',
+      stepQuestions: '2. Review & Launch',
+      assignToClass: 'Assign to Class (Auto-Update)',
+      noClassSelected: 'No class selected',
+      improveError: 'Add or generate some questions first, then use improve mode.',
+    },
     he: {
       extractFailed: 'חילוץ הטקסט מהקובץ נכשל',
       editPack: 'עריכת חבילת חידון',
@@ -180,6 +202,9 @@ export default function TeacherCreatePack() {
       saveAndHost: 'שמור וארח',
       stepContent: '1. חומר וקסם',
       stepQuestions: '2. סקירה והפעלה',
+      assignToClass: 'שיוך אוטומטי לכיתה',
+      noClassSelected: 'ללא שיוך לכיתה',
+      improveError: '⚠️ תחילה הוסף או צור כמה שאלות, ולאחר מכן השתמש במצב שיפור.',
     },
     ar: {
       extractFailed: 'تعذر استخراج النص من الملف',
@@ -196,24 +221,29 @@ export default function TeacherCreatePack() {
       saveAndHost: 'احفظ واستضف',
       stepContent: '1. المادة والشرارة',
       stepQuestions: '2. المراجعة والإطلاق',
+      assignToClass: 'تعيين تلقائي للفصل',
+      noClassSelected: 'لا يوجد فصل محدد',
+      improveError: '⚠️ أضف أو أنشئ بعض الأسئلة أولاً، ثم استخدم وضع التحسين.',
     },
-    en: {
-      extractFailed: 'Failed to extract text from file',
-      editPack: 'Edit Quiz Pack',
-      createPack: 'Create Quiz Pack',
-      editBody: 'Refine questions, keep the classroom flow, and publish a safer revision when needed',
-      createBody: 'Design your questions or let AI help',
-      updating: 'Updating...',
-      saving: 'Saving...',
-      updatePack: 'Update Pack',
-      savePack: 'Save Pack',
-      launching: 'Launching...',
-      updateAndHost: 'Update & Host',
-      saveAndHost: 'Save & Host',
-      stepContent: '1. Material & Magic',
-      stepQuestions: '2. Review & Launch',
-    },
-  }[appLanguage];
+  } as const)[appLanguage as 'he' | 'ar' | 'en'] || {
+    extractFailed: 'Failed to extract text',
+    editPack: 'Edit Pack',
+    createPack: 'Create Pack',
+    editBody: 'Refine questions.',
+    createBody: 'Design questions.',
+    updating: 'Updating...',
+    saving: 'Saving...',
+    updatePack: 'Update Pack',
+    savePack: 'Save Pack',
+    launching: 'Launching...',
+    updateAndHost: 'Update & Host',
+    saveAndHost: 'Save & Host',
+    stepContent: '1. Material & Magic',
+    stepQuestions: '2. Review & Launch',
+    assignToClass: 'Assign to Class',
+    noClassSelected: 'No class selected',
+    improveError: 'Add questions first.',
+  };
   const recommendedLaunchModes = useMemo(
     () => recommendModesForDraft(questions.length || questionCount, materialProfile?.topic_fingerprint?.length || 0),
     [materialProfile?.topic_fingerprint?.length, questionCount, questions.length],
@@ -306,6 +336,12 @@ export default function TeacherCreatePack() {
       cancelled = true;
     };
   }, [editPackId, isEditMode]);
+
+  useEffect(() => {
+    listTeacherClasses()
+      .then(setTeacherClasses)
+      .catch((err) => console.error('[TeacherCreatePack] Failed to load classes:', err));
+  }, []);
 
   const buildSaveNotice = (savedPack: any) => {
     if (savedPack?.saved_as_new_revision) {
@@ -405,7 +441,7 @@ export default function TeacherCreatePack() {
   const handleGenerate = async () => {
     if (!sourceText.trim()) return;
     if (generationMode === 'improve' && questions.length === 0) {
-      setGenError('Add or generate some questions first, then use improve mode.');
+      setGenError(createPackCopy.improveError);
       return;
     }
     setIsGenerating(true);
@@ -533,6 +569,22 @@ export default function TeacherCreatePack() {
     setSaveError('');
     try {
       const savedPack = await persistPack();
+      
+      // Auto-assign to class if selected
+      if (targetClassId) {
+        const classToUpdate = teacherClasses.find(c => String(c.id) === targetClassId);
+        if (classToUpdate) {
+          await updateTeacherClass(classToUpdate.id, {
+            name: classToUpdate.name,
+            subject: classToUpdate.subject,
+            grade: classToUpdate.grade,
+            color: classToUpdate.color,
+            notes: classToUpdate.notes,
+            pack_id: savedPack.id,
+          });
+        }
+      }
+
       navigate('/teacher/dashboard', {
         state: { notice: buildSaveNotice(savedPack) },
       });
@@ -550,11 +602,28 @@ export default function TeacherCreatePack() {
     setSaveError('');
     try {
       const savedPack = await persistPack();
+      
+      // Auto-assign to class if selected
+      if (targetClassId) {
+        const classToUpdate = teacherClasses.find(c => String(c.id) === targetClassId);
+        if (classToUpdate) {
+          await updateTeacherClass(classToUpdate.id, {
+            name: classToUpdate.name,
+            subject: classToUpdate.subject,
+            grade: classToUpdate.grade,
+            color: classToUpdate.color,
+            notes: classToUpdate.notes,
+            pack_id: savedPack.id,
+          });
+        }
+      }
+
       const response = await apiFetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           quiz_pack_id: savedPack.id,
+          teacher_class_id: targetClassId ? Number(targetClassId) : undefined,
           game_type: mode.id,
           team_count: mode.teamBased ? selectedTeamCount : 0,
           mode_config: {
@@ -844,6 +913,25 @@ export default function TeacherCreatePack() {
                           placeholder="Teaching notes & framing..."
                           className="w-full min-h-[140px] p-4 bg-white border-2 border-brand-dark rounded-xl font-bold resize-none"
                         />
+
+                        {/* Class Assignment */}
+                        <div className="pt-4 border-t-2 border-brand-dark/5">
+                          <label className="block text-[10px] font-black text-brand-dark/40 mb-2 uppercase tracking-[0.2em]">
+                            {createPackCopy.assignToClass}
+                          </label>
+                          <select
+                            value={targetClassId}
+                            onChange={(e) => setTargetClassId(e.target.value)}
+                            className="w-full p-4 bg-brand-yellow/5 border-2 border-brand-dark rounded-xl font-bold outline-none shadow-[2px_2px_0px_0px_#1A1A1A] focus:translate-y-[1px] focus:translate-x-[1px] focus:shadow-none transition-all"
+                          >
+                            <option value="">{createPackCopy.noClassSelected}</option>
+                            {teacherClasses.map((c) => (
+                              <option key={c.id} value={String(c.id)}>
+                                {c.name} ({c.subject})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     </div>
 
