@@ -171,18 +171,13 @@ async function startServer() {
         callback(null, true);
       } else {
         console.warn(`[cors] Blocked origin: ${origin}`);
-        callback(new Error('Not allowed by CORS'));
+        callback(null, false);
       }
     },
     credentials: true,
     methods: allowedMethods,
-    allowedHeaders: (req: any, _callback: any) => {
-      const requestedHeaders = String(req.headers['access-control-request-headers'] || '')
-        .split(',')
-        .map((header: string) => header.trim())
-        .filter(Boolean);
-      _callback(null, Array.from(new Set([...allowedHeaders, ...requestedHeaders])));
-    }
+    allowedHeaders: allowedHeaders,
+    exposedHeaders: ['X-Quizzi-Participant-Token', 'X-Request-Id'],
   }));
 
   // In production, we move seeding to background to avoid blocking port binding
