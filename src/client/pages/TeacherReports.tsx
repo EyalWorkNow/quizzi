@@ -18,6 +18,7 @@ import {
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
 import { apiFetchJson } from '../lib/api.ts';
 import { useTeacherLanguage } from '../lib/teacherLanguage.ts';
+import { listTeacherClasses, type TeacherClassCard } from '../lib/teacherClasses.ts';
 
 const REPORTS_COPY = {
   en: {
@@ -237,6 +238,11 @@ export default function TeacherReports() {
   const [exportError, setExportError] = useState('');
   const [lastExportMeta, setLastExportMeta] = useState<null | { filename: string; providerLabel: string; notes: string[] }>(null);
 
+  // Student Account Coverage states
+  const [classes, setClasses] = useState<TeacherClassCard[]>([]);
+  const [classOverviewError, setClassOverviewError] = useState('');
+  const [hasLoadedClassOverview, setHasLoadedClassOverview] = useState(false);
+
   const copy = REPORTS_COPY[language as keyof typeof REPORTS_COPY] || REPORTS_COPY.en;
   const isRtl = direction === 'rtl';
 
@@ -254,9 +260,22 @@ export default function TeacherReports() {
     }
   }, [copy.loadFailedBody]);
 
+  const loadClassOverview = useCallback(async () => {
+    try {
+      setClassOverviewError('');
+      const payload = await listTeacherClasses();
+      setClasses(Array.isArray(payload) ? payload : []);
+      setHasLoadedClassOverview(true);
+    } catch (loadError: any) {
+      setClassOverviewError(loadError?.message || (language === 'he' ? 'טעינת הכיתות נכשלה.' : 'Failed to load classes.'));
+      setHasLoadedClassOverview(true);
+    }
+  }, [language]);
+
   useEffect(() => {
     void loadReport();
-  }, [loadReport]);
+    void loadClassOverview();
+  }, [loadReport, loadClassOverview]);
 
   useEffect(() => {
     const recentSessions = Array.isArray(report?.recent_sessions) ? report.recent_sessions : [];
@@ -335,6 +354,53 @@ export default function TeacherReports() {
     [copy, report],
   );
 
+  const studentAccountCoverage = useMemo(() => {
+    const classRows = classes.map((classItem) => {
+      const rostered = Number(classItem.student_count || classItem.stats.student_count || 0);
+      const linked = Number(classItem.invite_summary?.linked_count || 0);
+      const readyToClaim = Number(classItem.invite_summary?.pending_count || 0);
+      const missingEmail = Number(classItem.invite_summary?.session_only_count || 0);
+      const coverage = rostered > 0 ? Math.round((linked / rostered) * 100) : 0;
+      return {
+        id: classItem.id,
+        name: classItem.name,
+        subject: classItem.subject,
+        grade: classItem.grade,
+        rostered,
+        linked,
+        readyToClaim,
+        missingEmail,
+        coverage,
+      };
+    });
+
+    const totalRostered = classRows.reduce((sum, classItem) => sum + classItem.rostered, 0);
+    const linkedStudents = classRows.reduce((sum, classItem) => sum + classItem.linked, 0);
+    const readyToClaim = classRows.reduce((sum, classItem) => sum + classItem.readyToClaim, 0);
+    const missingEmail = classRows.reduce((sum, classItem) => sum + classItem.missingEmail, 0);
+    const coveragePercent = totalRostered > 0 ? Math.round((linkedStudents / totalRostered) * 100) : 0;
+    const classesNeedingAttention = classRows.filter(
+      (classItem) => classItem.readyToClaim > 0 || classItem.missingEmail > 0,
+    );
+
+    return {
+      totalClasses: classRows.length,
+      totalRostered,
+      linkedStudents,
+      readyToClaim,
+      missingEmail,
+      coveragePercent,
+      classesNeedingAttention: classesNeedingAttention.length,
+      focusClasses: [...classRows]
+        .sort((left, right) => {
+          if (left.readyToClaim !== right.readyToClaim) return right.readyToClaim - left.readyToClaim;
+          if (left.coverage !== right.coverage) return left.coverage - right.coverage;
+          return left.name.localeCompare(right.name);
+        })
+        .slice(0, 3),
+    };
+  }, [classes]);
+
   const timelineRows = useMemo(
     () =>
       (Array.isArray(report?.recent_sessions) ? report.recent_sessions : []).map((row: any) => {
@@ -383,6 +449,8 @@ export default function TeacherReports() {
       setIsExporting(false);
     }
   }, [copy.exportError, language, providerOption.label, selectedExportProviderId, selectedExportSession]);
+
+  const mainAreaDirection = direction;
 
   return (
     <div
@@ -439,6 +507,122 @@ export default function TeacherReports() {
                   />
                 ))}
               </div>
+
+              {/* Student Account Coverage */}
+              {!loading && !error && (
+                <div className="mb-8 rounded-[2rem] border-4 border-brand-dark bg-white p-5 shadow-[8px_8px_0px_0px_#1A1A1A] lg:p-6">
+                  <div className={`flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between ${isRtl ? 'lg:flex-row-reverse' : ''}`}>
+                    <div className={`max-w-3xl ${isRtl ? 'text-right' : ''}`}>
+                      <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-brand-purple">
+                        {language === 'he' ? 'כיסוי חשבונות תלמידים' : 'Student Account Coverage'}
+                      </p>
+                      <h2 className="text-2xl font-black tracking-tight lg:text-3xl">
+                        {language === 'he' 
+                          ? 'ראה אילו מהתלמידים הרשומים כבר מקושרים לפרופיל תלמיד קבוע.' 
+                          : 'See which rostered students are already linked to a persistent student profile.'}
+                      </h2>
+                      <p className="mt-3 max-w-[70ch] text-sm font-bold text-brand-dark/65">
+                        {language === 'he'
+                          ? 'מידע זה עוזר לך לזהות אילו כיתות מוכנות לאנליטיקה ארוכת טווח, אילו תלמידים עדיין צריכים לשייך חשבון, ואיפה הנתונים עדיין מתבססים על סשנים בודדים.'
+                          : 'This block helps you spot which classes are ready for longitudinal analytics, which students still need to claim an account, and where the board is still relying on session-only reads.'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => navigate('/teacher/classes')}
+                      className={`inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-5 py-3 font-black shadow-[3px_3px_0px_0px_#1A1A1A] hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all ${isRtl ? 'flex-row-reverse' : ''}`}
+                    >
+                      {language === 'he' ? 'פתיחת כיתות' : 'Open Classes'}
+                      <ArrowUpRight className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  {classOverviewError ? (
+                    <div className={`mt-5 rounded-[1.4rem] border-2 border-brand-dark bg-brand-orange/10 p-4 ${isRtl ? 'text-right' : ''}`}>
+                      <p className="font-black">{language === 'he' ? 'הכיתות לא נטענו כראוי.' : 'Classes did not load cleanly.'}</p>
+                      <p className="mt-1 text-sm font-bold text-brand-dark/65">{classOverviewError}</p>
+                    </div>
+                  ) : !hasLoadedClassOverview ? (
+                    <div className="mt-5 grid gap-3 md:grid-cols-4">
+                      {Array.from({ length: 4 }).map((_, index) => (
+                        <div
+                          key={`coverage-skeleton-${index}`}
+                          className="h-24 animate-pulse rounded-[1.3rem] border-2 border-brand-dark bg-brand-bg"
+                        />
+                      ))}
+                    </div>
+                  ) : studentAccountCoverage.totalClasses === 0 ? (
+                    <div className={`mt-5 rounded-[1.4rem] border-2 border-dashed border-brand-dark/30 bg-brand-bg/80 p-6 ${isRtl ? 'text-right' : ''}`}>
+                      <p className="text-lg font-black">{language === 'he' ? 'אין כיתות עדיין. הוסף כיתה כדי להתחיל לסנכרן חשבונות תלמידים עם אנליטיקה.' : 'No classes yet. Add a class to start syncing student accounts with teacher analytics.'}</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <CoverageMetric
+                          label={language === 'he' ? 'תלמידים רשומים' : 'Rostered students'}
+                          value={studentAccountCoverage.totalRostered}
+                          detail={language === 'he' ? 'בכל רשימות הכיתות המקושרות' : 'Across linked class rosters'}
+                          isRtl={isRtl}
+                        />
+                        <CoverageMetric
+                          label={language === 'he' ? 'תלמידים מקושרים' : 'Linked Students'}
+                          value={studentAccountCoverage.linkedStudents}
+                          detail={`${studentAccountCoverage.coveragePercent}% ${language === 'he' ? 'כיסוי חשבונות' : 'claim coverage'}`}
+                          isRtl={isRtl}
+                        />
+                        <CoverageMetric
+                          label={language === 'he' ? 'מוכנים לשיוך' : 'Ready to claim'}
+                          value={studentAccountCoverage.readyToClaim}
+                          detail={language === 'he' ? 'לתלמידים יש מייל ברשימה אך טרם פתחו חשבון' : 'Students have an email on the roster but no claimed account yet'}
+                          isRtl={isRtl}
+                        />
+                        <CoverageMetric
+                          label={language === 'he' ? 'כיתות הדורשות תשומת לב' : 'Classes need attention'}
+                          value={studentAccountCoverage.classesNeedingAttention}
+                          detail={studentAccountCoverage.missingEmail > 0 ? (language === 'he' ? 'לחלק מחברי הכיתה עדיין חסרה כתובת מייל' : 'Some roster members are still missing an email address') : (language === 'he' ? 'התמקד בכיתות אלו קודם' : 'Focus these classes first')}
+                          isRtl={isRtl}
+                        />
+                      </div>
+
+                      <div className="mt-5 grid gap-3 xl:grid-cols-3">
+                        {studentAccountCoverage.focusClasses.map((classItem) => (
+                          <div
+                            key={classItem.id}
+                            className={`rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4 shadow-[3px_3px_0px_0px_#1A1A1A] ${isRtl ? 'text-right' : ''}`}
+                          >
+                            <div className={`flex items-start justify-between gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
+                              <div className="min-w-0">
+                                <p className="text-lg font-black truncate">{classItem.name}</p>
+                                <p className="text-sm font-bold text-brand-dark/55">
+                                  {[classItem.subject, classItem.grade].filter(Boolean).join(' • ') || (language === 'he' ? 'כיתות' : 'Classes')}
+                                </p>
+                              </div>
+                              <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black shrink-0">
+                                {classItem.coverage}%
+                              </span>
+                            </div>
+
+                            <div className={`mt-4 flex flex-wrap gap-2 text-xs font-black ${isRtl ? 'flex-row-reverse' : ''}`}>
+                              <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">
+                                {classItem.linked}/{classItem.rostered} {language === 'he' ? 'מקושרים' : 'linked'}
+                              </span>
+                              {classItem.readyToClaim > 0 && (
+                                <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-3 py-1">
+                                  {classItem.readyToClaim} {language === 'he' ? 'מוכנים לשיוך' : 'Ready to claim'}
+                                </span>
+                              )}
+                              {classItem.missingEmail > 0 && (
+                                <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">
+                                  {classItem.missingEmail} {language === 'he' ? 'מיילים חסרים' : 'missing emails'}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               {report.insights?.length > 0 && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
@@ -775,6 +959,25 @@ function StatCard({
       <span className="inline-block bg-white/20 px-2 py-1 rounded-lg text-sm font-black border border-current/20">
         {caption}
       </span>
+    </div>
+  );
+}
+function CoverageMetric({
+  label,
+  value,
+  detail,
+  isRtl,
+}: {
+  label: string;
+  value: string | number;
+  detail: string;
+  isRtl: boolean;
+}) {
+  return (
+    <div className={`rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4 shadow-[3px_3px_0px_0px_#1A1A1A] ${isRtl ? 'text-right' : ''}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-purple">{label}</p>
+      <p className="mt-2 text-3xl font-black leading-none">{value}</p>
+      <p className="mt-2 text-sm font-bold text-brand-dark/60">{detail}</p>
     </div>
   );
 }

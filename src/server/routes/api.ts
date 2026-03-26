@@ -41,10 +41,13 @@ import {
   requireStudentSession,
 } from '../services/studentAuth.js';
 import {
+  acceptRosterRowForStudentUser,
   claimRosterRowsForStudentUser,
+  findRosterRowForStudentUserInClass,
   getPrimaryIdentityKey,
   linkStudentIdentity,
   listStudentIdentityKeys,
+  markRosterRowClaimed,
 } from '../services/studentIdentityLinks.js';
 import {
   createStudentUser,
@@ -64,11 +67,13 @@ import {
   validateTeacherPassword,
   verifyTeacherPassword,
 } from '../services/teacherUsers.js';
+import { sendStudentClassInviteEmail } from '../services/studentInvites.js';
 import {
   getHydratedTeacherClass,
   getTeacherOwnedClass,
   getTeacherOwnedStudent,
   listTeacherClasses,
+  listStudentClassWorkspaces,
   sanitizeTeacherClassColor,
 } from '../services/teacherClasses.js';
 import {
@@ -1166,23 +1171,110 @@ async function getMasteryRowsForIdentityKeys(identityKeys: string[]) {
   return mergeMasteryRows(rows);
 }
 
-async function getStudentClassesForUser(studentUserId: number) {
-  const studentId = Math.max(0, Math.floor(Number(studentUserId) || 0));
-  if (!studentId) return [];
-  return (await db
+async function buildStudentClassSummaries(studentUserId: number) {
+  return await listStudentClassWorkspaces(studentUserId);
+}
+
+async function getTeacherProfileSummary(teacherUserId: number) {
+  if (!teacherUserId) return null;
+  const row = (await db
     .prepare(`
-      SELECT
-        tcs.*,
-        tc.name AS class_name,
-        tc.subject AS class_subject,
-        tc.grade AS class_grade,
-        tc.color AS class_color
-      FROM teacher_class_students tcs
-      JOIN teacher_classes tc ON tc.id = tcs.class_id
-      WHERE tcs.student_user_id = ?
-      ORDER BY COALESCE(tcs.last_seen_at, tcs.updated_at, tcs.created_at) DESC, tcs.id DESC
+      SELECT id, email, first_name, last_name
+      FROM users
+      WHERE id = ?
+      LIMIT 1
     `)
-    .all(studentId)) as any[];
+    .get(teacherUserId)) as any;
+  if (!row?.id) return null;
+  const displayName = [row.first_name, row.last_name].map((value: any) => String(value || '').trim()).filter(Boolean).join(' ').trim();
+  return {
+    id: Number(row.id || 0),
+    email: String(row.email || '').trim(),
+    display_name: displayName || String(row.email || '').trim() || 'Teacher',
+  };
+}
+
+async function recordTeacherClassInviteDelivery({
+  studentId,
+  deliveryStatus,
+  sentAt,
+  error,
+}: {
+  studentId: number;
+  deliveryStatus: string;
+  sentAt: string | null;
+  error: string | null;
+}) {
+  await db
+    .prepare(`
+      UPDATE teacher_class_students
+      SET invite_sent_at = ?,
+          invite_delivery_status = ?,
+          invite_last_error = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `)
+    .run(sentAt, deliveryStatus, error || '', studentId);
+}
+
+async function sendClassInviteForRosterStudent({
+  teacherUserId,
+  classBoard,
+  studentRow,
+}: {
+  teacherUserId: number;
+  classBoard: any;
+  studentRow: any;
+}) {
+  const email = sanitizeStudentEmailInput(studentRow?.email);
+  if (!email) return null;
+  const teacherProfile = await getTeacherProfileSummary(teacherUserId);
+  const delivery = await sendStudentClassInviteEmail({
+    studentName: String(studentRow?.name || 'Student'),
+    studentEmail: email,
+    classId: Number(classBoard?.id || studentRow?.class_id || 0),
+    className: String(classBoard?.name || studentRow?.class_name || 'Class'),
+    classSubject: String(classBoard?.subject || studentRow?.class_subject || ''),
+    classGrade: String(classBoard?.grade || studentRow?.class_grade || ''),
+    teacherName: teacherProfile?.display_name || null,
+    teacherEmail: teacherProfile?.email || null,
+    alreadyClaimed: String(studentRow?.invite_status || '') === 'claimed',
+  });
+
+  await recordTeacherClassInviteDelivery({
+    studentId: Number(studentRow?.id || 0),
+    deliveryStatus: delivery.deliveryStatus,
+    sentAt: delivery.sentAt,
+    error: delivery.error,
+  });
+
+  return delivery;
+}
+
+async function sendClassInvitesForBoard({
+  teacherUserId,
+  classBoard,
+  rosterStudentIds,
+}: {
+  teacherUserId: number;
+  classBoard: any;
+  rosterStudentIds?: number[] | null;
+}) {
+  const targetIds = new Set(uniqueNumbers(rosterStudentIds || []));
+  const candidates = Array.isArray(classBoard?.students)
+    ? classBoard.students.filter((student: any) => {
+        if (!sanitizeStudentEmailInput(student?.email)) return false;
+        if (!targetIds.size) return true;
+        return targetIds.has(Number(student?.id || 0));
+      })
+    : [];
+  for (const studentRow of candidates) {
+    await sendClassInviteForRosterStudent({
+      teacherUserId,
+      classBoard,
+      studentRow,
+    });
+  }
 }
 
 async function buildStudentAnalyticsContext({
@@ -3184,7 +3276,7 @@ async function buildStudentPortalPayload(studentUserId: number) {
     return null;
   }
 
-  const classes = await getStudentClassesForUser(studentUserId);
+  const classes = await buildStudentClassSummaries(studentUserId);
   const analytics = await getOverallStudentAnalytics({
     studentUserId,
     displayName: studentUser.display_name || studentUser.email,
@@ -3212,6 +3304,8 @@ async function buildStudentPortalPayload(studentUserId: number) {
     comeback_mission: analytics?.comebackMission || analytics?.engagement?.comeback_mission || null,
     weak_tags: Array.isArray(analytics?.profile?.weak_tags) ? analytics.profile.weak_tags : [],
   };
+  const pendingClasses = classes.filter((classRow: any) => String(classRow?.approval_state || classRow?.invite_status || 'none') !== 'claimed');
+  const activeClasses = classes.filter((classRow: any) => String(classRow?.approval_state || classRow?.invite_status || 'none') === 'claimed');
 
   return {
     student: {
@@ -3223,19 +3317,9 @@ async function buildStudentPortalPayload(studentUserId: number) {
       created_at: studentUser.created_at || null,
       last_login_at: studentUser.last_login_at || null,
     },
-    classes: classes.map((row: any) => ({
-      id: Number(row.id || 0),
-      class_id: Number(row.class_id || 0),
-      name: String(row.name || ''),
-      email: String(row.email || ''),
-      invite_status: String(row.invite_status || 'none'),
-      claimed_at: row.claimed_at || null,
-      last_seen_at: row.last_seen_at || null,
-      class_name: String(row.class_name || ''),
-      class_subject: String(row.class_subject || ''),
-      class_grade: String(row.class_grade || ''),
-      class_color: String(row.class_color || ''),
-    })),
+    classes,
+    pending_classes: pendingClasses,
+    active_classes: activeClasses,
     latest_session: latestSession
       ? {
           id: Number(latestSession.id || 0),
@@ -3999,13 +4083,13 @@ router.get('/student-auth/session', async (req, res) => {
     });
     issueStudentSession(req, res, token);
 
-    const claimedClasses = await getStudentClassesForUser(Number(studentUser.id));
+    const claimedClasses = await listStudentClassWorkspaces(Number(studentUser.id));
     res.json({
       ...session,
       token,
       student_user_id: Number(studentUser.id),
       preferred_language: String(studentUser.preferred_language || ''),
-      claimed_classes_count: claimedClasses.length,
+      claimed_classes_count: claimedClasses.filter((classRow: any) => String(classRow?.approval_state || 'none') === 'claimed').length,
     });
   } catch (error: any) {
     console.error('[student-auth/session] Failed to restore student session:', error);
@@ -4134,6 +4218,27 @@ router.get('/teacher/classes', requireTeacherSession, async (req, res) => {
   }
 });
 
+router.get('/teacher/classes/:id', requireTeacherSession, async (req, res) => {
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-class-detail', 180, 5 * 60 * 1000, teacherUserId, req.params.id)) return;
+
+    const classId = parsePositiveInt(req.params.id);
+    const classBoard = await getHydratedTeacherClass(classId, teacherUserId);
+    if (!classBoard) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+
+    res.json(classBoard);
+  } catch (error: any) {
+    console.error('[ERROR] Teacher class detail failed:', error);
+    respondWithServerError(res, 'Failed to load class');
+  }
+});
+
 router.post('/teacher/classes', requireTeacherSession, async (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
   try {
@@ -4184,7 +4289,7 @@ router.post('/teacher/classes', requireTeacherSession, async (req, res) => {
       existingStudentUsers.map((student: any) => [normalizeStudentEmail(student.email), Number(student.id)] as const),
     );
 
-    const createTeacherClass = db.transaction((input: typeof payload, roster: Array<{ name: string; email: string }>) => {
+    const insertTeacherClass = db.transaction((input: typeof payload, roster: Array<{ name: string; email: string }>) => {
       const info = db
         .prepare(`
           INSERT INTO teacher_classes (teacher_id, name, subject, grade, color, notes, pack_id, archived, created_at, updated_at)
@@ -4208,34 +4313,49 @@ router.post('/teacher/classes', requireTeacherSession, async (req, res) => {
           email,
           student_user_id,
           invite_status,
+          invite_sent_at,
+          invite_delivery_status,
+          invite_last_error,
           claimed_at,
           last_seen_at,
           joined_at,
           created_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `);
 
       roster.forEach((student) => {
         const linkedStudentId = student.email ? linkedStudentByEmail.get(normalizeStudentEmail(student.email)) || null : null;
-        const isClaimed = Boolean(linkedStudentId);
         insertStudent.run(
           classId,
           student.name,
           student.email || '',
           linkedStudentId,
-          isClaimed ? 'claimed' : student.email ? 'invited' : 'none',
-          isClaimed ? new Date().toISOString() : null,
-          isClaimed ? new Date().toISOString() : null,
+          student.email ? 'invited' : 'none',
+          null,
+          student.email ? 'none' : 'none',
+          '',
+          null,
+          null,
         );
       });
 
       return classId;
     });
 
-    const classId = createTeacherClass(payload, studentRoster);
-    res.status(201).json((await getHydratedTeacherClass(classId, teacherUserId)));
+    const classId = insertTeacherClass(payload, studentRoster);
+    const createdClass = await getHydratedTeacherClass(classId, teacherUserId);
+    if (!createdClass) {
+      return res.status(500).json({ error: 'Class was created, but the board could not be loaded again.' });
+    }
+
+    await sendClassInvitesForBoard({
+      teacherUserId,
+      classBoard: createdClass,
+    });
+
+    res.status(201).json((await getHydratedTeacherClass(classId, teacherUserId)) || createdClass);
   } catch (error: any) {
     console.error('[ERROR] Create teacher class failed:', error);
     respondWithServerError(res, 'Failed to create class');
@@ -4366,7 +4486,7 @@ router.post('/teacher/classes/:id/students', requireTeacherSession, async (req, 
 
     const linkedStudent = studentEmail ? await getStudentUserByEmail(studentEmail) : null;
 
-    (await db
+    const insertResult = (await db
         .prepare(`
         INSERT INTO teacher_class_students (
           class_id,
@@ -4374,31 +4494,93 @@ router.post('/teacher/classes/:id/students', requireTeacherSession, async (req, 
           email,
           student_user_id,
           invite_status,
+          invite_sent_at,
+          invite_delivery_status,
+          invite_last_error,
           claimed_at,
           last_seen_at,
           joined_at,
           created_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `)
         .run(
           classId,
           studentName,
           studentEmail || '',
           linkedStudent?.id ? Number(linkedStudent.id) : null,
-          linkedStudent?.id ? 'claimed' : studentEmail ? 'invited' : 'none',
-          linkedStudent?.id ? new Date().toISOString() : null,
-          linkedStudent?.id ? new Date().toISOString() : null,
-        ));
+          studentEmail ? 'invited' : 'none',
+          null,
+          studentEmail ? 'none' : 'none',
+          '',
+          null,
+          null,
+        )) as any;
     (await db
         .prepare('UPDATE teacher_classes SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND teacher_id = ?')
         .run(classId, teacherUserId));
 
-    res.status(201).json((await getHydratedTeacherClass(classId, teacherUserId)));
+    const addedStudentId = Number(insertResult?.lastInsertRowid || 0) || null;
+    const classBoard = await getHydratedTeacherClass(classId, teacherUserId);
+    if (!classBoard) {
+      return res.status(500).json({ error: 'Student was added, but the class could not be reloaded.' });
+    }
+
+    await sendClassInvitesForBoard({
+      teacherUserId,
+      classBoard,
+      rosterStudentIds: addedStudentId ? [addedStudentId] : null,
+    });
+
+    res.status(201).json((await getHydratedTeacherClass(classId, teacherUserId)) || classBoard);
   } catch (error: any) {
     console.error('[ERROR] Add class student failed:', error);
     respondWithServerError(res, 'Failed to add student');
+  }
+});
+
+router.post('/teacher/classes/:classId/students/:studentId/resend-invite', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'teacher-class-student-resend-invite', 120, 10 * 60 * 1000, teacherUserId, req.params.classId, req.params.studentId)) return;
+
+    const classId = parsePositiveInt(req.params.classId);
+    const studentId = parsePositiveInt(req.params.studentId);
+    const existingClass = await getTeacherOwnedClass(classId, teacherUserId);
+    if (!existingClass) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+
+    const existingStudent = await getTeacherOwnedStudent(studentId, classId, teacherUserId);
+    if (!existingStudent?.id) {
+      return res.status(404).json({ error: 'Student not found in this class.' });
+    }
+
+    const email = sanitizeStudentEmailInput(existingStudent.email);
+    if (!email) {
+      return res.status(400).json({ error: 'Add an email address before sending an invite.' });
+    }
+
+    const classBoard = await getHydratedTeacherClass(classId, teacherUserId);
+    if (!classBoard) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+
+    await sendClassInvitesForBoard({
+      teacherUserId,
+      classBoard,
+      rosterStudentIds: [studentId],
+    });
+
+    res.json((await getHydratedTeacherClass(classId, teacherUserId)) || classBoard);
+  } catch (error: any) {
+    console.error('[ERROR] Resend class invite failed:', error);
+    respondWithServerError(res, 'Failed to resend class invite');
   }
 });
 
@@ -5644,41 +5826,17 @@ router.post('/sessions/:pin/join', async (req, res) => {
 
       let matchedClassStudent: any = null;
       if (Number(latestSession.teacher_class_id || 0) > 0 && studentUserId) {
-        matchedClassStudent = db
-          .prepare(`
-            SELECT *
-            FROM teacher_class_students
-            WHERE class_id = ?
-              AND (
-                student_user_id = ?
-                OR LOWER(COALESCE(email, '')) = LOWER(?)
-              )
-            ORDER BY
-              CASE WHEN student_user_id = ? THEN 0 ELSE 1 END,
-              id ASC
-            LIMIT 1
-          `)
-          .get(
-            Number(latestSession.teacher_class_id || 0),
-            studentUserId,
-            String(activeStudentUser?.email || ''),
-            studentUserId,
-          ) as any;
+        matchedClassStudent = findRosterRowForStudentUserInClass({
+          classId: Number(latestSession.teacher_class_id || 0),
+          studentUserId,
+          email: String(activeStudentUser?.email || ''),
+        });
         if (matchedClassStudent?.id) {
-          db
-            .prepare(`
-              UPDATE teacher_class_students
-              SET student_user_id = ?,
-                  invite_status = 'claimed',
-                  claimed_at = COALESCE(claimed_at, CURRENT_TIMESTAMP),
-                  last_seen_at = CURRENT_TIMESTAMP,
-                  updated_at = CURRENT_TIMESTAMP
-              WHERE id = ?
-            `)
-            .run(studentUserId, Number(matchedClassStudent.id));
-          matchedClassStudent = db
-            .prepare('SELECT * FROM teacher_class_students WHERE id = ? LIMIT 1')
-            .get(Number(matchedClassStudent.id)) as any;
+          matchedClassStudent = markRosterRowClaimed({
+            rosterStudentId: Number(matchedClassStudent.id),
+            studentUserId,
+            touchSeenAt: true,
+          });
         }
       }
 
@@ -5700,26 +5858,14 @@ router.post('/sessions/:pin/join', async (req, res) => {
                     display_name_snapshot = ?
                 WHERE id = ?
               `)
-              .run(
-                identityKey,
-                studentUserId,
-                Number(matchedClassStudent?.id || 0) || null,
-                Number(existing.student_user_id || 0) > 0 ? 'account' : 'claimed_anonymous',
-                nickname,
-                Number(existing.id),
-              );
-            if (matchedClassStudent?.id) {
-              db
-                .prepare(`
-                  UPDATE teacher_class_students
-                  SET last_seen_at = CURRENT_TIMESTAMP,
-                      invite_status = 'claimed',
-                      claimed_at = COALESCE(claimed_at, CURRENT_TIMESTAMP),
-                      updated_at = CURRENT_TIMESTAMP
-                  WHERE id = ?
-                `)
-                .run(Number(matchedClassStudent.id));
-            }
+                .run(
+                  identityKey,
+                  studentUserId,
+                  Number(matchedClassStudent?.id || 0) || null,
+                  Number(existing.student_user_id || 0) > 0 ? 'account' : 'claimed_anonymous',
+                  nickname,
+                  Number(existing.id),
+                );
           }
           const refreshedExisting = db
             .prepare('SELECT * FROM participants WHERE id = ? LIMIT 1')
@@ -5795,19 +5941,6 @@ router.post('/sessions/:pin/join', async (req, res) => {
               );
       if (!Number(info.changes || 0)) {
         throw new Error('Nickname taken');
-      }
-
-      if (matchedClassStudent?.id) {
-        db
-          .prepare(`
-            UPDATE teacher_class_students
-            SET last_seen_at = CURRENT_TIMESTAMP,
-                invite_status = 'claimed',
-                claimed_at = COALESCE(claimed_at, CURRENT_TIMESTAMP),
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-          `)
-          .run(Number(matchedClassStudent.id));
       }
 
       const total = Number(
@@ -6937,6 +7070,109 @@ router.get('/student/me', requireStudentSession, async (req, res) => {
   } catch (error: any) {
     console.error('[ERROR] Student portal load failed:', error);
     respondWithServerError(res, 'Failed to load student portal');
+  }
+});
+
+router.post('/student/me/classes/:classId/accept', requireStudentSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const studentSession = readStudentSession(req);
+    const studentUserId = Number(studentSession?.studentUserId || 0);
+    if (!studentUserId) {
+      return res.status(401).json({ error: 'Student authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'student-me-class-accept', 120, 10 * 60 * 1000, studentUserId, req.params.classId)) return;
+
+    const classId = parsePositiveInt(req.params.classId);
+    const acceptedRow = await acceptRosterRowForStudentUser({
+      studentUserId,
+      classId,
+    });
+    if (!acceptedRow?.id) {
+      return res.status(404).json({ error: 'Class invite not found for this student.' });
+    }
+
+    const payload = await buildStudentPortalPayload(studentUserId);
+    if (!payload) {
+      clearStudentSession(req, res);
+      return res.status(401).json({ error: 'Student account no longer exists. Please sign in again.' });
+    }
+
+    const classSummary = [
+      ...(Array.isArray(payload.active_classes) ? payload.active_classes : []),
+      ...(Array.isArray(payload.pending_classes) ? payload.pending_classes : []),
+      ...(Array.isArray(payload.classes) ? payload.classes : []),
+    ].find((entry: any) => Number(entry.class_id || 0) === classId) || null;
+
+    res.json({
+      accepted: true,
+      class: classSummary || null,
+      classes: payload.classes,
+      pending_classes: payload.pending_classes,
+      active_classes: payload.active_classes,
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Student class accept failed:', error);
+    respondWithServerError(res, 'Failed to accept class invite');
+  }
+});
+
+router.get('/student/me/classes/:classId', requireStudentSession, async (req, res) => {
+  try {
+    const studentSession = readStudentSession(req);
+    const studentUserId = Number(studentSession?.studentUserId || 0);
+    if (!studentUserId) {
+      return res.status(401).json({ error: 'Student authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'student-me-class-detail', 180, 5 * 60 * 1000, studentUserId, req.params.classId)) return;
+
+    const payload = await buildStudentPortalPayload(studentUserId);
+    if (!payload) {
+      clearStudentSession(req, res);
+      return res.status(401).json({ error: 'Student account no longer exists. Please sign in again.' });
+    }
+
+    const classId = parsePositiveInt(req.params.classId);
+    const classSummary = [
+      ...(Array.isArray(payload.active_classes) ? payload.active_classes : []),
+      ...(Array.isArray(payload.pending_classes) ? payload.pending_classes : []),
+      ...(Array.isArray(payload.classes) ? payload.classes : []),
+    ].find((entry: any) => Number(entry.class_id || 0) === classId) || null;
+    if (!classSummary) {
+      return res.status(404).json({ error: 'Class not found in this student account.' });
+    }
+
+    const sessionIds = new Set(
+      uniqueNumbers((Array.isArray(classSummary.recent_sessions) ? classSummary.recent_sessions : []).map((row: any) => row?.id)),
+    );
+    const classHistory = (Array.isArray(payload.session_history) ? payload.session_history : []).filter((row: any) =>
+      sessionIds.has(Number(row?.session_id || 0)),
+    );
+    const classAccuracy =
+      classHistory.length > 0
+        ? Math.round(
+            classHistory.reduce((sum: number, row: any) => sum + Number(row?.accuracy_pct || row?.accuracy || 0), 0) / classHistory.length,
+          )
+        : classSummary.stats?.average_accuracy === null || classSummary.stats?.average_accuracy === undefined
+          ? null
+          : Math.round(Number(classSummary.stats.average_accuracy || 0));
+
+    res.json({
+      student: payload.student,
+      class: classSummary,
+      practice_defaults: payload.practice_defaults,
+      recommendations: payload.recommendations,
+      student_memory: payload.student_memory,
+      session_history: classHistory,
+      class_progress: {
+        accuracy: classAccuracy,
+        session_count: Number(classSummary.stats?.session_count || 0),
+        active_session_count: Number(classSummary.stats?.active_session_count || 0),
+      },
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Student class detail failed:', error);
+    respondWithServerError(res, 'Failed to load student class');
   }
 });
 

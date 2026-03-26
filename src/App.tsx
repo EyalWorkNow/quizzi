@@ -24,9 +24,11 @@ const StudentDashboard = lazy(() => import('./client/pages/StudentDashboard.tsx'
 const StudentPractice = lazy(() => import('./client/pages/StudentPractice.tsx'));
 const StudentAuth = lazy(() => import('./client/pages/StudentAuth.tsx'));
 const StudentPortal = lazy(() => import('./client/pages/StudentPortal.tsx'));
+const StudentClassView = lazy(() => import('./client/pages/StudentClassView.tsx'));
 const TeacherAnalytics = lazy(() => import('./client/pages/TeacherAnalytics.tsx'));
 const TeacherReports = lazy(() => import('./client/pages/TeacherReports.tsx'));
 const TeacherClasses = lazy(() => import('./client/pages/TeacherClasses.tsx'));
+const TeacherClassDetail = lazy(() => import('./client/pages/TeacherClassDetail.tsx'));
 const TeacherSettings = lazy(() => import('./client/pages/TeacherSettings.tsx'));
 const TeacherStudentAnalytics = lazy(() => import('./client/pages/TeacherStudentAnalytics.tsx'));
 
@@ -66,6 +68,7 @@ export default function App() {
                 <Route path="/help" element={<HelpCenter />} />
                 <Route path="/teacher/reports" element={<ProtectedTeacherRoute><TeacherReports /></ProtectedTeacherRoute>} />
                 <Route path="/teacher/classes" element={<ProtectedTeacherRoute><TeacherClasses /></ProtectedTeacherRoute>} />
+                <Route path="/teacher/classes/:id" element={<ProtectedTeacherRoute><TeacherClassDetail /></ProtectedTeacherRoute>} />
                 <Route path="/teacher/settings" element={<ProtectedTeacherRoute><TeacherSettings /></ProtectedTeacherRoute>} />
                 <Route path="/teacher/pack/create" element={<ProtectedTeacherRoute><TeacherCreatePack /></ProtectedTeacherRoute>} />
                 <Route path="/teacher/pack/:id/edit" element={<ProtectedTeacherRoute><TeacherCreatePack /></ProtectedTeacherRoute>} />
@@ -75,6 +78,7 @@ export default function App() {
                 <Route path="/student/session/:pin/play" element={<StudentPlay />} />
                 <Route path="/student/auth" element={<StudentAuth />} />
                 <Route path="/student/me" element={<ProtectedStudentRoute><StudentPortal /></ProtectedStudentRoute>} />
+                <Route path="/student/me/classes/:classId" element={<ProtectedStudentRoute><StudentClassView /></ProtectedStudentRoute>} />
                 <Route path="/student/me/history" element={<ProtectedStudentRoute><StudentPortal /></ProtectedStudentRoute>} />
                 <Route path="/student/me/practice" element={<ProtectedStudentRoute><StudentPractice /></ProtectedStudentRoute>} />
                 <Route path="/student/dashboard/:nickname" element={<StudentDashboard />} />

@@ -1,14 +1,12 @@
 import { apiFetch } from './api.ts';
-import { getOrCreateStudentIdentityKey } from './studentSession.ts';
 import {
   ensureFirebaseAuthReady,
   getRedirectResult,
   googleProvider,
-  shouldPreferRedirectSignIn,
-  signInWithPopup,
   signInWithRedirect,
   signOutFirebase,
 } from './firebase.ts';
+import { getOrCreateStudentIdentityKey } from './studentSession.ts';
 
 const AUTH_KEY = 'quizzi.student.auth';
 const AUTH_TOKEN_KEY = 'quizzi.student.token';
@@ -190,12 +188,16 @@ export async function signInStudentWithProvider({
 }: {
   provider: 'google';
 }): Promise<StudentAuthSession | null> {
+  if (provider !== 'google') {
+    throw new Error(`Student ${provider} sign-in is not available yet.`);
+  }
+
   const auth = await ensureFirebaseAuthReady();
   if (!auth) {
     throw new Error('Firebase Authentication is not available. Please check your configuration.');
   }
 
-  const completeGoogleServerSession = async (idToken: string) => {
+  const completeGoogleServerSession = async (idToken: string, displayName?: string | null) => {
     const response = await fetchWithTimeout('/api/student-auth/social', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -213,14 +215,20 @@ export async function signInStudentWithProvider({
   };
 
   try {
-    if (shouldPreferRedirectSignIn()) {
+    // Firebase popup flows can be blocked by browser COOP handling.
+    // Student sign-in is more reliable when we always prefer redirect.
+    await signInWithRedirect(auth, googleProvider);
+    return null;
+  } catch (error: any) {
+    const message = String(error?.message || '').toLowerCase();
+    if (
+      error?.code === 'auth/popup-blocked' ||
+      message.includes('cross-origin-opener-policy') ||
+      message.includes('window.closed')
+    ) {
       await signInWithRedirect(auth, googleProvider);
       return null;
-    } else {
-      const result = await signInWithPopup(auth, googleProvider);
-      return await completeGoogleServerSession(await result.user.getIdToken());
     }
-  } catch (error: any) {
     if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') {
       throw new Error('Google sign-in was cancelled.');
     }
@@ -252,7 +260,6 @@ export async function handleStudentAuthRedirect() {
       identity_key: getOrCreateStudentIdentityKey(),
     }),
   });
-
   const payload = ensureStudentSessionPayload(await readJsonOrThrow(response));
   writeAuth(payload);
   return payload;

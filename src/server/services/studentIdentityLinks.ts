@@ -155,9 +155,14 @@ export async function claimRosterRowsForStudentUser({
     .prepare(`
       UPDATE teacher_class_students
       SET student_user_id = ?,
-          invite_status = 'claimed',
-          claimed_at = COALESCE(claimed_at, CURRENT_TIMESTAMP),
-          last_seen_at = CURRENT_TIMESTAMP,
+          invite_status = CASE
+            WHEN COALESCE(invite_status, '') = '' THEN 'invited'
+            ELSE invite_status
+          END,
+          invite_delivery_status = CASE
+            WHEN COALESCE(invite_delivery_status, '') = '' THEN 'none'
+            ELSE invite_delivery_status
+          END,
           updated_at = CURRENT_TIMESTAMP
       WHERE LOWER(COALESCE(email, '')) = LOWER(?)
     `)
@@ -171,4 +176,98 @@ export async function claimRosterRowsForStudentUser({
       ORDER BY updated_at DESC, id DESC
     `)
     .all(studentUserId)) as any[];
+}
+
+export function findRosterRowForStudentUserInClass({
+  studentUserId,
+  classId,
+  email,
+}: {
+  studentUserId: number;
+  classId: number;
+  email?: string | null;
+}) {
+  const safeStudentUserId = Math.max(0, Math.floor(Number(studentUserId) || 0));
+  const safeClassId = Math.max(0, Math.floor(Number(classId) || 0));
+  const normalizedEmail = normalizeStudentEmail(email || '');
+  if (!safeStudentUserId || !safeClassId) return null;
+
+  return db
+    .prepare(`
+      SELECT *
+      FROM teacher_class_students
+      WHERE class_id = ?
+        AND (
+          student_user_id = ?
+          OR LOWER(COALESCE(email, '')) = LOWER(?)
+        )
+      ORDER BY
+        CASE WHEN student_user_id = ? THEN 0 ELSE 1 END,
+        id ASC
+      LIMIT 1
+    `)
+    .get(safeClassId, safeStudentUserId, normalizedEmail, safeStudentUserId) as any;
+}
+
+export function markRosterRowClaimed({
+  rosterStudentId,
+  studentUserId,
+  touchSeenAt = true,
+}: {
+  rosterStudentId: number;
+  studentUserId?: number | null;
+  touchSeenAt?: boolean;
+}) {
+  const safeRosterStudentId = Math.max(0, Math.floor(Number(rosterStudentId) || 0));
+  const safeStudentUserId = Math.max(0, Math.floor(Number(studentUserId) || 0));
+  if (!safeRosterStudentId) return null;
+
+  const updateSql = `
+    UPDATE teacher_class_students
+    SET student_user_id = COALESCE(?, student_user_id),
+        invite_status = 'claimed',
+        invite_delivery_status = CASE
+          WHEN COALESCE(invite_delivery_status, '') IN ('', 'none') THEN 'claimed'
+          ELSE invite_delivery_status
+        END,
+        claimed_at = COALESCE(claimed_at, CURRENT_TIMESTAMP),
+        ${touchSeenAt ? 'last_seen_at = CURRENT_TIMESTAMP,' : ''}
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `;
+
+  db.prepare(updateSql).run(safeStudentUserId || null, safeRosterStudentId);
+
+  return db
+    .prepare(`
+      SELECT *
+      FROM teacher_class_students
+      WHERE id = ?
+      LIMIT 1
+    `)
+    .get(safeRosterStudentId) as any;
+}
+
+export async function acceptRosterRowForStudentUser({
+  studentUserId,
+  classId,
+}: {
+  studentUserId: number;
+  classId: number;
+}) {
+  const safeStudentUserId = Math.max(0, Math.floor(Number(studentUserId) || 0));
+  const safeClassId = Math.max(0, Math.floor(Number(classId) || 0));
+  if (!safeStudentUserId || !safeClassId) return null;
+
+  const rosterRow = findRosterRowForStudentUserInClass({
+    studentUserId: safeStudentUserId,
+    classId: safeClassId,
+  });
+  if (!rosterRow?.id) return null;
+
+  return markRosterRowClaimed({
+    rosterStudentId: Number(rosterRow.id),
+    studentUserId: safeStudentUserId,
+    touchSeenAt: true,
+  });
 }

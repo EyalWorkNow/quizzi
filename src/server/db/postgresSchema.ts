@@ -183,6 +183,9 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       email TEXT DEFAULT '',
       student_user_id INTEGER,
       invite_status TEXT DEFAULT 'none',
+      invite_sent_at TIMESTAMP,
+      invite_delivery_status TEXT DEFAULT 'none',
+      invite_last_error TEXT DEFAULT '',
       claimed_at TIMESTAMP,
       last_seen_at TIMESTAMP,
       joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -300,6 +303,9 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS email TEXT DEFAULT ''`,
   `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS student_user_id INTEGER`,
   `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS invite_status TEXT DEFAULT 'none'`,
+  `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS invite_sent_at TIMESTAMP`,
+  `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS invite_delivery_status TEXT DEFAULT 'none'`,
+  `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS invite_last_error TEXT DEFAULT ''`,
   `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP`,
   `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP`,
   `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
@@ -446,7 +452,28 @@ const POSTGRES_SCHEMA_STATEMENTS = [
 const POSTGRES_DATA_REPAIR_STATEMENTS = [
   `
     UPDATE teacher_class_students
-    SET invite_status = COALESCE(NULLIF(invite_status, ''), CASE WHEN student_user_id IS NOT NULL AND student_user_id > 0 THEN 'claimed' ELSE 'none' END)
+    SET invite_status = COALESCE(
+      NULLIF(invite_status, ''),
+      CASE
+        WHEN claimed_at IS NOT NULL THEN 'claimed'
+        WHEN COALESCE(email, '') <> '' THEN 'invited'
+        ELSE 'none'
+      END
+    )
+  `,
+  `
+    UPDATE teacher_class_students
+    SET invite_delivery_status = COALESCE(
+      NULLIF(invite_delivery_status, ''),
+      CASE
+        WHEN claimed_at IS NOT NULL THEN 'claimed'
+        ELSE 'none'
+      END
+    )
+  `,
+  `
+    UPDATE teacher_class_students
+    SET invite_last_error = COALESCE(invite_last_error, '')
   `,
   `
     UPDATE participants

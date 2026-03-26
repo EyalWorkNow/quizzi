@@ -1,19 +1,21 @@
-import { useMemo, useState, useEffect, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight, KeyRound, Mail, UserCircle2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { 
   registerStudentWithPassword, 
-  signInStudentWithPassword, 
-  signInStudentWithProvider, 
-  handleStudentAuthRedirect 
+  signInStudentWithPassword,
+  signInStudentWithProvider,
+  handleStudentAuthRedirect,
 } from '../lib/studentAuth.ts';
 
 export default function StudentAuth() {
   const { language } = useAppLanguage();
   const navigate = useNavigate();
   const location = useLocation();
+  const search = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const requestedMode = String(search.get('mode') || '').trim().toLowerCase();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -21,9 +23,11 @@ export default function StudentAuth() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const invitedClassName = String(search.get('class_name') || '').trim();
+  const invitedClassId = String(search.get('class_id') || '').trim();
   const nextPath = useMemo(
-    () => String((location.state as any)?.from || '/student/me'),
-    [location.state],
+    () => String((location.state as any)?.from || (invitedClassId ? `/student/me/classes/${invitedClassId}` : '/student/me')),
+    [location.state, invitedClassId],
   );
 
   const copy = {
@@ -37,7 +41,10 @@ export default function StudentAuth() {
       password: 'סיסמה',
       submitLogin: 'כניסה לסביבת התלמיד',
       submitRegister: 'צור חשבון תלמיד',
-      helper: 'אפשר עדיין להצטרף אנונימית דרך קוד סשן. החשבון הזה הוא שכבה נוספת למעקב והתאמה אישית.',
+      helper: 'אפשר עדיין להצטרף אנונימית דרך קוד סשן. החשבון הזה הוא שכבה נוספת למעקב והתאמה אישית, ובשלב הזה עובד עם מייל וסיסמה.',
+      inviteBanner: 'הוזמנת לכיתה',
+      registerNow: 'הרשם עם מייל',
+      signInInstead: 'כבר יש לך חשבון? התחבר',
       backHome: 'חזרה לעמוד הבית',
       cards: [
         ['היסטוריה', 'היסטוריית סשנים והתקדמות לאורך זמן.'],
@@ -55,7 +62,10 @@ export default function StudentAuth() {
       password: 'كلمة المرور',
       submitLogin: 'ادخل إلى مساحة الطالب',
       submitRegister: 'أنشئ حساب طالب',
-      helper: 'لا يزال بإمكانك الانضمام بشكل مجهول عبر رمز الجلسة. هذا الحساب طبقة إضافية للمتابعة والتخصيص.',
+      helper: 'لا يزال بإمكانك الانضمام بشكل مجهول عبر رمز الجلسة. هذا الحساب طبقة إضافية للمتابعة والتخصيص، وفي هذه المرحلة يعمل بالبريد الإلكتروني وكلمة المرور.',
+      inviteBanner: 'تمت دعوتك إلى صف',
+      registerNow: 'أنشئ حسابًا بالبريد',
+      signInInstead: 'لديك حساب بالفعل؟ سجّل الدخول',
       backHome: 'العودة إلى الصفحة الرئيسية',
       cards: [
         ['السجل', 'سجل جلسات وتقدم طويل المدى.'],
@@ -73,7 +83,10 @@ export default function StudentAuth() {
       password: 'Password',
       submitLogin: 'Enter Student Space',
       submitRegister: 'Create Student Account',
-      helper: 'You can still join live games anonymously with a session code. This account is the extra layer for progress tracking and personalization.',
+      helper: 'You can still join live games anonymously with a session code. This account is the extra layer for progress tracking and personalization, and in this version it uses email and password.',
+      inviteBanner: 'You were invited to a class',
+      registerNow: 'Create account with email',
+      signInInstead: 'Already have an account? Sign in',
       backHome: 'Back Home',
       cards: [
         ['History', 'Long-term session history and progress.'],
@@ -91,12 +104,20 @@ export default function StudentAuth() {
     password: 'Password',
     submitLogin: 'Enter Student Space',
     submitRegister: 'Create Student Account',
-    helper: 'You can still join live games anonymously with a session code. This account is the extra layer for progress tracking and personalization.',
+    helper: 'You can still join live games anonymously with a session code. This account is the extra layer for progress tracking and personalization, and in this version it uses email and password.',
+    inviteBanner: 'You were invited to a class',
+    registerNow: 'Create account with email',
+    signInInstead: 'Already have an account? Sign in',
     backHome: 'Back Home',
     cards: [],
   };
 
-  // Handle incoming Google Auth Redirect
+  useEffect(() => {
+    if (requestedMode === 'register' || invitedClassId || invitedClassName) {
+      setMode('register');
+    }
+  }, [requestedMode, invitedClassId, invitedClassName]);
+
   useEffect(() => {
     handleStudentAuthRedirect()
       .then((session) => {
@@ -104,25 +125,10 @@ export default function StudentAuth() {
           navigate(nextPath, { replace: true });
         }
       })
-      .catch((err) => {
-        console.error('[StudentAuth] Redirect restoration failed:', err);
+      .catch((redirectError: any) => {
+        setError(redirectError?.message || 'Google sign-in could not be completed.');
       });
   }, [navigate, nextPath]);
-
-  const handleGoogleLogin = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const session = await signInStudentWithProvider({ provider: 'google' });
-      if (session) {
-        navigate(nextPath, { replace: true });
-      }
-    } catch (submitError: any) {
-      setError(submitError?.message || 'Google sign-in failed');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -142,6 +148,28 @@ export default function StudentAuth() {
     }
   };
 
+  useEffect(() => {
+    const prefilledEmail = String(search.get('email') || '').trim().toLowerCase();
+    if (prefilledEmail && !email) {
+      setEmail(prefilledEmail);
+    }
+  }, [search, email]);
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const session = await signInStudentWithProvider({ provider: 'google' });
+      if (session) {
+        navigate(nextPath, { replace: true });
+      }
+    } catch (submitError: any) {
+      setError(submitError?.message || 'Google sign-in failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#FFF3D6,_#F8F1E7_52%,_#E7EEF8_100%)] px-6 py-10">
       <div className="mx-auto max-w-5xl grid gap-8 lg:grid-cols-[1.1fr_0.9fr] items-stretch">
@@ -149,6 +177,13 @@ export default function StudentAuth() {
           <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-orange mb-4">Quizzi Student</p>
           <h1 className="text-4xl md:text-5xl font-black leading-tight text-brand-dark">{copy.title}</h1>
           <p className="mt-4 text-lg font-bold text-brand-dark/70 max-w-2xl">{copy.subtitle}</p>
+          {invitedClassName ? (
+            <div className="mt-6 rounded-[1.6rem] border-2 border-brand-dark bg-brand-yellow p-4">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/55">{copy.inviteBanner}</p>
+              <p className="mt-2 text-xl font-black text-brand-dark">{invitedClassName}</p>
+              <p className="mt-1 text-sm font-bold text-brand-dark/70">Use the same email from the invite and the class will appear in your student space waiting for your approval.</p>
+            </div>
+          ) : null}
           <div className="mt-8 grid gap-4 md:grid-cols-3">
             {copy.cards.map(([title, body]) => (
               <div key={title} className="rounded-[1.8rem] border-2 border-brand-dark bg-brand-bg p-4">
@@ -182,14 +217,14 @@ export default function StudentAuth() {
             ))}
           </div>
 
-          <div className="mb-6">
+          <div className="mb-5 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={handleGoogleLogin}
+              onClick={() => void handleGoogleLogin()}
               disabled={loading}
-              className="flex w-full items-center justify-center gap-3 rounded-[1.4rem] border-2 border-white/20 bg-white/10 px-5 py-4 text-lg font-black text-white shadow-[4px_4px_0px_0px_rgba(255,255,255,0.1)] transition-all hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-70"
+              className="flex min-w-[220px] items-center justify-center gap-3 rounded-full border-2 border-white/30 bg-white/10 px-4 py-2 text-sm font-black text-white disabled:opacity-60"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24">
+              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
                 <path
                   d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
                   fill="#4285F4"
@@ -207,16 +242,30 @@ export default function StudentAuth() {
                   fill="#EA4335"
                 />
               </svg>
-              {mode === 'login' ? (language === 'he' ? 'התחבר עם גוגל' : 'Sign in with Google') : (language === 'he' ? 'הרשם עם גוגל' : 'Sign up with Google')}
+              {language === 'he' ? 'המשך עם Google' : language === 'ar' ? 'المتابعة عبر Google' : 'Continue with Google'}
             </button>
-
-            <div className="relative my-6 flex items-center">
-              <div className="flex-grow border-t border-white/10"></div>
-              <span className="mx-4 text-xs font-black uppercase tracking-widest text-white/30">
-                {language === 'he' ? 'או' : 'OR'}
-              </span>
-              <div className="flex-grow border-t border-white/10"></div>
-            </div>
+            <button
+              type="button"
+              onClick={() => setMode('register')}
+              className={`rounded-full border-2 px-4 py-2 text-sm font-black ${
+                mode === 'register'
+                  ? 'border-brand-yellow bg-brand-yellow text-brand-dark'
+                  : 'border-white/30 bg-white/10 text-white'
+              }`}
+            >
+              {copy.registerNow}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('login')}
+              className={`rounded-full border-2 px-4 py-2 text-sm font-black ${
+                mode === 'login'
+                  ? 'border-brand-yellow bg-brand-yellow text-brand-dark'
+                  : 'border-white/30 bg-white/10 text-white'
+              }`}
+            >
+              {copy.signInInstead}
+            </button>
           </div>
 
           <form className="space-y-4" onSubmit={handleSubmit}>
