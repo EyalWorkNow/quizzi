@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import db from '../db/index.js';
 
-const PROMPT_VERSION = 'compressed-v2';
+const PROMPT_VERSION = 'compressed-v3';
 
 function buildPromptVersionKey(providerKey?: string | null, modelKey?: string | null) {
   const provider = String(providerKey || 'gemini').trim() || 'gemini';

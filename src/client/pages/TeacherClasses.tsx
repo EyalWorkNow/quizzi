@@ -136,6 +136,7 @@ export default function TeacherClasses() {
   const [selectedClassId, setSelectedClassId] = useState<number | 'new' | null>(null);
   const [form, setForm] = useState<ClassFormState>(EMPTY_FORM);
   const [studentName, setStudentName] = useState('');
+  const [studentEmail, setStudentEmail] = useState('');
   const [pendingSessionDelete, setPendingSessionDelete] = useState<null | { sessionId: number; classId: number; label: string }>(null);
   const [copiedOutreachKey, setCopiedOutreachKey] = useState('');
   const copy = {
@@ -253,6 +254,7 @@ export default function TeacherClasses() {
     setSelectedClassId(null);
     setForm(EMPTY_FORM);
     setStudentName('');
+    setStudentEmail('');
   }, [classes, selectedClassId]);
 
   const bootstrapPage = async () => {
@@ -331,7 +333,7 @@ export default function TeacherClasses() {
       pack_id: packId && validPackIds.has(packId) ? packId : null,
       students: Array.isArray(legacyClass.students)
         ? legacyClass.students
-            .map((student) => ({ name: String(student?.name || '').trim() }))
+            .map((student) => ({ name: String(student?.name || '').trim(), email: '' }))
             .filter((student) => student.name)
         : [],
     });
@@ -349,18 +351,21 @@ export default function TeacherClasses() {
     setForm(EMPTY_FORM);
     setSelectedClassId(null);
     setStudentName('');
+    setStudentEmail('');
   };
 
   const openNewClassBuilder = () => {
     setSelectedClassId('new');
     setForm(EMPTY_FORM);
     setStudentName('');
+    setStudentEmail('');
   };
 
   const openClassEditor = (classItem: TeacherClassBoard) => {
     setSelectedClassId(classItem.id);
     setForm(buildFormState(classItem));
     setStudentName('');
+    setStudentEmail('');
   };
 
   const selectedClass =
@@ -383,6 +388,7 @@ export default function TeacherClasses() {
         classItem.notes,
         classItem.pack?.title,
         ...classItem.students.map((student) => student.name),
+        ...classItem.students.map((student) => student.email),
       ]
         .filter(Boolean)
         .join(' ')
@@ -529,9 +535,10 @@ export default function TeacherClasses() {
 
     try {
       setBusyKey(`student-add-${selectedClass.id}`);
-      const updatedClass = await addTeacherClassStudent(selectedClass.id, studentName.trim());
+      const updatedClass = await addTeacherClassStudent(selectedClass.id, studentName.trim(), studentEmail.trim());
       upsertClass(updatedClass);
       setStudentName('');
+      setStudentEmail('');
       setFeedback({ tone: 'success', message: 'Student added to class.' });
     } catch (error: any) {
       setFeedback({ tone: 'error', message: error?.message || 'Failed to add student.' });
@@ -871,7 +878,7 @@ export default function TeacherClasses() {
                       </span>
                     </div>
 
-                    <div className="flex gap-2 mb-3">
+                    <div className="grid gap-2 mb-3 md:grid-cols-[1fr_1fr_auto]">
                       <input
                         value={studentName}
                         onChange={(event) => setStudentName(event.target.value)}
@@ -881,7 +888,19 @@ export default function TeacherClasses() {
                             void handleAddStudent();
                           }
                         }}
-                        placeholder="Add student name"
+                        placeholder="Student name"
+                        className="flex-1 bg-brand-bg border-2 border-brand-dark rounded-xl p-3 font-bold"
+                      />
+                      <input
+                        value={studentEmail}
+                        onChange={(event) => setStudentEmail(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            void handleAddStudent();
+                          }
+                        }}
+                        placeholder="student@email.com"
                         className="flex-1 bg-brand-bg border-2 border-brand-dark rounded-xl p-3 font-bold"
                       />
                       <button
@@ -899,9 +918,25 @@ export default function TeacherClasses() {
                           key={student.id}
                           className="flex items-center justify-between bg-brand-bg rounded-xl border-2 border-brand-dark/10 px-3 py-2"
                         >
-                          <div>
+                          <div className="min-w-0">
                             <span className="font-bold">{student.name}</span>
                             <p className="text-xs font-bold text-brand-dark/45">Joined {formatRelativeTime(student.joined_at)}</p>
+                            {student.email ? (
+                              <p className="text-xs font-bold text-brand-dark/45 truncate">{student.email}</p>
+                            ) : null}
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <span className="px-2 py-1 rounded-full border border-brand-dark/20 bg-white text-[10px] font-black uppercase tracking-[0.14em]">
+                                {student.account_linked ? 'Claimed' : student.invite_status || 'none'}
+                              </span>
+                              <span className="px-2 py-1 rounded-full border border-brand-dark/20 bg-white text-[10px] font-black uppercase tracking-[0.14em]">
+                                {student.account_linked ? 'Account linked' : 'Session-only'}
+                              </span>
+                              {student.last_seen_at ? (
+                                <span className="px-2 py-1 rounded-full border border-brand-dark/20 bg-white text-[10px] font-black uppercase tracking-[0.14em]">
+                                  Seen {formatRelativeTime(student.last_seen_at)}
+                                </span>
+                              ) : null}
+                            </div>
                           </div>
                           <button
                             onClick={() => void handleRemoveStudent(selectedClass.id, student.id)}

@@ -313,7 +313,7 @@ function InfoTooltip({ metricId }: { metricId: string }) {
 export default function TeacherAnalytics() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
-  const { direction, isRtl, t } = useTeacherAnalyticsLanguage();
+  const { language, direction, isRtl, t } = useTeacherAnalyticsLanguage();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -345,7 +345,7 @@ export default function TeacherAnalytics() {
     try {
       setLoading(true);
       setError('');
-      const payload = await apiFetchJson(`/api/analytics/class/${sessionId}`);
+      const payload = await apiFetchJson(`/api/analytics/class/${sessionId}?ui_language=${language}`);
       setData(payload);
       const defaultStudentId =
         Number(payload?.studentSpotlight?.attention_needed?.[0]?.id ?? payload?.participants?.[0]?.id ?? 0) || null;
@@ -359,7 +359,7 @@ export default function TeacherAnalytics() {
 
   useEffect(() => {
     loadAnalytics();
-  }, [sessionId]);
+  }, [sessionId, language]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -1481,6 +1481,25 @@ export default function TeacherAnalytics() {
       setFollowUpNotice({ tone: 'error', message: autopilotError?.message || 'Failed to run memory autopilot.' });
     } finally {
       setMemoryAutopilotBusy(false);
+    }
+  };
+
+  const handleCreateQuestionRepairRound = async (questionId: number) => {
+    if (!sessionId || !questionId) return;
+    try {
+      setFollowUpNotice(null);
+      const payload = await apiFetchJson(`/api/analytics/class/${sessionId}/questions/${questionId}/rematch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: 3, launch_now: true }),
+      });
+      if (payload?.pin) {
+        navigate(`/teacher/session/${payload.pin}/host`);
+        return;
+      }
+      setFollowUpNotice({ tone: 'success', message: 'Question repair round created.' });
+    } catch (error: any) {
+      setFollowUpNotice({ tone: 'error', message: error?.message || 'Failed to create question repair round.' });
     }
   };
 
@@ -4167,6 +4186,14 @@ export default function TeacherAnalytics() {
                     />
                   </div>
                 </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => void handleCreateQuestionRepairRound(Number(question.question_id || 0))}
+                    className="px-4 py-2 rounded-full border-2 border-brand-dark bg-brand-yellow font-black text-sm"
+                  >
+                    {t(`Create a repair round from question ${question.question_index} only`)}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -4303,7 +4330,17 @@ export default function TeacherAnalytics() {
                       className={`w-full text-left rounded-2xl border-2 border-brand-dark p-4 transition-colors ${Number(selectedStudent?.id) === Number(student.id) ? 'bg-brand-yellow' : 'bg-brand-bg hover:bg-white'}`}
                     >
                       <div className="flex items-center justify-between gap-3 mb-2">
-                        <p className="text-lg font-black">{student.nickname}</p>
+                        <div>
+                          <p className="text-lg font-black">{student.nickname}</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <span className="inline-flex items-center rounded-full border-2 border-brand-dark bg-white px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em]">
+                              {student.account_linked ? t('Account linked') : t('Session only')}
+                            </span>
+                            <span className="inline-flex items-center rounded-full border-2 border-brand-dark bg-brand-bg px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em]">
+                              {student.profile_mode === 'longitudinal' ? t('Longitudinal') : t('Single session')}
+                            </span>
+                          </div>
+                        </div>
                         <RiskBadge level={student.risk_level} compact />
                       </div>
                       <p className="font-medium text-brand-dark/70">{t(student.recommendation)}</p>
@@ -4393,6 +4430,14 @@ export default function TeacherAnalytics() {
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-2">{t(`Rank #${student.rank}`)}</p>
                     <h3 className="text-2xl font-black">{student.nickname}</h3>
                     <p className="font-bold text-brand-dark/60">{t(student.decision_style)}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className="inline-flex items-center rounded-full border-2 border-brand-dark bg-white px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em]">
+                        {student.account_linked ? t('Account linked') : t('Session only')}
+                      </span>
+                      <span className="inline-flex items-center rounded-full border-2 border-brand-dark bg-brand-bg px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em]">
+                        {student.profile_mode === 'longitudinal' ? t('Longitudinal') : t('Single session')}
+                      </span>
+                    </div>
                     <div className="mt-3">
                       <AnalyticsBadge
                         label={getStudentPrioritySignal(student, attentionOrder.has(Number(student.id))).label}
@@ -4455,6 +4500,11 @@ export default function TeacherAnalytics() {
                           <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mt-1">
                             {t(`Rank #${student.rank}`)} • {t(student.decision_style)}
                           </p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <span className="inline-flex items-center rounded-full border-2 border-brand-dark bg-white px-2 py-1 text-[10px] font-black uppercase tracking-[0.16em]">
+                              {student.account_linked ? t('Account linked') : t('Session only')}
+                            </span>
+                          </div>
                         </div>
                         <RiskBadge level={student.risk_level} compact />
                       </div>

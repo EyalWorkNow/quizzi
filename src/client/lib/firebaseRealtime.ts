@@ -39,6 +39,15 @@ export interface RealtimeParticipant {
   createdAt?: string | null;
   online?: boolean;
   lastSeenAt?: number;
+  studentUserId?: number | null;
+  classStudentId?: number | null;
+  joinMode?: string | null;
+  displayNameSnapshot?: string | null;
+  accountLinked?: boolean;
+  profileMode?: string | null;
+  classStudentName?: string | null;
+  classStudentEmail?: string | null;
+  inviteStatus?: string | null;
 }
 
 export interface HostedSessionRealtimeHandlers {
@@ -48,6 +57,49 @@ export interface HostedSessionRealtimeHandlers {
   onFocusAlerts?: (alerts: Array<{ nickname: string; expiresAt: number }>) => void;
   onAnswerProgress?: (payload: { totalAnswers: number; expected: number }) => void;
   onError?: (error: unknown) => void;
+}
+
+function buildRealtimeParticipantPayload(participant: RealtimeParticipant) {
+  const payload: Record<string, unknown> = {
+    participantId: Number(participant.participantId),
+    nickname: participant.nickname || '',
+    teamId: Number(participant.teamId || 0),
+    teamName: participant.teamName || null,
+    seatIndex: Number(participant.seatIndex || 0),
+    createdAt: participant.createdAt || null,
+    online: participant.online ?? true,
+    lastSeenAt: participant.lastSeenAt || Date.now(),
+  };
+
+  if (typeof participant.studentUserId === 'number') {
+    payload.studentUserId = Number(participant.studentUserId || 0);
+  }
+  if (typeof participant.classStudentId === 'number') {
+    payload.classStudentId = Number(participant.classStudentId || 0);
+  }
+  if (participant.joinMode != null) {
+    payload.joinMode = participant.joinMode || '';
+  }
+  if (participant.displayNameSnapshot != null) {
+    payload.displayNameSnapshot = participant.displayNameSnapshot || '';
+  }
+  if (typeof participant.accountLinked === 'boolean') {
+    payload.accountLinked = participant.accountLinked;
+  }
+  if (participant.profileMode != null) {
+    payload.profileMode = participant.profileMode || '';
+  }
+  if (participant.classStudentName != null) {
+    payload.classStudentName = participant.classStudentName || '';
+  }
+  if (participant.classStudentEmail != null) {
+    payload.classStudentEmail = participant.classStudentEmail || '';
+  }
+  if (participant.inviteStatus != null) {
+    payload.inviteStatus = participant.inviteStatus || '';
+  }
+
+  return payload;
 }
 
 function getSessionPath(pin: string) {
@@ -126,16 +178,7 @@ export async function syncHostedParticipants(pin: string, participants: Realtime
   if (!db) return false;
 
   const participantsMap = participants.reduce<Record<string, Record<string, unknown>>>((acc, participant) => {
-    acc[String(participant.participantId)] = {
-      participantId: Number(participant.participantId),
-      nickname: participant.nickname || '',
-      teamId: Number(participant.teamId || 0),
-      teamName: participant.teamName || null,
-      seatIndex: Number(participant.seatIndex || 0),
-      createdAt: participant.createdAt || null,
-      online: participant.online ?? true,
-      lastSeenAt: participant.lastSeenAt || Date.now(),
-    };
+    acc[String(participant.participantId)] = buildRealtimeParticipantPayload(participant);
     return acc;
   }, {});
 
@@ -160,16 +203,12 @@ export async function announceParticipantJoin(pin: string, participant: Realtime
   if (!db) return false;
 
   try {
-    await update(ref(db, `${getSessionPath(pin)}/participants/${participant.participantId}`), {
-      participantId: Number(participant.participantId),
-      nickname: participant.nickname || '',
-      teamId: Number(participant.teamId || 0),
-      teamName: participant.teamName || null,
-      seatIndex: Number(participant.seatIndex || 0),
+    await update(ref(db, `${getSessionPath(pin)}/participants/${participant.participantId}`), buildRealtimeParticipantPayload({
+      ...participant,
       createdAt: participant.createdAt || new Date().toISOString(),
       online: true,
       lastSeenAt: Date.now(),
-    });
+    }));
     return true;
   } catch (error) {
     logRealtimeError('announce-participant-join', error);
@@ -187,16 +226,15 @@ export async function attachParticipantPresence(pin: string, participant: Realti
   let disposed = false;
 
   const writeOnlinePresence = () =>
-    update(participantRef, {
-      participantId: Number(participant.participantId),
-      nickname: participant.nickname || '',
-      teamId: Number(participant.teamId || 0),
-      teamName: participant.teamName || null,
-      seatIndex: Number(participant.seatIndex || 0),
-      createdAt: participant.createdAt || new Date().toISOString(),
-      online: true,
-      lastSeenAt: Date.now(),
-    });
+    update(
+      participantRef,
+      buildRealtimeParticipantPayload({
+        ...participant,
+        createdAt: participant.createdAt || new Date().toISOString(),
+        online: true,
+        lastSeenAt: Date.now(),
+      }),
+    );
 
   const unsubscribe = onValue(
     connectionRef,

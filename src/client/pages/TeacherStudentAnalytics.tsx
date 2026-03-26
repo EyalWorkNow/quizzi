@@ -30,6 +30,7 @@ import {
 } from '../components/studentDashboardCharts.tsx';
 import { apiFetchJson } from '../lib/api.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
+import { useTeacherAnalyticsLanguage } from '../lib/teacherAnalyticsLanguage.ts';
 
 function buildSignalComparisons(sessionAnalytics: any, overallAnalytics: any) {
   const overallSignals = new Map(
@@ -91,8 +92,13 @@ function formatDeltaMs(value: number) {
   return `${numericValue >= 0 ? '+' : ''}${Math.round(numericValue)}ms`;
 }
 
+function formatPercent(value: number, digits = 0) {
+  return `${Number(value || 0).toFixed(digits)}%`;
+}
+
 export default function TeacherStudentAnalytics() {
   const { language } = useAppLanguage();
+  const { t } = useTeacherAnalyticsLanguage();
   const { sessionId, participantId } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState<any>(null);
@@ -166,7 +172,7 @@ export default function TeacherStudentAnalytics() {
     try {
       setLoading(true);
       setError('');
-      const payload = await apiFetchJson(`/api/analytics/class/${sessionId}/student/${participantId}`);
+      const payload = await apiFetchJson(`/api/analytics/class/${sessionId}/student/${participantId}?ui_language=${language}`);
       if (!payload?.session_vs_overall && payload?.analytics && payload?.overall_analytics) {
         payload.session_vs_overall = buildSessionComparison(payload.analytics, payload.overall_analytics);
       }
@@ -187,7 +193,7 @@ export default function TeacherStudentAnalytics() {
 
   useEffect(() => {
     loadStudentAnalytics();
-  }, [sessionId, participantId]);
+  }, [sessionId, participantId, language]);
 
   useEffect(() => {
     setMemoryNoteDraft(String(data?.student_memory?.teacher_notes?.note || ''));
@@ -221,6 +227,175 @@ export default function TeacherStudentAnalytics() {
   const misconceptionPatterns = analytics?.misconceptionPatterns || [];
   const tagBehaviorProfiles = analytics?.tagPerformance || [];
   const stabilityScore = Number(analytics?.stabilityScore || analytics?.aggregates?.stability_score || 0);
+  const summaryCopy = {
+    he: {
+      printTitle: 'תקציר הוראה להדפסה',
+      printSubtitle: 'מסמך קצר למורה: שורה תחתונה, משמעות פדגוגית, ומה כדאי לעשות עכשיו.',
+      executiveLabel: 'שורה תחתונה',
+      evidenceLabel: 'מה ראינו בפועל',
+      strengthsLabel: 'מה כבר עובד',
+      supportLabel: 'איפה דרושה תמיכה',
+      meaningLabel: 'מה זה אומר פדגוגית',
+      actionsLabel: 'מה עושים עכשיו',
+      nextLessonLabel: 'לפני השיעור או ההפעלה הבאה',
+      classPositionLabel: 'מיקום יחסי',
+      focusQuestionsLabel: 'שאלות שכדאי לפתוח מחדש',
+      familyLabel: 'הערה קצרה להורה / יועץ',
+      summaryTitle: `תקציר תמיכה: ${data?.participant?.nickname || 'תלמיד/ה'}`,
+      sessionLabel: `חבילה: ${data?.pack?.title || 'סשן Quizzi'} · סשן #${data?.session?.id || sessionId}`,
+      happenedTitle: 'מה קרה במשחק הזה',
+      showsTitle: 'מה התלמיד כבר מראה',
+      neededTitle: 'איפה דרושה תמיכה',
+      nextMoveTitle: 'המהלך הבא המומלץ',
+      teacherNowLead: 'כרגע לא נראה שמדובר רק בפער ידע.',
+      classPositionText: `מקום #${student?.rank || '-'} בסשן הזה, מול דיוק כיתתי של ${formatPercent(Number(classSummary?.accuracy || 0), 1)}.`,
+      questionPrefix: 'שאלה',
+      noQuestionFocus: 'לא זוהתה כרגע שאלה אחת שבולטת יותר מכל השאר, לכן כדאי להתחיל מהמושג המרכזי החלש ביותר.',
+      printedOn: `הופק ב-${new Date().toLocaleDateString('he-IL')}`,
+      noHistoryPattern: 'עדיין אין מספיק היסטוריה כדי לקבוע אם זה דפוס קבוע או אירוע נקודתי.',
+      stablePattern: 'נראה שהתלמיד נשאר יחסית יציב בקצב, ולכן המוקד הוא דיוק והבהרה מושגית יותר מאשר ויסות.',
+      pressurePattern: 'נראים רגעים של חוסר יציבות תחת לחץ, ולכן כדאי להשאיר את אותו חומר אבל להוריד עומס ולקצר את מרחק ההחלטה.',
+      evidenceLines: (accuracy: string, stress: string, confidence: string, focus: string, recovery: string, deadline: string) => [
+        `דיוק בסשן: ${accuracy}.`,
+        `לחץ התנהגותי: ${stress}; ביטחון: ${confidence}; ריכוז: ${focus}.`,
+        `שיעור התאוששות אחרי טעות: ${recovery}.`,
+        `תלות בדדליין: ${deadline}.`,
+      ],
+      strengthsText: (text: string) => `האזורים היציבים יותר כרגע: ${text}.`,
+      supportText: (text: string) => `האזור שדורש חיזוק עכשיו: ${text}.`,
+      meaningText: (story: string, pattern: string) => `${story} ${pattern}`,
+      nextLessonText: (move: string) => `המהלך המומלץ הוא ${move}`,
+      questionText: (index: number, prompt: string, why: string) => `שאלה ${index}: ${prompt} ${why}`,
+      focusWhyMissed: 'כדאי לפתוח מחדש את הניסוח והמושג לפני שממשיכים הלאה.',
+      focusWhyRevision: 'השאלה הזו מצביעה על שינוי החלטה לא יציב, ולכן שווה לעצור עליה ולבדוק איך התלמיד מסביר את הבחירה.',
+      focusWhyDeadline: 'כאן נראית תלות בקצה הזמן, ולכן כדאי להריץ בדיקה רגועה יותר על אותו תוכן.',
+    },
+    en: {
+      printTitle: 'Printable Teaching Summary',
+      printSubtitle: 'A short teacher-facing brief: bottom line, meaning, and what to do next.',
+      executiveLabel: 'Bottom line',
+      evidenceLabel: 'What we observed',
+      strengthsLabel: 'What is already working',
+      supportLabel: 'Where support is needed',
+      meaningLabel: 'What this means instructionally',
+      actionsLabel: 'What to do now',
+      nextLessonLabel: 'Before the next live lesson',
+      classPositionLabel: 'Relative position',
+      focusQuestionsLabel: 'Questions worth reopening',
+      familyLabel: 'Short home / advisor note',
+      summaryTitle: `Support summary: ${data?.participant?.nickname || 'Student'}`,
+      sessionLabel: `Pack: ${data?.pack?.title || 'Quizzi session'} · Session #${data?.session?.id || sessionId}`,
+      happenedTitle: 'What happened in this game',
+      showsTitle: 'What the student already shows',
+      neededTitle: 'Where support is needed',
+      nextMoveTitle: 'Recommended next move',
+      teacherNowLead: 'This does not look like a knowledge gap alone.',
+      classPositionText: `Rank #${student?.rank || '-'} in this session, against a class accuracy of ${formatPercent(Number(classSummary?.accuracy || 0), 1)}.`,
+      questionPrefix: 'Question',
+      noQuestionFocus: 'No single item stands out far above the rest yet, so start with the weakest shared concept.',
+      printedOn: `Generated on ${new Date().toLocaleDateString('en-US')}`,
+      noHistoryPattern: 'There is not enough history yet to tell whether this is a persistent pattern or a one-off event.',
+      stablePattern: 'Pace looks relatively stable, so the main move is concept clarification rather than regulation support.',
+      pressurePattern: 'There are unstable moments under pressure, so keep the same material but lower pressure and shorten the decision loop.',
+      evidenceLines: (accuracy: string, stress: string, confidence: string, focus: string, recovery: string, deadline: string) => [
+        `Session accuracy: ${accuracy}.`,
+        `Behavioral stress: ${stress}; confidence: ${confidence}; focus: ${focus}.`,
+        `Recovery after misses: ${recovery}.`,
+        `Deadline dependence: ${deadline}.`,
+      ],
+      strengthsText: (text: string) => `Most stable areas right now: ${text}.`,
+      supportText: (text: string) => `Main support area right now: ${text}.`,
+      meaningText: (story: string, pattern: string) => `${story} ${pattern}`,
+      nextLessonText: (move: string) => `Recommended move: ${move}`,
+      questionText: (index: number, prompt: string, why: string) => `Question ${index}: ${prompt} ${why}`,
+      focusWhyMissed: 'Re-open the wording and the underlying idea before moving on.',
+      focusWhyRevision: 'This item shows unstable revision behavior, so ask the student to explain the choice before locking in.',
+      focusWhyDeadline: 'This looks deadline-dependent, so a calmer re-check on the same content is the better next step.',
+    },
+    ar: {
+      printTitle: 'ملخص تعليمي للطباعة',
+      printSubtitle: 'ملف مختصر للمعلم: الخلاصة، معناها التعليمي، وما الذي ينبغي فعله الآن.',
+      executiveLabel: 'الخلاصة',
+      evidenceLabel: 'ما الذي رأيناه فعلاً',
+      strengthsLabel: 'ما الذي يعمل بالفعل',
+      supportLabel: 'أين نحتاج إلى دعم',
+      meaningLabel: 'ماذا يعني هذا تربوياً',
+      actionsLabel: 'ما الذي نفعله الآن',
+      nextLessonLabel: 'قبل الحصة أو الجلسة القادمة',
+      classPositionLabel: 'الموقع النسبي',
+      focusQuestionsLabel: 'أسئلة تستحق إعادة الفتح',
+      familyLabel: 'ملاحظة قصيرة للأهل / المرشد',
+      summaryTitle: `ملخص دعم: ${data?.participant?.nickname || 'الطالب/ة'}`,
+      sessionLabel: `الحزمة: ${data?.pack?.title || 'جلسة Quizzi'} · الجلسة #${data?.session?.id || sessionId}`,
+      happenedTitle: 'ماذا حدث في هذه اللعبة',
+      showsTitle: 'ما الذي يظهره الطالب بالفعل',
+      neededTitle: 'أين نحتاج إلى دعم',
+      nextMoveTitle: 'الخطوة التالية الموصى بها',
+      teacherNowLead: 'لا يبدو أن هذا مجرد فجوة معرفية.',
+      classPositionText: `المرتبة #${student?.rank || '-'} في هذه الجلسة، مقابل دقة صفية ${formatPercent(Number(classSummary?.accuracy || 0), 1)}.`,
+      questionPrefix: 'السؤال',
+      noQuestionFocus: 'لا يوجد عنصر واحد يبرز أكثر من الباقي حالياً، لذلك ابدأ بأضعف مفهوم مشترك.',
+      printedOn: `تم الإنشاء في ${new Date().toLocaleDateString('ar')}`,
+      noHistoryPattern: 'لا توجد بعد بيانات كافية لتحديد ما إذا كان هذا نمطاً ثابتاً أم حالة عابرة.',
+      stablePattern: 'الوتيرة تبدو مستقرة نسبياً، لذا فالحركة الأساسية هي توضيح المفهوم أكثر من دعم التنظيم.',
+      pressurePattern: 'هناك لحظات غير مستقرة تحت الضغط، لذلك من الأفضل إبقاء نفس المادة مع تقليل الضغط وتقريب دورة القرار.',
+      evidenceLines: (accuracy: string, stress: string, confidence: string, focus: string, recovery: string, deadline: string) => [
+        `دقة الجلسة: ${accuracy}.`,
+        `الضغط السلوكي: ${stress}; الثقة: ${confidence}; التركيز: ${focus}.`,
+        `التعافي بعد الخطأ: ${recovery}.`,
+        `الاعتماد على الوقت النهائي: ${deadline}.`,
+      ],
+      strengthsText: (text: string) => `المجالات الأكثر استقراراً الآن: ${text}.`,
+      supportText: (text: string) => `مجال الدعم الأهم الآن: ${text}.`,
+      meaningText: (story: string, pattern: string) => `${story} ${pattern}`,
+      nextLessonText: (move: string) => `الخطوة الموصى بها: ${move}`,
+      questionText: (index: number, prompt: string, why: string) => `السؤال ${index}: ${prompt} ${why}`,
+      focusWhyMissed: 'من المفيد إعادة فتح الصياغة والفكرة الأساسية قبل المتابعة.',
+      focusWhyRevision: 'هذا البند يُظهر مراجعة غير مستقرة، لذا من الأفضل طلب تفسير الاختيار قبل التثبيت.',
+      focusWhyDeadline: 'يبدو أن هذا مرتبط بضغط الوقت، لذا يفضّل إعادة فحص أكثر هدوءاً لنفس المحتوى.',
+    },
+  }[language] || {
+    printTitle: 'Printable Teaching Summary',
+    printSubtitle: 'A short teacher-facing brief: bottom line, meaning, and what to do next.',
+    executiveLabel: 'Bottom line',
+    evidenceLabel: 'What we observed',
+    strengthsLabel: 'What is already working',
+    supportLabel: 'Where support is needed',
+    meaningLabel: 'What this means instructionally',
+    actionsLabel: 'What to do now',
+    nextLessonLabel: 'Before the next live lesson',
+    classPositionLabel: 'Relative position',
+    focusQuestionsLabel: 'Questions worth reopening',
+    familyLabel: 'Short home / advisor note',
+    summaryTitle: `Support summary: ${data?.participant?.nickname || 'Student'}`,
+    sessionLabel: `Pack: ${data?.pack?.title || 'Quizzi session'} · Session #${data?.session?.id || sessionId}`,
+    happenedTitle: 'What happened in this game',
+    showsTitle: 'What the student already shows',
+    neededTitle: 'Where support is needed',
+    nextMoveTitle: 'Recommended next move',
+    teacherNowLead: 'This does not look like a knowledge gap alone.',
+    classPositionText: `Rank #${student?.rank || '-'} in this session, against a class accuracy of ${formatPercent(Number(classSummary?.accuracy || 0), 1)}.`,
+    questionPrefix: 'Question',
+    noQuestionFocus: 'No single item stands out far above the rest yet, so start with the weakest shared concept.',
+    printedOn: `Generated on ${new Date().toLocaleDateString('en-US')}`,
+    noHistoryPattern: 'There is not enough history yet to tell whether this is a persistent pattern or a one-off event.',
+    stablePattern: 'Pace looks relatively stable, so the main move is concept clarification rather than regulation support.',
+    pressurePattern: 'There are unstable moments under pressure, so keep the same material but lower pressure and shorten the decision loop.',
+    evidenceLines: (accuracy: string, stress: string, confidence: string, focus: string, recovery: string, deadline: string) => [
+      `Session accuracy: ${accuracy}.`,
+      `Behavioral stress: ${stress}; confidence: ${confidence}; focus: ${focus}.`,
+      `Recovery after misses: ${recovery}.`,
+      `Deadline dependence: ${deadline}.`,
+    ],
+    strengthsText: (text: string) => `Most stable areas right now: ${text}.`,
+    supportText: (text: string) => `Main support area right now: ${text}.`,
+    meaningText: (story: string, pattern: string) => `${story} ${pattern}`,
+    nextLessonText: (move: string) => `Recommended move: ${move}`,
+    questionText: (index: number, prompt: string, why: string) => `Question ${index}: ${prompt} ${why}`,
+    focusWhyMissed: 'Re-open the wording and the underlying idea before moving on.',
+    focusWhyRevision: 'This item shows unstable revision behavior, so ask the student to explain the choice before locking in.',
+    focusWhyDeadline: 'This looks deadline-dependent, so a calmer re-check on the same content is the better next step.',
+  };
   const attentionQueue = useMemo(
     () =>
       [...questionReview]
@@ -256,7 +431,7 @@ export default function TeacherStudentAnalytics() {
         student_memory: payload?.student_memory || current?.student_memory,
       }));
     } catch (saveError: any) {
-      setError(saveError?.message || 'Failed to save memory note');
+        setError(saveError?.message || t('Failed to save memory note'));
     } finally {
       setMemoryNoteSaving(false);
     }
@@ -312,15 +487,32 @@ export default function TeacherStudentAnalytics() {
   }, [analytics, student]);
 
   const supportSnapshot = useMemo(() => {
+    const translateTags = (tags: string[]) => tags.map((tag) => t(tag)).filter(Boolean);
     const weakTags = (analytics?.practicePlan?.focus_tags || analytics?.profile?.weak_tags || []).slice(0, 3);
     const strongTags = (analytics?.profile?.strong_tags || overallAnalytics?.profile?.strong_tags || []).slice(0, 3);
-    const strengths = strongTags.length > 0
-      ? `Strongest areas right now: ${strongTags.join(', ')}.`
-      : `The student is currently strongest when the question format feels familiar and the decision path stays stable.`;
-    const watchouts = weakTags.length > 0
-      ? `Main support areas: ${weakTags.join(', ')}.`
-      : `The main support area is decision stability under pressure rather than one single content gap.`;
-    const sessionRead = `${data?.participant?.nickname} finished this session with ${Number(analytics?.stats?.accuracy || student?.accuracy || 0).toFixed(0)}% accuracy at ${Number(analytics?.risk?.stress_index || student?.stress_index || 0).toFixed(0)}% stress.`;
+    const translatedStrongTags = translateTags(strongTags);
+    const translatedWeakTags = translateTags(weakTags);
+    const accuracy = formatPercent(Number(analytics?.stats?.accuracy || student?.accuracy || 0));
+    const stress = formatPercent(Number(analytics?.risk?.stress_index || student?.stress_index || 0));
+    const confidence = formatPercent(Number(analytics?.profile?.confidence_score || 0));
+    const focus = Number(analytics?.profile?.focus_score || 0).toFixed(0);
+    const recovery = formatPercent(Number(recoveryProfile?.recovery_rate || 0), 1);
+    const deadline = formatPercent(Number(deadlineProfile?.last_second_rate || 0), 1);
+    const story = t(analytics?.overallStory?.body || analytics?.profile?.body || 'No interpretation was produced yet.');
+    const pattern = (deadlineProfile?.last_second_rate || 0) >= 25 || (analytics?.risk?.stress_index || 0) >= 35
+      ? summaryCopy.pressurePattern
+      : summaryCopy.stablePattern;
+    const strengths = translatedStrongTags.length > 0
+      ? summaryCopy.strengthsText(translatedStrongTags.join(', '))
+      : t('The student is currently strongest when the question format feels familiar and the decision path stays stable.');
+    const watchouts = translatedWeakTags.length > 0
+      ? summaryCopy.supportText(translatedWeakTags.join(', '))
+      : t('The main support area is decision stability under pressure rather than one single content gap.');
+    const sessionRead = language === 'he'
+      ? `${data?.participant?.nickname} סיים/ה את הסשן הזה עם ${accuracy} דיוק, ${stress} לחץ, ביטחון ${confidence} וריכוז ${focus}.`
+      : language === 'ar'
+        ? `${data?.participant?.nickname} أنهى/أنهت هذه الجلسة بدقة ${accuracy}، ضغط ${stress}، ثقة ${confidence} وتركيز ${focus}.`
+        : `${data?.participant?.nickname} finished this session with ${accuracy} accuracy, ${stress} stress, ${confidence} confidence, and ${focus} focus.`;
     const nextMove =
       student?.recommendation
       || analytics?.practicePlan?.body
@@ -330,28 +522,69 @@ export default function TeacherStudentAnalytics() {
       student?.risk_level === 'high' || analytics?.risk?.level === 'high'
         ? 'This learner would benefit from a short, low-pressure re-entry step before the next bigger assessment.'
         : 'A short same-topic check-in this week should be enough to keep momentum stable.';
+    const focusQuestions = attentionQueue.slice(0, 3).map((row: any) => {
+      const why = row.revision_outcome === 'correct_to_incorrect'
+        ? summaryCopy.focusWhyRevision
+        : row.deadline_dependent
+          ? summaryCopy.focusWhyDeadline
+          : summaryCopy.focusWhyMissed;
+      return summaryCopy.questionText(Number(row.question_index || 0), t(row.prompt || row.question_text || ''), why);
+    });
+    const evidence = summaryCopy.evidenceLines(accuracy, stress, confidence, focus, recovery, deadline);
+    const executiveSummary = summaryCopy.nextLessonText(t(nextMove));
+    const meaning = summaryCopy.meaningText(summaryCopy.teacherNowLead, `${story} ${sessionHistory.length > 0 ? pattern : summaryCopy.noHistoryPattern}`.trim());
 
     const lines = [
-      `Support Snapshot: ${data?.participant?.nickname}`,
-      `Session: ${data?.pack?.title || 'Quizzi session'} (#${data?.session?.id || sessionId})`,
+      summaryCopy.summaryTitle,
+      summaryCopy.sessionLabel,
       '',
-      sessionRead,
-      strengths,
-      watchouts,
-      `Teacher next move: ${nextMove}`,
-      `Home / advisor note: ${familyNote}`,
+      `${summaryCopy.executiveLabel}: ${executiveSummary}`,
+      '',
+      `${summaryCopy.happenedTitle}: ${sessionRead}`,
+      `${summaryCopy.strengthsLabel}: ${strengths}`,
+      `${summaryCopy.supportLabel}: ${watchouts}`,
+      `${summaryCopy.meaningLabel}: ${meaning}`,
+      `${summaryCopy.nextMoveTitle}: ${t(nextMove)}`,
+      `${summaryCopy.familyLabel}: ${t(familyNote)}`,
+      `${summaryCopy.focusQuestionsLabel}:`,
+      ...(focusQuestions.length > 0 ? focusQuestions.map((line) => `- ${line}`) : [`- ${summaryCopy.noQuestionFocus}`]),
+      '',
+      `${summaryCopy.evidenceLabel}:`,
+      ...evidence.map((line) => `- ${line}`),
     ];
 
     return {
-      title: `${data?.participant?.nickname} support snapshot`,
+      title: summaryCopy.summaryTitle,
       strengths,
       watchouts,
       sessionRead,
-      nextMove,
-      familyNote,
+      nextMove: t(nextMove),
+      familyNote: t(familyNote),
+      executiveSummary,
+      meaning,
+      evidence,
+      focusQuestions,
+      classPosition: summaryCopy.classPositionText,
+      printedOn: summaryCopy.printedOn,
       text: lines.join('\n'),
     };
-  }, [analytics, data?.pack?.title, data?.participant?.nickname, data?.session?.id, overallAnalytics?.profile?.strong_tags, sessionId, student, teacherMoves]);
+  }, [
+    analytics,
+    attentionQueue,
+    data?.pack?.title,
+    data?.participant?.nickname,
+    data?.session?.id,
+    deadlineProfile?.last_second_rate,
+    language,
+    overallAnalytics?.profile?.strong_tags,
+    recoveryProfile?.recovery_rate,
+    sessionHistory.length,
+    sessionId,
+    student,
+    summaryCopy,
+    t,
+    teacherMoves,
+  ]);
 
   const handleCreateAdaptiveGame = async () => {
     if (!sessionId || !participantId) return;
@@ -413,13 +646,13 @@ export default function TeacherStudentAnalytics() {
     return (
       <div className="min-h-screen bg-brand-bg flex items-center justify-center p-8">
         <div className="bg-white border-4 border-brand-dark rounded-[2rem] shadow-[8px_8px_0px_0px_#1A1A1A] p-8 text-center max-w-xl">
-          <p className="text-3xl font-black mb-3">Student dashboard unavailable</p>
-          <p className="font-bold text-brand-dark/60 mb-6">{error || 'No data returned.'}</p>
+          <p className="text-3xl font-black mb-3">{t('Student dashboard unavailable')}</p>
+          <p className="font-bold text-brand-dark/60 mb-6">{t(error || 'No data returned.')}</p>
           <button
             onClick={() => navigate(`/teacher/analytics/class/${sessionId}`)}
             className="px-6 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black"
           >
-            Back to Class Analytics
+            {t('Back to Class Analytics')}
           </button>
         </div>
       </div>
@@ -427,7 +660,133 @@ export default function TeacherStudentAnalytics() {
   }
 
   return (
-    <div className="min-h-screen bg-brand-bg text-brand-dark font-sans pb-20 selection:bg-brand-orange selection:text-white">
+    <>
+      <style>{`
+        .print-summary-sheet {
+          display: none;
+        }
+        @media print {
+          @page {
+            size: A4;
+            margin: 12mm;
+          }
+          body {
+            background: #ffffff !important;
+          }
+          .screen-only-student-analytics {
+            display: none !important;
+          }
+          .print-summary-sheet {
+            display: block !important;
+            color: #111111;
+            font-family: Arial, sans-serif;
+          }
+          .print-summary-sheet * {
+            box-sizing: border-box;
+          }
+          .print-summary-card {
+            border: 2px solid #111111;
+            border-radius: 18px;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            break-inside: avoid;
+          }
+          .print-summary-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+          }
+          .print-summary-eyebrow {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 6px;
+            color: #444444;
+          }
+          .print-summary-sheet h1,
+          .print-summary-sheet h2,
+          .print-summary-sheet h3,
+          .print-summary-sheet p,
+          .print-summary-sheet li {
+            margin: 0;
+          }
+          .print-summary-sheet ul {
+            margin: 0;
+            padding-inline-start: 18px;
+          }
+        }
+      `}</style>
+
+      <section className="print-summary-sheet" dir={language === 'he' ? 'rtl' : language === 'ar' ? 'rtl' : 'ltr'}>
+        <div style={{ marginBottom: '14px' }}>
+          <p className="print-summary-eyebrow">{summaryCopy.printTitle}</p>
+          <h1 style={{ fontSize: '26px', fontWeight: 800, marginBottom: '6px' }}>{data?.participant?.nickname}</h1>
+          <p style={{ fontSize: '14px', color: '#444444', marginBottom: '4px' }}>{summaryCopy.sessionLabel}</p>
+          <p style={{ fontSize: '13px', color: '#555555' }}>{summaryCopy.printSubtitle}</p>
+        </div>
+
+        <div className="print-summary-card">
+          <p className="print-summary-eyebrow">{summaryCopy.executiveLabel}</p>
+          <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '8px' }}>
+            {t(student?.headline || analytics?.practicePlan?.headline || analytics?.overallStory?.headline || analytics?.profile?.headline || 'Monitor')}
+          </h2>
+          <p style={{ fontSize: '14px', lineHeight: 1.55, marginBottom: '8px' }}>{supportSnapshot.executiveSummary}</p>
+          <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{supportSnapshot.meaning}</p>
+        </div>
+
+        <div className="print-summary-grid">
+          <div className="print-summary-card">
+            <p className="print-summary-eyebrow">{summaryCopy.evidenceLabel}</p>
+            <ul style={{ display: 'grid', gap: '6px', fontSize: '13px', lineHeight: 1.5 }}>
+              {supportSnapshot.evidence.map((line: string) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="print-summary-card">
+            <p className="print-summary-eyebrow">{summaryCopy.classPositionLabel}</p>
+            <p style={{ fontSize: '14px', lineHeight: 1.55, marginBottom: '10px' }}>{supportSnapshot.classPosition}</p>
+            <p className="print-summary-eyebrow" style={{ marginBottom: '6px' }}>{summaryCopy.nextLessonLabel}</p>
+            <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{supportSnapshot.nextMove}</p>
+          </div>
+        </div>
+
+        <div className="print-summary-grid">
+          <div className="print-summary-card">
+            <p className="print-summary-eyebrow">{summaryCopy.strengthsLabel}</p>
+            <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{supportSnapshot.strengths}</p>
+          </div>
+
+          <div className="print-summary-card">
+            <p className="print-summary-eyebrow">{summaryCopy.supportLabel}</p>
+            <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{supportSnapshot.watchouts}</p>
+          </div>
+        </div>
+
+        <div className="print-summary-card">
+          <p className="print-summary-eyebrow">{summaryCopy.focusQuestionsLabel}</p>
+          {supportSnapshot.focusQuestions.length > 0 ? (
+            <ul style={{ display: 'grid', gap: '8px', fontSize: '13px', lineHeight: 1.5 }}>
+              {supportSnapshot.focusQuestions.map((line: string) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : (
+            <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{summaryCopy.noQuestionFocus}</p>
+          )}
+        </div>
+
+        <div className="print-summary-card">
+          <p className="print-summary-eyebrow">{summaryCopy.familyLabel}</p>
+          <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{supportSnapshot.familyNote}</p>
+        </div>
+
+        <p style={{ fontSize: '12px', color: '#666666' }}>{supportSnapshot.printedOn}</p>
+      </section>
+
+      <div className="screen-only-student-analytics min-h-screen bg-brand-bg text-brand-dark font-sans pb-20 selection:bg-brand-orange selection:text-white">
       <div className="absolute inset-x-0 top-0 h-[380px] bg-[radial-gradient(circle_at_top_left,_rgba(255,90,54,0.16),_transparent_38%),radial-gradient(circle_at_top_right,_rgba(180,136,255,0.18),_transparent_36%)] pointer-events-none" />
 
       <div className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b-4 border-brand-dark shadow-[0_4px_0px_0px_#1A1A1A]">
@@ -440,8 +799,16 @@ export default function TeacherStudentAnalytics() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Student Drill-Down</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{t('Student Drill-Down')}</p>
               <h1 className="text-3xl font-black tracking-tight">{data?.participant?.nickname}</h1>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <span className="inline-flex items-center rounded-full border-2 border-brand-dark bg-brand-bg px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em]">
+                  {data?.participant?.account_linked ? t('Account linked') : t('Session only')}
+                </span>
+                <span className="inline-flex items-center rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em]">
+                  {data?.participant?.profile_mode === 'longitudinal' ? t('Longitudinal profile') : t('Single-session profile')}
+                </span>
+              </div>
               <p className="font-bold text-brand-dark/60">
                 {data?.pack?.title} · Session #{data?.session?.id} · Rank #{student?.rank || '-'}
               </p>
@@ -451,7 +818,7 @@ export default function TeacherStudentAnalytics() {
           <div className="flex flex-wrap gap-3">
             {error && (
               <div className="px-4 py-3 bg-brand-yellow border-2 border-brand-dark rounded-full font-black text-sm">
-                Fallback data loaded
+                {t('Fallback data loaded')}
               </div>
             )}
             <button
@@ -459,7 +826,7 @@ export default function TeacherStudentAnalytics() {
               className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
             >
               <RefreshCw className="w-4 h-4" />
-              Refresh
+              {t('Refresh')}
             </button>
             <button
               onClick={() => void handleCopySupportSnapshot()}
@@ -473,7 +840,7 @@ export default function TeacherStudentAnalytics() {
               className="px-5 py-3 bg-brand-yellow border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
             >
               <Printer className="w-4 h-4" />
-              Print Snapshot
+              {t('Print Snapshot')}
             </button>
             <button
               onClick={handleCreateAdaptiveGame}
@@ -494,25 +861,25 @@ export default function TeacherStudentAnalytics() {
             <div className="relative z-10">
               <div className="flex flex-wrap items-center gap-3 mb-4">
                 <span className={`px-4 py-2 rounded-full border-2 border-white/30 font-black ${riskChip(student?.risk_level || analytics?.risk?.level)}`}>
-                  {String(student?.risk_level || analytics?.risk?.level || 'low').toUpperCase()} RISK
+                  {t(String(student?.risk_level || analytics?.risk?.level || 'low').toUpperCase())} {t('RISK')}
                 </span>
                 <span className="px-4 py-2 rounded-full border-2 border-white/20 bg-white/10 font-black">
-                  {analytics?.profile?.decision_style}
+                  {t(analytics?.profile?.decision_style)}
                 </span>
               </div>
-              <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-yellow mb-3">Session-Specific Read</p>
+              <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-yellow mb-3">{t('Session-Specific Read')}</p>
               <h2 className="text-4xl font-black leading-tight mb-3">
-                {analytics?.overallStory?.headline || analytics?.profile?.headline}
+                {t(analytics?.overallStory?.headline || analytics?.profile?.headline)}
               </h2>
               <p className="text-lg font-medium text-white/75 mb-6">
-                {analytics?.overallStory?.body || analytics?.profile?.body}
+                {t(analytics?.overallStory?.body || analytics?.profile?.body)}
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                <HeroStat label="Game Accuracy" value={`${Number(analytics?.stats?.accuracy || student?.accuracy || 0).toFixed(0)}%`} />
-                <HeroStat label="Stress" value={`${Number(analytics?.risk?.stress_index || student?.stress_index || 0).toFixed(0)}%`} />
-                <HeroStat label="Confidence" value={Number(analytics?.profile?.confidence_score || 0).toFixed(0)} />
-                <HeroStat label="Focus" value={Number(analytics?.profile?.focus_score || 0).toFixed(0)} />
+                <HeroStat label={t('Game Accuracy')} value={`${Number(analytics?.stats?.accuracy || student?.accuracy || 0).toFixed(0)}%`} />
+                <HeroStat label={t('Stress')} value={`${Number(analytics?.risk?.stress_index || student?.stress_index || 0).toFixed(0)}%`} />
+                <HeroStat label={t('Confidence')} value={Number(analytics?.profile?.confidence_score || 0).toFixed(0)} />
+                <HeroStat label={t('Focus')} value={Number(analytics?.profile?.focus_score || 0).toFixed(0)} />
               </div>
             </div>
           </div>
@@ -520,21 +887,21 @@ export default function TeacherStudentAnalytics() {
           <div className="bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
             <div className="flex items-center gap-3 mb-5">
               <TrendingUp className="w-6 h-6 text-brand-purple" />
-              <h2 className="text-3xl font-black">Game Vs Overall Baseline</h2>
+              <h2 className="text-3xl font-black">{t('Game Vs Overall Baseline')}</h2>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-              <DeltaCard label="Accuracy Delta" value={comparison?.accuracy_delta} helper={`Overall ${Number(overallAnalytics?.stats?.accuracy || 0).toFixed(1)}%`} />
-              <DeltaCard label="Stress Delta" value={comparison?.stress_delta} helper={`Overall ${Number(overallAnalytics?.risk?.stress_index || 0).toFixed(1)}%`} />
-              <DeltaCard label="Confidence Delta" value={comparison?.confidence_delta} helper={`Overall ${Number(overallAnalytics?.profile?.confidence_score || 0).toFixed(0)}`} />
-              <DeltaCard label="Focus Delta" value={comparison?.focus_delta} helper={`Overall ${Number(overallAnalytics?.profile?.focus_score || 0).toFixed(0)}`} />
+              <DeltaCard label={t('Accuracy Delta')} value={comparison?.accuracy_delta} helper={t(`Overall ${Number(overallAnalytics?.stats?.accuracy || 0).toFixed(1)}%`)} />
+              <DeltaCard label={t('Stress Delta')} value={comparison?.stress_delta} helper={t(`Overall ${Number(overallAnalytics?.risk?.stress_index || 0).toFixed(1)}%`)} />
+              <DeltaCard label={t('Confidence Delta')} value={comparison?.confidence_delta} helper={t(`Overall ${Number(overallAnalytics?.profile?.confidence_score || 0).toFixed(0)}`)} />
+              <DeltaCard label={t('Focus Delta')} value={comparison?.focus_delta} helper={t(`Overall ${Number(overallAnalytics?.profile?.focus_score || 0).toFixed(0)}`)} />
             </div>
 
             <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Teacher Recommendation</p>
-              <p className="text-xl font-black mb-2">{student?.headline || analytics?.practicePlan?.headline}</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Teacher Recommendation')}</p>
+              <p className="text-xl font-black mb-2">{t(student?.headline || analytics?.practicePlan?.headline)}</p>
               <p className="font-medium text-brand-dark/70">
-                {student?.recommendation || analytics?.practicePlan?.body}
+                {t(student?.recommendation || analytics?.practicePlan?.body)}
               </p>
             </div>
           </div>
@@ -545,9 +912,9 @@ export default function TeacherStudentAnalytics() {
             <div className="flex items-start justify-between gap-4 mb-5">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Teacher Trust Mode</p>
-                <h2 className="text-3xl font-black">Why we think this is true</h2>
+                <h2 className="text-3xl font-black">{t('Why we think this is true')}</h2>
                 <p className="font-bold text-brand-dark/60 mt-2">
-                  Every student read is now split into observed facts, interpretation, and the next teaching move.
+                  {t('Every student read is now split into observed facts, interpretation, and the next teaching move.')}
                 </p>
               </div>
               <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg px-4 py-3 text-xs font-black uppercase tracking-[0.18em] text-brand-dark/55">
@@ -559,19 +926,19 @@ export default function TeacherStudentAnalytics() {
               <TrustStoryCard
                 eyebrow="Observed facts"
                 title={trustObservedFacts?.headline || 'Observed facts'}
-                body={trustObservedFacts?.body || 'The system has not produced an evidence read for this student yet.'}
+                body={t(trustObservedFacts?.body || 'The system has not produced an evidence read for this student yet.')}
                 tone="bg-brand-bg"
               />
               <TrustStoryCard
                 eyebrow="Derived interpretation"
-                title={trustInterpretation?.headline || analytics?.overallStory?.headline || analytics?.profile?.headline || 'Session-specific interpretation'}
-                body={trustInterpretation?.body || analytics?.overallStory?.body || analytics?.profile?.body || 'No interpretation was produced yet.'}
+                title={t(trustInterpretation?.headline || analytics?.overallStory?.headline || analytics?.profile?.headline || 'Session-specific interpretation')}
+                body={t(trustInterpretation?.body || analytics?.overallStory?.body || analytics?.profile?.body || 'No interpretation was produced yet.')}
                 tone="bg-[#eef0ff]"
               />
               <TrustStoryCard
                 eyebrow="Teacher action"
-                title={trustTeacherAction?.label || trustTeacherAction?.title || 'Monitor'}
-                body={trustTeacherAction?.body || analytics?.practicePlan?.body || 'Watch the next game for a cleaner signal before changing the instruction plan.'}
+                title={t(trustTeacherAction?.label || trustTeacherAction?.title || 'Monitor')}
+                body={t(trustTeacherAction?.body || analytics?.practicePlan?.body || 'Watch the next game for a cleaner signal before changing the instruction plan.')}
                 tone="bg-[#fff6db]"
               />
             </div>
@@ -588,10 +955,10 @@ export default function TeacherStudentAnalytics() {
             <div className="flex items-center gap-3 mb-5">
               <Gauge className="w-6 h-6 text-brand-purple" />
               <div>
-                <h2 className="text-3xl font-black">Assessment vs behavior</h2>
-                <p className="font-bold text-brand-dark/60 mt-1">
-                  Separate grading-safe evidence from game-behavior signals before you act on the report.
-                </p>
+              <h2 className="text-3xl font-black">{t('Assessment vs behavior')}</h2>
+              <p className="font-bold text-brand-dark/60 mt-1">
+                {t('Separate grading-safe evidence from game-behavior signals before you act on the report.')}
+              </p>
               </div>
             </div>
 
@@ -622,15 +989,15 @@ export default function TeacherStudentAnalytics() {
               <div>
                 <div className="flex items-center gap-3 mb-3">
                   <Users className="w-6 h-6 text-brand-purple" />
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple">Support Snapshot</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple">{t('Support Snapshot')}</p>
                 </div>
                 <h2 className="text-3xl font-black">{supportSnapshot.title}</h2>
                 <p className="font-bold text-brand-dark/60 mt-2">
-                  A short plain-language summary you can reuse with a parent, advisor, coordinator, or support teacher.
+                  {t('A short plain-language summary you can reuse with a parent, advisor, coordinator, or support teacher.')}
                 </p>
               </div>
               <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg px-4 py-3 font-black">
-                Session #{data?.session?.id}
+                {t(`Session #${data?.session?.id}`)}
               </div>
             </div>
 
@@ -642,8 +1009,8 @@ export default function TeacherStudentAnalytics() {
             </div>
 
             <div className="mt-4 rounded-[1.5rem] border-2 border-brand-dark bg-brand-dark p-5 text-white">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">Home / Advisor Note</p>
-              <p className="font-medium text-white/80">{supportSnapshot.familyNote}</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">{t('Home / Advisor Note')}</p>
+              <p className="font-medium text-white/80">{t(supportSnapshot.familyNote)}</p>
             </div>
           </div>
         </section>
@@ -660,12 +1027,12 @@ export default function TeacherStudentAnalytics() {
               {teacherMoves.length > 0 ? (
                 teacherMoves.map((item) => (
                   <div key={item.title} className="rounded-2xl border-2 border-brand-dark bg-white p-4">
-                    <p className="font-black mb-1">{item.title}</p>
-                    <p className="font-medium text-brand-dark/70">{item.body}</p>
+                    <p className="font-black mb-1">{t(item.title)}</p>
+                    <p className="font-medium text-brand-dark/70">{t(item.body)}</p>
                   </div>
                 ))
               ) : (
-                <p className="font-bold text-brand-dark/60">No extra intervention signal was generated for this student.</p>
+                <p className="font-bold text-brand-dark/60">{t('No extra intervention signal was generated for this student.')}</p>
               )}
             </div>
           </InfoPanel>
@@ -697,8 +1064,8 @@ export default function TeacherStudentAnalytics() {
                 <div key={category.id} className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
                   <div className="flex items-center justify-between gap-3 mb-3">
                     <div className="min-w-0">
-                      <p className="font-black">{category.label}</p>
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{category.count} questions</p>
+                      <p className="font-black">{t(category.label)}</p>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{t(`${category.count} questions`)}</p>
                     </div>
                     <span className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark font-black">
                       {Number(category.rate || 0).toFixed(1)}%
@@ -720,9 +1087,9 @@ export default function TeacherStudentAnalytics() {
           >
             <div className="space-y-5">
               <div className={`rounded-[1.75rem] border-2 border-brand-dark p-5 ${fatigueTone(fatigueDrift?.direction)}`}>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Fatigue Drift</p>
-                <p className="text-2xl font-black mb-2">{fatigueDrift?.headline || 'No drift estimate yet'}</p>
-                <p className="font-medium text-brand-dark/70">{fatigueDrift?.body || 'There are not enough answered questions yet to estimate drift.'}</p>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Fatigue Drift')}</p>
+                <p className="text-2xl font-black mb-2">{t(fatigueDrift?.headline || 'No drift estimate yet')}</p>
+                <p className="font-medium text-brand-dark/70">{t(fatigueDrift?.body || 'There are not enough answered questions yet to estimate drift.')}</p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -750,10 +1117,10 @@ export default function TeacherStudentAnalytics() {
                   <div className="space-y-3">
                     {misconceptionPatterns.slice(0, 3).map((pattern: any) => (
                       <div key={`${pattern.tag}-${pattern.choice_label}-${pattern.choice_text}`} className="rounded-[1.3rem] border-2 border-brand-dark bg-white p-4">
-                        <p className="font-black mb-1 capitalize">{pattern.tag}</p>
-                        <p className="font-medium text-brand-dark/70">
-                          Keeps landing on {pattern.choice_label}. {pattern.choice_text} across {pattern.question_count} questions.
-                        </p>
+                <p className="font-black mb-1 capitalize">{t(pattern.tag)}</p>
+                <p className="font-medium text-brand-dark/70">
+                          {t(`Keeps landing on ${pattern.choice_label}. ${pattern.choice_text} across ${pattern.question_count} questions.`)}
+                </p>
                       </div>
                     ))}
                   </div>
@@ -876,11 +1243,11 @@ export default function TeacherStudentAnalytics() {
                     {(studentMemory.memory_timeline || []).map((entry: any) => (
                       <div key={entry.id} className="rounded-[1.2rem] bg-white/10 px-4 py-3">
                         <div className="flex items-center justify-between gap-3">
-                          <p className="font-black">{entry.label}</p>
+                        <p className="font-black">{t(entry.label)}</p>
                           <p className="text-sm font-bold text-white/70">{Number(entry.accuracy_pct || 0).toFixed(0)}%</p>
                         </div>
                         <p className="text-sm font-medium text-white/72">
-                          Stress {Number(entry.stress_index || 0).toFixed(0)}% • Confidence {Number(entry.confidence_score || 0).toFixed(0)}%
+                          {t(`Stress ${Number(entry.stress_index || 0).toFixed(0)}% • Confidence ${Number(entry.confidence_score || 0).toFixed(0)}%`)}
                         </p>
                       </div>
                     ))}
@@ -890,15 +1257,15 @@ export default function TeacherStudentAnalytics() {
               <div className="mt-5 rounded-[1.5rem] border-2 border-brand-dark bg-white text-brand-dark p-4">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">Teacher note</p>
-                    <p className="font-medium text-brand-dark/65">Merge your human read into the memory layer.</p>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{t('Teacher note')}</p>
+                    <p className="font-medium text-brand-dark/65">{t('Merge your human read into the memory layer.')}</p>
                   </div>
                   <button
                     onClick={() => void saveMemoryNote()}
                     disabled={memoryNoteSaving}
                     className="px-4 py-2 rounded-full border-2 border-brand-dark bg-brand-yellow font-black disabled:opacity-60"
                   >
-                    {memoryNoteSaving ? 'Saving...' : 'Save note'}
+                    {memoryNoteSaving ? t('Saving...') : t('Save note')}
                   </button>
                 </div>
                 <textarea
@@ -906,11 +1273,11 @@ export default function TeacherStudentAnalytics() {
                   onChange={(event) => setMemoryNoteDraft(event.target.value)}
                   rows={4}
                   className="w-full rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg px-4 py-3 font-medium outline-none"
-                  placeholder="Example: understands the idea verbally but freezes under timer pressure."
+                  placeholder={t('Example: understands the idea verbally but freezes under timer pressure.')}
                 />
                 {studentMemory.teacher_notes?.updated_at && (
                   <p className="mt-2 text-xs font-bold text-brand-dark/55">
-                    Last updated {new Date(studentMemory.teacher_notes.updated_at).toLocaleString()}
+                    {t(`Last updated ${new Date(studentMemory.teacher_notes.updated_at).toLocaleString()}`)}
                   </p>
                 )}
               </div>
@@ -948,19 +1315,19 @@ export default function TeacherStudentAnalytics() {
               <QuestionFlowChart rows={questionReview} />
 
               <div className={`rounded-[1.75rem] border-2 border-brand-dark p-5 ${momentumTone(analytics?.momentum?.direction)}`}>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">Momentum</p>
-                <p className="text-2xl font-black mb-2">{analytics?.momentum?.headline}</p>
-                <p className="font-medium text-brand-dark/70">{analytics?.momentum?.body}</p>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">{t('Momentum')}</p>
+                <p className="text-2xl font-black mb-2">{t(analytics?.momentum?.headline)}</p>
+                <p className="font-medium text-brand-dark/70">{t(analytics?.momentum?.body)}</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {(analytics?.sessionSegments || []).map((segment: any) => (
                   <div key={segment.label} className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{segment.label}</p>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t(segment.label)}</p>
                     <p className="text-3xl font-black mb-2">{Number(segment.accuracy || 0).toFixed(0)}%</p>
-                    <p className="font-medium text-brand-dark/70">Stress {Number(segment.avg_stress || 0).toFixed(0)}%</p>
+                    <p className="font-medium text-brand-dark/70">{t(`Stress ${Number(segment.avg_stress || 0).toFixed(0)}%`)}</p>
                     <p className="font-medium text-brand-dark/70">
-                      Commit {(Number(segment.avg_commit_window_ms || 0) / 1000).toFixed(1)}s
+                      {t(`Commit ${(Number(segment.avg_commit_window_ms || 0) / 1000).toFixed(1)}s`)}
                     </p>
                   </div>
                 ))}
@@ -991,7 +1358,7 @@ export default function TeacherStudentAnalytics() {
                     <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
                       <div>
                         <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{session.date}</p>
-                        <p className="text-2xl font-black">{session.pack_title}</p>
+                        <p className="text-2xl font-black">{t(session.pack_title)}</p>
                       </div>
                       <div className="flex flex-wrap gap-3">
                         <MetricChip label="Score" value={session.score} />
@@ -1025,14 +1392,14 @@ export default function TeacherStudentAnalytics() {
             <div className="space-y-5">
               <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-yellow p-5">
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/60 mb-2">Strategy</p>
-                <p className="text-2xl font-black mb-2">{preview?.strategy?.headline || 'Adaptive same-material follow-up'}</p>
-                <p className="font-medium text-brand-dark/75">{preview?.strategy?.body}</p>
+                <p className="text-2xl font-black mb-2">{t(preview?.strategy?.headline || 'Adaptive same-material follow-up')}</p>
+                <p className="font-medium text-brand-dark/75">{t(preview?.strategy?.body)}</p>
               </div>
 
               <div className="flex flex-wrap gap-2">
                 {(preview?.strategy?.focus_tags || []).map((tag: string) => (
                   <span key={`focus-${tag}`} className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark text-xs font-black capitalize">
-                    {tag}
+                    {t(tag)}
                   </span>
                 ))}
               </div>
@@ -1041,13 +1408,13 @@ export default function TeacherStudentAnalytics() {
                 {(preview?.questions || []).slice(0, 4).map((question: any, index: number) => (
                   <div key={`preview-${question.id}-${index}`} className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
                     <div className="flex items-start justify-between gap-3 mb-2">
-                      <p className="font-black leading-tight">Q{index + 1}. {question.prompt}</p>
+                      <p className="font-black leading-tight">Q{index + 1}. {t(question.prompt)}</p>
                       <ArrowUpRight className="w-4 h-4 shrink-0 text-brand-purple" />
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {(question.tags || []).map((tag: string) => (
                         <span key={`preview-tag-${question.id}-${tag}`} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-[11px] font-black capitalize">
-                          {tag}
+                          {t(tag)}
                         </span>
                       ))}
                     </div>
@@ -1061,7 +1428,7 @@ export default function TeacherStudentAnalytics() {
                 className="w-full px-6 py-4 bg-brand-dark text-white border-2 border-brand-dark rounded-full font-black flex items-center justify-center gap-2 shadow-[3px_3px_0px_0px_#1A1A1A] disabled:opacity-60"
               >
                 <Sparkles className="w-4 h-4 text-brand-yellow" />
-                {isCreatingGame ? 'Creating...' : 'Build And Host Now'}
+                {isCreatingGame ? t('Creating...') : t('Build And Host Now')}
               </button>
             </div>
           </TeacherSurface>
@@ -1080,12 +1447,12 @@ export default function TeacherStudentAnalytics() {
                 <div key={question.question_id} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
                   <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
                     <div>
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Question {question.question_index}</p>
-                      <p className="text-xl font-black leading-tight mb-3">{question.prompt}</p>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t(`Question ${question.question_index}`)}</p>
+                      <p className="text-xl font-black leading-tight mb-3">{t(question.prompt)}</p>
                       <div className="flex flex-wrap gap-2">
                         {(question.tags || []).map((tag: string) => (
                           <span key={`${question.question_id}-${tag}`} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-xs font-black capitalize">
-                            {tag}
+                            {t(tag)}
                           </span>
                         ))}
                       </div>
@@ -1109,22 +1476,22 @@ export default function TeacherStudentAnalytics() {
 
                   <div className="grid grid-cols-1 lg:grid-cols-[0.95fr_1.05fr] gap-4 mb-4">
                     <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Choice Journey</p>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Choice Journey')}</p>
                       <div className="space-y-2">
                         <p className="font-medium text-brand-dark/70">
-                          First choice: <span className="font-black text-brand-dark">{question.first_choice_label}. {question.first_choice_text}</span>
+                          {t('First choice')}: <span className="font-black text-brand-dark">{question.first_choice_label}. {t(question.first_choice_text)}</span>
                         </p>
                         <p className="font-medium text-brand-dark/70">
-                          Final choice: <span className="font-black text-brand-dark">{question.final_choice_label}. {question.final_choice_text}</span>
+                          {t('Final choice')}: <span className="font-black text-brand-dark">{question.final_choice_label}. {t(question.final_choice_text)}</span>
                         </p>
                         <div className="flex flex-wrap gap-2 pt-1">
                           <JourneyBadge tone={question.first_choice_correct ? 'good' : 'mid'}>
-                            {question.first_choice_correct ? 'Started correct' : 'Started wrong'}
+                            {t(question.first_choice_correct ? 'Started correct' : 'Started wrong')}
                           </JourneyBadge>
                           <JourneyBadge tone={question.revision_outcome === 'correct_to_incorrect' ? 'bad' : question.revision_outcome === 'incorrect_to_correct' ? 'good' : 'mid'}>
                             {question.revision_outcome_label}
                           </JourneyBadge>
-                          {question.verification_behavior && <JourneyBadge tone="good">Verified</JourneyBadge>}
+                          {question.verification_behavior && <JourneyBadge tone="good">{t('Verified')}</JourneyBadge>}
                         </div>
                       </div>
                     </div>
@@ -1138,7 +1505,7 @@ export default function TeacherStudentAnalytics() {
                   </div>
 
                   <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
-                    <p className="font-medium text-brand-dark/70">{question.recommendation}</p>
+                    <p className="font-medium text-brand-dark/70">{t(question.recommendation)}</p>
                   </div>
                 </div>
               ))}
@@ -1203,7 +1570,8 @@ export default function TeacherStudentAnalytics() {
           </TeacherSurface>
         </section>
       </main>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -1218,14 +1586,15 @@ function TeacherSurface({
   icon: ReactNode;
   children: ReactNode;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="bg-white rounded-[2.25rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] overflow-hidden">
       <div className="p-7 border-b-4 border-brand-dark bg-slate-50">
         <div className="flex items-center gap-3 mb-2">
           {icon}
-          <h2 className="text-3xl font-black">{title}</h2>
+          <h2 className="text-3xl font-black">{t(title)}</h2>
         </div>
-        <p className="font-medium text-brand-dark/65">{subtitle}</p>
+        <p className="font-medium text-brand-dark/65">{t(subtitle)}</p>
       </div>
       <div className="p-6">{children}</div>
     </div>
@@ -1233,9 +1602,10 @@ function TeacherSurface({
 }
 
 function HeroStat({ label, value }: { label: string; value: string }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="rounded-2xl border border-white/15 bg-white/10 p-4">
-      <p className="text-xs font-black uppercase tracking-[0.2em] text-white/40 mb-2">{label}</p>
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-white/40 mb-2">{t(label)}</p>
       <p className="text-3xl font-black">{value}</p>
     </div>
   );
@@ -1252,20 +1622,22 @@ function TrustStoryCard({
   body: string;
   tone: string;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className={`rounded-[1.4rem] border-2 border-brand-dark p-4 ${tone}`}>
-      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{eyebrow}</p>
-      <p className="font-black leading-tight">{title}</p>
-      <p className="font-medium text-brand-dark/72 mt-2">{body}</p>
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{t(eyebrow)}</p>
+      <p className="font-black leading-tight">{t(title)}</p>
+      <p className="font-medium text-brand-dark/72 mt-2">{t(body)}</p>
     </div>
   );
 }
 
 function TrustBadge({ label, value }: { label: string; value: string | number }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="rounded-[1.1rem] border-2 border-brand-dark bg-brand-bg px-3 py-3">
-      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{label}</p>
-      <p className="text-lg font-black mt-1">{value}</p>
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{t(label)}</p>
+      <p className="text-lg font-black mt-1">{typeof value === 'string' ? t(value) : value}</p>
     </div>
   );
 }
@@ -1279,12 +1651,13 @@ function TrustMetricGroup({
   metrics: any[];
   emptyBody: string;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   if (!metrics.length) {
     return (
       <div>
-        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{title}</p>
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{t(title)}</p>
         <div className="rounded-[1.3rem] border-2 border-dashed border-brand-dark/20 bg-brand-bg p-4">
-          <p className="font-medium text-brand-dark/65">{emptyBody}</p>
+          <p className="font-medium text-brand-dark/65">{t(emptyBody)}</p>
         </div>
       </div>
     );
@@ -1292,7 +1665,7 @@ function TrustMetricGroup({
 
   return (
     <div>
-      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{title}</p>
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{t(title)}</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {metrics.map((metric, index) => {
           const unit = String(metric?.unit || '').trim();
@@ -1304,8 +1677,8 @@ function TrustMetricGroup({
 
           return (
             <div key={`${title}-${metric?.label || index}`} className="rounded-[1.1rem] border-2 border-brand-dark bg-white px-3 py-3">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{metric?.label || 'Metric'}</p>
-              <p className="text-sm font-black mt-1">{displayValue}</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{t(metric?.label || 'Metric')}</p>
+              <p className="text-sm font-black mt-1">{typeof displayValue === 'string' ? t(displayValue) : displayValue}</p>
             </div>
           );
         })}
@@ -1315,12 +1688,13 @@ function TrustMetricGroup({
 }
 
 function DeltaCard({ label, value, helper }: { label: string; value?: number; helper: string }) {
+  const { t } = useTeacherAnalyticsLanguage();
   if (value === undefined || value === null || Number.isNaN(value)) {
     return (
       <div className="rounded-2xl border-2 border-brand-dark bg-brand-bg p-4">
-        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-2">{label}</p>
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-2">{t(label)}</p>
         <p className="text-3xl font-black mb-1">-</p>
-        <p className="font-medium text-brand-dark/60">{helper}</p>
+        <p className="font-medium text-brand-dark/60">{t(helper)}</p>
       </div>
     );
   }
@@ -1328,12 +1702,12 @@ function DeltaCard({ label, value, helper }: { label: string; value?: number; he
   const numericValue = Number(value || 0);
   return (
     <div className="rounded-2xl border-2 border-brand-dark bg-brand-bg p-4">
-      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-2">{label}</p>
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-2">{t(label)}</p>
       <p className={`text-3xl font-black mb-1 ${numericValue >= 0 ? 'text-emerald-600' : 'text-brand-orange'}`}>
         {numericValue >= 0 ? '+' : ''}
         {numericValue.toFixed(1)}
       </p>
-      <p className="font-medium text-brand-dark/60">{helper}</p>
+      <p className="font-medium text-brand-dark/60">{t(helper)}</p>
     </div>
   );
 }
@@ -1349,13 +1723,14 @@ function InfoPanel({
   accent: string;
   children: ReactNode;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-6">
       <div className="flex items-center gap-3 mb-5">
         <div className={`${accent} w-11 h-11 rounded-2xl border-2 border-brand-dark flex items-center justify-center`}>
           {icon}
         </div>
-        <h2 className="text-2xl font-black">{title}</h2>
+        <h2 className="text-2xl font-black">{t(title)}</h2>
       </div>
       {children}
     </div>
@@ -1363,8 +1738,9 @@ function InfoPanel({
 }
 
 function TagCloud({ tags, tone }: { tags: string[]; tone: 'weak' | 'strong' }) {
+  const { t } = useTeacherAnalyticsLanguage();
   if (!tags.length) {
-    return <p className="font-bold text-brand-dark/60">No tag signal yet for this student.</p>;
+    return <p className="font-bold text-brand-dark/60">{t('No tag signal yet for this student.')}</p>;
   }
 
   return (
@@ -1374,7 +1750,7 @@ function TagCloud({ tags, tone }: { tags: string[]; tone: 'weak' | 'strong' }) {
           key={`${tone}-${tag}`}
           className={`px-4 py-2 rounded-full border-2 border-brand-dark font-black capitalize ${tone === 'weak' ? 'bg-brand-orange/10' : 'bg-emerald-100'}`}
         >
-          {tag}
+          {t(tag)}
         </span>
       ))}
     </div>
@@ -1390,10 +1766,11 @@ function SnapshotBlock({
   body: string;
   tone: string;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className={`rounded-[1.5rem] border-2 border-brand-dark p-5 ${tone}`}>
-      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{title}</p>
-      <p className="font-medium text-brand-dark/75">{body}</p>
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{t(title)}</p>
+      <p className="font-medium text-brand-dark/75">{t(body)}</p>
     </div>
   );
 }
@@ -1411,11 +1788,12 @@ function SignalComparisonCard({
   overallScore?: number | null;
   delta?: number | null;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{label}</p>
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t(label)}</p>
           <p className="text-4xl font-black">{Number(score || 0).toFixed(0)}</p>
         </div>
         {delta !== undefined && delta !== null && (
@@ -1428,37 +1806,40 @@ function SignalComparisonCard({
       <div className="w-full h-3 rounded-full bg-white border-2 border-brand-dark/10 overflow-hidden p-[2px] mb-3">
         <div className={`h-full rounded-full ${scoreTone(score)}`} style={{ width: `${Math.max(0, Math.min(100, Number(score || 0)))}%` }} />
       </div>
-      <p className="font-medium text-brand-dark/68 mb-2">{caption}</p>
+      <p className="font-medium text-brand-dark/68 mb-2">{t(caption)}</p>
       {overallScore !== undefined && overallScore !== null && (
-        <p className="text-sm font-bold text-brand-dark/55">Overall baseline: {Number(overallScore).toFixed(1)}</p>
+        <p className="text-sm font-bold text-brand-dark/55">{t(`Overall baseline: ${Number(overallScore).toFixed(1)}`)}</p>
       )}
     </div>
   );
 }
 
 function CompactMetric({ label, value }: { label: string; value: string | number }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="rounded-[1.25rem] border-2 border-brand-dark bg-white p-4">
-      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-2">{label}</p>
-      <p className="text-xl font-black break-words leading-tight">{value}</p>
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/40 mb-2">{t(label)}</p>
+      <p className="text-xl font-black break-words leading-tight">{typeof value === 'string' ? t(value) : value}</p>
     </div>
   );
 }
 
 function MetricChip({ label, value }: { label: string; value: string | number }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <span className="px-4 py-2 rounded-full bg-white border-2 border-brand-dark text-sm font-black">
-      {label}: {value}
+      {t(label)}: {typeof value === 'string' ? t(value) : value}
     </span>
   );
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const { t } = useTeacherAnalyticsLanguage();
   if (status === 'missed') {
     return (
       <div className="px-4 py-3 rounded-2xl bg-brand-orange text-white border-2 border-brand-dark font-black flex items-center gap-2">
         <XCircle className="w-4 h-4" />
-        Missed
+        {t('Missed')}
       </div>
     );
   }
@@ -1466,14 +1847,14 @@ function StatusBadge({ status }: { status: string }) {
     return (
       <div className="px-4 py-3 rounded-2xl bg-brand-yellow text-brand-dark border-2 border-brand-dark font-black flex items-center gap-2">
         <AlertTriangle className="w-4 h-4" />
-        Correct But Shaky
+        {t('Correct But Shaky')}
       </div>
     );
   }
   return (
     <div className="px-4 py-3 rounded-2xl bg-emerald-300 text-brand-dark border-2 border-brand-dark font-black flex items-center gap-2">
       <CheckCircle2 className="w-4 h-4" />
-      Stable
+      {t('Stable')}
     </div>
   );
 }
@@ -1487,13 +1868,14 @@ function EmptyState({
   title: string;
   body: string;
 }) {
+  const { t } = useTeacherAnalyticsLanguage();
   return (
     <div className="rounded-[1.75rem] border-2 border-dashed border-brand-dark/30 bg-brand-bg p-8 text-center">
       <div className="w-14 h-14 rounded-full bg-white border-2 border-brand-dark/15 flex items-center justify-center mx-auto mb-4 text-brand-dark/60">
         {icon}
       </div>
-      <p className="text-2xl font-black mb-2">{title}</p>
-      <p className="font-medium text-brand-dark/65">{body}</p>
+      <p className="text-2xl font-black mb-2">{t(title)}</p>
+      <p className="font-medium text-brand-dark/65">{t(body)}</p>
     </div>
   );
 }

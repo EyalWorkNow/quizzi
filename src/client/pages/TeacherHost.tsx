@@ -38,6 +38,116 @@ function normalizeHostStatus(value: unknown) {
   return HOST_STATUS_ALIASES[raw] || raw;
 }
 
+type HostedParticipant = {
+  id: number;
+  nickname: string;
+  team_id: number;
+  team_name: string | null;
+  seat_index: number;
+  created_at: string | null;
+  online: boolean;
+  student_user_id: number | null;
+  class_student_id: number | null;
+  join_mode: string;
+  display_name_snapshot: string;
+  account_linked: boolean;
+  profile_mode: 'longitudinal' | 'session-only';
+  class_student_name: string;
+  class_student_email: string;
+  invite_status: string;
+};
+
+function normalizeHostedParticipant(value: any, fallback?: Partial<HostedParticipant>): HostedParticipant {
+  const participant = value && typeof value === 'object' ? value : {};
+  return {
+    id: Number(participant.id || participant.participantId || fallback?.id || 0),
+    nickname: String(participant.nickname || fallback?.nickname || ''),
+    team_id: Number(participant.team_id || participant.teamId || fallback?.team_id || 0),
+    team_name: participant.team_name ?? participant.teamName ?? fallback?.team_name ?? null,
+    seat_index: Number(participant.seat_index || participant.seatIndex || fallback?.seat_index || 0),
+    created_at: participant.created_at || participant.createdAt || fallback?.created_at || null,
+    online: typeof participant.online === 'boolean' ? participant.online : fallback?.online ?? true,
+    student_user_id:
+      Number(participant.student_user_id || participant.studentUserId || fallback?.student_user_id || 0) || null,
+    class_student_id:
+      Number(participant.class_student_id || participant.classStudentId || fallback?.class_student_id || 0) || null,
+    join_mode: String(participant.join_mode || participant.joinMode || fallback?.join_mode || 'anonymous'),
+    display_name_snapshot: String(
+      participant.display_name_snapshot ||
+        participant.displayNameSnapshot ||
+        fallback?.display_name_snapshot ||
+        participant.nickname ||
+        '',
+    ),
+    account_linked:
+      typeof participant.account_linked === 'boolean'
+        ? participant.account_linked
+        : typeof participant.accountLinked === 'boolean'
+          ? participant.accountLinked
+          : Boolean(
+              Number(participant.student_user_id || participant.studentUserId || fallback?.student_user_id || 0),
+            ) || Boolean(fallback?.account_linked),
+    profile_mode:
+      String(
+        participant.profile_mode ||
+          participant.profileMode ||
+          fallback?.profile_mode ||
+          (Number(participant.student_user_id || participant.studentUserId || fallback?.student_user_id || 0) > 0
+            ? 'longitudinal'
+            : 'session-only'),
+      ) === 'longitudinal'
+        ? 'longitudinal'
+        : 'session-only',
+    class_student_name: String(
+      participant.class_student_name || participant.classStudentName || fallback?.class_student_name || '',
+    ),
+    class_student_email: String(
+      participant.class_student_email || participant.classStudentEmail || fallback?.class_student_email || '',
+    ),
+    invite_status: String(participant.invite_status || participant.inviteStatus || fallback?.invite_status || 'none'),
+  };
+}
+
+function serializeParticipantRoster(participants: HostedParticipant[]) {
+  return participants
+    .map((participant) =>
+      [
+        participant.id,
+        participant.nickname,
+        participant.team_id,
+        participant.team_name || '',
+        participant.online ? 1 : 0,
+        participant.account_linked ? 1 : 0,
+        participant.profile_mode,
+        participant.join_mode,
+        participant.class_student_id || 0,
+        participant.class_student_email || '',
+      ].join(':'),
+    )
+    .join('|');
+}
+
+function toRealtimeParticipant(participant: HostedParticipant) {
+  return {
+    participantId: participant.id,
+    nickname: participant.nickname,
+    teamId: participant.team_id,
+    teamName: participant.team_name,
+    seatIndex: participant.seat_index,
+    createdAt: participant.created_at,
+    online: participant.online,
+    studentUserId: participant.student_user_id,
+    classStudentId: participant.class_student_id,
+    joinMode: participant.join_mode,
+    displayNameSnapshot: participant.display_name_snapshot,
+    accountLinked: participant.account_linked,
+    profileMode: participant.profile_mode,
+    classStudentName: participant.class_student_name,
+    classStudentEmail: participant.class_student_email,
+    inviteStatus: participant.invite_status,
+  };
+}
+
 
 function buildLiveHostInsights({
   status,
@@ -152,7 +262,7 @@ export default function TeacherHost() {
   const [sessionMeta, setSessionMeta] = useState<any>(null);
 
   const [status, setStatus] = useState('LOBBY');
-  const [participants, setParticipants] = useState<any[]>([]);
+  const [participants, setParticipants] = useState<HostedParticipant[]>([]);
   const [totalAnswers, setTotalAnswers] = useState(0);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [pack, setPack] = useState<any>(null);
@@ -201,13 +311,36 @@ export default function TeacherHost() {
   const discussionSeconds = Math.max(10, Number(modeConfig?.discussion_seconds || 30));
   const revoteSeconds = Math.max(8, Number(modeConfig?.revote_seconds || 22));
   const joinUrl = pin && typeof window !== 'undefined' ? buildSessionJoinUrl(pin, window.location.origin) : '';
-  const groupedParticipants = participants.reduce((groups: Record<string, any[]>, participant: any) => {
+  const groupedParticipants = participants.reduce((groups: Record<string, HostedParticipant[]>, participant) => {
     const key = participant.team_name || 'Solo';
     groups[key] = groups[key] || [];
     groups[key].push(participant);
     return groups;
   }, {});
   const currentQuestion = pack?.questions?.[questionIndex];
+  const linkedParticipantsCount = participants.filter((participant) => participant.account_linked).length;
+  const rosterMatchedParticipantsCount = participants.filter((participant) => participant.class_student_id).length;
+  const pendingRosterClaimsCount = participants.filter(
+    (participant) => !!participant.class_student_email && !participant.account_linked,
+  ).length;
+  const refreshParticipants = React.useCallback(
+    async (syncRealtime = true, updateState = true) => {
+      if (!pin) return [];
+      const data = await apiFetchJson(`/api/teacher/sessions/pin/${pin}/participants`);
+      const nextParticipants = Array.isArray(data?.participants)
+        ? data.participants.map((participant: any) => normalizeHostedParticipant(participant))
+        : [];
+      if (updateState) {
+        setParticipants(nextParticipants);
+      }
+      if (syncRealtime) {
+        void syncHostedParticipants(pin, nextParticipants.map(toRealtimeParticipant));
+      }
+      return nextParticipants;
+    },
+    [pin],
+  );
+
   const currentAnswers = React.useMemo(() => {
     if (!currentQuestion) return [];
     try {
@@ -460,42 +593,22 @@ export default function TeacherHost() {
 
   useEffect(() => {
     if (!pin || !sessionId) return;
-    apiFetchJson(`/api/teacher/sessions/pin/${pin}/participants`)
-      .then((data) => {
-        const nextParticipants = data.participants || [];
-        setParticipants(nextParticipants);
-        void syncHostedParticipants(
-          pin,
-          nextParticipants.map((participant: any) => ({
-            participantId: Number(participant.id || participant.participantId || 0),
-            nickname: participant.nickname || '',
-            teamId: Number(participant.team_id || participant.teamId || 0),
-            teamName: participant.team_name || participant.teamName || null,
-            seatIndex: Number(participant.seat_index || participant.seatIndex || 0),
-            createdAt: participant.created_at || participant.createdAt || null,
-            online: true,
-          })),
-        );
-      })
+    refreshParticipants()
       .catch(err => {
         console.error('[TeacherHost] Failed to fetch participants:', err);
       });
-  }, [pin, sessionId]);
+  }, [pin, refreshParticipants, sessionId]);
   
   // Polling Fallback: If SSE is unstable, we re-fetch participants every 5s while in LOBBY
   useEffect(() => {
     if (!pin || !sessionId || status !== 'LOBBY') return;
 
     const intervalId = window.setInterval(() => {
-      apiFetchJson(`/api/teacher/sessions/pin/${pin}/participants`)
-        .then((data) => {
-          const nextParticipants = data.participants || [];
+      refreshParticipants(false, false)
+        .then((nextParticipants) => {
           // Only update if count changed or identities are different to avoid unnecessary re-renders
           setParticipants((current) => {
-            const hasChanged = 
-              current.length !== nextParticipants.length ||
-              nextParticipants.some((p: any, idx: number) => !current[idx] || String(current[idx].id) !== String(p.id));
-            
+            const hasChanged = serializeParticipantRoster(current as HostedParticipant[]) !== serializeParticipantRoster(nextParticipants as HostedParticipant[]);
             return hasChanged ? nextParticipants : current;
           });
         })
@@ -505,7 +618,7 @@ export default function TeacherHost() {
     }, 5000);
 
     return () => window.clearInterval(intervalId);
-  }, [pin, sessionId, status]);
+  }, [pin, refreshParticipants, sessionId, status]);
 
   const loadLeaderboard = () => {
     if (!sessionId) return;
@@ -558,16 +671,26 @@ export default function TeacherHost() {
         ? prev
         : [
             ...prev,
-            {
+            normalizeHostedParticipant({
               id: data.participant_id,
               nickname: data.nickname,
               team_id: data.team_id,
               team_name: data.team_name,
               seat_index: data.seat_index,
+              student_user_id: data.student_user_id,
+              class_student_id: data.class_student_id,
+              join_mode: data.join_mode,
+              display_name_snapshot: data.display_name_snapshot,
+              account_linked: data.account_linked,
+              profile_mode: data.profile_mode,
+              class_student_name: data.class_student_name,
+              class_student_email: data.class_student_email,
+              invite_status: data.invite_status,
               online: true,
-            },
+            }),
           ],
     );
+    void refreshParticipants();
   };
 
   const handleLiveStateChange = (data: any) => {
@@ -742,17 +865,34 @@ export default function TeacherHost() {
       },
       onParticipants: (realtimeParticipants) => {
         if (!realtimeParticipants.length) return;
-        setParticipants(
-          realtimeParticipants.map((participant) => ({
-            id: participant.participantId,
-            nickname: participant.nickname,
-            team_id: participant.teamId,
-            team_name: participant.teamName,
-            seat_index: participant.seatIndex,
-            created_at: participant.createdAt,
-            online: participant.online,
-          })),
-        );
+        setParticipants((current) => {
+          const currentById = new Map(
+            current.map((participant) => [Number(participant.id || 0), normalizeHostedParticipant(participant)] as const),
+          );
+          return realtimeParticipants.map((participant) =>
+            normalizeHostedParticipant(
+              {
+                id: participant.participantId,
+                nickname: participant.nickname,
+                team_id: participant.teamId,
+                team_name: participant.teamName,
+                seat_index: participant.seatIndex,
+                created_at: participant.createdAt,
+                online: participant.online,
+                student_user_id: participant.studentUserId,
+                class_student_id: participant.classStudentId,
+                join_mode: participant.joinMode,
+                display_name_snapshot: participant.displayNameSnapshot,
+                account_linked: participant.accountLinked,
+                profile_mode: participant.profileMode,
+                class_student_name: participant.classStudentName,
+                class_student_email: participant.classStudentEmail,
+                invite_status: participant.inviteStatus,
+              },
+              currentById.get(Number(participant.participantId || 0)) || undefined,
+            ),
+          );
+        });
       },
       onSelections: (selections) => {
         setStudentSelections(selections);
@@ -1219,6 +1359,14 @@ export default function TeacherHost() {
                       <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A]">
                         {participants.length} {participants.length === 1 ? 'Player' : 'Players'}
                       </span>
+                      <span className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A]">
+                        {linkedParticipantsCount} {t('Account linked')}
+                      </span>
+                      {pendingRosterClaimsCount > 0 && (
+                        <span className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A]">
+                          {pendingRosterClaimsCount} {t('Unclaimed roster')}
+                        </span>
+                      )}
                     </div>
 
                     <p className="max-w-[24ch] text-balance text-[clamp(1.2rem,1.8vw,2rem)] font-black leading-[1.06] tracking-tight">
@@ -1288,6 +1436,13 @@ export default function TeacherHost() {
                         {participants.length}
                       </div>
                     </div>
+                    <div className="flex flex-wrap gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/60">
+                      <span>{linkedParticipantsCount} {t('Account linked')}</span>
+                      <span>•</span>
+                      <span>{rosterMatchedParticipantsCount} {t('Roster matched')}</span>
+                      <span>•</span>
+                      <span>{Math.max(0, participants.length - linkedParticipantsCount)} {t('Session-only')}</span>
+                    </div>
                   </div>
 
                   <div className="min-h-0 flex-1 overflow-auto custom-scrollbar pr-1">
@@ -1314,7 +1469,7 @@ export default function TeacherHost() {
                                       key={`${participant.nickname}-${index}`}
                                       className="rounded-[1.3rem] border-2 border-brand-dark bg-white p-3 shadow-[3px_3px_0px_0px_#1A1A1A]"
                                     >
-                                      <LobbyParticipantCard participant={participant} subtitle="Team Ready" />
+                                      <LobbyParticipantCard participant={participant} subtitle="Team Ready" t={t} />
                                     </motion.div>
                                   ))}
                                 </AnimatePresence>
@@ -1333,7 +1488,7 @@ export default function TeacherHost() {
                                 key={`${participant.nickname}-${index}`}
                                 className="rounded-[1.3rem] border-2 border-brand-dark bg-brand-bg p-3 shadow-[3px_3px_0px_0px_#1A1A1A]"
                               >
-                                <LobbyParticipantCard participant={participant} subtitle="Ready" />
+                                <LobbyParticipantCard participant={participant} subtitle="Ready" t={t} />
                               </motion.div>
                             ))}
                           </AnimatePresence>
@@ -2978,20 +3133,51 @@ function JoinStep({ title, body }: { title: string; body: string }) {
 function LobbyParticipantCard({
   participant,
   subtitle,
+  t,
 }: {
-  participant: any;
+  participant: HostedParticipant;
   subtitle: string;
+  t: (key: string, params?: Record<string, string>) => string;
 }) {
+  const displayName = extractNickname(participant.display_name_snapshot || participant.nickname || '');
+  const rosterName =
+    participant.class_student_name && participant.class_student_name.trim() !== displayName.trim()
+      ? participant.class_student_name.trim()
+      : '';
+  const statusTone = participant.account_linked
+    ? 'bg-brand-purple text-white'
+    : participant.class_student_id || participant.class_student_email
+      ? 'bg-brand-yellow text-brand-dark'
+      : 'bg-white text-brand-dark/70';
+  const statusLabel = participant.account_linked
+    ? t('Account linked')
+    : participant.class_student_id || participant.class_student_email
+      ? t('Unclaimed roster')
+      : t('Session-only');
+
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-start gap-3">
       <Avatar
         nickname={participant.nickname}
         imgClassName="w-9 h-9 rounded-[1rem] sm:w-10 sm:h-10"
         textClassName="hidden"
       />
-      <div className="min-w-0">
-        <p className="truncate text-base font-black">{extractNickname(participant.nickname || '')}</p>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <p className="truncate text-base font-black">{displayName}</p>
+          <span className={`shrink-0 rounded-full border border-brand-dark px-2 py-1 text-[9px] font-black uppercase tracking-[0.16em] ${statusTone}`}>
+            {statusLabel}
+          </span>
+        </div>
         <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/40">{subtitle}</p>
+        {rosterName ? (
+          <p className="mt-1 truncate text-xs font-bold text-brand-dark/55">
+            {t('Roster matched')}: {rosterName}
+          </p>
+        ) : null}
+        {participant.class_student_email ? (
+          <p className="truncate text-[11px] font-medium text-brand-dark/45">{participant.class_student_email}</p>
+        ) : null}
       </div>
     </div>
   );

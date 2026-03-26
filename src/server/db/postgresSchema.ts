@@ -4,6 +4,8 @@ type PostgresQueryable = Pick<Pool, 'query'> | Pick<PoolClient, 'query'>;
 
 export const POSTGRES_TABLE_ORDER = [
   'users',
+  'student_users',
+  'student_identity_links',
   'quiz_packs',
   'teacher_classes',
   'teacher_class_students',
@@ -32,6 +34,34 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       school TEXT,
       auth_provider TEXT DEFAULT 'password',
       updated_at TIMESTAMP
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS student_users (
+      id SERIAL PRIMARY KEY,
+      email TEXT UNIQUE,
+      password_hash TEXT,
+      display_name TEXT,
+      first_name TEXT,
+      last_name TEXT,
+      avatar_url TEXT DEFAULT '',
+      preferred_language TEXT DEFAULT 'en',
+      status TEXT DEFAULT 'active',
+      email_verified_at TIMESTAMP,
+      last_login_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS student_identity_links (
+      id SERIAL PRIMARY KEY,
+      student_user_id INTEGER NOT NULL,
+      identity_key TEXT NOT NULL UNIQUE,
+      source TEXT DEFAULT 'claimed_device',
+      is_primary INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `,
   `
@@ -150,6 +180,11 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       id SERIAL PRIMARY KEY,
       class_id INTEGER NOT NULL,
       name TEXT,
+      email TEXT DEFAULT '',
+      student_user_id INTEGER,
+      invite_status TEXT DEFAULT 'none',
+      claimed_at TIMESTAMP,
+      last_seen_at TIMESTAMP,
       joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -176,6 +211,10 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       session_id INTEGER,
       identity_key TEXT,
       nickname TEXT,
+      student_user_id INTEGER,
+      class_student_id INTEGER,
+      join_mode TEXT DEFAULT 'anonymous',
+      display_name_snapshot TEXT DEFAULT '',
       team_id INTEGER DEFAULT 0,
       team_name TEXT,
       seat_index INTEGER DEFAULT 0,
@@ -248,13 +287,31 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS pack_id INTEGER`,
   `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS archived INTEGER DEFAULT 0`,
   `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
+  `ALTER TABLE student_users ADD COLUMN IF NOT EXISTS display_name TEXT`,
+  `ALTER TABLE student_users ADD COLUMN IF NOT EXISTS first_name TEXT`,
+  `ALTER TABLE student_users ADD COLUMN IF NOT EXISTS last_name TEXT`,
+  `ALTER TABLE student_users ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT ''`,
+  `ALTER TABLE student_users ADD COLUMN IF NOT EXISTS preferred_language TEXT DEFAULT 'en'`,
+  `ALTER TABLE student_users ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`,
+  `ALTER TABLE student_users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP`,
+  `ALTER TABLE student_users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP`,
+  `ALTER TABLE student_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
+  `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS email TEXT DEFAULT ''`,
+  `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS student_user_id INTEGER`,
+  `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS invite_status TEXT DEFAULT 'none'`,
+  `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP`,
+  `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP`,
   `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS learning_objective TEXT DEFAULT ''`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS bloom_level TEXT DEFAULT ''`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS image_url TEXT DEFAULT ''`,
   `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS teacher_class_id INTEGER`,
   `ALTER TABLE participants ADD COLUMN IF NOT EXISTS identity_key TEXT`,
+  `ALTER TABLE participants ADD COLUMN IF NOT EXISTS student_user_id INTEGER`,
+  `ALTER TABLE participants ADD COLUMN IF NOT EXISTS class_student_id INTEGER`,
+  `ALTER TABLE participants ADD COLUMN IF NOT EXISTS join_mode TEXT DEFAULT 'anonymous'`,
+  `ALTER TABLE participants ADD COLUMN IF NOT EXISTS display_name_snapshot TEXT DEFAULT ''`,
   `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS identity_key TEXT`,
   `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS nickname TEXT`,
   `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS tag TEXT`,
@@ -350,9 +407,13 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE student_memory_snapshots ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
   'CREATE INDEX IF NOT EXISTS idx_sessions_pin ON sessions(pin)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_pack_status ON sessions(quiz_pack_id, status)',
+  'CREATE INDEX IF NOT EXISTS idx_student_users_email ON student_users(email)',
+  'CREATE INDEX IF NOT EXISTS idx_student_identity_links_student ON student_identity_links(student_user_id, is_primary, created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_student_identity_links_identity ON student_identity_links(identity_key)',
   'CREATE INDEX IF NOT EXISTS idx_participants_session ON participants(session_id)',
   'CREATE INDEX IF NOT EXISTS idx_participants_nickname_session ON participants(nickname, session_id)',
   'CREATE INDEX IF NOT EXISTS idx_participants_identity_key ON participants(identity_key, created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_participants_student_user_id ON participants(student_user_id, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_answers_session ON answers(session_id)',
   'CREATE INDEX IF NOT EXISTS idx_answers_participant_session ON answers(participant_id, session_id)',
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_answers_unique_submission ON answers(session_id, question_id, participant_id)',
@@ -371,6 +432,8 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'CREATE INDEX IF NOT EXISTS idx_teacher_classes_teacher_archived ON teacher_classes(teacher_id, archived)',
   'CREATE INDEX IF NOT EXISTS idx_teacher_classes_pack ON teacher_classes(pack_id)',
   'CREATE INDEX IF NOT EXISTS idx_teacher_class_students_class ON teacher_class_students(class_id)',
+  'CREATE INDEX IF NOT EXISTS idx_teacher_class_students_email ON teacher_class_students(email)',
+  'CREATE INDEX IF NOT EXISTS idx_teacher_class_students_student_user ON teacher_class_students(student_user_id, class_id)',
   'CREATE INDEX IF NOT EXISTS idx_questions_pack_question_order ON questions(quiz_pack_id, question_order, id)',
   'CREATE INDEX IF NOT EXISTS idx_questions_learning_objective ON questions(learning_objective)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_game_type ON sessions(game_type)',
@@ -381,6 +444,15 @@ const POSTGRES_SCHEMA_STATEMENTS = [
 ] as const;
 
 const POSTGRES_DATA_REPAIR_STATEMENTS = [
+  `
+    UPDATE teacher_class_students
+    SET invite_status = COALESCE(NULLIF(invite_status, ''), CASE WHEN student_user_id IS NOT NULL AND student_user_id > 0 THEN 'claimed' ELSE 'none' END)
+  `,
+  `
+    UPDATE participants
+    SET join_mode = COALESCE(NULLIF(join_mode, ''), CASE WHEN student_user_id IS NOT NULL AND student_user_id > 0 THEN 'account' ELSE 'anonymous' END),
+        display_name_snapshot = COALESCE(NULLIF(display_name_snapshot, ''), nickname, '')
+  `,
   `
     UPDATE questions
     SET question_order = id
