@@ -3,8 +3,8 @@ import {
   ensureFirebaseAuthReady,
   getRedirectResult,
   googleProvider,
-  shouldPreferRedirectSignIn,
   signInWithPopup,
+  shouldPreferRedirectSignIn,
   signInWithRedirect,
   signOutFirebase,
 } from './firebase.ts';
@@ -276,16 +276,21 @@ export async function signInTeacherWithProvider({
   };
 
   try {
-    // In strict COOP environments (like Vercel), popups are prone to blocking.
-    // We prefer Redirect for maximum reliability.
-    await signInWithRedirect(auth, googleProvider);
-    return null;
+    if (shouldPreferRedirectSignIn()) {
+      await signInWithRedirect(auth, googleProvider);
+      return null;
+    }
+
+    const popupResult = await signInWithPopup(auth, googleProvider);
+    const idToken = await popupResult.user.getIdToken();
+    return await completeGoogleServerSession(idToken, popupResult.user.displayName);
   } catch (error: any) {
     const message = String(error?.message || '').toLowerCase();
     if (
       error?.code === 'auth/popup-blocked' ||
       message.includes('cross-origin-opener-policy') ||
-      message.includes('window.closed')
+      message.includes('window.closed') ||
+      error?.code === 'auth/operation-not-supported-in-this-environment'
     ) {
       await signInWithRedirect(auth, googleProvider);
       return null;

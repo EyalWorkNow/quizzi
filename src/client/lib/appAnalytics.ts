@@ -14,6 +14,87 @@ export function trackPageView(pathname: string) {
   });
 }
 
+export function trackPageScrollDepth(pathname: string, percent: number) {
+  return trackFirebaseEvent('quizzi_page_scroll_depth', {
+    page_path: pathname,
+    percent,
+  });
+}
+
+export function trackCtaClick({
+  location,
+  ctaId,
+  label,
+}: {
+  location: string;
+  ctaId: string;
+  label: string;
+}) {
+  return trackFirebaseEvent('quizzi_cta_click', {
+    location,
+    cta_id: ctaId,
+    label,
+  });
+}
+
+export function trackFormInteraction({
+  formId,
+  field,
+  action,
+}: {
+  formId: string;
+  field: string;
+  action: 'focus' | 'change' | 'complete' | 'error';
+}) {
+  return trackFirebaseEvent('quizzi_form_interaction', {
+    form_id: formId,
+    field,
+    action,
+  });
+}
+
+export function trackFaqInteraction({
+  questionId,
+  expanded,
+}: {
+  questionId: string;
+  expanded: boolean;
+}) {
+  return trackFirebaseEvent('quizzi_faq_interaction', {
+    question_id: questionId,
+    expanded,
+  });
+}
+
+export function trackFeedbackSubmission({
+  score,
+  messageLength,
+}: {
+  score: 'positive' | 'neutral' | 'negative';
+  messageLength: number;
+}) {
+  return trackFirebaseEvent('quizzi_feedback_submit', {
+    score,
+    message_length: messageLength,
+  });
+}
+
+export function trackContactFlow({
+  action,
+  step,
+  inquiryType,
+}: {
+  action: 'start' | 'step_view' | 'step_complete' | 'submit_success' | 'submit_failure' | 'draft_restored';
+  step: number;
+  inquiryType?: string;
+}) {
+  return trackFirebaseEvent('quizzi_contact_flow', {
+    action,
+    step,
+    inquiry_type: inquiryType || '',
+  });
+}
+
 export function trackTeacherAuthEvent({
   action,
   provider,

@@ -11,7 +11,7 @@ export interface StudentServerSession {
   studentUserId: number;
   email: string;
   displayName: string;
-  provider: 'password';
+  provider: 'password' | 'google';
   signedInAt: string;
   expiresAt: string;
 }
@@ -81,10 +81,12 @@ export function createStudentSession({
   studentUserId,
   email,
   displayName,
+  provider = 'password',
 }: {
   studentUserId: number;
   email: string;
   displayName: string;
+  provider?: 'password' | 'google';
 }) {
   const issuedAt = new Date();
   const expiresAt = new Date(issuedAt.getTime() + SESSION_TTL_MS);
@@ -92,7 +94,7 @@ export function createStudentSession({
     studentUserId: Math.max(0, Math.floor(Number(studentUserId) || 0)),
     email: normalizeStudentEmail(email),
     displayName: String(displayName || '').trim().slice(0, 160),
-    provider: 'password',
+    provider,
     signedInAt: issuedAt.toISOString(),
     expiresAt: expiresAt.toISOString(),
   };
@@ -130,7 +132,7 @@ export function readStudentSession(req: Request | { headers?: Record<string, str
       studentUserId: Number(parsed.studentUserId),
       email: normalizeStudentEmail(parsed.email),
       displayName: String(parsed.displayName || '').trim().slice(0, 160),
-      provider: 'password' as const,
+      provider: parsed.provider === 'google' ? 'google' : 'password',
       signedInAt: String(parsed.signedInAt || ''),
       expiresAt: String(parsed.expiresAt || ''),
     } satisfies StudentServerSession;

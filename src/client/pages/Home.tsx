@@ -1,11 +1,33 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { CheckCircle2, Play, QrCode, RotateCcw, ScanLine, Sparkles, Star } from 'lucide-react';
+import {
+  ArrowUp,
+  CheckCircle2,
+  ChevronDown,
+  MessageSquareText,
+  Play,
+  QrCode,
+  RotateCcw,
+  ScanLine,
+  Sparkles,
+  Star,
+  ThumbsDown,
+  ThumbsUp,
+} from 'lucide-react';
 import { motion } from 'motion/react';
 import { extractNickname } from '../components/Avatar.tsx';
 import JoinScannerModal from '../components/JoinScannerModal.tsx';
-import { trackStudentJoinEvent, trackTeacherAuthEvent, toAnalyticsErrorCode } from '../lib/appAnalytics.ts';
+import {
+  trackCtaClick,
+  trackFaqInteraction,
+  trackFeedbackSubmission,
+  trackFormInteraction,
+  trackPageScrollDepth,
+  trackStudentJoinEvent,
+  trackTeacherAuthEvent,
+  toAnalyticsErrorCode,
+} from '../lib/appAnalytics.ts';
 import { announceParticipantJoin } from '../lib/firebaseRealtime.ts';
 import { isValidSessionPin, sanitizeSessionPin } from '../lib/joinCodes.ts';
 import { apiFetch } from '../lib/api.ts';
@@ -44,6 +66,29 @@ const AVATARS = [
 const HOME_PIN_KEY = 'quizzi.home.pin';
 const HOME_NICKNAME_KEY = 'quizzi.home.nickname';
 const HOME_AVATAR_KEY = 'quizzi.home.avatar';
+const SCROLL_MILESTONES = [25, 50, 75, 100] as const;
+const FAQ_ITEMS = [
+  {
+    id: 'join-fast',
+    questionHe: 'איך מצטרפים הכי מהר לסשן?',
+    answerHe: 'מקלידים קוד משחק בן 6 ספרות, בוחרים שם ואווטאר, ונכנסים מייד. אם יש QR, אפשר גם לסרוק ולדלג על ההקלדה.',
+  },
+  {
+    id: 'student-space',
+    questionHe: 'צריך חשבון כדי להשתתף?',
+    answerHe: 'לא. אפשר להצטרף אנונימית לסשן חי. חשבון תלמיד מוסיף היסטוריה, תרגול מותאם אישית ומעקב אישי לאורך זמן.',
+  },
+  {
+    id: 'teacher-value',
+    questionHe: 'מה המערכת נותנת למרצה או לבית ספר?',
+    answerHe: 'המערכת נותנת אירוח משחקים חיים, מעקב השתתפות, אנליטיקות לתלמידים ולכיתות, ומסלולי המשך לתרגול אחרי הסשן.',
+  },
+] as const;
+const QUICK_VALUE_ITEMS = [
+  { label: 'זמן הצטרפות', value: 'פחות מדקה' },
+  { label: 'הטמעה בכיתה', value: 'ללא הדרכה ארוכה' },
+  { label: 'איתות אנליטי', value: 'מיידי מהשיעור הראשון' },
+];
 
 function readSavedSeat() {
   if (typeof window === 'undefined') return null;
@@ -78,9 +123,16 @@ export default function Home() {
   const [teacherSignedIn, setTeacherSignedIn] = useState(() => isTeacherAuthenticated());
   const [studentAuth, setStudentAuth] = useState(() => loadStudentAuth());
   const [savedSeat, setSavedSeat] = useState(() => readSavedSeat());
+  const [expandedFaq, setExpandedFaq] = useState<string | null>(FAQ_ITEMS[0].id);
+  const [feedbackScore, setFeedbackScore] = useState<'positive' | 'neutral' | 'negative' | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
   const { t, language, direction } = useAppLanguage();
   const nicknameInputRef = useRef<HTMLInputElement | null>(null);
   const autoResolvedPinRef = useRef('');
+  const trackedScrollDepthsRef = useRef<Set<number>>(new Set());
+  const formStartedRef = useRef(false);
   const navigate = useNavigate();
   const sessionPinReady = isValidSessionPin(pin);
   const nicknameReady = nickname.trim().length >= 2;
@@ -152,16 +204,55 @@ export default function Home() {
     setScannerSupported(Boolean(BarcodeDetectorClass && navigator.mediaDevices?.getUserMedia));
   }, []);
 
+  useEffect(() => {
+    const onScroll = () => {
+      const scrollTop = window.scrollY;
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      const percent = maxScroll <= 0 ? 100 : Math.min(100, Math.round((scrollTop / maxScroll) * 100));
+
+      setShowBackToTop(scrollTop > 480);
+
+      SCROLL_MILESTONES.forEach((milestone) => {
+        if (percent >= milestone && !trackedScrollDepthsRef.current.has(milestone)) {
+          trackedScrollDepthsRef.current.add(milestone);
+          void trackPageScrollDepth('/', milestone);
+        }
+      });
+    };
+
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const markJoinFormStarted = (field: 'pin' | 'nickname' | 'avatar') => {
+    if (!formStartedRef.current) {
+      formStartedRef.current = true;
+      void trackFormInteraction({
+        formId: 'home_join',
+        field,
+        action: 'focus',
+      });
+    }
+  };
+
+  const handleTrackedNavigate = (path: string, ctaId: string, label: string, location: string) => {
+    void trackCtaClick({ location, ctaId, label });
+    navigate(path);
+  };
+
   const joinSession = async (nextPin = pin) => {
     const sessionPin = sanitizeSessionPin(nextPin);
     const trimmedNickname = nickname.trim();
 
     setError('');
     if (!isValidSessionPin(sessionPin)) {
+      void trackFormInteraction({ formId: 'home_join', field: 'pin', action: 'error' });
       setError(t('home.error.pinSixDigits'));
       return;
     }
     if (trimmedNickname.length < 2) {
+      void trackFormInteraction({ formId: 'home_join', field: 'nickname', action: 'error' });
       setError(t('home.error.nicknameMinLength'));
       return;
     }
@@ -225,6 +316,7 @@ export default function Home() {
         result: 'success',
         pinLength: sessionPin.length,
       });
+      void trackFormInteraction({ formId: 'home_join', field: 'submit', action: 'complete' });
       navigate(`/student/session/${sessionPin}/play`);
     } catch (err: any) {
       setError(err.message);
@@ -240,10 +332,20 @@ export default function Home() {
 
   const handleResumeSavedSession = () => {
     if (!savedSeat) return;
+    void trackCtaClick({
+      location: 'saved_session',
+      ctaId: 'resume_saved_session',
+      label: 'resume_saved_session',
+    });
     navigate(`/student/session/${savedSeat.sessionPin}/play`);
   };
 
   const handleClearSavedSession = () => {
+    void trackCtaClick({
+      location: 'saved_session',
+      ctaId: 'clear_saved_session',
+      label: 'clear_saved_session',
+    });
     clearJoinedParticipantSession();
     setSavedSeat(null);
     setJoinAssistMessage(t('home.status.savedCleared'));
@@ -330,6 +432,27 @@ export default function Home() {
     language === 'he' ? 'כניסה עם מייל' : language === 'ar' ? 'الدخول بالبريد الإلكتروني' : 'Email Sign In';
   const studentCreateAccountLabel =
     language === 'he' ? 'הרשמת תלמיד' : language === 'ar' ? 'إنشاء حساب طالب' : 'Create Student Account';
+  const feedbackPrompt =
+    language === 'he'
+      ? 'מה חסר לך כאן כדי להתחיל מהר יותר?'
+      : language === 'ar'
+        ? 'ما الذي ينقصك هنا كي تبدأ أسرع؟'
+        : 'What is missing here that would help you start faster?';
+  const feedbackThanks =
+    language === 'he'
+      ? 'תודה, שמרנו את המשוב שלך.'
+      : language === 'ar'
+        ? 'شكرًا، تم حفظ الملاحظات.'
+        : 'Thanks, your feedback was saved.';
+
+  const submitFeedback = () => {
+    if (!feedbackScore || feedbackSubmitted) return;
+    void trackFeedbackSubmission({
+      score: feedbackScore,
+      messageLength: feedbackMessage.trim().length,
+    });
+    setFeedbackSubmitted(true);
+  };
 
   return (
     <div 
@@ -390,6 +513,17 @@ export default function Home() {
                 <p className="mt-3 max-w-[56ch] text-balance text-base font-medium leading-relaxed text-brand-dark/72 sm:text-lg">
                   {t('home.hero.subtitle')}
                 </p>
+                <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                  {QUICK_VALUE_ITEMS.map((item) => (
+                    <div
+                      key={item.label}
+                      className="rounded-[1.5rem] border-2 border-brand-dark bg-white px-4 py-4 shadow-[4px_4px_0px_0px_#1A1A1A]"
+                    >
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45">{item.label}</p>
+                      <p className="mt-2 text-lg font-black">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
                 <div className="mt-5 inline-flex max-w-[56ch] items-start gap-3 rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg px-4 py-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
                   <Sparkles className="w-5 h-5 shrink-0 text-brand-orange mt-0.5" />
                   <div className="min-w-0">
@@ -409,13 +543,20 @@ export default function Home() {
                       ) : (
                         <>
                           <button
-                            onClick={() => navigate('/student/auth')}
+                            onClick={() => handleTrackedNavigate('/student/auth', 'student_sign_in', studentEmailSignInLabel, 'student_space')}
                             className="flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-1.5 text-xs font-black shadow-[3px_3px_0px_0px_#1A1A1A] transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0px_0px_#1A1A1A]"
                           >
                             {studentEmailSignInLabel}
                           </button>
                           <button
-                            onClick={() => navigate('/student/auth?mode=register')}
+                            onClick={() =>
+                              handleTrackedNavigate(
+                                '/student/auth?mode=register',
+                                'student_register',
+                                studentCreateAccountLabel,
+                                'student_space',
+                              )
+                            }
                             className="flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-1.5 text-xs font-black text-brand-dark shadow-[3px_3px_0px_0px_#1A1A1A] transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0px_0px_#1A1A1A]"
                           >
                             {studentCreateAccountLabel}
@@ -479,7 +620,12 @@ export default function Home() {
                         placeholder={t('home.form.pin')}
                         aria-label="Enter Game PIN"
                         value={pin}
-                        onChange={(e) => setPin(sanitizeSessionPin(e.target.value))}
+                        onFocus={() => markJoinFormStarted('pin')}
+                        onChange={(e) => {
+                          markJoinFormStarted('pin');
+                          void trackFormInteraction({ formId: 'home_join', field: 'pin', action: 'change' });
+                          setPin(sanitizeSessionPin(e.target.value));
+                        }}
                         maxLength={6}
                         required
                         inputMode="numeric"
@@ -499,7 +645,12 @@ export default function Home() {
                         placeholder={t('home.form.nickname')}
                         aria-label="Enter your nickname"
                         value={nickname}
-                        onChange={(e) => setNickname(e.target.value)}
+                        onFocus={() => markJoinFormStarted('nickname')}
+                        onChange={(e) => {
+                          markJoinFormStarted('nickname');
+                          void trackFormInteraction({ formId: 'home_join', field: 'nickname', action: 'change' });
+                          setNickname(e.target.value);
+                        }}
                         maxLength={12}
                         required
                         className="w-full min-w-0 rounded-[1.6rem] border-2 border-brand-dark bg-white px-5 py-4 text-xl font-black placeholder:text-brand-dark/35 focus:outline-none focus:ring-4 focus:ring-brand-orange/20 sm:px-6 sm:text-2xl"
@@ -556,6 +707,10 @@ export default function Home() {
                         aria-label={`Select avatar ${avatar}`}
                         aria-pressed={selectedAvatar === avatar}
                         onClick={() => setSelectedAvatar(avatar)}
+                        onClickCapture={() => {
+                          markJoinFormStarted('avatar');
+                          void trackFormInteraction({ formId: 'home_join', field: 'avatar', action: 'change' });
+                        }}
                         className={`overflow-hidden rounded-[1.35rem] border-2 bg-white transition-all focus:outline-none focus-visible:ring-8 focus-visible:ring-brand-purple/10 ${
                           selectedAvatar === avatar
                             ? 'border-brand-dark bg-brand-purple/15 shadow-[4px_4px_0px_0px_#1A1A1A] -translate-y-0.5'
@@ -598,6 +753,11 @@ export default function Home() {
                         type="button"
                         onClick={() => {
                           setError('');
+                          void trackCtaClick({
+                            location: 'join_assist',
+                            ctaId: 'open_scanner',
+                            label: 'open_scanner',
+                          });
                           setScannerOpen(true);
                         }}
                         className="flex w-full items-center justify-center gap-3 rounded-[1.4rem] border-2 border-brand-dark bg-white px-5 py-4 text-base font-black shadow-[4px_4px_0px_0px_#1A1A1A] sm:text-lg"
@@ -645,6 +805,105 @@ export default function Home() {
                 </div>
               </motion.form>
             </div>
+
+            <section className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+              <div className="rounded-[2.2rem] border-2 border-brand-dark bg-white p-5 shadow-[8px_8px_0px_0px_#1A1A1A] sm:p-6">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple">FAQ</p>
+                    <h2 className="text-2xl font-black">שאלות שחוסכות בלגן לפני שמתחילים</h2>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {FAQ_ITEMS.map((item) => {
+                    const expanded = expandedFaq === item.id;
+                    return (
+                      <div key={item.id} className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg/60 px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextExpanded = expanded ? null : item.id;
+                            setExpandedFaq(nextExpanded);
+                            void trackFaqInteraction({ questionId: item.id, expanded: !expanded });
+                          }}
+                          className="flex w-full items-center justify-between gap-4 text-right"
+                        >
+                          <span className="text-lg font-black">{item.questionHe}</span>
+                          <ChevronDown className={`h-5 w-5 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                        </button>
+                        {expanded ? (
+                          <p className="mt-3 max-w-[62ch] text-sm font-medium leading-7 text-brand-dark/70">{item.answerHe}</p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-[2.2rem] border-2 border-brand-dark bg-brand-yellow/45 p-5 shadow-[8px_8px_0px_0px_#1A1A1A] sm:p-6">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 border-brand-dark bg-white">
+                    <MessageSquareText className="h-5 w-5 text-brand-orange" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45">Feedback</p>
+                    <h2 className="text-2xl font-black">מה חסר כאן?</h2>
+                    <p className="mt-2 text-sm font-medium leading-7 text-brand-dark/70">{feedbackPrompt}</p>
+                  </div>
+                </div>
+
+                <div className="mt-5 grid grid-cols-3 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFeedbackScore('positive')}
+                    className={`rounded-[1.3rem] border-2 px-3 py-3 font-black ${feedbackScore === 'positive' ? 'border-brand-dark bg-white' : 'border-brand-dark/20 bg-white/70'}`}
+                  >
+                    <ThumbsUp className="mx-auto mb-2 h-5 w-5" />
+                    ברור
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFeedbackScore('neutral')}
+                    className={`rounded-[1.3rem] border-2 px-3 py-3 font-black ${feedbackScore === 'neutral' ? 'border-brand-dark bg-white' : 'border-brand-dark/20 bg-white/70'}`}
+                  >
+                    <MessageSquareText className="mx-auto mb-2 h-5 w-5" />
+                    כמעט
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFeedbackScore('negative')}
+                    className={`rounded-[1.3rem] border-2 px-3 py-3 font-black ${feedbackScore === 'negative' ? 'border-brand-dark bg-white' : 'border-brand-dark/20 bg-white/70'}`}
+                  >
+                    <ThumbsDown className="mx-auto mb-2 h-5 w-5" />
+                    חסר
+                  </button>
+                </div>
+
+                <textarea
+                  value={feedbackMessage}
+                  onChange={(event) => setFeedbackMessage(event.target.value)}
+                  placeholder="למשל: חסר וידאו קצר, דוגמה לכיתה, או הסבר ברור יותר למורים."
+                  className="mt-4 min-h-28 w-full rounded-[1.5rem] border-2 border-brand-dark bg-white px-4 py-4 text-sm font-medium outline-none focus:ring-4 focus:ring-brand-orange/20"
+                />
+
+                <button
+                  type="button"
+                  disabled={!feedbackScore || feedbackSubmitted}
+                  onClick={submitFeedback}
+                  className="mt-4 w-full rounded-[1.4rem] border-2 border-brand-dark bg-brand-dark px-5 py-3 text-base font-black text-white shadow-[4px_4px_0px_0px_#FF5A36] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {feedbackSubmitted ? feedbackThanks : 'שלחו משוב קצר'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleTrackedNavigate('/contact', 'contact_sales', 'contact_sales', 'feedback_panel')}
+                  className="mt-3 w-full rounded-[1.4rem] border-2 border-brand-dark bg-white px-5 py-3 text-base font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
+                >
+                  רוצים שנחזור אליכם?
+                </button>
+              </div>
+            </section>
           </motion.section>
 
           <motion.aside
@@ -703,6 +962,49 @@ export default function Home() {
           </motion.aside>
         </div>
       </main>
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:hidden">
+        <div className="pointer-events-auto rounded-[1.6rem] border-2 border-brand-dark bg-white/95 p-3 shadow-[8px_8px_0px_0px_#1A1A1A] backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                void trackCtaClick({
+                  location: 'sticky_mobile',
+                  ctaId: 'jump_to_join',
+                  label: 'jump_to_join',
+                });
+                window.scrollTo({ top: 260, behavior: 'smooth' });
+              }}
+              className="flex-1 rounded-full border-2 border-brand-dark bg-brand-orange px-4 py-3 text-sm font-black text-white"
+            >
+              הצטרפות מהירה
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTrackedNavigate('/contact', 'sticky_contact', 'sticky_contact', 'sticky_mobile')}
+              className="flex-1 rounded-full border-2 border-brand-dark bg-white px-4 py-3 text-sm font-black"
+            >
+              דברו איתנו
+            </button>
+          </div>
+        </div>
+      </div>
+      {showBackToTop ? (
+        <button
+          type="button"
+          onClick={() => {
+            void trackCtaClick({
+              location: 'floating_action',
+              ctaId: 'back_to_top',
+              label: 'back_to_top',
+            });
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          className="fixed bottom-24 right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full border-2 border-brand-dark bg-brand-yellow shadow-[4px_4px_0px_0px_#1A1A1A] md:bottom-6 md:right-6"
+        >
+          <ArrowUp className="h-5 w-5" />
+        </button>
+      ) : null}
       <JoinScannerModal open={scannerOpen} onClose={() => setScannerOpen(false)} onDetected={handleDetectedPin} />
     </div>
   );
