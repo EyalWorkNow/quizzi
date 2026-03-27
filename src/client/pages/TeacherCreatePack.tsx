@@ -4,6 +4,12 @@ import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Setti
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { listTeacherClasses, addPackToClass, type TeacherClassCard } from '../lib/teacherClasses.ts';
+import {
+  buildQuestionGenerationApiPayload,
+  DEFAULT_QUESTION_GENERATION_CONFIG,
+  QUESTION_GENERATION_PRESETS,
+  resolveQuestionGenerationPreset,
+} from '../lib/questionGeneration.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
 import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
 import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from '../../shared/sessionSoundtracks.ts';
@@ -20,12 +26,6 @@ function recommendModesForDraft(questionCount: number, topicCount: number) {
 }
 
 const BLOOM_LEVELS = ['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create'] as const;
-const GENERATION_PRESETS = [
-  { id: 'quick-test', label: 'Quick Test', difficulty: 'Medium', questionFormat: 'Multiple Choice', cognitiveLevel: 'Mixed', explanationDetail: 'Concise', contentFocus: 'Core Concepts', distractorStyle: 'Standard', questionCount: 5 },
-  { id: 'bagrut-review', label: 'Bagrut Review', difficulty: 'Hard', questionFormat: 'Multiple Choice', cognitiveLevel: 'Higher Order', explanationDetail: 'Detailed', contentFocus: 'Cause & Effect', distractorStyle: 'Challenging', questionCount: 10 },
-  { id: 'misconception-check', label: 'Misconception Check', difficulty: 'Medium', questionFormat: 'Mixed', cognitiveLevel: 'Mixed', explanationDetail: 'Concise', contentFocus: 'Misconceptions', distractorStyle: 'Diagnostic', questionCount: 5 },
-  { id: 'calm-practice', label: 'Calm Practice', difficulty: 'Easy', questionFormat: 'Multiple Choice', cognitiveLevel: 'Foundational', explanationDetail: 'Concise', contentFocus: 'Balanced', distractorStyle: 'Standard', questionCount: 5 },
-] as const;
 
 function parseCsvList(value: string) {
   return value
@@ -143,15 +143,15 @@ export default function TeacherCreatePack() {
   const [packLoadError, setPackLoadError] = useState('');
 
   // Advanced Generation Settings
-  const [questionCount, setQuestionCount] = useState(5);
-  const [difficulty, setDifficulty] = useState('Medium');
-  const [language, setLanguage] = useState('English');
-  const [questionFormat, setQuestionFormat] = useState('Multiple Choice');
-  const [cognitiveLevel, setCognitiveLevel] = useState('Mixed');
-  const [explanationDetail, setExplanationDetail] = useState('Concise');
-  const [contentFocus, setContentFocus] = useState('Balanced');
-  const [distractorStyle, setDistractorStyle] = useState('Standard');
-  const [gradeLevel, setGradeLevel] = useState('Auto');
+  const [questionCount, setQuestionCount] = useState(DEFAULT_QUESTION_GENERATION_CONFIG.count);
+  const [difficulty, setDifficulty] = useState(DEFAULT_QUESTION_GENERATION_CONFIG.difficulty);
+  const [language, setLanguage] = useState(DEFAULT_QUESTION_GENERATION_CONFIG.language);
+  const [questionFormat, setQuestionFormat] = useState(DEFAULT_QUESTION_GENERATION_CONFIG.questionFormat);
+  const [cognitiveLevel, setCognitiveLevel] = useState(DEFAULT_QUESTION_GENERATION_CONFIG.cognitiveLevel);
+  const [explanationDetail, setExplanationDetail] = useState(DEFAULT_QUESTION_GENERATION_CONFIG.explanationDetail);
+  const [contentFocus, setContentFocus] = useState(DEFAULT_QUESTION_GENERATION_CONFIG.contentFocus);
+  const [distractorStyle, setDistractorStyle] = useState(DEFAULT_QUESTION_GENERATION_CONFIG.distractorStyle);
+  const [gradeLevel, setGradeLevel] = useState(DEFAULT_QUESTION_GENERATION_CONFIG.gradeLevel);
   const [generationMode, setGenerationMode] = useState<'generate' | 'improve'>('generate');
   const [selectedPreset, setSelectedPreset] = useState('');
   const [showAdvancedGen, setShowAdvancedGen] = useState(false);
@@ -467,22 +467,27 @@ export default function TeacherCreatePack() {
       setTimeout(() => setGenerationStep('Formulating questions...'), 1500);
       setTimeout(() => setGenerationStep('Crafting tricky answers...'), 3000);
 
-      const data = await apiFetchJson(generationMode === 'improve' ? '/api/packs/improve-questions' : '/api/packs/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          source_text: sourceText,
+      const payload = buildQuestionGenerationApiPayload({
+        sourceText,
+        mode: generationMode,
+        existingQuestions: questions,
+        config: {
           count: questionCount,
           difficulty,
           language,
-          question_format: questionFormat,
-          cognitive_level: cognitiveLevel,
-          explanation_detail: explanationDetail,
-          content_focus: contentFocus,
-          distractor_style: distractorStyle,
-          grade_level: gradeLevel,
-          existing_questions: generationMode === 'improve' ? questions : undefined,
-        })
+          questionFormat,
+          cognitiveLevel,
+          explanationDetail,
+          contentFocus,
+          distractorStyle,
+          gradeLevel,
+        },
+      });
+
+      const data = await apiFetchJson(generationMode === 'improve' ? '/api/packs/improve-questions' : '/api/packs/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
       if (data.questions) {
         setQuestions(data.questions);
@@ -500,7 +505,7 @@ export default function TeacherCreatePack() {
   };
 
   const applyPreset = (presetId: string) => {
-    const preset = GENERATION_PRESETS.find((item) => item.id === presetId);
+    const preset = resolveQuestionGenerationPreset(presetId);
     if (!preset) return;
     setSelectedPreset(presetId);
     setDifficulty(preset.difficulty);
@@ -931,7 +936,7 @@ export default function TeacherCreatePack() {
                             <Sparkles className="w-3 h-3" /> Ready Presets
                           </label>
                           <div className="flex flex-wrap gap-2">
-                            {GENERATION_PRESETS.map((preset) => (
+                            {QUESTION_GENERATION_PRESETS.map((preset) => (
                               <button
                                 key={preset.id}
                                 type="button"

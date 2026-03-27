@@ -10,7 +10,9 @@ import {
   Mail,
   PlayCircle,
   Save,
+  Search,
   Sparkles,
+  TrendingUp,
   Trash2,
   UserPlus,
   Users,
@@ -23,10 +25,12 @@ import {
   addTeacherClassStudent,
   createClassSession,
   getTeacherClass,
+  getTeacherClassProgress,
   removePackFromClass,
   removeTeacherClassStudent,
   resendTeacherClassStudentInvite,
   TEACHER_CLASS_COLOR_OPTIONS,
+  type TeacherClassProgressBoard,
   type TeacherClassColor,
   type TeacherClassPayload,
   type TeacherClassWorkspace,
@@ -91,6 +95,41 @@ function formatAccuracy(value: number | null | undefined) {
   return `${Math.round(Number(value || 0))}% accuracy`;
 }
 
+type ProgressWindow = 'all' | '5' | '10' | '20';
+type ProgressStudentSort = 'activity' | 'recent' | 'improvement' | 'name';
+
+function formatShortDate(value?: string | null, language = 'en') {
+  if (!value) return '--';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '--';
+  return new Intl.DateTimeFormat(language === 'he' ? 'he-IL' : language === 'ar' ? 'ar' : 'en-US', {
+    month: 'short',
+    day: 'numeric',
+  }).format(parsed);
+}
+
+function averageAccuracy(rows: Array<{ accuracy_pct: number | null | undefined }>) {
+  const values = rows
+    .map((row) => (row.accuracy_pct === null || row.accuracy_pct === undefined ? null : Number(row.accuracy_pct)))
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  if (!values.length) return null;
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function accuracyDelta(rows: Array<{ accuracy_pct: number | null | undefined }>) {
+  const values = rows
+    .map((row) => (row.accuracy_pct === null || row.accuracy_pct === undefined ? null : Number(row.accuracy_pct)))
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  if (values.length < 2) return null;
+  return Math.round(values[values.length - 1] - values[0]);
+}
+
+function formatSignedDelta(delta: number | null | undefined) {
+  if (delta === null || delta === undefined || !Number.isFinite(delta)) return '--';
+  if (delta === 0) return '0';
+  return `${delta > 0 ? '+' : ''}${Math.round(delta)}`;
+}
+
 export default function TeacherClassDetail() {
   const { language } = useAppLanguage();
   const { id } = useParams();
@@ -98,8 +137,10 @@ export default function TeacherClassDetail() {
   const [classBoard, setClassBoard] = useState<TeacherClassWorkspace | null>(null);
   const [packs, setPacks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [progressLoading, setProgressLoading] = useState(true);
   const [busyKey, setBusyKey] = useState('');
   const [error, setError] = useState('');
+  const [progressError, setProgressError] = useState('');
   const [feedback, setFeedback] = useState('');
   const [form, setForm] = useState<ClassFormState>(EMPTY_FORM);
   const [studentName, setStudentName] = useState('');
@@ -107,6 +148,14 @@ export default function TeacherClassDetail() {
   const [copiedReminderKey, setCopiedReminderKey] = useState('');
   const [copiedClassLink, setCopiedClassLink] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState('');
+  const [progressBoard, setProgressBoard] = useState<TeacherClassProgressBoard | null>(null);
+  const [progressStudentSearch, setProgressStudentSearch] = useState('');
+  const [selectedProgressStudentId, setSelectedProgressStudentId] = useState<number | null>(null);
+  const [compareProgressStudentId, setCompareProgressStudentId] = useState<number | null>(null);
+  const [progressWindow, setProgressWindow] = useState<ProgressWindow>('all');
+  const [progressStudentSort, setProgressStudentSort] = useState<ProgressStudentSort>('activity');
+  const [progressTrackedOnly, setProgressTrackedOnly] = useState(true);
+  const [compareStudentAgainstClass, setCompareStudentAgainstClass] = useState(true);
 
   const copy = ({
     he: {
@@ -205,6 +254,20 @@ export default function TeacherClassDetail() {
       selectPack: 'בחר שאלון מהקולקציה שלך...',
       noPacksInLibrary: 'עדיין אין שאלונים בתיקיית הכיתה הזאת.',
       hostSpecific: 'הפעל שיעור זה',
+      progressTitle: 'התקדמות לאורך זמן',
+      progressBody: 'כאן רואים גם את מגמת הכיתה כולה וגם את ההתקדמות של תלמיד מסוים לאורך סשנים רבים.',
+      classTrendTitle: 'מגמת כיתה',
+      classTrendBody: 'דיוק והשתתפות across all class sessions.',
+      studentTrendTitle: 'מגמת תלמיד',
+      studentTrendBody: 'בחר/י תלמיד כדי לראות איך הדיוק וההיקף שלו משתנים מסשן לסשן.',
+      searchStudent: 'חפש תלמיד לפי שם או מייל...',
+      chooseStudent: 'בחר/י תלמיד מהרשימה כדי לראות את ההתקדמות האישית שלו.',
+      noStudentMatches: 'לא נמצאו תלמידים שתואמים לחיפוש.',
+      noProgressYet: 'עדיין אין מספיק היסטוריה כיתתית כדי לצייר מגמת התקדמות.',
+      participation: 'השתתפות',
+      responses: 'תשובות',
+      gamesTracked: 'משחקים במעקב',
+      lastActive: 'פעילות אחרונה',
     },
     ar: {
       back: 'العودة إلى لوحة الصفوف',
@@ -302,6 +365,20 @@ export default function TeacherClassDetail() {
       selectPack: 'اختر اختبارًا من مجموعتك...',
       noPacksInLibrary: 'لا توجد اختبارات في مجلد هذا الصف بعد.',
       hostSpecific: 'شغل هذا الدرس',
+      progressTitle: 'التقدم عبر الزمن',
+      progressBody: 'هنا ترى اتجاه الصف كله، ويمكنك أيضًا اختيار طالب محدد لرؤية تطوره عبر جلسات كثيرة.',
+      classTrendTitle: 'اتجاه الصف',
+      classTrendBody: 'الدقة والمشاركة عبر جميع جلسات الصف.',
+      studentTrendTitle: 'اتجاه الطالب',
+      studentTrendBody: 'اختر/ي طالبًا لرؤية كيف تتغير دقته وحضوره من جلسة إلى أخرى.',
+      searchStudent: 'ابحث/ي عن طالب بالاسم أو البريد...',
+      chooseStudent: 'اختر/ي طالبًا من القائمة لرؤية تقدمه الشخصي.',
+      noStudentMatches: 'لم يتم العثور على طلاب يطابقون البحث.',
+      noProgressYet: 'لا توجد بعد بيانات صفية كافية لرسم اتجاه التقدم.',
+      participation: 'المشاركة',
+      responses: 'الإجابات',
+      gamesTracked: 'الألعاب المتتبعة',
+      lastActive: 'آخر نشاط',
     },
     en: {
       back: 'Back to classes',
@@ -399,6 +476,20 @@ export default function TeacherClassDetail() {
       selectPack: 'Select a quiz from your collection...',
       noPacksInLibrary: 'No quizzes in this class folder yet.',
       hostSpecific: 'Host this quiz',
+      progressTitle: 'Progress Over Time',
+      progressBody: 'See the class trend as a whole, then search for a student to inspect their long-term trajectory across many games.',
+      classTrendTitle: 'Class Trend',
+      classTrendBody: 'Accuracy and participation across all class sessions.',
+      studentTrendTitle: 'Student Trend',
+      studentTrendBody: 'Choose a student to inspect how accuracy and activity change from one session to the next.',
+      searchStudent: 'Search by student name or email...',
+      chooseStudent: 'Choose a student from the list to open their personal timeline.',
+      noStudentMatches: 'No students matched this search.',
+      noProgressYet: 'There is not enough class history yet to draw a progress trend.',
+      participation: 'Participation',
+      responses: 'Responses',
+      gamesTracked: 'Games tracked',
+      lastActive: 'Last active',
     },
   } as const)[language as 'he' | 'ar' | 'en'] || {
     back: 'Back to classes',
@@ -496,9 +587,127 @@ export default function TeacherClassDetail() {
     selectPack: 'Select a quiz from your collection...',
     noPacksInLibrary: 'No quizzes in this class folder yet.',
     hostSpecific: 'Host this quiz',
+    progressTitle: 'Progress Over Time',
+    progressBody: 'Track the class and a selected student over time.',
+    classTrendTitle: 'Class Trend',
+    classTrendBody: 'Class-wide accuracy and participation over time.',
+    studentTrendTitle: 'Student Trend',
+    studentTrendBody: 'Choose a student to inspect their progress.',
+    searchStudent: 'Search for a student...',
+    chooseStudent: 'Choose a student to inspect their timeline.',
+    noStudentMatches: 'No students matched this search.',
+    noProgressYet: 'Not enough progress history yet.',
+    participation: 'Participation',
+    responses: 'Responses',
+    gamesTracked: 'Games tracked',
+    lastActive: 'Last active',
   };
 
   const classId = useMemo(() => Number(id || 0), [id]);
+  const progressLabels = {
+    range:
+      language === 'he' ? 'טווח' : language === 'ar' ? 'النطاق' : 'Range',
+    all:
+      language === 'he' ? 'הכול' : language === 'ar' ? 'الكل' : 'All',
+    last5:
+      language === 'he' ? '5 אחרונים' : language === 'ar' ? 'آخر 5' : 'Last 5',
+    last10:
+      language === 'he' ? '10 אחרונים' : language === 'ar' ? 'آخر 10' : 'Last 10',
+    last20:
+      language === 'he' ? '20 אחרונים' : language === 'ar' ? 'آخر 20' : 'Last 20',
+    sort:
+      language === 'he' ? 'מיין תלמידים' : language === 'ar' ? 'ترتيب الطلاب' : 'Sort students',
+    trackedOnly:
+      language === 'he' ? 'רק עם היסטוריה' : language === 'ar' ? 'فقط مع سجل' : 'Tracked only',
+    compareToClass:
+      language === 'he' ? 'השווה לכיתה' : language === 'ar' ? 'قارن مع الصف' : 'Compare to class',
+    compareStudent:
+      language === 'he' ? 'השוואת תלמיד' : language === 'ar' ? 'مقارنة طالب' : 'Compare student',
+    setCompare:
+      language === 'he' ? 'השווה' : language === 'ar' ? 'قارن' : 'Compare',
+    clearCompare:
+      language === 'he' ? 'נקה השוואה' : language === 'ar' ? 'إزالة المقارنة' : 'Clear compare',
+    comparingAgainst:
+      language === 'he' ? 'משווה מול' : language === 'ar' ? 'يقارن مع' : 'Comparing against',
+    topImprover:
+      language === 'he' ? 'משתפר מוביל' : language === 'ar' ? 'الأكثر تحسنًا' : 'Top improver',
+    needsAttention:
+      language === 'he' ? 'דורש תשומת לב' : language === 'ar' ? 'يحتاج انتباهًا' : 'Needs attention',
+    momentum:
+      language === 'he' ? 'מומנטום כיתתי' : language === 'ar' ? 'زخم الصف' : 'Class momentum',
+    latestAccuracy:
+      language === 'he' ? 'דיוק אחרון' : language === 'ar' ? 'آخر دقة' : 'Latest accuracy',
+    averageAccuracy:
+      language === 'he' ? 'דיוק ממוצע' : language === 'ar' ? 'متوسط الدقة' : 'Average accuracy',
+    bestAccuracy:
+      language === 'he' ? 'שיא דיוק' : language === 'ar' ? 'أفضل دقة' : 'Best accuracy',
+    trendDelta:
+      language === 'he' ? 'שינוי מגמה' : language === 'ar' ? 'تغير الاتجاه' : 'Trend delta',
+    activeStudents:
+      language === 'he' ? 'תלמידים במעקב' : language === 'ar' ? 'طلاب متتبعون' : 'Tracked students',
+    sessionLog:
+      language === 'he' ? 'יומן סשנים' : language === 'ar' ? 'سجل الجلسات' : 'Session log',
+    noStudentHistory:
+      language === 'he'
+        ? 'לתלמיד הזה עדיין אין מספיק היסטוריה אישית להצגה.'
+        : language === 'ar'
+          ? 'لا يوجد بعد لهذا الطالب سجل شخصي كافٍ للعرض.'
+          : 'This student does not have enough personal history yet.',
+    clearSearch:
+      language === 'he' ? 'נקה חיפוש' : language === 'ar' ? 'مسح البحث' : 'Clear search',
+    recentSessions:
+      language === 'he' ? 'הסשנים האחרונים' : language === 'ar' ? 'أحدث الجلسات' : 'Recent sessions',
+    sessionsWithData:
+      language === 'he' ? 'סשנים עם נתונים' : language === 'ar' ? 'جلسات مع بيانات' : 'Sessions with data',
+    topicFocus:
+      language === 'he' ? 'ביצועים לפי נושא' : language === 'ar' ? 'الأداء حسب الموضوع' : 'Performance by topic',
+    topicFocusBody:
+      language === 'he'
+        ? 'איפה הכיתה חזקה, איפה היא נחלשת, ואיך התלמיד הנבחר נראה מול התמונה הרחבה.'
+        : language === 'ar'
+          ? 'أين الصف قوي، أين يضعف، وكيف يبدو الطالب المختار مقارنة بالصورة العامة.'
+          : 'See where the class is strong, where it struggles, and how the selected learner compares.',
+    classColumn:
+      language === 'he' ? 'כיתה' : language === 'ar' ? 'الصف' : 'Class',
+    selectedColumn:
+      language === 'he' ? 'תלמיד נבחר' : language === 'ar' ? 'الطالب المختار' : 'Selected student',
+    compareColumn:
+      language === 'he' ? 'תלמיד להשוואה' : language === 'ar' ? 'طالب المقارنة' : 'Compare student',
+    noTopicData:
+      language === 'he' ? 'עדיין אין מספיק תשובות מתויגות כדי להציג מפת נושאים.' : language === 'ar' ? 'لا توجد بعد إجابات موسومة كافية لعرض خريطة الموضوعات.' : 'There is not enough tagged answer data yet.',
+    actionPlan:
+      language === 'he' ? 'המלצות פעולה למורה' : language === 'ar' ? 'خطوات مقترحة للمعلم' : 'Teacher action plan',
+    actionPlanBody:
+      language === 'he'
+        ? 'שלוש פעולות מיידיות על בסיס מגמה, נושאים חלשים והשוואה בין תלמידים.'
+        : language === 'ar'
+          ? 'ثلاث خطوات فورية مبنية على الاتجاه، والموضوعات الضعيفة، والمقارنة بين الطلاب.'
+          : 'Three immediate moves based on trend, weak topics, and student comparison.',
+    practiceMore:
+      language === 'he' ? 'לחזק' : language === 'ar' ? 'تعزيز' : 'Reinforce',
+    challengeMore:
+      language === 'he' ? 'לאתגר' : language === 'ar' ? 'تحدي' : 'Challenge',
+    monitor:
+      language === 'he' ? 'לעקוב' : language === 'ar' ? 'متابعة' : 'Monitor',
+    sortActivity:
+      language === 'he' ? 'הכי פעילים' : language === 'ar' ? 'الأكثر نشاطًا' : 'Most active',
+    sortRecent:
+      language === 'he' ? 'דיוק אחרון' : language === 'ar' ? 'آخر دقة' : 'Latest accuracy',
+    sortImprovement:
+      language === 'he' ? 'השיפור הגדול ביותר' : language === 'ar' ? 'أكبر تحسن' : 'Biggest improvement',
+    sortName:
+      language === 'he' ? 'שם א-ת' : language === 'ar' ? 'الاسم' : 'Name A-Z',
+    improving:
+      language === 'he' ? 'בעלייה' : language === 'ar' ? 'في تحسن' : 'Improving',
+    declining:
+      language === 'he' ? 'בירידה' : language === 'ar' ? 'في تراجع' : 'Declining',
+    stable:
+      language === 'he' ? 'יציב' : language === 'ar' ? 'مستقر' : 'Stable',
+    fromStart:
+      language === 'he' ? 'מההתחלה עד עכשיו' : language === 'ar' ? 'من البداية حتى الآن' : 'From first to latest',
+    classBenchmark:
+      language === 'he' ? 'קו כיתתי' : language === 'ar' ? 'خط الصف' : 'Class benchmark',
+  };
   const syncSummary = useMemo(() => {
     if (!classBoard) {
       return {
@@ -675,6 +884,37 @@ export default function TeacherClassDetail() {
   useEffect(() => {
     void loadClass();
   }, [loadClass]);
+
+  const loadProgress = useCallback(async (studentId?: number | null, compareStudentId?: number | null) => {
+    if (!classId) return;
+    try {
+      setProgressLoading(true);
+      setProgressError('');
+      const payload = await getTeacherClassProgress(classId, studentId, compareStudentId);
+      setProgressBoard(payload);
+    } catch (loadError: any) {
+      setProgressError(loadError?.message || 'Failed to load class progress.');
+    } finally {
+      setProgressLoading(false);
+    }
+  }, [classId]);
+
+  useEffect(() => {
+    void loadProgress(selectedProgressStudentId, compareProgressStudentId);
+  }, [compareProgressStudentId, loadProgress, selectedProgressStudentId]);
+
+  useEffect(() => {
+    if (selectedProgressStudentId) return;
+    const defaultStudent = progressBoard?.students?.find((student) => Number(student.session_count || 0) > 0) || null;
+    if (defaultStudent?.id) {
+      setSelectedProgressStudentId(Number(defaultStudent.id));
+    }
+  }, [progressBoard, selectedProgressStudentId]);
+
+  useEffect(() => {
+    if (!compareProgressStudentId || Number(compareProgressStudentId) !== Number(selectedProgressStudentId || 0)) return;
+    setCompareProgressStudentId(null);
+  }, [compareProgressStudentId, selectedProgressStudentId]);
 
   const handleSaveClass = async () => {
     if (!classBoard) return;
@@ -925,6 +1165,165 @@ export default function TeacherClassDetail() {
     watchlist_students: [],
   };
   const recentSessions = Array.isArray(classBoard.recent_sessions) ? classBoard.recent_sessions : [];
+  const classProgressSeries = Array.isArray(progressBoard?.class_series) ? progressBoard.class_series : [];
+  const progressStudents = Array.isArray(progressBoard?.students) ? progressBoard.students : [];
+  const selectedStudentProgressSeries = Array.isArray(progressBoard?.selected_student_series)
+    ? progressBoard.selected_student_series
+    : [];
+  const compareStudentProgressSeries = Array.isArray(progressBoard?.compare_student_series)
+    ? progressBoard.compare_student_series
+    : [];
+  const topicSummary = Array.isArray(progressBoard?.topic_summary) ? progressBoard.topic_summary : [];
+  const progressWindowSize = progressWindow === 'all' ? null : Number(progressWindow);
+  const classProgressWindowSeries = progressWindowSize ? classProgressSeries.slice(-progressWindowSize) : classProgressSeries;
+  const trackedProgressStudents = progressTrackedOnly
+    ? progressStudents.filter((student) => Number(student.session_count || 0) > 0)
+    : progressStudents;
+  const sortedProgressStudents = [...trackedProgressStudents].sort((left, right) => {
+    if (progressStudentSort === 'recent') {
+      return Number(right.latest_accuracy ?? -1) - Number(left.latest_accuracy ?? -1);
+    }
+    if (progressStudentSort === 'improvement') {
+      return Number(right.improvement_delta ?? -999) - Number(left.improvement_delta ?? -999);
+    }
+    if (progressStudentSort === 'name') {
+      return String(left.name || '').localeCompare(String(right.name || ''));
+    }
+    const sessionDelta = Number(right.session_count || 0) - Number(left.session_count || 0);
+    if (sessionDelta !== 0) return sessionDelta;
+    return String(left.name || '').localeCompare(String(right.name || ''));
+  });
+  const filteredProgressStudents = sortedProgressStudents.filter((student) => {
+    const query = progressStudentSearch.trim().toLowerCase();
+    if (!query) return true;
+    return `${student.name} ${student.email}`.toLowerCase().includes(query);
+  });
+  const selectedProgressStudent =
+    progressStudents.find((student) => Number(student.id) === Number(selectedProgressStudentId || 0)) || null;
+  const compareProgressStudent =
+    progressStudents.find((student) => Number(student.id) === Number(compareProgressStudentId || 0)) || null;
+  const selectedStudentWindowSeries = progressWindowSize
+    ? selectedStudentProgressSeries.slice(-progressWindowSize)
+    : selectedStudentProgressSeries;
+  const compareStudentWindowSeries = progressWindowSize
+    ? compareStudentProgressSeries.slice(-progressWindowSize)
+    : compareStudentProgressSeries;
+  const classAccuracyAverage = averageAccuracy(classProgressWindowSeries);
+  const classLatestAccuracy = averageAccuracy(classProgressWindowSeries.slice(-1));
+  const classTrendDelta = accuracyDelta(classProgressWindowSeries);
+  const selectedStudentAverageAccuracy = averageAccuracy(selectedStudentWindowSeries);
+  const selectedStudentLatestAccuracy = averageAccuracy(selectedStudentWindowSeries.slice(-1));
+  const selectedStudentTrendDelta = accuracyDelta(selectedStudentWindowSeries);
+  const compareStudentAverageAccuracy = averageAccuracy(compareStudentWindowSeries);
+  const compareStudentLatestAccuracy = averageAccuracy(compareStudentWindowSeries.slice(-1));
+  const compareStudentTrendDelta = accuracyDelta(compareStudentWindowSeries);
+  const selectedStudentAccuracyValues = selectedStudentWindowSeries
+    .map((row) => (row.accuracy_pct === null || row.accuracy_pct === undefined ? null : Number(row.accuracy_pct)))
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  const selectedStudentBestAccuracy = selectedProgressStudent?.best_accuracy ?? (
+    selectedStudentAccuracyValues.length ? Math.max(...selectedStudentAccuracyValues) : null
+  );
+  const progressSummaryStudents = progressStudents.filter((student) => Number(student.session_count || 0) > 0);
+  const topImproverStudent = [...progressSummaryStudents]
+    .filter((student) => Number.isFinite(Number(student.improvement_delta)))
+    .sort((left, right) => Number(right.improvement_delta ?? -999) - Number(left.improvement_delta ?? -999))[0] || null;
+  const needsAttentionStudent = [...progressSummaryStudents]
+    .sort((left, right) => {
+      const accuracyDelta = Number(left.latest_accuracy ?? 999) - Number(right.latest_accuracy ?? 999);
+      if (accuracyDelta !== 0) return accuracyDelta;
+      return Number(left.improvement_delta ?? 999) - Number(right.improvement_delta ?? 999);
+    })[0] || null;
+  const classMomentumLabel =
+    classTrendDelta === null
+      ? progressLabels.stable
+      : classTrendDelta > 4
+        ? progressLabels.improving
+        : classTrendDelta < -4
+          ? progressLabels.declining
+          : progressLabels.stable;
+  const classPeakParticipation = Math.max(...classProgressWindowSeries.map((row) => Number(row.participant_count || 0)), 0);
+  const selectedStudentClassCompareRows = selectedStudentWindowSeries.map((row) => {
+    const classMatch = classProgressSeries.find((entry) => Number(entry.session_id) === Number(row.session_id)) || null;
+    return {
+      ...row,
+      accuracy_pct: classMatch?.accuracy_pct ?? null,
+    };
+  });
+  const selectedStudentCompareRows = selectedStudentWindowSeries.map((row) => {
+    const compareMatch = compareStudentWindowSeries.find((entry) => Number(entry.session_id) === Number(row.session_id)) || null;
+    return {
+      ...row,
+      accuracy_pct: compareMatch?.accuracy_pct ?? null,
+    };
+  });
+  const selectedStudentSessionLog = [...selectedStudentWindowSeries].reverse();
+  const topicRows = topicSummary.slice(0, 6);
+  const weakestClassTopic = [...topicSummary]
+    .filter((row) => Number(row.class_answers || 0) > 0 && row.class_accuracy !== null)
+    .sort((left, right) => {
+      const accuracyDelta = Number(left.class_accuracy ?? 999) - Number(right.class_accuracy ?? 999);
+      if (accuracyDelta !== 0) return accuracyDelta;
+      return Number(right.class_answers || 0) - Number(left.class_answers || 0);
+    })[0] || null;
+  const teacherActionCards = [
+    weakestClassTopic?.class_accuracy !== null && weakestClassTopic?.class_answers > 0
+      ? {
+          key: 'class-focus',
+          tone: 'yellow' as const,
+          badge: progressLabels.practiceMore,
+          title:
+            language === 'he'
+              ? `לחזק את ${weakestClassTopic.tag}`
+              : language === 'ar'
+                ? `تعزيز ${weakestClassTopic.tag}`
+                : `Reinforce ${weakestClassTopic.tag}`,
+          body:
+            language === 'he'
+              ? `בכיתה הדיוק בנושא הזה עומד על ${weakestClassTopic.class_accuracy ?? '--'}% לאורך ${weakestClassTopic.class_answers} תשובות. זה הנושא הכי נכון להתערבות הקרובה.`
+              : language === 'ar'
+                ? `دقة الصف في هذا الموضوع هي ${weakestClassTopic.class_accuracy ?? '--'}% عبر ${weakestClassTopic.class_answers} إجابات. هذا أفضل موضوع للتدخل القريب.`
+                : `Class accuracy on this topic is ${weakestClassTopic.class_accuracy ?? '--'}% across ${weakestClassTopic.class_answers} answers. This is the clearest next intervention area.`,
+        }
+      : null,
+    needsAttentionStudent
+      ? {
+          key: 'student-support',
+          tone: 'rose' as const,
+          badge: progressLabels.monitor,
+          title:
+            language === 'he'
+              ? `לעקוב אחרי ${needsAttentionStudent.name}`
+              : language === 'ar'
+                ? `متابعة ${needsAttentionStudent.name}`
+                : `Monitor ${needsAttentionStudent.name}`,
+          body:
+            language === 'he'
+              ? `${needsAttentionStudent.name} נמצא כרגע על ${needsAttentionStudent.latest_accuracy ?? '--'}% עם שינוי של ${formatSignedDelta(needsAttentionStudent.improvement_delta)}. ${needsAttentionStudent.weakest_tag ? `כדאי לבדוק במיוחד את ${needsAttentionStudent.weakest_tag}.` : 'כדאי לבדוק איפה נוצר הפער.'}`
+              : language === 'ar'
+                ? `${needsAttentionStudent.name} يقف الآن عند ${needsAttentionStudent.latest_accuracy ?? '--'}% مع تغير ${formatSignedDelta(needsAttentionStudent.improvement_delta)}. ${needsAttentionStudent.weakest_tag ? `من الجيد التركيز على ${needsAttentionStudent.weakest_tag}.` : 'يستحق فحص موضع الفجوة.'}`
+                : `${needsAttentionStudent.name} is currently at ${needsAttentionStudent.latest_accuracy ?? '--'}% with a ${formatSignedDelta(needsAttentionStudent.improvement_delta)} trend. ${needsAttentionStudent.weakest_tag ? `Focus on ${needsAttentionStudent.weakest_tag}.` : 'Review where the drop is happening.'}`,
+        }
+      : null,
+    topImproverStudent
+      ? {
+          key: 'student-challenge',
+          tone: 'mint' as const,
+          badge: progressLabels.challengeMore,
+          title:
+            language === 'he'
+              ? `לאתגר את ${topImproverStudent.name}`
+              : language === 'ar'
+                ? `تحدي ${topImproverStudent.name}`
+                : `Challenge ${topImproverStudent.name}`,
+          body:
+            language === 'he'
+              ? `${topImproverStudent.name} במגמת עלייה של ${formatSignedDelta(topImproverStudent.improvement_delta)}. ${topImproverStudent.strongest_tag ? `נראה חזק במיוחד ב-${topImproverStudent.strongest_tag}.` : 'נראה מוכן לרמה הבאה.'}`
+              : language === 'ar'
+                ? `${topImproverStudent.name} في تحسن بمقدار ${formatSignedDelta(topImproverStudent.improvement_delta)}. ${topImproverStudent.strongest_tag ? `يبدو قويًا خصوصًا في ${topImproverStudent.strongest_tag}.` : 'يبدو جاهزًا للمستوى التالي.'}`
+                : `${topImproverStudent.name} is improving by ${formatSignedDelta(topImproverStudent.improvement_delta)}. ${topImproverStudent.strongest_tag ? `Strongest area: ${topImproverStudent.strongest_tag}.` : 'Looks ready for the next level.'}`,
+        }
+      : null,
+  ].filter(Boolean) as Array<{ key: string; tone: 'yellow' | 'mint' | 'rose'; badge: string; title: string; body: string }>;
   const mailHealth = classBoard.mail_health || {
     configured: false,
     mode: 'none' as const,
@@ -1040,6 +1439,458 @@ export default function TeacherClassDetail() {
                 </div>
               </div>
             </div>
+          </section>
+
+          <section className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
+            <div className="mb-5 flex items-center gap-3">
+              <TrendingUp className="h-6 w-6 text-brand-orange" />
+              <div>
+                <h2 className="text-2xl font-black">{copy.progressTitle}</h2>
+                <p className="text-sm font-bold text-brand-dark/55">{copy.progressBody}</p>
+              </div>
+            </div>
+
+            {progressLoading ? (
+              <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5 font-bold text-brand-dark/70">
+                {language === 'he' ? 'טוען היסטוריית התקדמות...' : language === 'ar' ? 'جارٍ تحميل سجل التقدم...' : 'Loading progress history...'}
+              </div>
+            ) : progressError ? (
+              <div className="rounded-[1.5rem] border-2 border-brand-dark bg-rose-50 p-5 font-bold text-brand-dark">
+                {progressError}
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,auto)]">
+                  <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-4">
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{progressLabels.range}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {[
+                        { value: 'all', label: progressLabels.all },
+                        { value: '5', label: progressLabels.last5 },
+                        { value: '10', label: progressLabels.last10 },
+                        { value: '20', label: progressLabels.last20 },
+                      ].map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setProgressWindow(option.value as ProgressWindow)}
+                          className={`rounded-full border-2 border-brand-dark px-4 py-2 text-sm font-black ${
+                            progressWindow === option.value ? 'bg-brand-yellow' : 'bg-white'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-4">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
+                      <label className="block">
+                        <span className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{progressLabels.sort}</span>
+                        <select
+                          value={progressStudentSort}
+                          onChange={(event) => setProgressStudentSort(event.target.value as ProgressStudentSort)}
+                          className="w-full rounded-full border-2 border-brand-dark bg-white px-4 py-3 font-black outline-none"
+                        >
+                          <option value="activity">{progressLabels.sortActivity}</option>
+                          <option value="recent">{progressLabels.sortRecent}</option>
+                          <option value="improvement">{progressLabels.sortImprovement}</option>
+                          <option value="name">{progressLabels.sortName}</option>
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setProgressTrackedOnly((current) => !current)}
+                        className={`rounded-full border-2 border-brand-dark px-4 py-3 text-sm font-black ${
+                          progressTrackedOnly ? 'bg-brand-yellow' : 'bg-white'
+                        }`}
+                      >
+                        {progressLabels.trackedOnly}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (compareProgressStudentId) {
+                            setCompareProgressStudentId(null);
+                            return;
+                          }
+                          setCompareStudentAgainstClass((current) => !current);
+                        }}
+                        disabled={!selectedProgressStudent && !compareProgressStudentId}
+                        className={`rounded-full border-2 border-brand-dark px-4 py-3 text-sm font-black disabled:cursor-not-allowed disabled:opacity-50 ${
+                          compareProgressStudentId || compareStudentAgainstClass ? 'bg-brand-yellow' : 'bg-white'
+                        }`}
+                      >
+                        {compareProgressStudentId ? progressLabels.clearCompare : progressLabels.compareToClass}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <MetricTile
+                    label={copy.gamesTracked}
+                    value={String(classProgressWindowSeries.length)}
+                    meta={progressLabels.sessionsWithData}
+                  />
+                  <MetricTile
+                    label={progressLabels.averageAccuracy}
+                    value={classAccuracyAverage !== null ? `${classAccuracyAverage}%` : '--'}
+                    meta={progressLabels.fromStart}
+                  />
+                  <MetricTile
+                    label={progressLabels.trendDelta}
+                    value={formatSignedDelta(classTrendDelta)}
+                    meta={classMomentumLabel}
+                  />
+                  <MetricTile
+                    label={progressLabels.activeStudents}
+                    value={String(progressSummaryStudents.length)}
+                    meta={`${copy.participation}: ${classPeakParticipation}`}
+                  />
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-3">
+                  <ProgressInsightCard
+                    title={progressLabels.momentum}
+                    value={classMomentumLabel}
+                    meta={`${progressLabels.trendDelta}: ${formatSignedDelta(classTrendDelta)} • ${progressLabels.latestAccuracy}: ${classLatestAccuracy !== null ? `${classLatestAccuracy}%` : '--'}`}
+                    tone={classTrendDelta !== null && classTrendDelta < 0 ? 'rose' : 'yellow'}
+                  />
+                  <ProgressInsightCard
+                    title={progressLabels.topImprover}
+                    value={topImproverStudent?.name || '--'}
+                    meta={topImproverStudent
+                      ? `${progressLabels.trendDelta}: ${formatSignedDelta(topImproverStudent.improvement_delta)} • ${progressLabels.latestAccuracy}: ${topImproverStudent.latest_accuracy !== null ? `${topImproverStudent.latest_accuracy}%` : '--'}`
+                      : copy.noProgressYet}
+                    tone="mint"
+                  />
+                  <ProgressInsightCard
+                    title={progressLabels.needsAttention}
+                    value={needsAttentionStudent?.name || '--'}
+                    meta={needsAttentionStudent
+                      ? `${progressLabels.latestAccuracy}: ${needsAttentionStudent.latest_accuracy !== null ? `${needsAttentionStudent.latest_accuracy}%` : '--'} • ${progressLabels.trendDelta}: ${formatSignedDelta(needsAttentionStudent.improvement_delta)}`
+                      : copy.noProgressYet}
+                    tone="rose"
+                  />
+                </div>
+
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+                  <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
+                    <div className="mb-4">
+                      <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{progressLabels.topicFocus}</p>
+                      <p className="mt-1 text-sm font-bold text-brand-dark/60">{progressLabels.topicFocusBody}</p>
+                    </div>
+                    {topicRows.length > 0 ? (
+                      <div className="space-y-4">
+                        {topicRows.map((row) => (
+                          <div key={`topic-row-${row.tag}`}>
+                            <TopicComparisonRow
+                              tag={row.tag}
+                              answersLabel={copy.responses}
+                              classLabel={progressLabels.classColumn}
+                              selectedLabel={selectedProgressStudent?.name || progressLabels.selectedColumn}
+                              compareLabel={compareProgressStudent?.name || progressLabels.compareColumn}
+                              classAccuracy={row.class_accuracy}
+                              classAnswers={row.class_answers}
+                              selectedAccuracy={row.selected_accuracy}
+                              selectedAnswers={row.selected_answers}
+                              compareAccuracy={row.compare_accuracy}
+                              compareAnswers={row.compare_answers}
+                              showCompare={Boolean(compareProgressStudent)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="font-bold text-brand-dark/60">{progressLabels.noTopicData}</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
+                    <div className="mb-4">
+                      <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{progressLabels.actionPlan}</p>
+                      <p className="mt-1 text-sm font-bold text-brand-dark/60">{progressLabels.actionPlanBody}</p>
+                    </div>
+                    <div className="space-y-3">
+                      {teacherActionCards.map((action) => (
+                        <div key={action.key}>
+                          <ProgressInsightCard
+                            title={action.badge}
+                            value={action.title}
+                            meta={action.body}
+                            tone={action.tone}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+                  <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
+                    <div className="mb-4">
+                      <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{copy.classTrendTitle}</p>
+                      <p className="mt-1 text-sm font-bold text-brand-dark/60">{copy.classTrendBody}</p>
+                    </div>
+                    {classProgressWindowSeries.length > 0 ? (
+                      <>
+                        <TimelineProgressChart
+                          rows={classProgressWindowSeries}
+                          primaryLabel={language === 'he' ? 'דיוק כיתתי' : language === 'ar' ? 'دقة الصف' : 'Class accuracy'}
+                          secondaryLabel={copy.participation}
+                          secondaryKey="participant_count"
+                        />
+                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                          <MetricTile label={copy.gamesTracked} value={String(classProgressWindowSeries.length)} />
+                          <MetricTile
+                            label={progressLabels.averageAccuracy}
+                            value={classAccuracyAverage !== null ? `${classAccuracyAverage}%` : '--'}
+                          />
+                          <MetricTile
+                            label={copy.participation}
+                            value={String(classPeakParticipation)}
+                            meta={language === 'he' ? 'שיא משתתפים' : language === 'ar' ? 'ذروة المشاركين' : 'Peak participants'}
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <p className="font-bold text-brand-dark/60">{copy.noProgressYet}</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{copy.studentTrendTitle}</p>
+                        <p className="mt-1 text-sm font-bold text-brand-dark/60">{copy.studentTrendBody}</p>
+                      </div>
+                      {progressStudentSearch ? (
+                        <button
+                          type="button"
+                          onClick={() => setProgressStudentSearch('')}
+                          className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-xs font-black"
+                        >
+                          {progressLabels.clearSearch}
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="relative mb-4">
+                      <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-dark/40" />
+                      <input
+                        value={progressStudentSearch}
+                        onChange={(event) => setProgressStudentSearch(event.target.value)}
+                        placeholder={copy.searchStudent}
+                        className="w-full rounded-full border-2 border-brand-dark bg-white py-3 pl-11 pr-4 font-bold focus:outline-none"
+                      />
+                    </div>
+                    <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                      {filteredProgressStudents.length > 0 ? (
+                        filteredProgressStudents.map((student) => {
+                          const selected = Number(student.id) === Number(selectedProgressStudentId || 0);
+                          return (
+                            <div
+                              key={student.id}
+                              className={`w-full rounded-[1.3rem] border-2 border-brand-dark px-4 py-3 text-left shadow-[3px_3px_0px_0px_#1A1A1A] ${
+                                selected ? 'bg-brand-yellow' : 'bg-white'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="truncate text-base font-black">{student.name}</p>
+                                  <p className="truncate text-sm font-bold text-brand-dark/60">{student.email || copy.noInvite}</p>
+                                </div>
+                                <div className="flex flex-col items-end gap-2">
+                                  <span className="shrink-0 rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black">
+                                    {student.session_count}
+                                  </span>
+                                  <TrendDeltaPill delta={student.improvement_delta ?? null} />
+                                </div>
+                              </div>
+                              <div className="mt-3 grid gap-2 text-xs font-black text-brand-dark/55 sm:grid-cols-3">
+                                <span>{copy.gamesTracked}: {student.session_count}</span>
+                                <span>{progressLabels.averageAccuracy}: {student.avg_accuracy !== null ? `${student.avg_accuracy}%` : '--'}</span>
+                                <span>{progressLabels.latestAccuracy}: {student.latest_accuracy !== null ? `${student.latest_accuracy}%` : '--'}</span>
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedProgressStudentId(Number(student.id));
+                                  }}
+                                  className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-[11px] font-black uppercase"
+                                >
+                                  {progressLabels.selectedColumn}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCompareProgressStudentId((current) => Number(current || 0) === Number(student.id) ? null : Number(student.id));
+                                  }}
+                                  disabled={Number(student.id) === Number(selectedProgressStudentId || 0)}
+                                  className={`rounded-full border-2 border-brand-dark px-3 py-2 text-[11px] font-black uppercase disabled:cursor-not-allowed disabled:opacity-50 ${
+                                    Number(compareProgressStudentId || 0) === Number(student.id) ? 'bg-brand-orange text-white' : 'bg-white'
+                                  }`}
+                                >
+                                  {Number(compareProgressStudentId || 0) === Number(student.id) ? progressLabels.clearCompare : progressLabels.setCompare}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <p className="font-bold text-brand-dark/60">{copy.noStudentMatches}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{copy.studentTrendTitle}</p>
+                      <h3 className="text-2xl font-black">
+                        {selectedProgressStudent ? selectedProgressStudent.name : copy.chooseStudent}
+                      </h3>
+                      {selectedProgressStudent ? (
+                        <p className="text-sm font-bold text-brand-dark/60">
+                          {copy.gamesTracked}: {selectedProgressStudent.session_count} • {copy.lastActive}: {formatRelativeTime(selectedProgressStudent.last_activity_at)}
+                        </p>
+                      ) : (
+                        <p className="text-sm font-bold text-brand-dark/60">{copy.studentTrendBody}</p>
+                      )}
+                    </div>
+                    {selectedProgressStudent ? (
+                      <div className="flex flex-wrap gap-2">
+                        <TrendDeltaPill delta={selectedProgressStudent.improvement_delta ?? selectedStudentTrendDelta} />
+                        <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-xs font-black uppercase">
+                          {compareProgressStudent
+                            ? `${progressLabels.comparingAgainst}: ${compareProgressStudent.name}`
+                            : `${progressLabels.classBenchmark}: ${compareStudentAgainstClass ? 'ON' : 'OFF'}`}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {selectedProgressStudent ? (
+                    <>
+                      <div className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <MetricTile
+                          label={progressLabels.averageAccuracy}
+                          value={selectedStudentAverageAccuracy !== null ? `${selectedStudentAverageAccuracy}%` : '--'}
+                        />
+                        <MetricTile
+                          label={progressLabels.latestAccuracy}
+                          value={selectedStudentLatestAccuracy !== null ? `${selectedStudentLatestAccuracy}%` : '--'}
+                        />
+                        <MetricTile
+                          label={progressLabels.bestAccuracy}
+                          value={selectedStudentBestAccuracy !== null && Number.isFinite(selectedStudentBestAccuracy) ? `${Math.round(selectedStudentBestAccuracy)}%` : '--'}
+                        />
+                        <MetricTile
+                          label={progressLabels.trendDelta}
+                          value={formatSignedDelta(selectedProgressStudent.improvement_delta ?? selectedStudentTrendDelta)}
+                        />
+                      </div>
+
+                      {compareProgressStudent ? (
+                        <div className="mb-5 grid gap-3 md:grid-cols-3">
+                          <MetricTile
+                            label={`${progressLabels.compareStudent}: ${compareProgressStudent.name}`}
+                            value={compareStudentAverageAccuracy !== null ? `${compareStudentAverageAccuracy}%` : '--'}
+                            meta={progressLabels.averageAccuracy}
+                          />
+                          <MetricTile
+                            label={progressLabels.latestAccuracy}
+                            value={compareStudentLatestAccuracy !== null ? `${compareStudentLatestAccuracy}%` : '--'}
+                          />
+                          <MetricTile
+                            label={progressLabels.trendDelta}
+                            value={formatSignedDelta(compareProgressStudent.improvement_delta ?? compareStudentTrendDelta)}
+                          />
+                        </div>
+                      ) : null}
+
+                      {selectedStudentWindowSeries.length > 0 ? (
+                        <>
+                          <TimelineProgressChart
+                            rows={selectedStudentWindowSeries}
+                            primaryLabel={language === 'he' ? 'דיוק תלמיד' : language === 'ar' ? 'دقة الطالب' : 'Student accuracy'}
+                            secondaryLabel={copy.responses}
+                            secondaryKey="answer_count"
+                            compareRows={
+                              compareProgressStudent
+                                ? selectedStudentCompareRows
+                                : compareStudentAgainstClass
+                                  ? selectedStudentClassCompareRows
+                                  : undefined
+                            }
+                            compareLabel={compareProgressStudent ? compareProgressStudent.name : progressLabels.classBenchmark}
+                          />
+
+                          <div className="mt-5 rounded-[1.3rem] border-2 border-brand-dark bg-white p-4">
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{progressLabels.sessionLog}</p>
+                              <p className="text-sm font-bold text-brand-dark/55">{progressLabels.recentSessions}</p>
+                            </div>
+                            <div className="space-y-3">
+                              {selectedStudentSessionLog.slice(0, 6).map((row) => {
+                                const classMatch = classProgressSeries.find((entry) => Number(entry.session_id) === Number(row.session_id)) || null;
+                                const classAccuracy = classMatch?.accuracy_pct ?? null;
+                                const compareMatch = compareStudentWindowSeries.find((entry) => Number(entry.session_id) === Number(row.session_id)) || null;
+                                const versusClass =
+                                  classAccuracy === null || row.accuracy_pct === null
+                                    ? null
+                                    : Math.round(Number(row.accuracy_pct) - Number(classAccuracy));
+                                const versusCompare =
+                                  compareMatch?.accuracy_pct === null || compareMatch?.accuracy_pct === undefined || row.accuracy_pct === null
+                                    ? null
+                                    : Math.round(Number(row.accuracy_pct) - Number(compareMatch.accuracy_pct));
+                                return (
+                                  <div key={`student-session-log-${row.session_id}`} className="rounded-[1rem] border border-brand-dark/10 bg-brand-bg px-4 py-3">
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                      <div>
+                                        <p className="text-sm font-black">{row.pack_title || row.label}</p>
+                                        <p className="text-xs font-bold text-brand-dark/55">
+                                          {formatShortDate(row.ended_at || row.started_at, language)} • {row.label}
+                                        </p>
+                                      </div>
+                                      <div className="flex flex-wrap gap-2 text-xs font-black uppercase">
+                                        <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">
+                                          {row.accuracy_pct !== null ? `${Math.round(Number(row.accuracy_pct))}%` : '--'}
+                                        </span>
+                                        <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">
+                                          {copy.responses}: {Number(row.answer_count || 0)}
+                                        </span>
+                                        {versusClass !== null ? (
+                                          <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">
+                                            {progressLabels.classBenchmark}: {formatSignedDelta(versusClass)}
+                                          </span>
+                                        ) : null}
+                                        {compareProgressStudent && versusCompare !== null ? (
+                                          <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">
+                                            {compareProgressStudent.name}: {formatSignedDelta(versusCompare)}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="font-bold text-brand-dark/60">{progressLabels.noStudentHistory}</p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="font-bold text-brand-dark/60">{copy.chooseStudent}</p>
+                  )}
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="grid gap-6 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
@@ -1603,5 +2454,272 @@ function MetricTile({
       <p className="mt-3 text-2xl font-black leading-tight text-brand-dark">{value}</p>
       {meta ? <p className="mt-2 text-sm font-bold text-brand-dark/60">{meta}</p> : null}
     </div>
+  );
+}
+
+function ProgressInsightCard({
+  title,
+  value,
+  meta,
+  tone,
+}: {
+  title: string;
+  value: string;
+  meta: string;
+  tone: 'yellow' | 'mint' | 'rose';
+}) {
+  const toneClass =
+    tone === 'mint'
+      ? 'bg-[#E8FFF4]'
+      : tone === 'rose'
+        ? 'bg-[#FFE5E5]'
+        : 'bg-[#FFF5CC]';
+
+  return (
+    <div className={`rounded-[1.6rem] border-2 border-brand-dark p-4 shadow-[3px_3px_0px_0px_#1A1A1A] ${toneClass}`}>
+      <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{title}</p>
+      <p className="mt-3 text-2xl font-black text-brand-dark">{value}</p>
+      <p className="mt-2 text-sm font-bold text-brand-dark/60">{meta}</p>
+    </div>
+  );
+}
+
+function TrendDeltaPill({ delta }: { delta: number | null | undefined }) {
+  const tone =
+    delta === null || delta === undefined || !Number.isFinite(delta)
+      ? 'bg-white'
+      : delta > 0
+        ? 'bg-[#E8FFF4]'
+        : delta < 0
+          ? 'bg-[#FFE5E5]'
+          : 'bg-[#FFF5CC]';
+
+  return (
+    <span className={`rounded-full border-2 border-brand-dark px-3 py-1 text-xs font-black uppercase ${tone}`}>
+      {formatSignedDelta(delta)}
+    </span>
+  );
+}
+
+function TimelineProgressChart({
+  rows,
+  primaryLabel,
+  secondaryLabel,
+  secondaryKey,
+  compareRows,
+  compareLabel,
+}: {
+  rows: Array<{
+    session_id: number;
+    label: string;
+    accuracy_pct: number | null;
+    participant_count?: number;
+    answer_count?: number;
+    started_at?: string | null;
+    ended_at?: string | null;
+    pack_title?: string;
+  }>;
+  primaryLabel: string;
+  secondaryLabel: string;
+  secondaryKey: 'participant_count' | 'answer_count';
+  compareRows?: Array<{
+    session_id: number;
+    label: string;
+    accuracy_pct: number | null;
+  }>;
+  compareLabel?: string;
+}) {
+  if (!rows.length) {
+    return null;
+  }
+
+  const width = Math.max(840, 120 + (rows.length - 1) * 72);
+  const height = 250;
+  const padding = 32;
+  const graphHeight = height - padding * 2 - 20;
+  const step = rows.length === 1 ? 0 : (width - padding * 2) / (rows.length - 1);
+  const secondaryMax = Math.max(...rows.map((row) => Number(row[secondaryKey] || 0)), 1);
+  const labelEvery = rows.length > 12 ? Math.ceil(rows.length / 12) : 1;
+
+  const buildPoints = (dataset: Array<{ accuracy_pct: number | null | undefined }>) => dataset
+    .flatMap((row, index) => {
+      const accuracy = row.accuracy_pct === null || row.accuracy_pct === undefined ? null : Number(row.accuracy_pct);
+      if (accuracy === null || !Number.isFinite(accuracy)) return [];
+      const x = padding + step * index;
+      const y = padding + ((100 - Math.max(0, Math.min(100, accuracy))) / 100) * graphHeight;
+      return `${x},${y}`;
+    })
+    .join(' ');
+
+  const accuracyPoints = buildPoints(rows);
+  const comparePoints = compareRows?.length ? buildPoints(compareRows) : '';
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap gap-3">
+        <LegendPill label={primaryLabel} tone="purple" />
+        <LegendPill label={secondaryLabel} tone="orange" />
+        {compareRows?.length && compareLabel ? <LegendPill label={compareLabel} tone="dark" /> : null}
+      </div>
+      <div className="chart-scroll-shell">
+        <svg dir="ltr" viewBox={`0 0 ${width} ${height}`} className="h-[200px] min-w-[360px] w-full sm:h-[230px]">
+          {[0, 25, 50, 75, 100].map((tick) => {
+            const y = padding + ((100 - tick) / 100) * graphHeight;
+            return (
+              <g key={`progress-tick-${tick}`}>
+                <line x1={padding} y1={y} x2={width - padding} y2={y} stroke="#1A1A1A" strokeOpacity="0.12" strokeWidth="1" />
+                <text x={6} y={y + 4} fontSize="11" fontWeight="800" fill="#1A1A1A">
+                  {tick}
+                </text>
+              </g>
+            );
+          })}
+
+          {rows.map((row, index) => {
+            const x = padding + step * index;
+            const secondaryValue = Number(row[secondaryKey] || 0);
+            const barHeight = (secondaryValue / secondaryMax) * (graphHeight * 0.48);
+            const y = height - padding - barHeight;
+            return (
+              <g key={`progress-bar-${row.session_id || index}`}>
+                <rect
+                  x={x - 12}
+                  y={y}
+                  width="24"
+                  height={Math.max(10, barHeight)}
+                  rx="10"
+                  fill="#FF5A36"
+                  fillOpacity="0.78"
+                  stroke="#1A1A1A"
+                  strokeWidth="2"
+                />
+                <title>{`${row.pack_title || row.label} • ${row.label} • ${secondaryLabel}: ${secondaryValue} • ${primaryLabel}: ${row.accuracy_pct !== null ? `${Math.round(Number(row.accuracy_pct))}%` : '--'}`}</title>
+                {index % labelEvery === 0 || index === rows.length - 1 ? (
+                  <text x={x} y={height - 4} textAnchor="middle" fontSize="10" fontWeight="900" fill="#1A1A1A">
+                    {row.label}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
+
+          <polyline fill="none" stroke="#8B5CF6" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={accuracyPoints} />
+          {comparePoints ? (
+            <polyline
+              fill="none"
+              stroke="#1A1A1A"
+              strokeOpacity="0.55"
+              strokeWidth="3"
+              strokeDasharray="8 6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              points={comparePoints}
+            />
+          ) : null}
+
+          {rows.map((row, index) => {
+            const accuracy = row.accuracy_pct === null || row.accuracy_pct === undefined ? null : Number(row.accuracy_pct);
+            if (accuracy === null || !Number.isFinite(accuracy)) return null;
+            const x = padding + step * index;
+            const y = padding + ((100 - Math.max(0, Math.min(100, accuracy))) / 100) * graphHeight;
+            return (
+              <circle
+                key={`progress-dot-${row.session_id || index}`}
+                cx={x}
+                cy={y}
+                r="4.5"
+                fill="#8B5CF6"
+                stroke="#1A1A1A"
+                strokeWidth="2"
+              >
+                <title>{`${row.pack_title || row.label} • ${primaryLabel}: ${row.accuracy_pct !== null ? `${Math.round(Number(row.accuracy_pct))}%` : '--'}`}</title>
+              </circle>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function TopicComparisonRow({
+  tag,
+  answersLabel,
+  classLabel,
+  selectedLabel,
+  compareLabel,
+  classAccuracy,
+  classAnswers,
+  selectedAccuracy,
+  selectedAnswers,
+  compareAccuracy,
+  compareAnswers,
+  showCompare,
+}: {
+  tag: string;
+  answersLabel: string;
+  classLabel: string;
+  selectedLabel: string;
+  compareLabel: string;
+  classAccuracy: number | null;
+  classAnswers: number;
+  selectedAccuracy: number | null;
+  selectedAnswers: number;
+  compareAccuracy: number | null;
+  compareAnswers: number;
+  showCompare: boolean;
+}) {
+  const rows = [
+    { label: classLabel, accuracy: classAccuracy, answers: classAnswers, tone: 'bg-[#EAEAEA]' },
+    { label: selectedLabel, accuracy: selectedAccuracy, answers: selectedAnswers, tone: 'bg-[#F3ECFF]' },
+    ...(showCompare ? [{ label: compareLabel, accuracy: compareAccuracy, answers: compareAnswers, tone: 'bg-[#FFE5DE]' }] : []),
+  ];
+
+  return (
+    <div className="rounded-[1.2rem] border-2 border-brand-dark bg-white p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm font-black">{tag}</p>
+        <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-3 py-1 text-[11px] font-black uppercase">
+          {classAnswers} {answersLabel}
+        </span>
+      </div>
+      <div className="space-y-3">
+        {rows.map((row) => {
+          const width = row.accuracy === null || row.accuracy === undefined ? 0 : Math.max(4, Math.min(100, Number(row.accuracy)));
+          return (
+            <div key={`${tag}-${row.label}`}>
+              <div className="mb-1 flex items-center justify-between gap-3 text-xs font-black uppercase text-brand-dark/60">
+                <span>{row.label}</span>
+                <span>{row.accuracy !== null && row.accuracy !== undefined ? `${Math.round(Number(row.accuracy))}%` : '--'} • {row.answers}</span>
+              </div>
+              <div className="h-3 overflow-hidden rounded-full border-2 border-brand-dark bg-white">
+                <div className={`h-full ${row.tone}`} style={{ width: `${width}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function LegendPill({ label, tone }: { label: string; tone: 'purple' | 'orange' | 'dark' }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-2 rounded-full border-2 border-brand-dark px-3 py-2 text-xs font-black uppercase tracking-[0.16em] ${
+        tone === 'purple'
+          ? 'bg-[#F3ECFF] text-brand-dark'
+          : tone === 'orange'
+            ? 'bg-[#FFE5DE] text-brand-dark'
+            : 'bg-[#EAEAEA] text-brand-dark'
+      }`}
+    >
+      <span
+        className={`h-3 w-3 rounded-full border border-brand-dark ${
+          tone === 'purple' ? 'bg-[#8B5CF6]' : tone === 'orange' ? 'bg-[#FF5A36]' : 'bg-[#1A1A1A]'
+        }`}
+      />
+      {label}
+    </span>
   );
 }

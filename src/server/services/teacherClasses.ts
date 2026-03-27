@@ -162,7 +162,7 @@ export type StudentClassWorkspace = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function normalizeRosterName(value: unknown) {
+export function normalizeRosterName(value: unknown) {
   return String(value || '')
     .trim()
     .toLowerCase()

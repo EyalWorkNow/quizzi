@@ -13,20 +13,18 @@ import {
   resolveQuestionGenerationLanguage,
   validateQuestionGenerationOutput,
 } from './questionGenerationSkill.js';
+import {
+  buildQuestionGenerationConfigSnapshot,
+  normalizeQuestionGenerationConfig,
+  type QuestionGenerationMode,
+} from '../../shared/questionGeneration.js';
 
-type QuestionGenerationRequest = {
+export type QuestionGenerationRequest = ReturnType<typeof normalizeQuestionGenerationConfig> & {
   sourceText: string;
-  count: number;
-  difficulty: string;
-  language: string;
-  questionFormat?: string;
-  cognitiveLevel?: string;
-  explanationDetail?: string;
-  contentFocus?: string;
-  distractorStyle?: string;
-  gradeLevel?: string;
-  providerId?: string | null;
-  modelId?: string | null;
+};
+
+export type QuestionImprovementRequest = QuestionGenerationRequest & {
+  existingQuestions: any[];
 };
 
 type MaterialProfileLike = {
@@ -47,18 +45,19 @@ function parseGeneratedPayload(rawText: string) {
   return JSON.parse(cleanJson || '{}');
 }
 
+function normalizeQuestionGenerationRequest(input: Partial<QuestionGenerationRequest> & { sourceText: string }) {
+  const config = normalizeQuestionGenerationConfig(input);
+  return {
+    ...config,
+    sourceText: String(input.sourceText || '').trim(),
+  };
+}
+
 function buildPromptSignature(request: QuestionGenerationRequest) {
   const normalized = JSON.stringify({
     contract: QUIZZI_QUESTION_GENERATION_SKILL_VERSION,
     language: resolveQuestionGenerationLanguage(request.language).id,
-    difficulty: String(request.difficulty || '').trim().toLowerCase(),
-    questionFormat: String(request.questionFormat || 'Multiple Choice').trim().toLowerCase(),
-    cognitiveLevel: String(request.cognitiveLevel || 'Mixed').trim().toLowerCase(),
-    explanationDetail: String(request.explanationDetail || 'Concise').trim().toLowerCase(),
-    contentFocus: String(request.contentFocus || 'Balanced').trim().toLowerCase(),
-    distractorStyle: String(request.distractorStyle || 'Standard').trim().toLowerCase(),
-    gradeLevel: String(request.gradeLevel || 'Auto').trim().toLowerCase(),
-    count: Number(request.count || 0),
+    ...buildQuestionGenerationConfigSnapshot(request),
   });
 
   return createHash('sha1').update(normalized).digest('hex').slice(0, 12);
@@ -135,133 +134,159 @@ function enforceGeneratedQuestionPreferences(
   }));
 }
 
-export async function generateQuestionsFromSource(request: QuestionGenerationRequest) {
-  const materialProfile = (await getOrCreateMaterialProfile(request.sourceText));
-  const generationSource = (await buildGenerationSource(materialProfile));
+function buildExistingQuestionsBlock(existingQuestions: any[]) {
+  return (Array.isArray(existingQuestions) ? existingQuestions : [])
+    .slice(0, 20)
+    .map((question: any, index: number) => ({
+      index: index + 1,
+      prompt: String(question?.prompt || '').trim(),
+      answers: Array.isArray(question?.answers) ? question.answers.slice(0, 6) : [],
+      correct_index: Number(question?.correct_index || 0),
+      explanation: String(question?.explanation || '').trim(),
+      tags: Array.isArray(question?.tags) ? question.tags.slice(0, 4) : [],
+      learning_objective: String(question?.learning_objective || '').trim(),
+      bloom_level: String(question?.bloom_level || '').trim(),
+    }));
+}
+
+function buildExistingQuestionsSignature(existingQuestions: any[]) {
+  return createHash('sha1').update(JSON.stringify(buildExistingQuestionsBlock(existingQuestions))).digest('hex').slice(0, 12);
+}
+
+export function buildQuestionGenerationInFlightKey(input: {
+  mode: QuestionGenerationMode;
+  sourceText: string;
+  count?: number;
+  difficulty?: string;
+  language?: string;
+  questionFormat?: string;
+  cognitiveLevel?: string;
+  explanationDetail?: string;
+  contentFocus?: string;
+  distractorStyle?: string;
+  gradeLevel?: string;
+  providerId?: string | null;
+  modelId?: string | null;
+  existingQuestions?: any[];
+}) {
+  const request = normalizeQuestionGenerationRequest({
+    sourceText: input.sourceText,
+    count: input.count,
+    difficulty: input.difficulty,
+    language: input.language,
+    questionFormat: input.questionFormat,
+    cognitiveLevel: input.cognitiveLevel,
+    explanationDetail: input.explanationDetail,
+    contentFocus: input.contentFocus,
+    distractorStyle: input.distractorStyle,
+    gradeLevel: input.gradeLevel,
+    providerId: input.providerId,
+    modelId: input.modelId,
+  });
+
+  const normalizedPayload = JSON.stringify({
+    mode: input.mode,
+    source_hash: createHash('sha1').update(request.sourceText).digest('hex'),
+    ...buildQuestionGenerationConfigSnapshot(request),
+    existing_questions_hash: input.mode === 'improve' ? buildExistingQuestionsSignature(input.existingQuestions || []) : '',
+  });
+
+  return createHash('sha1').update(normalizedPayload).digest('hex');
+}
+
+type QuestionGenerationContext = {
+  request: QuestionGenerationRequest;
+  materialProfile: any;
+  generationSource: ReturnType<typeof buildGenerationSource>;
+  resolved: ReturnType<typeof resolveModelSelection>;
+  resolvedLanguage: ReturnType<typeof resolveQuestionGenerationLanguage>;
+  cacheModelKey: string;
+};
+
+async function createQuestionGenerationContext(input: Partial<QuestionGenerationRequest> & { sourceText: string }) {
+  const request = normalizeQuestionGenerationRequest(input);
+  const materialProfile = await getOrCreateMaterialProfile(request.sourceText);
+  const generationSource = await buildGenerationSource(materialProfile);
   const resolved = resolveModelSelection(request.providerId, request.modelId);
   const resolvedLanguage = resolveQuestionGenerationLanguage(request.language);
   const promptSignature = buildPromptSignature(request);
-  const cacheModelKey = `${resolved.model.id}:${promptSignature}`;
 
-  const cached = (await getCachedQuestionGeneration(
-      Number(materialProfile.id),
-      Number(request.count),
-      String(request.difficulty),
-      resolvedLanguage.label,
-      resolved.provider.catalog.id,
-      cacheModelKey,
-    ));
+  return {
+    request,
+    materialProfile,
+    generationSource,
+    resolved,
+    resolvedLanguage,
+    cacheModelKey: `${resolved.model.id}:${promptSignature}`,
+  } satisfies QuestionGenerationContext;
+}
 
-  if (cached?.response?.questions?.length) {
-    return {
-      ...cached.response,
-      generation_meta: {
-        ...(cached.response?.generation_meta || {}),
-        cached: true,
-        source_mode: generationSource.source_mode,
-        estimated_original_tokens: generationSource.estimated_original_tokens,
-        estimated_prompt_tokens: generationSource.estimated_prompt_tokens,
-        token_savings_pct: generationSource.token_savings_pct,
-        provider: resolved.provider.catalog.id,
-        provider_label: resolved.provider.catalog.label,
-        model: resolved.model.id,
-        model_label: resolved.model.label,
-        contract_version:
-          cached.response?.generation_meta?.contract_version || QUIZZI_QUESTION_GENERATION_SKILL_VERSION,
-        output_language: resolvedLanguage.label,
-        output_language_code: resolvedLanguage.id,
-      },
-      material_profile: {
-        id: Number(materialProfile.id),
-        source_language: materialProfile.source_language,
-        source_excerpt: materialProfile.source_excerpt,
-        teaching_brief: materialProfile.teaching_brief,
-        key_points: materialProfile.key_points,
-        topic_fingerprint: materialProfile.topic_fingerprint,
-      },
-    };
-  }
+function buildQuestionGenerationResult(
+  context: QuestionGenerationContext,
+  normalizedQuestions: any[],
+  meta: Record<string, unknown> = {},
+) {
+  return {
+    questions: normalizedQuestions,
+    generation_meta: {
+      cached: false,
+      source_mode: context.generationSource.source_mode,
+      estimated_original_tokens: context.generationSource.estimated_original_tokens,
+      estimated_prompt_tokens: context.generationSource.estimated_prompt_tokens,
+      token_savings_pct: context.generationSource.token_savings_pct,
+      provider: context.resolved.provider.catalog.id,
+      provider_label: context.resolved.provider.catalog.label,
+      model: context.resolved.model.id,
+      model_label: context.resolved.model.label,
+      contract_version: QUIZZI_QUESTION_GENERATION_SKILL_VERSION,
+      output_language: context.resolvedLanguage.label,
+      output_language_code: context.resolvedLanguage.id,
+      request_profile: buildQuestionGenerationConfigSnapshot(context.request),
+      ...meta,
+    },
+    material_profile: {
+      id: Number(context.materialProfile.id),
+      source_language: context.materialProfile.source_language,
+      source_excerpt: context.materialProfile.source_excerpt,
+      teaching_brief: context.materialProfile.teaching_brief,
+      key_points: context.materialProfile.key_points,
+      topic_fingerprint: context.materialProfile.topic_fingerprint,
+    },
+  };
+}
 
+async function executeValidatedQuestionGeneration(input: {
+  context: QuestionGenerationContext;
+  promptFactory: (retryFeedback: string) => string;
+}) {
   let lastFailureSummary = '';
-  let normalizedQuestions: any[] = [];
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      const rawText = await resolved.provider.generateJson({
-        modelId: resolved.model.id,
-        prompt: buildQuestionGenerationSkillPrompt({
-          count: request.count,
-          difficulty: request.difficulty,
-          language: resolvedLanguage.label,
-          questionFormat: request.questionFormat || 'Multiple Choice',
-          cognitiveLevel: request.cognitiveLevel || 'Mixed',
-          explanationDetail: request.explanationDetail || 'Concise',
-          contentFocus: request.contentFocus || 'Balanced',
-          distractorStyle: request.distractorStyle || 'Standard',
-          gradeLevel: request.gradeLevel || 'Auto',
-          material: generationSource.material,
-          sourceLanguage: materialProfile.source_language,
-          topicFingerprint: materialProfile.topic_fingerprint || [],
-          keyPoints: materialProfile.key_points || [],
-          supportingExcerpts: materialProfile.supporting_excerpts || [],
-          retryFeedback: lastFailureSummary,
-        }),
+      const rawText = await input.context.resolved.provider.generateJson({
+        modelId: input.context.resolved.model.id,
+        prompt: input.promptFactory(lastFailureSummary),
       });
 
       const parsed = parseGeneratedPayload(rawText);
-      normalizedQuestions = enforceGeneratedQuestionPreferences(
-        normalizeGeneratedQuestions(parsed?.questions || [], materialProfile.topic_fingerprint || []),
-        request,
-        materialProfile,
+      const normalizedQuestions = enforceGeneratedQuestionPreferences(
+        normalizeGeneratedQuestions(parsed?.questions || [], input.context.materialProfile.topic_fingerprint || []),
+        input.context.request,
+        input.context.materialProfile,
       );
 
       const validation = validateQuestionGenerationOutput({
         questions: normalizedQuestions,
-        count: request.count,
-        language: resolvedLanguage.label,
-        questionFormat: request.questionFormat || 'Multiple Choice',
+        count: input.context.request.count,
+        language: input.context.resolvedLanguage.label,
+        questionFormat: input.context.request.questionFormat,
       });
 
       if (validation.ok) {
-        const payload = {
-          questions: normalizedQuestions,
-          generation_meta: {
-            cached: false,
-            source_mode: generationSource.source_mode,
-            estimated_original_tokens: generationSource.estimated_original_tokens,
-            estimated_prompt_tokens: generationSource.estimated_prompt_tokens,
-            token_savings_pct: generationSource.token_savings_pct,
-            provider: resolved.provider.catalog.id,
-            provider_label: resolved.provider.catalog.label,
-            model: resolved.model.id,
-            model_label: resolved.model.label,
-            contract_version: QUIZZI_QUESTION_GENERATION_SKILL_VERSION,
-            output_language: resolvedLanguage.label,
-            output_language_code: resolvedLanguage.id,
-            attempts: attempt,
-            language_validated: true,
-          },
-          material_profile: {
-            id: Number(materialProfile.id),
-            source_language: materialProfile.source_language,
-            source_excerpt: materialProfile.source_excerpt,
-            teaching_brief: materialProfile.teaching_brief,
-            key_points: materialProfile.key_points,
-            topic_fingerprint: materialProfile.topic_fingerprint,
-          },
+        return {
+          attempts: attempt,
+          normalizedQuestions,
         };
-
-        (await saveCachedQuestionGeneration(
-              Number(materialProfile.id),
-              Number(request.count),
-              String(request.difficulty),
-              resolvedLanguage.label,
-              payload,
-              resolved.provider.catalog.id,
-              cacheModelKey,
-            ));
-
-        return payload;
       }
 
       lastFailureSummary = validation.summary || `Attempt ${attempt} did not satisfy the requested language and format contract.`;
@@ -274,104 +299,137 @@ export async function generateQuestionsFromSource(request: QuestionGenerationReq
   }
 
   throw new Error(
-    `AI generation failed to satisfy the ${resolvedLanguage.label} language contract after multiple attempts. ${lastFailureSummary}`.trim(),
+    `AI generation failed to satisfy the ${input.context.resolvedLanguage.label} language contract after multiple attempts. ${lastFailureSummary}`.trim(),
   );
 }
 
-export async function improveQuestionsFromSource(
-  request: QuestionGenerationRequest & { existingQuestions: any[] },
-) {
-  const count = Math.max(1, Math.min(Number(request.count || request.existingQuestions.length || 5), 20));
-  const materialProfile = (await getOrCreateMaterialProfile(request.sourceText));
-  const generationSource = (await buildGenerationSource(materialProfile));
-  const resolved = resolveModelSelection(request.providerId, request.modelId);
-  const resolvedLanguage = resolveQuestionGenerationLanguage(request.language);
+export async function generateQuestionsFromSource(request: QuestionGenerationRequest) {
+  const context = await createQuestionGenerationContext(request);
 
-  const existingQuestionsBlock = (Array.isArray(request.existingQuestions) ? request.existingQuestions : [])
-    .slice(0, 20)
-    .map((question: any, index: number) => ({
-      index: index + 1,
-      prompt: String(question?.prompt || '').trim(),
-      answers: Array.isArray(question?.answers) ? question.answers.slice(0, 6) : [],
-      correct_index: Number(question?.correct_index || 0),
-      explanation: String(question?.explanation || '').trim(),
-      tags: Array.isArray(question?.tags) ? question.tags.slice(0, 4) : [],
-      learning_objective: String(question?.learning_objective || '').trim(),
-      bloom_level: String(question?.bloom_level || '').trim(),
-    }));
+  const cached = (await getCachedQuestionGeneration(
+      Number(context.materialProfile.id),
+      Number(context.request.count),
+      String(context.request.difficulty),
+      context.resolvedLanguage.label,
+      context.resolved.provider.catalog.id,
+      context.cacheModelKey,
+    ));
 
-  const rawText = await resolved.provider.generateJson({
-    modelId: resolved.model.id,
-    prompt: [
+  if (cached?.response?.questions?.length) {
+    return {
+      ...cached.response,
+      generation_meta: {
+        ...(cached.response?.generation_meta || {}),
+        cached: true,
+        source_mode: context.generationSource.source_mode,
+        estimated_original_tokens: context.generationSource.estimated_original_tokens,
+        estimated_prompt_tokens: context.generationSource.estimated_prompt_tokens,
+        token_savings_pct: context.generationSource.token_savings_pct,
+        provider: context.resolved.provider.catalog.id,
+        provider_label: context.resolved.provider.catalog.label,
+        model: context.resolved.model.id,
+        model_label: context.resolved.model.label,
+        contract_version:
+          cached.response?.generation_meta?.contract_version || QUIZZI_QUESTION_GENERATION_SKILL_VERSION,
+        output_language: context.resolvedLanguage.label,
+        output_language_code: context.resolvedLanguage.id,
+        request_profile: buildQuestionGenerationConfigSnapshot(context.request),
+      },
+      material_profile: {
+        id: Number(context.materialProfile.id),
+        source_language: context.materialProfile.source_language,
+        source_excerpt: context.materialProfile.source_excerpt,
+        teaching_brief: context.materialProfile.teaching_brief,
+        key_points: context.materialProfile.key_points,
+        topic_fingerprint: context.materialProfile.topic_fingerprint,
+      },
+    };
+  }
+  const execution = await executeValidatedQuestionGeneration({
+    context,
+    promptFactory: (retryFeedback) =>
       buildQuestionGenerationSkillPrompt({
-        count,
-        difficulty: request.difficulty,
-        language: resolvedLanguage.label,
-        questionFormat: request.questionFormat || 'Multiple Choice',
-        cognitiveLevel: request.cognitiveLevel || 'Mixed',
-        explanationDetail: request.explanationDetail || 'Concise',
-        contentFocus: request.contentFocus || 'Balanced',
-        distractorStyle: request.distractorStyle || 'Standard',
-        gradeLevel: request.gradeLevel || 'Auto',
-        material: generationSource.material,
-        sourceLanguage: materialProfile.source_language,
-        topicFingerprint: materialProfile.topic_fingerprint || [],
-        keyPoints: materialProfile.key_points || [],
-        supportingExcerpts: materialProfile.supporting_excerpts || [],
+        count: context.request.count,
+        difficulty: context.request.difficulty,
+        language: context.resolvedLanguage.label,
+        questionFormat: context.request.questionFormat,
+        cognitiveLevel: context.request.cognitiveLevel,
+        explanationDetail: context.request.explanationDetail,
+        contentFocus: context.request.contentFocus,
+        distractorStyle: context.request.distractorStyle,
+        gradeLevel: context.request.gradeLevel,
+        material: context.generationSource.material,
+        sourceLanguage: context.materialProfile.source_language,
+        topicFingerprint: context.materialProfile.topic_fingerprint || [],
+        keyPoints: context.materialProfile.key_points || [],
+        supportingExcerpts: context.materialProfile.supporting_excerpts || [],
+        retryFeedback,
       }),
-      '',
-      'Improvement Mode:',
-      '- Improve the existing questions instead of inventing a completely unrelated set.',
-      '- Keep coverage aligned to the original weak spots, concepts, and likely classroom misconceptions.',
-      '- Rewrite unclear prompts, strengthen distractors, fix ambiguity, and keep the best underlying teaching intent.',
-      '- Return the improved set in the same JSON schema.',
-      '',
-      `Existing Questions to Improve:\n${JSON.stringify(existingQuestionsBlock, null, 2)}`,
-    ].join('\n'),
   });
 
-  const parsed = parseGeneratedPayload(rawText);
-  const normalizedQuestions = enforceGeneratedQuestionPreferences(
-    normalizeGeneratedQuestions(parsed?.questions || [], materialProfile.topic_fingerprint || []),
-    request,
-    materialProfile,
+  const payload = buildQuestionGenerationResult(context, execution.normalizedQuestions, {
+    attempts: execution.attempts,
+    language_validated: true,
+  });
+
+  await saveCachedQuestionGeneration(
+    Number(context.materialProfile.id),
+    Number(context.request.count),
+    String(context.request.difficulty),
+    context.resolvedLanguage.label,
+    payload,
+    context.resolved.provider.catalog.id,
+    context.cacheModelKey,
   );
 
-  const validation = validateQuestionGenerationOutput({
-    questions: normalizedQuestions,
-    count,
-    language: resolvedLanguage.label,
-    questionFormat: request.questionFormat || 'Multiple Choice',
+  return payload;
+}
+
+export async function improveQuestionsFromSource(
+  request: QuestionImprovementRequest,
+) {
+  const context = await createQuestionGenerationContext({
+    ...request,
+    count: Math.max(1, Math.min(Number(request.count || request.existingQuestions.length || 5), 20)),
+  });
+  const existingQuestionsBlock = buildExistingQuestionsBlock(request.existingQuestions);
+
+  const execution = await executeValidatedQuestionGeneration({
+    context,
+    promptFactory: (retryFeedback) =>
+      [
+        buildQuestionGenerationSkillPrompt({
+          count: context.request.count,
+          difficulty: context.request.difficulty,
+          language: context.resolvedLanguage.label,
+          questionFormat: context.request.questionFormat,
+          cognitiveLevel: context.request.cognitiveLevel,
+          explanationDetail: context.request.explanationDetail,
+          contentFocus: context.request.contentFocus,
+          distractorStyle: context.request.distractorStyle,
+          gradeLevel: context.request.gradeLevel,
+          material: context.generationSource.material,
+          sourceLanguage: context.materialProfile.source_language,
+          topicFingerprint: context.materialProfile.topic_fingerprint || [],
+          keyPoints: context.materialProfile.key_points || [],
+          supportingExcerpts: context.materialProfile.supporting_excerpts || [],
+          retryFeedback,
+        }),
+        '',
+        'Improvement Mode:',
+        '- Improve the existing questions instead of inventing a completely unrelated set.',
+        '- Keep coverage aligned to the original weak spots, concepts, and likely classroom misconceptions.',
+        '- Rewrite unclear prompts, strengthen distractors, fix ambiguity, and keep the best underlying teaching intent.',
+        '- Return the improved set in the same JSON schema.',
+        '',
+        `Existing Questions to Improve:\n${JSON.stringify(existingQuestionsBlock, null, 2)}`,
+      ].join('\n'),
   });
 
-  if (!validation.ok) {
-    throw new Error(validation.summary || 'Improved questions did not satisfy the required contract.');
-  }
-
-  return {
-    questions: normalizedQuestions,
-    generation_meta: {
-      cached: false,
-      source_mode: generationSource.source_mode,
-      estimated_original_tokens: generationSource.estimated_original_tokens,
-      estimated_prompt_tokens: generationSource.estimated_prompt_tokens,
-      token_savings_pct: generationSource.token_savings_pct,
-      provider: resolved.provider.catalog.id,
-      provider_label: resolved.provider.catalog.label,
-      model: resolved.model.id,
-      model_label: resolved.model.label,
-      contract_version: QUIZZI_QUESTION_GENERATION_SKILL_VERSION,
-      output_language: resolvedLanguage.label,
-      output_language_code: resolvedLanguage.id,
-      improvement_mode: true,
-    },
-    material_profile: {
-      id: Number(materialProfile.id),
-      source_language: materialProfile.source_language,
-      source_excerpt: materialProfile.source_excerpt,
-      teaching_brief: materialProfile.teaching_brief,
-      key_points: materialProfile.key_points,
-      topic_fingerprint: materialProfile.topic_fingerprint,
-    },
-  };
+  return buildQuestionGenerationResult(context, execution.normalizedQuestions, {
+    attempts: execution.attempts,
+    improvement_mode: true,
+    language_validated: true,
+    existing_questions_count: existingQuestionsBlock.length,
+  });
 }
