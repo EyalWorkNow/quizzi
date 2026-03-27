@@ -125,6 +125,65 @@ export type TeacherClassWorkspace = TeacherClassCard & {
   };
 };
 
+export type TeacherClassProgressPoint = {
+  session_id: number;
+  label: string;
+  pin: string;
+  status: string;
+  started_at: string | null;
+  ended_at: string | null;
+  pack_title: string;
+  accuracy_pct: number | null;
+  participant_count?: number;
+  answer_count?: number;
+};
+
+export type TeacherClassProgressStudentSummary = {
+  id: number;
+  name: string;
+  email: string;
+  account_linked: boolean;
+  session_count: number;
+  avg_accuracy: number | null;
+  latest_accuracy: number | null;
+  best_accuracy?: number | null;
+  improvement_delta?: number | null;
+  weakest_tag?: string | null;
+  strongest_tag?: string | null;
+  last_activity_at: string | null;
+};
+
+export type TeacherClassProgressTopicSummary = {
+  tag: string;
+  class_accuracy: number | null;
+  class_answers: number;
+  selected_accuracy: number | null;
+  selected_answers: number;
+  compare_accuracy: number | null;
+  compare_answers: number;
+};
+
+export type TeacherClassProgressAction = {
+  kind: 'class_focus' | 'student_support' | 'student_challenge';
+  title: string;
+  body: string;
+  student_id: number | null;
+  tag: string | null;
+};
+
+export type TeacherClassProgressBoard = {
+  class_id: number;
+  class_name: string;
+  class_series: TeacherClassProgressPoint[];
+  students: TeacherClassProgressStudentSummary[];
+  selected_student_id: number | null;
+  compare_student_id: number | null;
+  selected_student_series: TeacherClassProgressPoint[];
+  compare_student_series: TeacherClassProgressPoint[];
+  topic_summary: TeacherClassProgressTopicSummary[];
+  recommended_actions: TeacherClassProgressAction[];
+};
+
 export type TeacherClassBoard = TeacherClassWorkspace;
 
 export type TeacherClassPayload = {
@@ -167,6 +226,20 @@ export async function getTeacherClass(classId: number) {
       },
     } satisfies TeacherClassWorkspace;
   }
+}
+
+export async function getTeacherClassProgress(classId: number, studentId?: number | null, compareStudentId?: number | null) {
+  const params = new URLSearchParams();
+  if (studentId && Number(studentId) > 0) {
+    params.set('student_id', String(studentId));
+  }
+  if (compareStudentId && Number(compareStudentId) > 0) {
+    params.set('compare_student_id', String(compareStudentId));
+  }
+  const suffix = params.toString();
+  return apiFetchJson<TeacherClassProgressBoard>(
+    suffix ? `/api/teacher/classes/${classId}/progress?${suffix}` : `/api/teacher/classes/${classId}/progress`,
+  );
 }
 
 export async function createTeacherClass(payload: TeacherClassPayload) {

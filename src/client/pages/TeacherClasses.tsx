@@ -5,6 +5,7 @@ import {
   ArrowRight,
   BookOpen,
   CheckCircle2,
+  Check,
   ClipboardList,
   Clock3,
   GraduationCap,
@@ -559,10 +560,6 @@ export default function TeacherClasses() {
       return;
     }
 
-    if (!window.confirm(`Remove ${classItem.name}?`)) {
-      return;
-    }
-
     try {
       setBusyKey(`delete-${classItem.id}`);
       await deleteTeacherClass(classItem.id);
@@ -937,6 +934,7 @@ const ClassCard: React.FC<ClassCardProps> = ({
   onOpenClassPage,
 }) => {
   const isRtl = language === 'he' || language === 'ar';
+  const [deleteArmed, setDeleteArmed] = useState(false);
   const safeStats = classItem.stats || {
     student_count: Number(classItem.student_count || 0),
     session_count: 0,
@@ -971,9 +969,12 @@ const ClassCard: React.FC<ClassCardProps> = ({
               </button>
               <button
                 type="button"
-                onClick={onDelete}
+                onClick={() => setDeleteArmed(true)}
                 disabled={isBusy}
-                className="flex h-[40px] w-[40px] items-center justify-center rounded-full border-[3px] border-brand-dark bg-white text-[#FF4B32] transition-transform active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-50"
+                aria-label="Delete class"
+                className={`flex h-[40px] w-[40px] items-center justify-center rounded-full border-[3px] border-brand-dark transition-transform active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-50 ${
+                  deleteArmed ? 'bg-[#FF4B32] text-white' : 'bg-white text-[#FF4B32]'
+                }`}
               >
                 <Trash2 className="h-4 w-4 sm:h-5 sm:w-5" />
               </button>
@@ -986,6 +987,40 @@ const ClassCard: React.FC<ClassCardProps> = ({
             </h3>
           </div>
         </div>
+
+        {deleteArmed ? (
+          <div className="rounded-[1.35rem] border-[3px] border-brand-dark bg-rose-50 px-4 py-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+            <p className="text-center text-sm font-black text-brand-dark">
+              {language === 'he'
+                ? `למחוק את הכיתה ${classItem.name}?`
+                : language === 'ar'
+                  ? `هل تريد/ين حذف الصف ${classItem.name}؟`
+                  : `Delete class ${classItem.name}?`}
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  void onDelete();
+                  setDeleteArmed(false);
+                }}
+                disabled={isBusy}
+                className="flex min-h-[48px] items-center justify-center gap-2 rounded-full border-[3px] border-brand-dark bg-[#FF4B32] px-4 py-2 font-black text-white shadow-[4px_4px_0px_0px_#1A1A1A] disabled:opacity-50"
+              >
+                <Check className="h-4 w-4" />
+                {language === 'he' ? 'כן, למחוק' : language === 'ar' ? 'نعم، احذف' : 'Yes, delete'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteArmed(false)}
+                disabled={isBusy}
+                className="flex min-h-[48px] items-center justify-center rounded-full border-[3px] border-brand-dark bg-white px-4 py-2 font-black shadow-[4px_4px_0px_0px_#1A1A1A] disabled:opacity-50"
+              >
+                {language === 'he' ? 'ביטול' : language === 'ar' ? 'إلغاء' : 'Cancel'}
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex min-h-[134px] flex-col items-center justify-center rounded-[1.7rem] border-[4px] border-black/10 bg-white px-3 py-4 text-center">

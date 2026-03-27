@@ -73,6 +73,7 @@ import {
   getTeacherOwnedClass,
   getTeacherOwnedStudent,
   listTeacherClasses,
+  normalizeRosterName,
   listStudentClassWorkspaces,
   sanitizeTeacherClassColor,
 } from '../services/teacherClasses.js';
@@ -84,7 +85,11 @@ import {
   normalizeGeneratedQuestions,
   syncPackDerivedData,
 } from '../services/materialIntel.js';
-import { generateQuestionsFromSource, improveQuestionsFromSource } from '../services/questionGeneration.js';
+import {
+  buildQuestionGenerationInFlightKey,
+  generateQuestionsFromSource,
+  improveQuestionsFromSource,
+} from '../services/questionGeneration.js';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
 
@@ -1401,36 +1406,22 @@ function runInFlightQuestionGeneration<T>(key: string, task: () => Promise<T>) {
   return promise;
 }
 
-function buildQuestionGenerationInFlightKey(input: {
-  sourceText: string;
-  count: number;
-  difficulty: string;
-  language: string;
-  questionFormat: string;
-  cognitiveLevel: string;
-  explanationDetail: string;
-  contentFocus: string;
-  distractorStyle: string;
-  gradeLevel: string;
-  providerId?: string | null;
-  modelId?: string | null;
-}) {
-  const normalizedPayload = JSON.stringify({
-    source_hash: createHash('sha1').update(String(input.sourceText || '')).digest('hex'),
-    count: Number(input.count || 0),
-    difficulty: String(input.difficulty || '').trim().toLowerCase(),
-    language: String(input.language || '').trim().toLowerCase(),
-    question_format: String(input.questionFormat || '').trim().toLowerCase(),
-    cognitive_level: String(input.cognitiveLevel || '').trim().toLowerCase(),
-    explanation_detail: String(input.explanationDetail || '').trim().toLowerCase(),
-    content_focus: String(input.contentFocus || '').trim().toLowerCase(),
-    distractor_style: String(input.distractorStyle || '').trim().toLowerCase(),
-    grade_level: String(input.gradeLevel || '').trim().toLowerCase(),
-    provider_id: String(input.providerId || 'default-provider').trim().toLowerCase(),
-    model_id: String(input.modelId || 'default-model').trim().toLowerCase(),
-  });
-
-  return createHash('sha1').update(normalizedPayload).digest('hex');
+function readQuestionGenerationRequestBody(body: any) {
+  return {
+    sourceText: sanitizeMultiline(body?.source_text, 120000),
+    count: Math.min(20, Math.max(3, parsePositiveInt(body?.count, 5))),
+    difficulty: sanitizeLine(body?.difficulty || 'Medium', 24),
+    language: sanitizeLine(body?.language || 'English', 24),
+    questionFormat: sanitizeLine(body?.question_format || 'Multiple Choice', 32),
+    cognitiveLevel: sanitizeLine(body?.cognitive_level || 'Mixed', 32),
+    explanationDetail: sanitizeLine(body?.explanation_detail || 'Concise', 32),
+    contentFocus: sanitizeLine(body?.content_focus || 'Balanced', 40),
+    distractorStyle: sanitizeLine(body?.distractor_style || 'Standard', 32),
+    gradeLevel: sanitizeLine(body?.grade_level || 'Auto', 40),
+    providerId: sanitizeLine(body?.provider_id || body?.providerId, 24) || null,
+    modelId: sanitizeLine(body?.model_id || body?.modelId, 80) || null,
+    existingQuestions: Array.isArray(body?.existing_questions) ? body.existing_questions : [],
+  };
 }
 
 async function getTeacherUserIdFromRequest(req: any) {
@@ -2943,6 +2934,52 @@ async function runStudentDashboardWithFallback(payload: Record<string, any>) {
   }
 }
 
+async function runPracticeSetWithFallback(payload: Record<string, any>) {
+  const sanitizeQuestions = (rows: any[]) =>
+    (Array.isArray(rows) ? rows : []).filter((question: any) => {
+      const id = Number(question?.id || 0);
+      const prompt = String(question?.prompt || '').trim();
+      return id > 0 && prompt.length > 0;
+    });
+
+  const basePayload: Record<string, any> = {
+    ...payload,
+    questions: sanitizeQuestions(payload.questions),
+    practice_attempts: Array.isArray(payload.practice_attempts) ? payload.practice_attempts : [],
+    focus_tags: Array.isArray(payload.focus_tags) ? payload.focus_tags : [],
+    priority_question_ids: Array.isArray(payload.priority_question_ids) ? payload.priority_question_ids : [],
+  };
+
+  try {
+    return await runPythonEngine<any>('practice-set', basePayload);
+  } catch (error: any) {
+    console.error('[practice-set] primary generation failed:', error);
+
+    const reducedPayload: Record<string, any> = {
+      ...basePayload,
+      questions: sanitizeQuestions(basePayload.questions).slice(0, 250),
+      practice_attempts: (Array.isArray(basePayload.practice_attempts) ? basePayload.practice_attempts : []).slice(-120),
+      mastery: Array.isArray(basePayload.mastery) ? basePayload.mastery.slice(0, 120) : basePayload.mastery,
+    };
+
+    try {
+      return await runPythonEngine<any>('practice-set', reducedPayload);
+    } catch (retryError: any) {
+      console.error('[practice-set] fallback generation failed:', retryError);
+
+      return {
+        questions: reducedPayload.questions.slice(0, Math.max(1, Number(reducedPayload.count || 5))),
+        strategy: {
+          headline: 'Practice set fallback',
+          body: 'Returning a lighter practice set because adaptive generation was unavailable for this request.',
+          focus_tags: Array.isArray(reducedPayload.focus_tags) ? reducedPayload.focus_tags : [],
+          priority_question_ids: Array.isArray(reducedPayload.priority_question_ids) ? reducedPayload.priority_question_ids : [],
+        },
+      };
+    }
+  }
+}
+
 function buildStudentEngagementEnvelope({
   analytics,
   answers,
@@ -4248,6 +4285,363 @@ router.get('/teacher/classes/:id', requireTeacherSession, async (req, res) => {
   }
 });
 
+router.get('/teacher/classes/:id/progress', requireTeacherSession, async (req, res) => {
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) {
+      return res.status(401).json({ error: 'Teacher authentication required' });
+    }
+    if (!enforceRateLimit(
+      req,
+      res,
+      'teacher-class-progress',
+      180,
+      5 * 60 * 1000,
+      teacherUserId,
+      req.params.id,
+      String(req.query?.student_id || ''),
+      String(req.query?.compare_student_id || ''),
+    )) return;
+
+    const classId = parsePositiveInt(req.params.id);
+    const selectedStudentId = parsePositiveInt(req.query?.student_id);
+    const compareStudentIdRaw = parsePositiveInt(req.query?.compare_student_id);
+    const compareStudentId =
+      compareStudentIdRaw && Number(compareStudentIdRaw) !== Number(selectedStudentId || 0)
+        ? compareStudentIdRaw
+        : null;
+    const classBoard = await getHydratedTeacherClass(classId, teacherUserId);
+    if (!classBoard) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+
+    const rosterRows = (await db
+      .prepare(`
+        SELECT
+          id,
+          name,
+          email,
+          student_user_id,
+          last_seen_at,
+          created_at,
+          updated_at
+        FROM teacher_class_students
+        WHERE class_id = ?
+        ORDER BY LOWER(name) ASC, id ASC
+      `)
+      .all(classId)) as any[];
+
+    const classSeriesRows = (await db
+      .prepare(`
+        SELECT
+          s.id AS session_id,
+          s.pin,
+          s.status,
+          s.started_at,
+          s.ended_at,
+          COALESCE(s.started_at, s.ended_at, '1970-01-01 00:00:00') AS session_at,
+          COALESCE(q.title, '') AS pack_title,
+          COUNT(DISTINCT p.id) AS participant_count,
+          COUNT(a.id) AS answer_count,
+          AVG(
+            CASE
+              WHEN a.id IS NOT NULL THEN CASE WHEN COALESCE(a.is_correct, 0) = 1 THEN 100.0 ELSE 0.0 END
+              ELSE NULL
+            END
+          ) AS accuracy_pct
+        FROM sessions s
+        LEFT JOIN quiz_packs q ON q.id = s.quiz_pack_id
+        LEFT JOIN participants p ON p.session_id = s.id
+        LEFT JOIN answers a ON a.participant_id = p.id
+        WHERE s.teacher_class_id = ?
+        GROUP BY s.id, q.title
+        ORDER BY COALESCE(s.started_at, s.ended_at, '1970-01-01 00:00:00') ASC, s.id ASC
+      `)
+      .all(classId)) as any[];
+
+    const classSeries = classSeriesRows.map((row: any, index: number) => ({
+      session_id: Number(row.session_id || 0),
+      label: `S${index + 1}`,
+      pin: String(row.pin || ''),
+      status: String(row.status || ''),
+      started_at: row.started_at || row.ended_at || row.session_at || null,
+      ended_at: row.ended_at || null,
+      pack_title: String(row.pack_title || ''),
+      accuracy_pct: row.accuracy_pct === null || row.accuracy_pct === undefined ? null : Number(row.accuracy_pct),
+      participant_count: Number(row.participant_count || 0),
+      answer_count: Number(row.answer_count || 0),
+    }));
+
+    const sessionLabelById = new Map<number, string>(
+      classSeries.map((row) => [Number(row.session_id || 0), String(row.label || '')] as const),
+    );
+
+    const participantRows = (await db
+      .prepare(`
+        SELECT
+          s.id AS session_id,
+          s.pin,
+          s.status,
+          s.started_at,
+          s.ended_at,
+          COALESCE(s.started_at, s.ended_at, '1970-01-01 00:00:00') AS session_at,
+          COALESCE(q.title, '') AS pack_title,
+          p.id AS participant_id,
+          p.nickname,
+          p.class_student_id,
+          p.student_user_id,
+          COUNT(a.id) AS answer_count,
+          AVG(
+            CASE
+              WHEN a.id IS NOT NULL THEN CASE WHEN COALESCE(a.is_correct, 0) = 1 THEN 100.0 ELSE 0.0 END
+              ELSE NULL
+            END
+          ) AS accuracy_pct
+        FROM sessions s
+        JOIN participants p ON p.session_id = s.id
+        LEFT JOIN quiz_packs q ON q.id = s.quiz_pack_id
+        LEFT JOIN answers a ON a.participant_id = p.id
+        WHERE s.teacher_class_id = ?
+        GROUP BY s.id, q.title, p.id
+        ORDER BY COALESCE(s.started_at, s.ended_at, '1970-01-01 00:00:00') ASC, s.id ASC, p.id ASC
+      `)
+      .all(classId)) as any[];
+
+    const rosterById = new Map<number, any>();
+    const rosterByStudentUserId = new Map<number, any>();
+    const rosterByNormalizedName = new Map<string, any>();
+    const rosterNameCounts = new Map<string, number>();
+    rosterRows.forEach((row: any) => {
+      const rosterId = Number(row.id || 0);
+      if (rosterId > 0) {
+        rosterById.set(rosterId, row);
+      }
+      const studentUserId = Number(row.student_user_id || 0);
+      if (studentUserId > 0) {
+        rosterByStudentUserId.set(studentUserId, row);
+      }
+      const normalizedName = normalizeRosterName(row.name);
+      if (normalizedName) {
+        rosterNameCounts.set(normalizedName, Number(rosterNameCounts.get(normalizedName) || 0) + 1);
+      }
+    });
+    rosterRows.forEach((row: any) => {
+      const normalizedName = normalizeRosterName(row.name);
+      if (normalizedName && Number(rosterNameCounts.get(normalizedName) || 0) === 1) {
+        rosterByNormalizedName.set(normalizedName, row);
+      }
+    });
+
+    const resolveRosterRowForParticipant = (row: any) => {
+      const normalizedNickname = normalizeRosterName(row.nickname);
+      return (
+        (Number(row.class_student_id || 0) > 0 ? rosterById.get(Number(row.class_student_id || 0)) : null) ||
+        (Number(row.student_user_id || 0) > 0 ? rosterByStudentUserId.get(Number(row.student_user_id || 0)) : null) ||
+        (normalizedNickname ? rosterByNormalizedName.get(normalizedNickname) : null) ||
+        null
+      );
+    };
+
+    const seriesByStudentId = new Map<number, any[]>();
+    participantRows.forEach((row: any) => {
+      const rosterRow = resolveRosterRowForParticipant(row);
+      if (!rosterRow?.id) return;
+
+      const rosterId = Number(rosterRow.id || 0);
+      const existing = seriesByStudentId.get(rosterId) || [];
+      existing.push({
+        session_id: Number(row.session_id || 0),
+        label: sessionLabelById.get(Number(row.session_id || 0)) || `S${existing.length + 1}`,
+        pin: String(row.pin || ''),
+        status: String(row.status || ''),
+        started_at: row.started_at || row.ended_at || row.session_at || null,
+        ended_at: row.ended_at || null,
+        pack_title: String(row.pack_title || ''),
+        accuracy_pct: row.accuracy_pct === null || row.accuracy_pct === undefined ? null : Number(row.accuracy_pct),
+        answer_count: Number(row.answer_count || 0),
+      });
+      seriesByStudentId.set(rosterId, existing);
+    });
+
+    const answerTopicRows = (await db
+      .prepare(`
+        SELECT
+          p.nickname,
+          p.class_student_id,
+          p.student_user_id,
+          a.is_correct,
+          q.tags_json
+        FROM sessions s
+        JOIN participants p ON p.session_id = s.id
+        JOIN answers a ON a.participant_id = p.id
+        LEFT JOIN questions q ON q.id = a.question_id
+        WHERE s.teacher_class_id = ?
+      `)
+      .all(classId)) as any[];
+
+    const classTopicTotals = new Map<string, { correct: number; total: number }>();
+    const topicTotalsByStudentId = new Map<number, Map<string, { correct: number; total: number }>>();
+    const trackTagStats = (bucket: Map<string, { correct: number; total: number }>, tag: string, isCorrect: boolean) => {
+      const current = bucket.get(tag) || { correct: 0, total: 0 };
+      current.total += 1;
+      if (isCorrect) current.correct += 1;
+      bucket.set(tag, current);
+    };
+
+    answerTopicRows.forEach((row: any) => {
+      const tags = uniqueStrings(parseJsonArray(row.tags_json).map((tag) => sanitizeLine(tag, 40))).slice(0, 6);
+      if (!tags.length) return;
+      const isCorrect = Number(row.is_correct || 0) === 1;
+      tags.forEach((tag) => trackTagStats(classTopicTotals, tag, isCorrect));
+
+      const rosterRow = resolveRosterRowForParticipant(row);
+      if (!rosterRow?.id) return;
+      const rosterId = Number(rosterRow.id || 0);
+      const existing = topicTotalsByStudentId.get(rosterId) || new Map<string, { correct: number; total: number }>();
+      tags.forEach((tag) => trackTagStats(existing, tag, isCorrect));
+      topicTotalsByStudentId.set(rosterId, existing);
+    });
+
+    const resolveBestAndWeakestTag = (bucket: Map<string, { correct: number; total: number }>) => {
+      const rows = [...bucket.entries()]
+        .map(([tag, stats]) => ({
+          tag,
+          total: Number(stats.total || 0),
+          accuracy: stats.total ? (Number(stats.correct || 0) / Number(stats.total || 1)) * 100 : null,
+        }))
+        .filter((entry) => entry.total > 0 && entry.accuracy !== null);
+      if (!rows.length) {
+        return {
+          weakestTag: null,
+          strongestTag: null,
+        };
+      }
+
+      const sortedForWeakest = [...rows].sort((left, right) => {
+        const answerDelta = right.total - left.total;
+        if (answerDelta !== 0) return answerDelta;
+        return Number(left.accuracy || 0) - Number(right.accuracy || 0);
+      });
+      const sortedForStrongest = [...rows].sort((left, right) => {
+        const answerDelta = right.total - left.total;
+        if (answerDelta !== 0) return answerDelta;
+        return Number(right.accuracy || 0) - Number(left.accuracy || 0);
+      });
+
+      return {
+        weakestTag: sortedForWeakest[0]?.tag || null,
+        strongestTag: sortedForStrongest[0]?.tag || null,
+      };
+    };
+
+    const students = rosterRows
+      .map((row: any) => {
+        const rosterId = Number(row.id || 0);
+        const history = [...(seriesByStudentId.get(rosterId) || [])].sort((left, right) => {
+          const leftTs = new Date(left.ended_at || left.started_at || 0).getTime() || 0;
+          const rightTs = new Date(right.ended_at || right.started_at || 0).getTime() || 0;
+          return leftTs - rightTs;
+        });
+        const accuracyValues = history
+          .map((entry) => (entry.accuracy_pct === null || entry.accuracy_pct === undefined ? null : Number(entry.accuracy_pct)))
+          .filter((value): value is number => value !== null && Number.isFinite(value));
+        const latest = history[history.length - 1] || null;
+        const firstAccuracy = accuracyValues.length ? Number(accuracyValues[0]) : null;
+        const latestAccuracy = accuracyValues.length ? Number(accuracyValues[accuracyValues.length - 1]) : null;
+        const bestAccuracy = accuracyValues.length ? Math.max(...accuracyValues) : null;
+        const topicStats = resolveBestAndWeakestTag(topicTotalsByStudentId.get(rosterId) || new Map());
+        const lastActivityAt = maxIsoTimestamp([
+          row.last_seen_at,
+          latest?.ended_at,
+          latest?.started_at,
+          row.updated_at,
+          row.created_at,
+        ]);
+
+        return {
+          id: rosterId,
+          name: String(row.name || 'Student'),
+          email: String(row.email || ''),
+          account_linked: Boolean(Number(row.student_user_id || 0)),
+          session_count: history.length,
+          avg_accuracy: accuracyValues.length
+            ? Math.round(accuracyValues.reduce((sum, value) => sum + value, 0) / accuracyValues.length)
+            : null,
+          latest_accuracy: latestAccuracy === null ? null : Math.round(latestAccuracy),
+          best_accuracy: bestAccuracy === null ? null : Math.round(bestAccuracy),
+          improvement_delta:
+            firstAccuracy === null || latestAccuracy === null || accuracyValues.length < 2
+              ? null
+              : Math.round(latestAccuracy - firstAccuracy),
+          weakest_tag: topicStats.weakestTag,
+          strongest_tag: topicStats.strongestTag,
+          last_activity_at: lastActivityAt,
+        };
+      })
+      .sort((left, right) => {
+        const sessionDelta = Number(right.session_count || 0) - Number(left.session_count || 0);
+        if (sessionDelta !== 0) return sessionDelta;
+        return String(left.name || '').localeCompare(String(right.name || ''));
+      });
+
+    const selectedSeries =
+      selectedStudentId && seriesByStudentId.has(selectedStudentId)
+        ? [...(seriesByStudentId.get(selectedStudentId) || [])].sort((left, right) => {
+            const leftTs = new Date(left.ended_at || left.started_at || 0).getTime() || 0;
+            const rightTs = new Date(right.ended_at || right.started_at || 0).getTime() || 0;
+            return leftTs - rightTs;
+          })
+        : [];
+    const compareSeries =
+      compareStudentId && seriesByStudentId.has(compareStudentId)
+        ? [...(seriesByStudentId.get(compareStudentId) || [])].sort((left, right) => {
+            const leftTs = new Date(left.ended_at || left.started_at || 0).getTime() || 0;
+            const rightTs = new Date(right.ended_at || right.started_at || 0).getTime() || 0;
+            return leftTs - rightTs;
+          })
+        : [];
+
+    const selectedTopicStats = selectedStudentId ? topicTotalsByStudentId.get(selectedStudentId) || new Map() : new Map();
+    const compareTopicStats = compareStudentId ? topicTotalsByStudentId.get(compareStudentId) || new Map() : new Map();
+    const topicSummary = [...classTopicTotals.entries()]
+      .map(([tag, stats]) => {
+        const selectedStats = selectedTopicStats.get(tag) || { correct: 0, total: 0 };
+        const compareStats = compareTopicStats.get(tag) || { correct: 0, total: 0 };
+        return {
+          tag,
+          class_accuracy: stats.total ? Math.round((stats.correct / stats.total) * 100) : null,
+          class_answers: Number(stats.total || 0),
+          selected_accuracy: selectedStats.total ? Math.round((selectedStats.correct / selectedStats.total) * 100) : null,
+          selected_answers: Number(selectedStats.total || 0),
+          compare_accuracy: compareStats.total ? Math.round((compareStats.correct / compareStats.total) * 100) : null,
+          compare_answers: Number(compareStats.total || 0),
+        };
+      })
+      .sort((left, right) => {
+        const answerDelta = Number(right.class_answers || 0) - Number(left.class_answers || 0);
+        if (answerDelta !== 0) return answerDelta;
+        return String(left.tag || '').localeCompare(String(right.tag || ''));
+      })
+      .slice(0, 8);
+
+    res.json({
+      class_id: classBoard.id,
+      class_name: classBoard.name,
+      class_series: classSeries,
+      students,
+      selected_student_id: selectedStudentId || null,
+      compare_student_id: compareStudentId || null,
+      selected_student_series: selectedSeries,
+      compare_student_series: compareSeries,
+      topic_summary: topicSummary,
+      recommended_actions: [],
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Teacher class progress failed:', error);
+    respondWithServerError(res, 'Failed to load class progress');
+  }
+});
+
 router.get('/teacher/classes/:id/packs', requireTeacherSession, async (req, res) => {
   try {
     const teacherUserId = await getTeacherUserIdFromRequest(req);
@@ -5216,54 +5610,20 @@ router.post('/packs/generate', requireTeacherSession, async (req, res) => {
     return res.status(401).json({ error: 'Teacher authentication required' });
   }
   if (!enforceRateLimit(req, res, 'teacher-pack-generate', 20, 10 * 60 * 1000, teacherUserId)) return;
-  const source_text = sanitizeMultiline(req.body?.source_text, 120000);
-  const count = Math.min(20, Math.max(3, parsePositiveInt(req.body?.count, 5)));
-  const difficulty = sanitizeLine(req.body?.difficulty || 'Medium', 24);
-  const language = sanitizeLine(req.body?.language || 'English', 24);
-  const questionFormat = sanitizeLine(req.body?.question_format || 'Multiple Choice', 32);
-  const cognitiveLevel = sanitizeLine(req.body?.cognitive_level || 'Mixed', 32);
-  const explanationDetail = sanitizeLine(req.body?.explanation_detail || 'Concise', 32);
-  const contentFocus = sanitizeLine(req.body?.content_focus || 'Balanced', 40);
-  const distractorStyle = sanitizeLine(req.body?.distractor_style || 'Standard', 32);
-  const gradeLevel = sanitizeLine(req.body?.grade_level || 'Auto', 40);
-  const providerId = sanitizeLine(req.body?.provider_id || req.body?.providerId, 24) || null;
-  const modelId = sanitizeLine(req.body?.model_id || req.body?.modelId, 80) || null;
+  const generationRequest = readQuestionGenerationRequestBody(req.body);
 
-  console.log(`[AI GEN] Request: ${count} questions, ${difficulty} difficulty, ${language} language, text length: ${source_text?.length}`);
+  console.log(`[AI GEN] Request: ${generationRequest.count} questions, ${generationRequest.difficulty} difficulty, ${generationRequest.language} language, text length: ${generationRequest.sourceText?.length}`);
 
-  if (!source_text) return res.status(400).json({ error: 'Source text is required' });
+  if (!generationRequest.sourceText) return res.status(400).json({ error: 'Source text is required' });
 
   try {
     const generationKey = buildQuestionGenerationInFlightKey({
-      sourceText: source_text,
-      count,
-      difficulty,
-      language,
-      questionFormat,
-      cognitiveLevel,
-      explanationDetail,
-      contentFocus,
-      distractorStyle,
-      gradeLevel,
-      providerId,
-      modelId,
+      mode: 'generate',
+      ...generationRequest,
     });
 
     const responsePayload = await runInFlightQuestionGeneration(generationKey, async () =>
-      generateQuestionsFromSource({
-        sourceText: source_text,
-        count,
-        difficulty,
-        language,
-        questionFormat,
-        cognitiveLevel,
-        explanationDetail,
-        contentFocus,
-        distractorStyle,
-        gradeLevel,
-        providerId,
-        modelId,
-      }));
+      generateQuestionsFromSource(generationRequest));
 
     res.json(responsePayload);
   } catch (error: any) {
@@ -5283,40 +5643,24 @@ router.post('/packs/improve-questions', requireTeacherSession, async (req, res) 
     return res.status(401).json({ error: 'Teacher authentication required' });
   }
   if (!enforceRateLimit(req, res, 'teacher-pack-improve', 20, 10 * 60 * 1000, teacherUserId)) return;
+  const generationRequest = readQuestionGenerationRequestBody(req.body);
 
-  const source_text = sanitizeMultiline(req.body?.source_text, 120000);
-  const existingQuestions = Array.isArray(req.body?.existing_questions) ? req.body.existing_questions : [];
-  const count = Math.min(20, Math.max(1, parsePositiveInt(req.body?.count, existingQuestions.length || 5)));
-  const difficulty = sanitizeLine(req.body?.difficulty || 'Medium', 24);
-  const language = sanitizeLine(req.body?.language || 'English', 24);
-  const questionFormat = sanitizeLine(req.body?.question_format || 'Multiple Choice', 32);
-  const cognitiveLevel = sanitizeLine(req.body?.cognitive_level || 'Mixed', 32);
-  const explanationDetail = sanitizeLine(req.body?.explanation_detail || 'Concise', 32);
-  const contentFocus = sanitizeLine(req.body?.content_focus || 'Balanced', 40);
-  const distractorStyle = sanitizeLine(req.body?.distractor_style || 'Standard', 32);
-  const gradeLevel = sanitizeLine(req.body?.grade_level || 'Auto', 40);
-  const providerId = sanitizeLine(req.body?.provider_id || req.body?.providerId, 24) || null;
-  const modelId = sanitizeLine(req.body?.model_id || req.body?.modelId, 80) || null;
-
-  if (!source_text) return res.status(400).json({ error: 'Source text is required' });
-  if (!existingQuestions.length) return res.status(400).json({ error: 'existing_questions is required' });
+  if (!generationRequest.sourceText) return res.status(400).json({ error: 'Source text is required' });
+  if (!generationRequest.existingQuestions.length) return res.status(400).json({ error: 'existing_questions is required' });
 
   try {
-    const payload = await improveQuestionsFromSource({
-      sourceText: source_text,
-      count,
-      difficulty,
-      language,
-      questionFormat,
-      cognitiveLevel,
-      explanationDetail,
-      contentFocus,
-      distractorStyle,
-      gradeLevel,
-      providerId,
-      modelId,
-      existingQuestions,
+    const generationKey = buildQuestionGenerationInFlightKey({
+      mode: 'improve',
+      ...generationRequest,
+      count: Math.min(20, Math.max(1, parsePositiveInt(req.body?.count, generationRequest.existingQuestions.length || generationRequest.count || 5))),
     });
+
+    const payload = await runInFlightQuestionGeneration(generationKey, async () =>
+      improveQuestionsFromSource({
+        ...generationRequest,
+        count: Math.min(20, Math.max(1, parsePositiveInt(req.body?.count, generationRequest.existingQuestions.length || generationRequest.count || 5))),
+        existingQuestions: generationRequest.existingQuestions,
+      }));
     res.json(payload);
   } catch (error: any) {
     console.error('[ERROR] Improve questions route crash:', error);
@@ -7421,7 +7765,7 @@ router.get('/student/me/practice', requireStudentSession, async (req, res) => {
     const availableQuestions = studentContext.questions.length > 0
       ? studentContext.questions
       : ((await db.prepare('SELECT * FROM questions').all()) as any[]);
-    const practiceSet = await runPythonEngine<unknown>('practice-set', {
+    const practiceSet = await runPracticeSetWithFallback({
       nickname: studentContext.canonical_nickname,
       mastery: studentContext.mastery,
       questions: availableQuestions,
@@ -7565,7 +7909,7 @@ router.get('/practice/:nickname', async (req, res) => {
           : recommendedAction === 'keep_momentum'
             ? 'momentum'
             : '');
-    const practiceSet = await runPythonEngine<unknown>('practice-set', {
+    const practiceSet = await runPracticeSetWithFallback({
       nickname: authorized.participant.nickname,
       mastery: (await getMasteryRows(identityKey)),
       questions: (await db.prepare('SELECT * FROM questions').all()),
