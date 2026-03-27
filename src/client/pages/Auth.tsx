@@ -5,6 +5,8 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  Eye,
+  EyeOff,
   LoaderCircle,
   Lock,
   Mail,
@@ -31,6 +33,17 @@ import {
 
 type AccessMode = 'login' | 'create';
 type PendingAction = 'password' | 'google' | 'facebook' | 'logout' | null;
+const TEACHER_AUTH_DRAFT_KEY = 'quizzi.teacher.auth.draft';
+
+function readTeacherAuthDraft() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(TEACHER_AUTH_DRAFT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -39,10 +52,11 @@ export default function Auth() {
   const targetPath = typeof location.state?.from === 'string' ? location.state.from : '/teacher/dashboard';
 
   const { t, direction, language } = useAppLanguage();
+  const draft = readTeacherAuthDraft();
   const [mode, setMode] = useState<AccessMode>('login');
-  const [name, setName] = useState(`${teacherSettings.profile.firstName} ${teacherSettings.profile.lastName}`.trim());
-  const [school, setSchool] = useState(teacherSettings.profile.school);
-  const [email, setEmail] = useState(DEMO_AUTH_ENABLED ? DEMO_TEACHER_EMAIL : teacherSettings.profile.email || '');
+  const [name, setName] = useState(typeof draft?.name === 'string' ? draft.name : `${teacherSettings.profile.firstName} ${teacherSettings.profile.lastName}`.trim());
+  const [school, setSchool] = useState(typeof draft?.school === 'string' ? draft.school : teacherSettings.profile.school);
+  const [email, setEmail] = useState(typeof draft?.email === 'string' ? draft.email : DEMO_AUTH_ENABLED ? DEMO_TEACHER_EMAIL : teacherSettings.profile.email || '');
   const [password, setPassword] = useState(DEMO_AUTH_ENABLED ? DEMO_TEACHER_PASSWORD : '');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState(typeof location.state?.error === 'string' ? location.state.error : '');
@@ -50,6 +64,9 @@ export default function Auth() {
   const [existingSession, setExistingSession] = useState<TeacherAuthSession | null>(() => loadTeacherAuth());
   const [restoringSession, setRestoringSession] = useState(true);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(Boolean(draft));
   const authFallbackCopy = {
     he: {
       demoUnavailable: 'גישה לחשבון הדמו אינה זמינה בסביבה הזאת.',
@@ -116,6 +133,18 @@ export default function Auth() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(
+      TEACHER_AUTH_DRAFT_KEY,
+      JSON.stringify({
+        name,
+        school,
+        email,
+      }),
+    );
+  }, [name, school, email]);
+
   const persistSchool = (value: string) => {
     const settings = loadTeacherSettings();
     saveTeacherSettings({
@@ -147,6 +176,7 @@ export default function Auth() {
     if (school.trim()) {
       persistSchool(school);
     }
+    window.localStorage.removeItem(TEACHER_AUTH_DRAFT_KEY);
     setExistingSession(session);
     setFeedback(successMessage);
     setError('');
@@ -328,6 +358,11 @@ export default function Auth() {
     }
   };
 
+  const emailLooksValid = /\S+@\S+\.\S+/.test(email);
+  const passwordReady = password.trim().length >= 6;
+  const confirmReady = mode === 'login' || password === confirmPassword;
+  const canSubmit = emailLooksValid && passwordReady && confirmReady && pendingAction === null;
+
   return (
     <div 
       dir={direction}
@@ -363,6 +398,11 @@ export default function Auth() {
               <p className="text-base sm:text-lg font-medium text-white/75 max-w-2xl">
                 {t('auth.heroBody')}
               </p>
+              {draftRestored ? (
+                <div className="mt-5 rounded-[1.4rem] border-2 border-white/30 bg-white/10 px-4 py-3">
+                  <p className="text-sm font-black">שמירת הטיוטה הקודמת הוחזרה כדי שתוכל/י להמשיך בלי להתחיל מחדש.</p>
+                </div>
+              ) : null}
 
               <div className="grid grid-cols-1 gap-4 mt-8 sm:grid-cols-2 xl:grid-cols-3">
                 <BenefitCard title={t('auth.benefit.create.title')} body={t('auth.benefit.create.body')} />
@@ -475,6 +515,7 @@ export default function Auth() {
                 setMode('login');
                 setError('');
                 setFeedback('');
+                setDraftRestored(false);
                 if (DEMO_AUTH_ENABLED) {
                   applyDemoCredentials();
                 }
@@ -489,6 +530,7 @@ export default function Auth() {
                 setMode('create');
                 setError('');
                 setFeedback('');
+                setDraftRestored(false);
                 if (email === DEMO_TEACHER_EMAIL) {
                   setEmail(teacherSettings.profile.email || '');
                 }
@@ -518,22 +560,28 @@ export default function Auth() {
 
           <form onSubmit={handlePasswordAccess} className="space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field
+                  label={t('auth.displayName')}
+                  icon={<User className="w-5 h-5" />}
+                  value={name}
+                  onChange={(value) => {
+                    setDraftRestored(false);
+                    setName(value);
+                  }}
+                  placeholder={t('auth.teacherName')}
+                  autoComplete="name"
+                />
               <Field
-                label={t('auth.displayName')}
-                icon={<User className="w-5 h-5" />}
-                value={name}
-                onChange={setName}
-                placeholder={t('auth.teacherName')}
-                autoComplete="name"
-              />
-              <Field
-                label={t('auth.school')}
-                icon={<Sparkles className="w-5 h-5" />}
-                value={school}
-                onChange={setSchool}
-                placeholder={t('auth.yourSchool')}
-                autoComplete="organization"
-              />
+                  label={t('auth.school')}
+                  icon={<Sparkles className="w-5 h-5" />}
+                  value={school}
+                  onChange={(value) => {
+                    setDraftRestored(false);
+                    setSchool(value);
+                  }}
+                  placeholder={t('auth.yourSchool')}
+                  autoComplete="organization"
+                />
             </div>
 
             <div className="rounded-[2rem] border-2 border-brand-dark bg-brand-bg p-5">
@@ -552,9 +600,13 @@ export default function Auth() {
                   label={t('auth.emailLabel')}
                   icon={<Mail className="w-5 h-5" />}
                   value={email}
-                  onChange={setEmail}
+                  onChange={(value) => {
+                    setDraftRestored(false);
+                    setEmail(value);
+                  }}
                   placeholder={DEMO_AUTH_ENABLED ? DEMO_TEACHER_EMAIL : t('auth.teacherEmailPlaceholder')}
                   autoComplete="email"
+                  helperText={email ? (emailLooksValid ? 'כתובת המייל נראית תקינה' : 'כדאי להזין כתובת מייל מלאה') : ''}
                 />
                 <Field
                   label={t('auth.passwordLabel')}
@@ -562,8 +614,14 @@ export default function Auth() {
                   value={password}
                   onChange={setPassword}
                   placeholder={mode === 'login' ? (DEMO_AUTH_ENABLED ? DEMO_TEACHER_PASSWORD : t('auth.enterPassword')) : t('auth.createPassword')}
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  trailingAction={
+                    <button type="button" onClick={() => setShowPassword((current) => !current)} className="text-brand-dark/55">
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  }
+                  helperText={password ? (passwordReady ? 'הסיסמה מוכנה' : 'מומלץ להשתמש בלפחות 6 תווים') : ''}
                 />
                 {mode === 'create' && (
                   <Field
@@ -572,15 +630,21 @@ export default function Auth() {
                     value={confirmPassword}
                     onChange={setConfirmPassword}
                     placeholder={t('auth.repeatPassword')}
-                    type="password"
+                    type={showConfirmPassword ? 'text' : 'password'}
                     autoComplete="new-password"
+                    trailingAction={
+                      <button type="button" onClick={() => setShowConfirmPassword((current) => !current)} className="text-brand-dark/55">
+                        {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                      </button>
+                    }
+                    helperText={confirmPassword ? (confirmReady ? 'הסיסמאות תואמות' : 'הסיסמאות עדיין לא תואמות') : ''}
                   />
                 )}
               </div>
 
               <button
                 type="submit"
-                disabled={pendingAction !== null}
+                disabled={!canSubmit}
                 className="mt-5 w-full px-6 py-4 sm:py-5 bg-brand-orange text-white border-4 border-brand-dark rounded-[1.75rem] font-black text-lg sm:text-xl flex items-center justify-center gap-3 shadow-[8px_8px_0px_0px_#1A1A1A] disabled:opacity-60"
               >
                 {pendingAction === 'password' ? <LoaderCircle className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5" />}
@@ -637,6 +701,8 @@ function Field({
   placeholder,
   type = 'text',
   autoComplete,
+  trailingAction,
+  helperText,
 }: {
   label: string;
   icon: React.ReactNode;
@@ -645,6 +711,8 @@ function Field({
   placeholder: string;
   type?: string;
   autoComplete?: string;
+  trailingAction?: React.ReactNode;
+  helperText?: string;
 }) {
   return (
     <label className="block">
@@ -657,9 +725,11 @@ function Field({
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
           autoComplete={autoComplete}
-          className="w-full bg-white border-2 border-brand-dark rounded-2xl py-4 pl-12 pr-4 text-base font-bold placeholder:text-brand-dark/30 focus:outline-none focus:ring-4 focus:ring-brand-orange/15"
+          className="w-full bg-white border-2 border-brand-dark rounded-2xl py-4 pl-12 pr-12 text-base font-bold placeholder:text-brand-dark/30 focus:outline-none focus:ring-4 focus:ring-brand-orange/15"
         />
+        {trailingAction ? <div className="absolute right-4 top-1/2 -translate-y-1/2">{trailingAction}</div> : null}
       </div>
+      {helperText ? <p className="mt-2 text-xs font-black text-brand-dark/45">{helperText}</p> : null}
     </label>
   );
 }

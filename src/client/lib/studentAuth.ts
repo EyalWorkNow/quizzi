@@ -3,6 +3,8 @@ import {
   ensureFirebaseAuthReady,
   getRedirectResult,
   googleProvider,
+  shouldPreferRedirectSignIn,
+  signInWithPopup,
   signInWithRedirect,
   signOutFirebase,
 } from './firebase.ts';
@@ -215,10 +217,14 @@ export async function signInStudentWithProvider({
   };
 
   try {
-    // Student sign-in is more reliable with full-page redirect because
-    // browser extensions and strict popup policies often interfere with popup flows.
-    await signInWithRedirect(auth, googleProvider);
-    return null;
+    if (shouldPreferRedirectSignIn()) {
+      await signInWithRedirect(auth, googleProvider);
+      return null;
+    }
+
+    const popupResult = await signInWithPopup(auth, googleProvider);
+    const idToken = await popupResult.user.getIdToken();
+    return await completeGoogleServerSession(idToken, popupResult.user.displayName);
   } catch (error: any) {
     const message = String(error?.message || '').toLowerCase();
     if (

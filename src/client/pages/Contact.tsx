@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowRight, ArrowLeft, X } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CheckCircle2, Clock3, Copy, Mail, Sparkles, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { addContactSubmission } from '../lib/localData.ts';
 import { apiFetchJson } from '../lib/api.ts';
+import { trackContactFlow, trackCtaClick, trackFormInteraction } from '../lib/appAnalytics.ts';
 
 const INQUIRY_TYPES = [
   'שיתוף פעולה פדגוגי',
@@ -14,18 +15,40 @@ const INQUIRY_TYPES = [
 ];
 
 const TOTAL_STEPS = 5;
+const CONTACT_DRAFT_KEY = 'quizzi.contact.draft';
+const MESSAGE_SUGGESTIONS = [
+  'אנחנו רוצים פיילוט קצר לשתי כיתות',
+  'נשמח לדמו למנהלי בית הספר',
+  'מחפשים חיבור ל-LMS קיים',
+  'יש לנו שאלה טכנית על ההטמעה',
+];
+
+function readContactDraft() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(CONTACT_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function Contact() {
   const navigate = useNavigate();
-  const [step, setStep] = useState(0);
+  const draft = readContactDraft();
+  const [step, setStep] = useState(typeof draft?.step === 'number' ? draft.step : 0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
-    inquiryType: '',
-    name: '',
-    organization: '',
-    email: '',
-    message: '',
+    inquiryType: typeof draft?.formData?.inquiryType === 'string' ? draft.formData.inquiryType : '',
+    name: typeof draft?.formData?.name === 'string' ? draft.formData.name : '',
+    organization: typeof draft?.formData?.organization === 'string' ? draft.formData.organization : '',
+    email: typeof draft?.formData?.email === 'string' ? draft.formData.email : '',
+    message: typeof draft?.formData?.message === 'string' ? draft.formData.message : '',
   });
+  const [draftRestored, setDraftRestored] = useState(Boolean(draft?.formData));
+  const [copySuccess, setCopySuccess] = useState(false);
 
   const pageVariants = {
     initial: { opacity: 0, scale: 0.98, y: 20 },
@@ -39,8 +62,45 @@ export default function Contact() {
     damping: 20,
   };
 
+  React.useEffect(() => {
+    void trackContactFlow({
+      action: draft ? 'draft_restored' : 'step_view',
+      step,
+      inquiryType: formData.inquiryType,
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (step < TOTAL_STEPS) {
+      window.localStorage.setItem(
+        CONTACT_DRAFT_KEY,
+        JSON.stringify({
+          step,
+          formData,
+        }),
+      );
+    } else {
+      window.localStorage.removeItem(CONTACT_DRAFT_KEY);
+    }
+  }, [formData, step]);
+
+  React.useEffect(() => {
+    void trackContactFlow({
+      action: 'step_view',
+      step,
+      inquiryType: formData.inquiryType,
+    });
+  }, [step, formData.inquiryType]);
+
   const handlePrev = () => setStep((current) => Math.max(0, current - 1));
-  const handleNext = () => setStep((current) => Math.min(TOTAL_STEPS, current + 1));
+  const handleNext = () => {
+    void trackContactFlow({
+      action: 'step_complete',
+      step,
+      inquiryType: formData.inquiryType,
+    });
+    setStep((current) => Math.min(TOTAL_STEPS, current + 1));
+  };
 
   const submit = async () => {
     setIsSubmitting(true);
@@ -50,14 +110,52 @@ export default function Contact() {
         body: JSON.stringify(formData),
       });
       addContactSubmission(formData);
+      void trackContactFlow({
+        action: 'submit_success',
+        step: TOTAL_STEPS,
+        inquiryType: formData.inquiryType,
+      });
       setStep(TOTAL_STEPS);
     } catch (error) {
       console.error('Failed to send contact message:', error);
       // Fallback to local only if API fails, but still show success to user
       addContactSubmission(formData);
+      void trackContactFlow({
+        action: 'submit_failure',
+        step: TOTAL_STEPS,
+        inquiryType: formData.inquiryType,
+      });
       setStep(TOTAL_STEPS);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const progressPercent = Math.min(100, Math.round((step / (TOTAL_STEPS - 1)) * 100));
+  const emailLooksValid = /\S+@\S+\.\S+/.test(formData.email);
+  const messageLength = formData.message.trim().length;
+  const canSubmit = Boolean(formData.message.trim()) && emailLooksValid && Boolean(formData.name.trim());
+
+  const resetDraft = () => {
+    window.localStorage.removeItem(CONTACT_DRAFT_KEY);
+    setDraftRestored(false);
+    setStep(0);
+    setFormData({
+      inquiryType: '',
+      name: '',
+      organization: '',
+      email: '',
+      message: '',
+    });
+  };
+
+  const copyEmail = async () => {
+    try {
+      await navigator.clipboard.writeText('hello@quizzi.app');
+      setCopySuccess(true);
+      window.setTimeout(() => setCopySuccess(false), 1600);
+    } catch {
+      setCopySuccess(false);
     }
   };
 
@@ -84,6 +182,51 @@ export default function Contact() {
 
       <main className="flex-1 relative flex items-center justify-center p-6 relative z-20">
         <div className="w-full max-w-5xl">
+          <div className="mb-6 rounded-[2rem] border-2 border-brand-dark bg-white/70 p-4 shadow-[6px_6px_0px_0px_#1A1A1A] backdrop-blur-xl">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-orange">Progress</p>
+                <p className="text-sm font-bold text-brand-dark/60">התקדמות מהירה, שמירת טיוטה אוטומטית, ותשובה בדרך כלל תוך יום עסקים.</p>
+              </div>
+              <div className="flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black">
+                <Clock3 className="h-4 w-4 text-brand-orange" />
+                מענה בדרך כלל תוך 24 שעות
+              </div>
+            </div>
+            <div className="h-3 overflow-hidden rounded-full border-2 border-brand-dark bg-brand-bg">
+              <div className="h-full bg-brand-orange transition-all duration-500" style={{ width: `${progressPercent}%` }} />
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-bold text-brand-dark/55">
+                <Mail className="h-4 w-4" />
+                hello@quizzi.app
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={copyEmail}
+                  className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black"
+                >
+                  {copySuccess ? 'הועתק' : 'העתקת המייל'} <Copy className="mr-2 inline h-4 w-4" />
+                </button>
+                {draftRestored ? (
+                  <button
+                    type="button"
+                    onClick={resetDraft}
+                    className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black"
+                  >
+                    ניקוי טיוטה
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {draftRestored ? (
+              <div className="mt-3 flex items-center gap-2 rounded-[1rem] border-2 border-brand-dark bg-brand-yellow/60 px-4 py-3 text-sm font-black">
+                <CheckCircle2 className="h-4 w-4" />
+                החזרנו טיוטה קודמת כדי שלא תאבדו התקדמות.
+              </div>
+            ) : null}
+          </div>
           <AnimatePresence mode="wait">
             {step === 0 && (
               <motion.div 
@@ -120,6 +263,16 @@ export default function Contact() {
                         transition={{ delay: 0.2 + idx * 0.05 }}
                         onClick={() => {
                           setFormData((current) => ({ ...current, inquiryType: type }));
+                          void trackContactFlow({
+                            action: 'start',
+                            step: 0,
+                            inquiryType: type,
+                          });
+                          void trackCtaClick({
+                            location: 'contact_step_0',
+                            ctaId: 'select_inquiry_type',
+                            label: type,
+                          });
                           setTimeout(() => setStep(1), 300);
                         }}
                         className={`group relative p-8 rounded-[2.5rem] border-2 text-right transition-all duration-500 overflow-hidden ${
@@ -162,6 +315,9 @@ export default function Contact() {
                       value={formData.name}
                       onChange={(value) => setFormData((current) => ({ ...current, name: value }))}
                       onAdvance={handleNext}
+                      field="name"
+                      isValid={formData.name.trim().length >= 2}
+                      helper="שם מלא עוזר לנו להחזיר תשובה מדויקת ומהירה יותר."
                     />
                   )}
                   {step === 2 && (
@@ -170,6 +326,9 @@ export default function Contact() {
                       value={formData.organization}
                       onChange={(value) => setFormData((current) => ({ ...current, organization: value }))}
                       onAdvance={handleNext}
+                      field="organization"
+                      isValid={formData.organization.trim().length >= 2}
+                      helper="אפשר גם מחלקה, פקולטה או שם בית ספר."
                     />
                   )}
                   {step === 3 && (
@@ -179,24 +338,62 @@ export default function Contact() {
                       onChange={(value) => setFormData((current) => ({ ...current, email: value }))}
                       onAdvance={handleNext}
                       type="email"
+                      field="email"
+                      isValid={emailLooksValid}
+                      helper={emailLooksValid || !formData.email ? 'נשלח לשם את התשובה.' : 'כדאי להזין כתובת אימייל תקינה.'}
                     />
                   )}
                   {step === 4 && (
                     <div className="w-full">
+                      <div className="mb-5 flex flex-wrap gap-2">
+                        {MESSAGE_SUGGESTIONS.map((suggestion) => (
+                          <button
+                            key={suggestion}
+                            type="button"
+                            onClick={() => {
+                              setFormData((current) => ({
+                                ...current,
+                                message: current.message ? `${current.message} ${suggestion}` : suggestion,
+                              }));
+                              void trackCtaClick({
+                                location: 'contact_step_4',
+                                ctaId: 'message_suggestion',
+                                label: suggestion,
+                              });
+                            }}
+                            className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black shadow-[3px_3px_0px_0px_#1A1A1A]"
+                          >
+                            <Sparkles className="ml-2 inline h-4 w-4 text-brand-orange" />
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
                       <div className="relative border-b-4 border-brand-dark/20 pb-4 focus-within:border-brand-orange transition-all duration-300">
                         <textarea
                           autoFocus
                           placeholder="כתבו לנו פירוט על הבקשה..."
                           value={formData.message}
-                          onChange={(event) => setFormData((current) => ({ ...current, message: event.target.value }))}
+                          onChange={(event) => {
+                            void trackFormInteraction({
+                              formId: 'contact_form',
+                              field: 'message',
+                              action: 'change',
+                            });
+                            setFormData((current) => ({ ...current, message: event.target.value }));
+                          }}
                           className="w-full bg-transparent text-3xl md:text-5xl font-black outline-none min-h-48 sm:min-h-64 resize-none placeholder:text-brand-dark/10"
                         />
                       </div>
                       <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-6">
-                        <p className="text-lg font-bold text-brand-dark/40">ספרו לנו על ההקשר הפדגוגי, היקף המוסד והדחיפות.</p>
+                        <div>
+                          <p className="text-lg font-bold text-brand-dark/40">ספרו לנו על ההקשר הפדגוגי, היקף המוסד והדחיפות.</p>
+                          <p className="mt-2 text-sm font-black text-brand-dark/35">
+                            {messageLength}/500 תווים
+                          </p>
+                        </div>
                         <button
                           onClick={submit}
-                          disabled={!formData.message.trim() || isSubmitting}
+                          disabled={!canSubmit || isSubmitting}
                           className="px-12 py-5 rounded-full bg-brand-dark text-white flex items-center justify-center gap-3 hover:bg-brand-orange transition-all shadow-[8px_8px_0px_0px_#1A1A1A] hover:shadow-none hover:translate-x-1 hover:translate-y-1 disabled:opacity-50 disabled:pointer-events-none group"
                         >
                           {isSubmitting ? (
@@ -315,12 +512,18 @@ function AdvanceField({
   onChange,
   onAdvance,
   type = 'text',
+  field,
+  isValid,
+  helper,
 }: {
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
   onAdvance: () => void;
   type?: string;
+  field: string;
+  isValid: boolean;
+  helper: string;
 }) {
   return (
     <div className="w-full">
@@ -330,12 +533,26 @@ function AdvanceField({
           autoFocus
           placeholder={placeholder}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onFocus={() => {
+            void trackFormInteraction({
+              formId: 'contact_form',
+              field,
+              action: 'focus',
+            });
+          }}
+          onChange={(event) => {
+            void trackFormInteraction({
+              formId: 'contact_form',
+              field,
+              action: 'change',
+            });
+            onChange(event.target.value);
+          }}
           onKeyDown={(event) => event.key === 'Enter' && value.trim() && onAdvance()}
           className="w-full bg-transparent text-4xl md:text-7xl font-black outline-none placeholder:text-brand-dark/10"
         />
         <AnimatePresence>
-          {value.trim() && (
+          {value.trim() && isValid && (
             <motion.button
               initial={{ opacity: 0, scale: 0.5, x: 20 }}
               animate={{ opacity: 1, scale: 1, x: 0 }}
@@ -350,7 +567,7 @@ function AdvanceField({
       </div>
       <div className="mt-6 flex items-center gap-2">
         <span className="px-3 py-1 bg-brand-dark/5 rounded-md text-xs font-black text-brand-dark/40 border border-brand-dark/10">ENTER ↵</span>
-        <p className="text-sm font-bold text-brand-dark/40">לחצו על Enter כדי להמשיך</p>
+        <p className="text-sm font-bold text-brand-dark/40">{helper}</p>
       </div>
     </div>
   );

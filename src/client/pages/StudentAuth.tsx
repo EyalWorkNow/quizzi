@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowRight, KeyRound, Mail, UserCircle2 } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, Mail, UserCircle2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { 
@@ -9,6 +9,19 @@ import {
   signInStudentWithProvider,
   handleStudentAuthRedirect,
 } from '../lib/studentAuth.ts';
+import { trackCtaClick, trackFormInteraction } from '../lib/appAnalytics.ts';
+
+const STUDENT_AUTH_DRAFT_KEY = 'quizzi.student.auth.draft';
+
+function readStudentAuthDraft() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(STUDENT_AUTH_DRAFT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function StudentAuth() {
   const { language } = useAppLanguage();
@@ -16,12 +29,15 @@ export default function StudentAuth() {
   const location = useLocation();
   const search = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const requestedMode = String(search.get('mode') || '').trim().toLowerCase();
+  const draft = readStudentAuthDraft();
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [displayName, setDisplayName] = useState('');
-  const [email, setEmail] = useState('');
+  const [displayName, setDisplayName] = useState(typeof draft?.displayName === 'string' ? draft.displayName : '');
+  const [email, setEmail] = useState(typeof draft?.email === 'string' ? draft.email : '');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(Boolean(draft));
 
   const invitedClassName = String(search.get('class_name') || '').trim();
   const invitedClassId = String(search.get('class_id') || '').trim();
@@ -119,6 +135,17 @@ export default function StudentAuth() {
   }, [requestedMode, invitedClassId, invitedClassName]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(
+      STUDENT_AUTH_DRAFT_KEY,
+      JSON.stringify({
+        displayName,
+        email,
+      }),
+    );
+  }, [displayName, email]);
+
+  useEffect(() => {
     handleStudentAuthRedirect()
       .then((session) => {
         if (session) {
@@ -140,6 +167,7 @@ export default function StudentAuth() {
       } else {
         await signInStudentWithPassword({ email, password });
       }
+      window.localStorage.removeItem(STUDENT_AUTH_DRAFT_KEY);
       navigate(nextPath, { replace: true });
     } catch (submitError: any) {
       setError(submitError?.message || 'Authentication failed');
@@ -161,6 +189,7 @@ export default function StudentAuth() {
     try {
       const session = await signInStudentWithProvider({ provider: 'google' });
       if (session) {
+        window.localStorage.removeItem(STUDENT_AUTH_DRAFT_KEY);
         navigate(nextPath, { replace: true });
       }
     } catch (submitError: any) {
@@ -170,6 +199,11 @@ export default function StudentAuth() {
     }
   };
 
+  const emailLooksValid = /\S+@\S+\.\S+/.test(email);
+  const passwordReady = password.trim().length >= 6;
+  const nameReady = mode === 'login' || displayName.trim().length >= 2;
+  const canSubmit = emailLooksValid && passwordReady && nameReady && !loading;
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#FFF3D6,_#F8F1E7_52%,_#E7EEF8_100%)] px-6 py-10">
       <div className="mx-auto max-w-5xl grid gap-8 lg:grid-cols-[1.1fr_0.9fr] items-stretch">
@@ -177,6 +211,14 @@ export default function StudentAuth() {
           <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-orange mb-4">Quizzi Student</p>
           <h1 className="text-4xl md:text-5xl font-black leading-tight text-brand-dark">{copy.title}</h1>
           <p className="mt-4 text-lg font-bold text-brand-dark/70 max-w-2xl">{copy.subtitle}</p>
+          {draftRestored ? (
+            <div className="mt-5 rounded-[1.4rem] border-2 border-brand-dark bg-brand-yellow/70 p-4">
+              <p className="flex items-center gap-2 text-sm font-black">
+                <CheckCircle2 className="h-4 w-4" />
+                החזרנו את הפרטים שהוקלדו קודם כדי שתמשיכו מאיפה שעצרתם.
+              </p>
+            </div>
+          ) : null}
           {invitedClassName ? (
             <div className="mt-6 rounded-[1.6rem] border-2 border-brand-dark bg-brand-yellow p-4">
               <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/55">{copy.inviteBanner}</p>
@@ -207,7 +249,14 @@ export default function StudentAuth() {
               <button
                 key={value}
                 type="button"
-                onClick={() => setMode(value)}
+                onClick={() => {
+                  setMode(value);
+                  void trackCtaClick({
+                    location: 'student_auth_mode_switch',
+                    ctaId: 'switch_mode',
+                    label: value,
+                  });
+                }}
                 className={`px-5 py-2 rounded-full text-sm font-black transition-colors ${
                   mode === value ? 'bg-white text-brand-dark' : 'text-white/75'
                 }`}
@@ -277,7 +326,12 @@ export default function StudentAuth() {
                 </span>
                 <input
                   value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
+                  onFocus={() => void trackFormInteraction({ formId: 'student_auth', field: 'display_name', action: 'focus' })}
+                  onChange={(event) => {
+                    setDraftRestored(false);
+                    void trackFormInteraction({ formId: 'student_auth', field: 'display_name', action: 'change' });
+                    setDisplayName(event.target.value);
+                  }}
                   className="w-full rounded-[1.2rem] border-2 border-white/20 bg-white/10 px-4 py-4 text-lg font-bold text-white placeholder:text-white/45 outline-none focus:border-brand-yellow"
                   placeholder={copy.displayName}
                   autoComplete="name"
@@ -293,11 +347,19 @@ export default function StudentAuth() {
               <input
                 type="email"
                 value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                onFocus={() => void trackFormInteraction({ formId: 'student_auth', field: 'email', action: 'focus' })}
+                onChange={(event) => {
+                  setDraftRestored(false);
+                  void trackFormInteraction({ formId: 'student_auth', field: 'email', action: 'change' });
+                  setEmail(event.target.value);
+                }}
                 className="w-full rounded-[1.2rem] border-2 border-white/20 bg-white/10 px-4 py-4 text-lg font-bold text-white placeholder:text-white/45 outline-none focus:border-brand-yellow"
                 placeholder="student@example.com"
                 autoComplete="email"
               />
+              <p className="mt-2 text-xs font-black text-white/55">
+                {email ? (emailLooksValid ? 'נראה תקין' : 'כדאי להזין כתובת מייל מלאה') : 'נשתמש במייל הזה כדי לשמור היסטוריה ולהתחבר בעתיד'}
+              </p>
             </label>
 
             <label className="block">
@@ -305,14 +367,30 @@ export default function StudentAuth() {
                 <KeyRound className="w-4 h-4" />
                 {copy.password}
               </span>
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="w-full rounded-[1.2rem] border-2 border-white/20 bg-white/10 px-4 py-4 text-lg font-bold text-white placeholder:text-white/45 outline-none focus:border-brand-yellow"
-                placeholder="********"
-                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onFocus={() => void trackFormInteraction({ formId: 'student_auth', field: 'password', action: 'focus' })}
+                  onChange={(event) => {
+                    void trackFormInteraction({ formId: 'student_auth', field: 'password', action: 'change' });
+                    setPassword(event.target.value);
+                  }}
+                  className="w-full rounded-[1.2rem] border-2 border-white/20 bg-white/10 px-4 py-4 pr-14 text-lg font-bold text-white placeholder:text-white/45 outline-none focus:border-brand-yellow"
+                  placeholder="********"
+                  autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  className="absolute inset-y-0 right-4 flex items-center text-white/70"
+                >
+                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                </button>
+              </div>
+              <p className="mt-2 text-xs font-black text-white/55">
+                {password ? (passwordReady ? 'אורך הסיסמה מספיק להמשך' : 'מומלץ לפחות 6 תווים') : 'הסיסמה משמשת רק לכניסה לסביבת התלמיד'}
+              </p>
             </label>
 
             {error ? (
@@ -323,7 +401,7 @@ export default function StudentAuth() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={!canSubmit}
               className="w-full rounded-[1.4rem] border-2 border-brand-dark bg-brand-yellow px-5 py-4 text-lg font-black text-brand-dark shadow-[4px_4px_0px_0px_#FFFFFF] transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {loading ? '...' : mode === 'register' ? copy.submitRegister : copy.submitLogin}
