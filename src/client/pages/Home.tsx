@@ -7,16 +7,16 @@ import {
   ChevronDown,
   MessageSquareText,
   Play,
-  QrCode,
   RotateCcw,
   ScanLine,
   Sparkles,
-  Star,
   ThumbsDown,
   ThumbsUp,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { extractNickname } from '../components/Avatar.tsx';
+import BrandLogo from '../components/BrandLogo.tsx';
+import HomeJoinIllustration from '../components/HomeJoinIllustration.tsx';
 import JoinScannerModal from '../components/JoinScannerModal.tsx';
 import {
   trackCtaClick,
@@ -418,7 +418,6 @@ export default function Home() {
     setStudentAuth(null);
   };
 
-  const heroTitle = `${t('home.hero.title1')} ${t('home.hero.title2')}`;
   const trimmedNickname = nickname.trim();
   const studentSpaceLabel =
     language === 'he' ? 'סביבת תלמיד' : language === 'ar' ? 'مساحة الطالب' : 'Student Space';
@@ -444,6 +443,103 @@ export default function Home() {
       : language === 'ar'
         ? 'شكرًا، تم حفظ الملاحظات.'
         : 'Thanks, your feedback was saved.';
+  const homeSurfaceCopy = {
+    he: {
+      navExplore: 'גילוי',
+      navTeachers: 'למורים',
+      navContact: 'צור קשר',
+      heroTitle: 'פרטי הצטרפות',
+      heroBody: 'הזן את קוד החדר ואת השם ששאר השחקנים יראו.',
+      pinLabel: 'קוד משחק',
+      nicknameLabel: 'כינוי',
+      identityLabel: 'הזהות שלך',
+      previewLabel: 'הזדהה כ:',
+      joinLabel: 'הצטרפות',
+      scannerLabel: 'סריקת קוד במקום הקלדה',
+      visualEyebrow: 'LIVE SESSION',
+      visualTitle: 'Quizzi Classroom',
+      visualBody: 'מצטרפים מהר, בוחרים זהות, ונכנסים לשיעור בלי עמודי ביניים מיותרים.',
+      supportBadge: 'שיעור חי. כניסה מהירה. בלי בלגן.',
+      lowerTitle: 'עוד דברים שאפשר לעשות אחרי שנכנסים',
+      lowerBody: 'סביבת תלמיד, שאלות נפוצות ויצירת קשר נשארים זמינים בהמשך העמוד, בלי להעמיס על אזור ההצטרפות.',
+      teacherCta: 'יצירת חשבון',
+      quickJoinCta: 'התחברות',
+      studentSpaceCta: 'סביבת תלמיד',
+      feedbackTitle: 'מה חסר כאן?',
+      feedbackBody: 'אם משהו עדיין לא מספיק ברור, כתבו לנו מה יקל על ההצטרפות.',
+    },
+    ar: {
+      navExplore: 'اكتشف',
+      navTeachers: 'للمعلّمين',
+      navContact: 'اتصل بنا',
+      heroTitle: 'تفاصيل الانضمام',
+      heroBody: 'أدخل رمز الغرفة والاسم الذي سيظهر لباقي اللاعبين.',
+      pinLabel: 'رمز اللعبة',
+      nicknameLabel: 'الاسم',
+      identityLabel: 'هويتك',
+      previewLabel: 'الدخول باسم:',
+      joinLabel: 'انضمام',
+      scannerLabel: 'امسح الرمز بدل الكتابة',
+      visualEyebrow: 'LIVE SESSION',
+      visualTitle: 'Quizzi Classroom',
+      visualBody: 'انضم بسرعة، اختر هويتك، وادخل إلى الحصة من دون خطوات مربكة.',
+      supportBadge: 'حصة مباشرة. دخول سريع. بدون فوضى.',
+      lowerTitle: 'أشياء إضافية بعد الدخول',
+      lowerBody: 'مساحة الطالب، الأسئلة الشائعة، والتواصل موجودة أسفل الصفحة بدون تشويش على منطقة الانضمام.',
+      teacherCta: 'إنشاء حساب',
+      quickJoinCta: 'دخول',
+      studentSpaceCta: 'مساحة الطالب',
+      feedbackTitle: 'ما الذي ينقص هنا؟',
+      feedbackBody: 'إذا كان هناك شيء ما يزال غير واضح، أخبرنا ما الذي سيجعل الانضمام أسهل.',
+    },
+    en: {
+      navExplore: 'Explore',
+      navTeachers: 'For Teachers',
+      navContact: 'Contact',
+      heroTitle: 'Join Details',
+      heroBody: 'Enter the room code and the name other players will see.',
+      pinLabel: 'Game Code',
+      nicknameLabel: 'Nickname',
+      identityLabel: 'Your Identity',
+      previewLabel: 'Joining as:',
+      joinLabel: 'Join',
+      scannerLabel: 'Scan a code instead of typing',
+      visualEyebrow: 'LIVE SESSION',
+      visualTitle: 'Quizzi Classroom',
+      visualBody: 'Join fast, choose an identity, and enter the class without extra friction.',
+      supportBadge: 'Live class. Fast entry. No friction.',
+      lowerTitle: 'More things after the join',
+      lowerBody: 'Student Space, FAQs, and contact options stay lower on the page so the join area stays focused.',
+      teacherCta: 'Create Account',
+      quickJoinCta: 'Join',
+      studentSpaceCta: 'Student Space',
+      feedbackTitle: 'What is missing here?',
+      feedbackBody: 'If something is still unclear, tell us what would make joining easier.',
+    },
+  }[language] || {
+    navExplore: 'Explore',
+    navTeachers: 'For Teachers',
+    navContact: 'Contact',
+    heroTitle: 'Join Details',
+    heroBody: 'Enter the room code and the name other players will see.',
+    pinLabel: 'Game Code',
+    nicknameLabel: 'Nickname',
+    identityLabel: 'Your Identity',
+    previewLabel: 'Joining as:',
+    joinLabel: 'Join',
+    scannerLabel: 'Scan a code instead of typing',
+    visualEyebrow: 'LIVE SESSION',
+    visualTitle: 'Quizzi Classroom',
+    visualBody: 'Join fast and enter the class without extra friction.',
+    supportBadge: 'Live class. Fast entry. No friction.',
+    lowerTitle: 'More things after the join',
+    lowerBody: 'Student Space, FAQs, and contact options stay lower on the page.',
+    teacherCta: 'Create Account',
+    quickJoinCta: 'Join',
+    studentSpaceCta: 'Student Space',
+    feedbackTitle: 'What is missing here?',
+    feedbackBody: 'Tell us what would make joining easier.',
+  };
 
   const submitFeedback = () => {
     if (!feedbackScore || feedbackSubmitted) return;
@@ -460,132 +556,80 @@ export default function Home() {
       data-no-translate="true"
       dir={direction}
     >
-      <nav className="page-shell relative z-20 flex flex-wrap items-center justify-between gap-4 py-5 shrink-0">
-        <div className="text-3xl font-black tracking-tight flex items-center gap-1">
-          <span className="text-brand-orange">Quiz</span>zi
-        </div>
-        <div className="hidden md:flex items-center gap-10 font-bold text-lg">
-          <button onClick={() => navigate('/explore')} className="hover:text-brand-orange transition-colors flex items-center gap-1">{t('nav.explore')}</button>
-          <button onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')} className="hover:text-brand-orange transition-colors">{teacherSignedIn ? t('nav.teacherStudio') : t('nav.forTeachers')}</button>
-          <button onClick={() => navigate('/contact')} className="hover:text-brand-orange transition-colors">{t('nav.contact')}</button>
-        </div>
-        <div className="action-row w-full md:w-auto md:justify-end">
-          <button onClick={() => navigate('/student/auth')} className="action-pill font-bold px-6 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">
-            {studentSpaceLabel}
-          </button>
-          {teacherSignedIn ? (
-            <>
-              <button onClick={() => navigate('/teacher/dashboard')} className="action-pill font-bold px-6 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">{t('nav.dashboard')}</button>
-              <button onClick={handleLogout} className="action-pill font-bold px-6 py-3 rounded-full bg-brand-orange text-white border-2 border-brand-orange hover:bg-orange-600 transition-colors">{t('nav.logout')}</button>
-            </>
-          ) : (
-            <>
-              <button onClick={() => navigate('/auth')} className="action-pill font-bold px-6 py-3 rounded-full border-2 border-brand-dark hover:bg-brand-dark hover:text-white transition-colors">{t('nav.login')}</button>
-              <button onClick={() => navigate('/auth')} className="action-pill font-bold px-6 py-3 rounded-full bg-brand-orange text-white border-2 border-brand-orange hover:bg-orange-600 transition-colors">{t('nav.createAccount')}</button>
-            </>
-          )}
+      <nav className="page-shell relative z-20 py-4">
+        <div className="mx-auto grid max-w-[1220px] gap-3 lg:grid-cols-[auto_1fr_auto] lg:items-center">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => navigate('/auth')}
+              className="rounded-full border-[3px] border-brand-orange bg-brand-orange px-5 py-2.5 text-sm font-black text-white shadow-[0_4px_0_0_#1A1A1A]"
+            >
+              {teacherSignedIn ? t('nav.dashboard') : homeSurfaceCopy.teacherCta}
+            </button>
+            <button
+              onClick={() => window.scrollTo({ top: 260, behavior: 'smooth' })}
+              className="rounded-full border-[3px] border-brand-dark bg-white px-5 py-2.5 text-sm font-black shadow-[0_4px_0_0_#1A1A1A]"
+            >
+              {homeSurfaceCopy.quickJoinCta}
+            </button>
+            <button
+              onClick={() => navigate('/student/auth')}
+              className="rounded-full border-[3px] border-brand-dark bg-white px-5 py-2.5 text-sm font-black shadow-[0_4px_0_0_#1A1A1A]"
+            >
+              {homeSurfaceCopy.studentSpaceCta}
+            </button>
+          </div>
+
+          <div className="hidden items-center justify-center gap-12 text-base font-black lg:flex">
+            <button onClick={() => navigate('/contact')} className="transition-colors hover:text-brand-orange">{homeSurfaceCopy.navContact}</button>
+            <button onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')} className="transition-colors hover:text-brand-orange">{homeSurfaceCopy.navTeachers}</button>
+            <button onClick={() => navigate('/explore')} className="transition-colors hover:text-brand-orange">{homeSurfaceCopy.navExplore}</button>
+          </div>
+
+          <div className="flex items-center justify-end">
+            <BrandLogo onClick={() => navigate('/')} imageClassName="h-10 w-auto sm:h-12" />
+          </div>
         </div>
       </nav>
 
-      <main className="page-shell relative z-10 flex-1 overflow-y-auto thin-scrollbar py-4 pb-10 sm:py-6 sm:pb-12">
-        <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1.06fr)_minmax(320px,0.94fr)] lg:gap-12">
-          <motion.section
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="min-w-0"
-          >
-            <div className="rounded-[2.8rem] border-2 border-brand-dark bg-white/90 p-5 shadow-[10px_10px_0px_0px_#1A1A1A] backdrop-blur-sm sm:p-7 lg:p-8">
-              <div className="max-w-2xl">
-                <div className="mb-4 flex flex-wrap gap-2">
-                  <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A]">
-                    {t('home.hero.badge')}
-                  </span>
-                  {sessionPinReady ? (
-                    <span className="rounded-full border-2 border-emerald-300 bg-emerald-50 px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-brand-dark shadow-[3px_3px_0px_0px_#b7e7c8]">
-                      {t('home.hero.pinReadyBadge')}
-                    </span>
-                  ) : null}
-                </div>
+      <main className="page-shell relative z-10 flex-1 overflow-y-auto thin-scrollbar py-2 pb-8 sm:py-4 sm:pb-10">
+        <motion.section
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mx-auto grid max-w-[1220px] gap-8 lg:grid-cols-[minmax(0,1.04fr)_minmax(380px,0.86fr)]"
+        >
+          <div className="order-2 hidden lg:block lg:order-1">
+            <HomeJoinIllustration
+              pin={pin}
+              nickname={trimmedNickname}
+              avatar={selectedAvatar}
+            />
+          </div>
 
-                <h1 className="max-w-[12ch] text-balance text-[clamp(2rem,4vw,4.4rem)] font-black leading-[0.95] tracking-tight">
-                  {heroTitle}
-                </h1>
-                <p className="mt-3 max-w-[56ch] text-balance text-base font-medium leading-relaxed text-brand-dark/72 sm:text-lg">
-                  {t('home.hero.subtitle')}
-                </p>
-                <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  {QUICK_VALUE_ITEMS.map((item) => (
-                    <div
-                      key={item.label}
-                      className="rounded-[1.5rem] border-2 border-brand-dark bg-white px-4 py-4 shadow-[4px_4px_0px_0px_#1A1A1A]"
-                    >
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45">{item.label}</p>
-                      <p className="mt-2 text-lg font-black">{item.value}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-5 inline-flex max-w-[56ch] items-start gap-3 rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg px-4 py-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                  <Sparkles className="w-5 h-5 shrink-0 text-brand-orange mt-0.5" />
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{studentSpaceLabel}</p>
-                    <p className="text-sm font-bold text-brand-dark/72">{studentSpaceBody}</p>
-                    <div className="mt-3 flex flex-wrap gap-3">
-                      {studentAuth ? (
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-black text-brand-dark">שלום, {studentAuth.displayName}</span>
-                          <button
-                            onClick={handleStudentLogout}
-                            className="text-[11px] font-black uppercase tracking-wider text-brand-orange hover:underline"
-                          >
-                            {language === 'he' ? 'התנתק' : 'Logout'}
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => handleTrackedNavigate('/student/auth', 'student_sign_in', studentEmailSignInLabel, 'student_space')}
-                            className="flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-1.5 text-xs font-black shadow-[3px_3px_0px_0px_#1A1A1A] transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0px_0px_#1A1A1A]"
-                          >
-                            {studentEmailSignInLabel}
-                          </button>
-                          <button
-                            onClick={() =>
-                              handleTrackedNavigate(
-                                '/student/auth?mode=register',
-                                'student_register',
-                                studentCreateAccountLabel,
-                                'student_space',
-                              )
-                            }
-                            className="flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-1.5 text-xs font-black text-brand-dark shadow-[3px_3px_0px_0px_#1A1A1A] transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0px_0px_#1A1A1A]"
-                          >
-                            {studentCreateAccountLabel}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
+          <div className="order-1 lg:order-2 lg:max-w-[560px] lg:justify-self-end">
+            <div className="px-1 sm:px-2">
+              <h1 className="text-right text-[clamp(1.95rem,2.8vw,3.55rem)] font-black leading-[0.98] tracking-tight">
+                {homeSurfaceCopy.heroTitle}
+              </h1>
+              <p className="mt-3 text-right text-[clamp(0.95rem,1.05vw,1.25rem)] font-black leading-tight text-brand-dark">
+                {homeSurfaceCopy.heroBody}
+              </p>
 
               {joinAssistMessage ? (
-                <div className="mt-5 rounded-[1.6rem] border-2 border-brand-dark bg-brand-yellow px-4 py-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <div className="mt-5 rounded-[1.45rem] border-[3px] border-brand-dark bg-brand-yellow px-4 py-3.5 shadow-[0_5px_0_0_#1A1A1A]">
                   <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-brand-dark bg-white">
-                      <CheckCircle2 className="w-5 h-5 text-brand-orange" />
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-[3px] border-brand-dark bg-white">
+                      <CheckCircle2 className="h-4 w-4 text-brand-orange" />
                     </div>
-                    <div className="min-w-0">
-                      <p className="mb-1 text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/50">
-                        {t('home.assist.detected')}
-                      </p>
-                      <p className="font-black leading-snug">{joinAssistMessage}</p>
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{t('home.assist.detected')}</p>
+                      <p className="mt-1 text-sm font-black sm:text-[0.95rem]">{joinAssistMessage}</p>
                     </div>
                   </div>
                 </div>
               ) : null}
 
               {error ? (
-                <div role="alert" aria-live="single" className="mt-5 rounded-[1.6rem] border-2 border-red-200 bg-red-50 px-4 py-4 font-bold text-red-500 shadow-sm">
+                <div role="alert" aria-live="single" className="mt-5 rounded-[1.45rem] border-[3px] border-red-300 bg-red-50 px-4 py-3.5 text-sm font-black text-red-500 sm:text-base">
                   {error}
                 </div>
               ) : null}
@@ -595,372 +639,332 @@ export default function Home() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
                 onSubmit={handleJoin}
-                className="mt-6 flex flex-col gap-5"
+                className="mt-6 space-y-5"
               >
-                <div className="rounded-[2.1rem] border-2 border-brand-dark bg-brand-bg/70 p-4 sm:p-5">
-                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-orange mb-2">
-                        {t('home.section.joinDetails')}
-                      </p>
-                      <p className="text-lg font-black leading-tight sm:text-xl">
-                        {t('home.section.joinDetailsBody')}
-                      </p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label htmlFor="game-pin" className="flex flex-col gap-3">
+                    <span className="text-right text-[1rem] font-black sm:text-[1.15rem]">{homeSurfaceCopy.pinLabel}</span>
+                    <input
+                      id="game-pin"
+                      type="text"
+                      placeholder={t('home.form.pin')}
+                      aria-label="Enter Game PIN"
+                      value={pin}
+                      onFocus={() => markJoinFormStarted('pin')}
+                      onChange={(e) => {
+                        markJoinFormStarted('pin');
+                        void trackFormInteraction({ formId: 'home_join', field: 'pin', action: 'change' });
+                        setPin(sanitizeSessionPin(e.target.value));
+                      }}
+                      maxLength={6}
+                      required
+                      inputMode="numeric"
+                      dir="ltr"
+                      className="h-[70px] rounded-[1.65rem] border-[3px] border-brand-dark bg-white px-5 text-center text-[1.55rem] font-black tracking-[0.08em] shadow-[0_6px_0_0_#1A1A1A] placeholder:text-brand-dark/35 focus:outline-none sm:h-[74px] sm:text-[1.75rem]"
+                    />
+                  </label>
+
+                  <label htmlFor="nickname" className="flex flex-col gap-3">
+                    <span className="text-right text-[1rem] font-black sm:text-[1.15rem]">{homeSurfaceCopy.nicknameLabel}</span>
+                    <input
+                      id="nickname"
+                      ref={nicknameInputRef}
+                      type="text"
+                      placeholder={t('home.form.nickname')}
+                      aria-label="Enter your nickname"
+                      value={nickname}
+                      onFocus={() => markJoinFormStarted('nickname')}
+                      onChange={(e) => {
+                        markJoinFormStarted('nickname');
+                        void trackFormInteraction({ formId: 'home_join', field: 'nickname', action: 'change' });
+                        setNickname(e.target.value);
+                      }}
+                      maxLength={12}
+                      required
+                      className="h-[70px] rounded-[1.65rem] border-[3px] border-brand-dark bg-white px-5 text-center text-[1.45rem] font-black shadow-[0_6px_0_0_#1A1A1A] placeholder:text-brand-dark/35 focus:outline-none sm:h-[74px] sm:text-[1.65rem]"
+                    />
+                  </label>
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  <JoinStatusChip
+                    ready={sessionPinReady}
+                    text={sessionPinReady ? t('home.status.pinReady', { pin }) : t('home.status.pinWait')}
+                  />
+                  <JoinStatusChip
+                    ready={nicknameReady}
+                    text={nicknameReady ? t('home.status.nicknameReady', { nickname: trimmedNickname }) : t('home.status.nicknameWait')}
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[1.2rem] font-black sm:text-[1.4rem]">{homeSurfaceCopy.identityLabel}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setError('');
+                        void trackCtaClick({
+                          location: 'join_assist',
+                          ctaId: 'open_scanner',
+                          label: 'open_scanner',
+                        });
+                        setScannerOpen(true);
+                      }}
+                      className="inline-flex items-center gap-2 rounded-full border-[3px] border-brand-dark bg-white px-4 py-2 text-xs font-black shadow-[0_4px_0_0_#1A1A1A] sm:text-sm"
+                    >
+                      <ScanLine className="h-4 w-4 text-brand-orange" />
+                      {homeSurfaceCopy.scannerLabel}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <span className="text-[1rem] font-black sm:text-[1.1rem]">{homeSurfaceCopy.previewLabel}</span>
+                    <div className="flex min-h-[64px] flex-1 items-center justify-between gap-3 rounded-full border-[3px] border-brand-dark bg-white px-5 py-2.5 shadow-[0_6px_0_0_#1A1A1A] sm:min-h-[68px]">
+                      <span className="text-[1.35rem] font-black leading-none sm:text-[1.55rem]">{trimmedNickname || t('home.form.nickname')}</span>
+                      <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border-[3px] border-brand-dark bg-brand-bg sm:h-12 sm:w-12">
+                        <img src={`/avatars/${selectedAvatar}`} alt="" className="h-full w-full object-cover" />
+                      </span>
                     </div>
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <label htmlFor="game-pin" className="flex min-w-0 flex-col gap-2">
-                      <span className="px-1 text-sm font-black uppercase tracking-[0.12em] text-brand-dark/55">
-                        {t('home.form.pin')}
-                      </span>
-                      <input
-                        id="game-pin"
-                        type="text"
-                        placeholder={t('home.form.pin')}
-                        aria-label="Enter Game PIN"
-                        value={pin}
-                        onFocus={() => markJoinFormStarted('pin')}
-                        onChange={(e) => {
-                          markJoinFormStarted('pin');
-                          void trackFormInteraction({ formId: 'home_join', field: 'pin', action: 'change' });
-                          setPin(sanitizeSessionPin(e.target.value));
-                        }}
-                        maxLength={6}
-                        required
-                        inputMode="numeric"
-                        dir="ltr"
-                        className="w-full min-w-0 rounded-[1.6rem] border-2 border-brand-dark bg-white px-5 py-4 text-xl font-black tracking-[0.22em] placeholder:tracking-normal placeholder:text-brand-dark/35 focus:outline-none focus:ring-4 focus:ring-brand-orange/20 sm:px-6 sm:text-2xl"
-                      />
-                    </label>
-
-                    <label htmlFor="nickname" className="flex min-w-0 flex-col gap-2">
-                      <span className="px-1 text-sm font-black uppercase tracking-[0.12em] text-brand-dark/55">
-                        {t('home.form.nickname')}
-                      </span>
-                      <input
-                        id="nickname"
-                        ref={nicknameInputRef}
-                        type="text"
-                        placeholder={t('home.form.nickname')}
-                        aria-label="Enter your nickname"
-                        value={nickname}
-                        onFocus={() => markJoinFormStarted('nickname')}
-                        onChange={(e) => {
-                          markJoinFormStarted('nickname');
-                          void trackFormInteraction({ formId: 'home_join', field: 'nickname', action: 'change' });
-                          setNickname(e.target.value);
-                        }}
-                        maxLength={12}
-                        required
-                        className="w-full min-w-0 rounded-[1.6rem] border-2 border-brand-dark bg-white px-5 py-4 text-xl font-black placeholder:text-brand-dark/35 focus:outline-none focus:ring-4 focus:ring-brand-orange/20 sm:px-6 sm:text-2xl"
-                      />
-                    </label>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <JoinStatusChip
-                      ready={sessionPinReady}
-                      text={sessionPinReady ? t('home.status.pinReady', { pin }) : t('home.status.pinWait')}
-                    />
-                    <JoinStatusChip
-                      ready={nicknameReady}
-                      text={nicknameReady ? t('home.status.nicknameReady', { nickname: trimmedNickname }) : t('home.status.nicknameWait')}
-                    />
+                  <div className="rounded-[1.7rem] bg-white/90 p-2.5 shadow-[0_8px_20px_rgba(0,0,0,0.05)]">
+                    <div className="grid grid-cols-5 gap-2.5">
+                      {AVATARS.map((avatar) => (
+                        <button
+                          key={avatar}
+                          type="button"
+                          aria-label={`Select avatar ${avatar}`}
+                          aria-pressed={selectedAvatar === avatar}
+                          onClick={() => setSelectedAvatar(avatar)}
+                          onClickCapture={() => {
+                            markJoinFormStarted('avatar');
+                            void trackFormInteraction({ formId: 'home_join', field: 'avatar', action: 'change' });
+                          }}
+                          className={`overflow-hidden rounded-[1.25rem] border-[3px] bg-white transition-all ${
+                            selectedAvatar === avatar
+                              ? 'border-brand-dark shadow-[0_5px_0_0_#1A1A1A]'
+                              : 'border-brand-dark/10 hover:border-brand-dark/50'
+                          }`}
+                        >
+                          <div className="aspect-square w-full">
+                            <img src={`/avatars/${avatar}`} alt="" className="h-full w-full object-cover" />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                <div className="rounded-[2.1rem] border-2 border-brand-dark bg-white p-4 sm:p-5">
-                  <div className="mb-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,260px)] lg:items-start">
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-2">
-                        {t('home.avatar.identify')}
-                      </p>
-                      <p className="text-sm font-medium text-brand-dark/65 sm:text-base">
-                        {t('home.status.avatarNotice')}
-                      </p>
-                    </div>
-                    <div className="flex flex-col gap-3">
-                      <div className="flex items-center gap-3 rounded-full border-2 border-brand-dark bg-brand-bg px-3 py-2 shadow-[3px_3px_0px_0px_#1A1A1A]">
-                        <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border-2 border-brand-dark bg-white">
-                          <img src={`/avatars/${selectedAvatar}`} alt="" className="h-full w-full object-cover" />
-                        </span>
-                        <span className="max-w-[160px] truncate font-black">
-                          {trimmedNickname || t('home.form.nickname')}
-                        </span>
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={!canJoin}
-                        className="w-full rounded-[1.5rem] border-2 border-brand-dark bg-brand-orange px-6 py-3 text-base font-black text-white shadow-[5px_5px_0px_0px_#1A1A1A] transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:bg-[#e84d2a] hover:shadow-[3px_3px_0px_0px_#1A1A1A] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-[5px_5px_0px_0px_#1A1A1A] sm:text-lg"
-                      >
-                        {joining ? t('home.form.joining') : t('home.form.join')}
-                      </button>
-                    </div>
-                  </div>
+                <button
+                  type="submit"
+                  disabled={!canJoin}
+                  className="w-full rounded-[1.7rem] border-[4px] border-brand-dark bg-brand-orange px-8 py-3.5 text-lg font-black text-white shadow-[0_7px_0_0_#1A1A1A] transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 sm:text-[1.45rem]"
+                >
+                  {joining ? t('home.form.joining') : homeSurfaceCopy.joinLabel}
+                </button>
 
-                  <div className="grid grid-cols-4 gap-2 sm:grid-cols-5 sm:gap-3">
-                    {AVATARS.map((avatar) => (
-                      <button
-                        key={avatar}
-                        type="button"
-                        aria-label={`Select avatar ${avatar}`}
-                        aria-pressed={selectedAvatar === avatar}
-                        onClick={() => setSelectedAvatar(avatar)}
-                        onClickCapture={() => {
-                          markJoinFormStarted('avatar');
-                          void trackFormInteraction({ formId: 'home_join', field: 'avatar', action: 'change' });
-                        }}
-                        className={`overflow-hidden rounded-[1.35rem] border-2 bg-white transition-all focus:outline-none focus-visible:ring-8 focus-visible:ring-brand-purple/10 ${
-                          selectedAvatar === avatar
-                            ? 'border-brand-dark bg-brand-purple/15 shadow-[4px_4px_0px_0px_#1A1A1A] -translate-y-0.5'
-                            : 'border-brand-dark/10 hover:border-brand-dark hover:shadow-[3px_3px_0px_0px_#1A1A1A]'
-                        }`}
-                      >
-                        <div className="aspect-square w-full min-w-0">
-                          <img
-                            src={`/avatars/${avatar}`}
-                            alt="Avatar selection"
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className={`grid gap-3 ${savedSeat ? 'xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]' : ''}`}>
-                  <div className={`rounded-[1.8rem] border-2 border-brand-dark p-4 ${joinAssistMessage ? 'bg-brand-yellow/50' : 'bg-white'}`}>
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-brand-dark bg-brand-bg">
-                        <QrCode className="w-5 h-5 text-brand-purple" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="mb-1 text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45">
-                          {t('home.assist.fastLane')}
-                        </p>
-                        <p className="font-black leading-snug">
-                          {t('home.assist.skipTyping')}
-                        </p>
-                        <p className="mt-2 text-sm font-medium text-brand-dark/65">
-                          {scannerSupported ? t('home.assist.scanNotice') : t('home.assist.cameraNotice')}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4">
+                {savedSeat ? (
+                  <div className="rounded-[2rem] border-[3px] border-brand-dark bg-brand-bg p-4 shadow-[0_6px_0_0_#1A1A1A]">
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple">{t('home.saved.title')}</p>
+                    <p className="mt-2 text-2xl font-black">{savedSeat.nickname}</p>
+                    <p className="mt-1 text-sm font-bold text-brand-dark/65">
+                      {t('home.saved.sessionLine', { pin: savedSeat.sessionPin })}
+                      {savedSeat.teamName ? ` • ${savedSeat.teamName}` : ''}
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-3">
                       <button
                         type="button"
-                        onClick={() => {
-                          setError('');
-                          void trackCtaClick({
-                            location: 'join_assist',
-                            ctaId: 'open_scanner',
-                            label: 'open_scanner',
-                          });
-                          setScannerOpen(true);
-                        }}
-                        className="flex w-full items-center justify-center gap-3 rounded-[1.4rem] border-2 border-brand-dark bg-white px-5 py-4 text-base font-black shadow-[4px_4px_0px_0px_#1A1A1A] sm:text-lg"
+                        onClick={handleResumeSavedSession}
+                        className="rounded-full border-[3px] border-brand-dark bg-brand-dark px-5 py-3 text-sm font-black text-white shadow-[0_5px_0_0_#FF5A36]"
                       >
-                        <ScanLine className="w-5 h-5 text-brand-orange" />
-                        {t('home.action.scan')}
+                        {t('home.saved.continue')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClearSavedSession}
+                        className="rounded-full border-[3px] border-brand-dark bg-white px-5 py-3 text-sm font-black shadow-[0_5px_0_0_#1A1A1A]"
+                      >
+                        {t('home.saved.clear')}
                       </button>
                     </div>
                   </div>
-
-                  {savedSeat ? (
-                    <div className="rounded-[1.8rem] border-2 border-brand-dark bg-white p-4">
-                      <div className="flex h-full flex-col gap-4">
-                        <div className="min-w-0">
-                          <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple">
-                            {t('home.saved.title')}
-                          </p>
-                          <p className="mb-1 text-2xl font-black text-brand-dark">{savedSeat.nickname}</p>
-                          <p className="font-bold text-brand-dark/60">
-                            {t('home.saved.sessionLine', { pin: savedSeat.sessionPin })}
-                            {savedSeat.teamName ? ` • ${savedSeat.teamName}` : ''}
-                          </p>
-                        </div>
-                        <div className="mt-auto flex flex-col gap-3">
-                          <button
-                            type="button"
-                            onClick={handleResumeSavedSession}
-                            className="flex w-full items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-brand-dark px-5 py-3 font-black text-white shadow-[4px_4px_0px_0px_#FF5A36]"
-                          >
-                            <Play className="w-4 h-4 fill-current" />
-                            {t('home.saved.continue')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleClearSavedSession}
-                            className="flex w-full items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-white px-5 py-3 font-black"
-                          >
-                            <RotateCcw className="w-4 h-4" />
-                            {t('home.saved.clear')}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
+                ) : null}
               </motion.form>
             </div>
+          </div>
+        </motion.section>
 
-            <section className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
-              <div className="rounded-[2.2rem] border-2 border-brand-dark bg-white p-5 shadow-[8px_8px_0px_0px_#1A1A1A] sm:p-6">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple">FAQ</p>
-                    <h2 className="text-2xl font-black">שאלות שחוסכות בלגן לפני שמתחילים</h2>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  {FAQ_ITEMS.map((item) => {
-                    const expanded = expandedFaq === item.id;
-                    return (
-                      <div key={item.id} className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg/60 px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const nextExpanded = expanded ? null : item.id;
-                            setExpandedFaq(nextExpanded);
-                            void trackFaqInteraction({ questionId: item.id, expanded: !expanded });
-                          }}
-                          className="flex w-full items-center justify-between gap-4 text-right"
-                        >
-                          <span className="text-lg font-black">{item.questionHe}</span>
-                          <ChevronDown className={`h-5 w-5 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-                        </button>
-                        {expanded ? (
-                          <p className="mt-3 max-w-[62ch] text-sm font-medium leading-7 text-brand-dark/70">{item.answerHe}</p>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="rounded-[2.2rem] border-2 border-brand-dark bg-brand-yellow/45 p-5 shadow-[8px_8px_0px_0px_#1A1A1A] sm:p-6">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 border-brand-dark bg-white">
-                    <MessageSquareText className="h-5 w-5 text-brand-orange" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45">Feedback</p>
-                    <h2 className="text-2xl font-black">מה חסר כאן?</h2>
-                    <p className="mt-2 text-sm font-medium leading-7 text-brand-dark/70">{feedbackPrompt}</p>
-                  </div>
-                </div>
-
-                <div className="mt-5 grid grid-cols-3 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setFeedbackScore('positive')}
-                    className={`rounded-[1.3rem] border-2 px-3 py-3 font-black ${feedbackScore === 'positive' ? 'border-brand-dark bg-white' : 'border-brand-dark/20 bg-white/70'}`}
-                  >
-                    <ThumbsUp className="mx-auto mb-2 h-5 w-5" />
-                    ברור
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFeedbackScore('neutral')}
-                    className={`rounded-[1.3rem] border-2 px-3 py-3 font-black ${feedbackScore === 'neutral' ? 'border-brand-dark bg-white' : 'border-brand-dark/20 bg-white/70'}`}
-                  >
-                    <MessageSquareText className="mx-auto mb-2 h-5 w-5" />
-                    כמעט
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFeedbackScore('negative')}
-                    className={`rounded-[1.3rem] border-2 px-3 py-3 font-black ${feedbackScore === 'negative' ? 'border-brand-dark bg-white' : 'border-brand-dark/20 bg-white/70'}`}
-                  >
-                    <ThumbsDown className="mx-auto mb-2 h-5 w-5" />
-                    חסר
-                  </button>
-                </div>
-
-                <textarea
-                  value={feedbackMessage}
-                  onChange={(event) => setFeedbackMessage(event.target.value)}
-                  placeholder="למשל: חסר וידאו קצר, דוגמה לכיתה, או הסבר ברור יותר למורים."
-                  className="mt-4 min-h-28 w-full rounded-[1.5rem] border-2 border-brand-dark bg-white px-4 py-4 text-sm font-medium outline-none focus:ring-4 focus:ring-brand-orange/20"
-                />
-
-                <button
-                  type="button"
-                  disabled={!feedbackScore || feedbackSubmitted}
-                  onClick={submitFeedback}
-                  className="mt-4 w-full rounded-[1.4rem] border-2 border-brand-dark bg-brand-dark px-5 py-3 text-base font-black text-white shadow-[4px_4px_0px_0px_#FF5A36] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {feedbackSubmitted ? feedbackThanks : 'שלחו משוב קצר'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleTrackedNavigate('/contact', 'contact_sales', 'contact_sales', 'feedback_panel')}
-                  className="mt-3 w-full rounded-[1.4rem] border-2 border-brand-dark bg-white px-5 py-3 text-base font-black shadow-[4px_4px_0px_0px_#1A1A1A]"
-                >
-                  רוצים שנחזור אליכם?
-                </button>
-              </div>
-            </section>
-          </motion.section>
-
-          <motion.aside
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.08 }}
-            className="relative min-w-0"
-          >
-            <div className="relative flex min-h-[420px] items-center justify-center overflow-hidden rounded-[2.8rem] border-2 border-brand-dark/5 bg-brand-bg/60 px-6 py-8 sm:min-h-[520px] sm:px-8 sm:py-10 lg:min-h-[640px] lg:px-8 lg:py-12">
-              <div className="absolute h-[520px] w-[520px] rounded-full border-[3px] border-brand-dark/5 sm:h-[620px] sm:w-[620px] lg:h-[720px] lg:w-[720px]" />
-              <div className="absolute h-[320px] w-[320px] rounded-full border-[3px] border-brand-dark/5 sm:h-[430px] sm:w-[430px] lg:h-[500px] lg:w-[500px]" />
-
-              <motion.div
-                animate={{ y: [-10, 10, -10], rotate: [0, 10, 0] }}
-                transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute left-6 top-8 text-brand-yellow sm:left-10 sm:top-12 lg:left-12 lg:top-16"
-              >
-                <svg width="54" height="54" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" /></svg>
-              </motion.div>
-
-              <motion.div
-                animate={{ y: [10, -10, 10], rotate: [0, -10, 0] }}
-                transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute bottom-20 right-6 text-brand-yellow sm:bottom-24 sm:right-8 lg:bottom-28 lg:right-10"
-              >
-                <svg width="38" height="38" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" /></svg>
-              </motion.div>
-
-              <div className="relative z-10 flex w-full max-w-[440px] flex-col items-center justify-center gap-6 sm:max-w-[520px] sm:gap-8 lg:max-w-[560px]">
-                <div className="relative flex w-full items-end justify-center pt-4 sm:pt-6">
-                  <motion.div
-                    initial={{ scale: 0.84, rotate: -6 }}
-                    animate={{ scale: 1, rotate: 8 }}
-                    transition={{ type: 'spring', bounce: 0.34, duration: 1 }}
-                    className="relative z-10 flex h-[220px] w-[220px] items-center justify-center rounded-[3rem] border-4 border-brand-dark bg-brand-purple shadow-[16px_16px_0px_0px_#1A1A1A] sm:h-[290px] sm:w-[290px] lg:h-[360px] lg:w-[360px] lg:rounded-[4rem]"
-                  >
-                    <Sparkles className="h-24 w-24 text-white sm:h-32 sm:w-32 lg:h-40 lg:w-40" />
-                  </motion.div>
-
-                  <motion.div
-                    animate={{ x: [-6, 6, -6], rotate: [-10, -7, -10] }}
-                    transition={{ duration: 4.6, repeat: Infinity, ease: 'easeInOut' }}
-                    className="absolute bottom-2 left-1/2 z-20 flex h-14 w-[250px] -translate-x-[58%] rotate-[-10deg] items-center rounded-full border-4 border-brand-dark bg-brand-purple shadow-[8px_8px_0px_0px_#1A1A1A] sm:bottom-3 sm:h-16 sm:w-[320px] lg:bottom-5 lg:h-20 lg:w-[380px]"
-                  >
-                    <div className="ml-auto flex h-full w-14 items-center justify-start rounded-r-full border-l-4 border-brand-dark bg-white pl-4 sm:w-16 lg:w-[72px]">
-                      <div className="h-0 w-0 border-b-[12px] border-l-[24px] border-t-[12px] border-b-transparent border-l-brand-dark border-t-transparent sm:border-b-[14px] sm:border-l-[28px] sm:border-t-[14px]" />
+        <section className="mx-auto mt-10 grid max-w-[1320px] gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          <div className="rounded-[2.2rem] border-[3px] border-brand-dark bg-white p-6 shadow-[0_8px_0_0_#1A1A1A]">
+            <div className="inline-flex items-start gap-3 rounded-[1.5rem] border-[3px] border-brand-dark bg-brand-bg px-4 py-4 shadow-[0_5px_0_0_#1A1A1A]">
+              <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-brand-orange" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple">{studentSpaceLabel}</p>
+                <p className="mt-2 text-sm font-bold leading-7 text-brand-dark/72">{studentSpaceBody}</p>
+                <div className="mt-3 flex flex-wrap gap-3">
+                  {studentAuth ? (
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-black text-brand-dark">שלום, {studentAuth.displayName}</span>
+                      <button onClick={handleStudentLogout} className="text-[11px] font-black uppercase tracking-wider text-brand-orange hover:underline">
+                        {language === 'he' ? 'התנתק' : 'Logout'}
+                      </button>
                     </div>
-                  </motion.div>
-                </div>
-
-                <div className="w-full max-w-[360px] rounded-full border-2 border-brand-dark bg-white/95 px-5 py-3 text-center font-black shadow-[4px_4px_0px_0px_#1A1A1A] backdrop-blur-sm sm:px-6 sm:py-3.5">
-                  {t('home.hero.supportBadge')}
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => handleTrackedNavigate('/student/auth', 'student_sign_in', studentEmailSignInLabel, 'student_space')}
+                        className="rounded-full border-[3px] border-brand-dark bg-white px-4 py-2 text-xs font-black shadow-[0_4px_0_0_#1A1A1A]"
+                      >
+                        {studentEmailSignInLabel}
+                      </button>
+                      <button
+                        onClick={() => handleTrackedNavigate('/student/auth?mode=register', 'student_register', studentCreateAccountLabel, 'student_space')}
+                        className="rounded-full border-[3px] border-brand-dark bg-brand-yellow px-4 py-2 text-xs font-black shadow-[0_4px_0_0_#1A1A1A]"
+                      >
+                        {studentCreateAccountLabel}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
-          </motion.aside>
-        </div>
+
+            <div className="mt-6">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-orange">{homeSurfaceCopy.lowerTitle}</p>
+              <p className="mt-3 text-base font-medium leading-7 text-brand-dark/72">{homeSurfaceCopy.lowerBody}</p>
+            </div>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              {QUICK_VALUE_ITEMS.map((item) => (
+                <div key={item.label} className="rounded-[1.5rem] border-[3px] border-brand-dark bg-brand-bg px-4 py-4 shadow-[0_5px_0_0_#1A1A1A]">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45">{item.label}</p>
+                  <p className="mt-2 text-lg font-black">{item.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[2.2rem] border-[3px] border-brand-dark bg-brand-yellow/45 p-6 shadow-[0_8px_0_0_#1A1A1A]">
+            <div className="flex items-start gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-[3px] border-brand-dark bg-white">
+                <MessageSquareText className="h-5 w-5 text-brand-orange" />
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45">Feedback</p>
+                <h2 className="text-2xl font-black">{homeSurfaceCopy.feedbackTitle}</h2>
+                <p className="mt-2 text-sm font-medium leading-7 text-brand-dark/70">{homeSurfaceCopy.feedbackBody}</p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-3 gap-3">
+              <button
+                type="button"
+                onClick={() => setFeedbackScore('positive')}
+                className={`rounded-[1.3rem] border-[3px] px-3 py-3 font-black ${feedbackScore === 'positive' ? 'border-brand-dark bg-white shadow-[0_4px_0_0_#1A1A1A]' : 'border-brand-dark/20 bg-white/70'}`}
+              >
+                <ThumbsUp className="mx-auto mb-2 h-5 w-5" />
+                ברור
+              </button>
+              <button
+                type="button"
+                onClick={() => setFeedbackScore('neutral')}
+                className={`rounded-[1.3rem] border-[3px] px-3 py-3 font-black ${feedbackScore === 'neutral' ? 'border-brand-dark bg-white shadow-[0_4px_0_0_#1A1A1A]' : 'border-brand-dark/20 bg-white/70'}`}
+              >
+                <MessageSquareText className="mx-auto mb-2 h-5 w-5" />
+                כמעט
+              </button>
+              <button
+                type="button"
+                onClick={() => setFeedbackScore('negative')}
+                className={`rounded-[1.3rem] border-[3px] px-3 py-3 font-black ${feedbackScore === 'negative' ? 'border-brand-dark bg-white shadow-[0_4px_0_0_#1A1A1A]' : 'border-brand-dark/20 bg-white/70'}`}
+              >
+                <ThumbsDown className="mx-auto mb-2 h-5 w-5" />
+                חסר
+              </button>
+            </div>
+
+            <textarea
+              value={feedbackMessage}
+              onChange={(event) => setFeedbackMessage(event.target.value)}
+              placeholder="למשל: חסר וידאו קצר, דוגמה לכיתה, או הסבר ברור יותר למורים."
+              className="mt-4 min-h-28 w-full rounded-[1.6rem] border-[3px] border-brand-dark bg-white px-4 py-4 text-sm font-medium outline-none"
+            />
+
+            <button
+              type="button"
+              disabled={!feedbackScore || feedbackSubmitted}
+              onClick={submitFeedback}
+              className="mt-4 w-full rounded-[1.6rem] border-[3px] border-brand-dark bg-brand-dark px-5 py-3 text-base font-black text-white shadow-[0_6px_0_0_#FF5A36] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {feedbackSubmitted ? feedbackThanks : 'שלחו משוב קצר'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleTrackedNavigate('/contact', 'contact_sales', 'contact_sales', 'feedback_panel')}
+              className="mt-3 w-full rounded-[1.6rem] border-[3px] border-brand-dark bg-white px-5 py-3 text-base font-black shadow-[0_6px_0_0_#1A1A1A]"
+            >
+              רוצים שנחזור אליכם?
+            </button>
+          </div>
+        </section>
+
+        <section className="mx-auto mt-10 grid max-w-[1320px] gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+          <div className="rounded-[2.2rem] border-[3px] border-brand-dark bg-white p-6 shadow-[0_8px_0_0_#1A1A1A]">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple">FAQ</p>
+                <h2 className="text-2xl font-black">שאלות שחוסכות בלגן לפני שמתחילים</h2>
+              </div>
+            </div>
+            <div className="space-y-3">
+              {FAQ_ITEMS.map((item) => {
+                const expanded = expandedFaq === item.id;
+                return (
+                  <div key={item.id} className="rounded-[1.5rem] border-[3px] border-brand-dark bg-brand-bg/60 px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextExpanded = expanded ? null : item.id;
+                        setExpandedFaq(nextExpanded);
+                        void trackFaqInteraction({ questionId: item.id, expanded: !expanded });
+                      }}
+                      className="flex w-full items-center justify-between gap-4 text-right"
+                    >
+                      <span className="text-lg font-black">{item.questionHe}</span>
+                      <ChevronDown className={`h-5 w-5 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                    </button>
+                    {expanded ? (
+                      <p className="mt-3 max-w-[62ch] text-sm font-medium leading-7 text-brand-dark/70">{item.answerHe}</p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-[2.2rem] border-[3px] border-brand-dark bg-white p-6 shadow-[0_8px_0_0_#1A1A1A]">
+            <BrandLogo onClick={() => navigate('/')} imageClassName="h-12 w-auto" />
+            <p className="mt-4 text-sm font-medium leading-7 text-brand-dark/72">{homeSurfaceCopy.lowerBody}</p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')}
+                className="rounded-full border-[3px] border-brand-dark bg-brand-yellow px-5 py-3 text-sm font-black shadow-[0_5px_0_0_#1A1A1A]"
+              >
+                {teacherSignedIn ? t('nav.dashboard') : homeSurfaceCopy.teacherCta}
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className={`rounded-full border-[3px] border-brand-dark px-5 py-3 text-sm font-black shadow-[0_5px_0_0_#1A1A1A] ${teacherSignedIn ? 'bg-white' : 'hidden'}`}
+              >
+                {t('nav.logout')}
+              </button>
+            </div>
+          </div>
+        </section>
       </main>
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:hidden">
         <div className="pointer-events-auto rounded-[1.6rem] border-2 border-brand-dark bg-white/95 p-3 shadow-[8px_8px_0px_0px_#1A1A1A] backdrop-blur-sm">
@@ -1013,7 +1017,7 @@ export default function Home() {
 function JoinStatusChip({ ready, text }: { ready: boolean; text: string }) {
   return (
     <div
-      className={`rounded-full border-2 px-4 py-2 text-sm font-black shadow-[3px_3px_0px_0px_#1A1A1A] ${
+      className={`rounded-full border-2 px-3.5 py-1.5 text-xs font-black shadow-[3px_3px_0px_0px_#1A1A1A] sm:px-4 sm:py-2 sm:text-sm ${
         ready
           ? 'border-emerald-300 bg-emerald-50 text-brand-dark'
           : 'border-brand-dark/10 bg-white text-brand-dark/70'

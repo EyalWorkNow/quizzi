@@ -211,7 +211,8 @@ async function startServer() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
-    res.setHeader('Origin-Agent-Cluster', '?1');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
     res.setHeader('X-DNS-Prefetch-Control', 'off');
     if (process.env.NODE_ENV === 'production') {
       const forwardedProto = String(req.headers['x-forwarded-proto'] || req.protocol || '').toLowerCase();
@@ -364,7 +365,10 @@ async function startServer() {
 
   // Automatic Keep-Alive Ping for Render Free Tier Instances
   const rawAppUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
-  if (rawAppUrl) {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const hasExternalUrl = Boolean(process.env.RENDER_EXTERNAL_URL);
+
+  if (rawAppUrl && (isProduction || hasExternalUrl)) {
     // Resolve localhost to 127.0.0.1 to avoid IPv6 resolution issues (::1) on some systems
     const renderExternalUrl = rawAppUrl.replace('localhost', '127.0.0.1');
     console.log(`[keep-alive] Auto-ping activated for ${renderExternalUrl}`);

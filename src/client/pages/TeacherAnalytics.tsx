@@ -30,6 +30,7 @@ import {
 import { motion } from 'motion/react';
 import { getGameMode } from '../lib/gameModes.ts';
 import { apiFetchJson } from '../lib/api.ts';
+import AppLoadingScreen from '../components/AppLoadingScreen.tsx';
 import { useTeacherAnalyticsLanguage } from '../lib/teacherAnalyticsLanguage.ts';
 
 const compactNumber = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
@@ -2185,12 +2186,11 @@ export default function TeacherAnalytics() {
 
   if (loading) {
     return (
-      <div dir={direction} className="min-h-screen bg-brand-bg flex items-center justify-center text-brand-dark">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-brand-dark border-t-brand-orange rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-xl font-black">{t('Loading class command center...')}</p>
-        </div>
-      </div>
+      <AppLoadingScreen
+        dir={direction}
+        label={t('Loading class command center...')}
+        caption={t('Pulling live performance, signals, and action recommendations for this class.')}
+      />
     );
   }
 

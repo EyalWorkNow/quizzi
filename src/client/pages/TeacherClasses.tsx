@@ -10,15 +10,15 @@ import {
   Clock3,
   GraduationCap,
   Layers3,
-  LoaderCircle,
   Plus,
   RefreshCw,
-  Search,
   Trash2,
   Users,
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import AppLoadingScreen from '../components/AppLoadingScreen.tsx';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
+import UiverseSearchField from '../components/UiverseSearchField.tsx';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import {
   clearStoredTeacherClasses,
@@ -695,15 +695,14 @@ export default function TeacherClasses() {
           <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1.45fr_0.55fr]">
             <section>
               <div className="mb-6 flex flex-col gap-4 rounded-[2rem] border-2 border-brand-dark bg-white p-5 shadow-[4px_4px_0px_0px_#1A1A1A] md:flex-row">
-                <div className="relative flex-1">
-                  <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-brand-dark/40" />
-                  <input
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder={copy.searchPlaceholder}
-                    className="w-full rounded-full border-2 border-brand-dark bg-brand-bg py-3 pl-12 pr-4 font-bold focus:outline-none focus:ring-2 focus:ring-brand-orange/20"
-                  />
-                </div>
+                <UiverseSearchField
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder={copy.searchPlaceholder}
+                  shellClassName="flex-1"
+                  dir={language === 'he' ? 'rtl' : 'ltr'}
+                  onClear={() => setSearchQuery('')}
+                />
                 <select
                   value={subjectFilter}
                   onChange={(event) => setSubjectFilter(event.target.value)}
@@ -718,10 +717,13 @@ export default function TeacherClasses() {
               </div>
 
               {loading ? (
-                <div className="flex items-center justify-center gap-3 rounded-[2rem] border-2 border-brand-dark bg-white p-10 font-black shadow-[4px_4px_0px_0px_#1A1A1A]">
-                  <LoaderCircle className="h-5 w-5 animate-spin" />
-                  {copy.loading}
-                </div>
+                <AppLoadingScreen
+                  fullScreen={false}
+                  size={90}
+                  label={copy.loading}
+                  caption={language === 'he' ? 'טוענים כיתות, חבילות ופעילות עדכנית.' : 'Pulling in classes, packs, and the latest activity.'}
+                  panelClassName="max-w-none rounded-[2rem] border-2 px-6 py-8 shadow-[4px_4px_0px_0px_#1A1A1A]"
+                />
               ) : loadError && filteredClasses.length === 0 ? (
                 <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-10 text-center shadow-[4px_4px_0px_0px_#1A1A1A]">
                   <p className="mb-2 text-2xl font-black">{copy.loadFailedTitle}</p>

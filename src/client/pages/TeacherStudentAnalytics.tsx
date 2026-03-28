@@ -28,6 +28,7 @@ import {
   RevisionCategoryChart,
   SessionHistoryTrendChart,
 } from '../components/studentDashboardCharts.tsx';
+import AppLoadingScreen from '../components/AppLoadingScreen.tsx';
 import { apiFetchJson } from '../lib/api.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { useTeacherAnalyticsLanguage } from '../lib/teacherAnalyticsLanguage.ts';
@@ -633,12 +634,11 @@ export default function TeacherStudentAnalytics() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-brand-bg flex items-center justify-center">
-        <div className="text-center text-brand-dark">
-          <div className="w-16 h-16 border-4 border-brand-dark border-t-brand-purple rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-xl font-black">{copy.loading}</p>
-        </div>
-      </div>
+      <AppLoadingScreen
+        dir={language === 'he' ? 'rtl' : 'ltr'}
+        label={copy.loading}
+        caption={language === 'he' ? 'טוענים מגמות, תשובות ובעיות שדורשות תשומת לב.' : 'Loading trends, answer quality, and the signals that need attention.'}
+      />
     );
   }
 

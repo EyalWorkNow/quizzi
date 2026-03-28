@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, Mail, ShieldCheck, UserCircle2 } from 'lucide-react';
 import { motion } from 'motion/react';
+import BrandLogo from '../components/BrandLogo.tsx';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import {
   confirmStudentPasswordReset,
@@ -342,7 +343,8 @@ export default function StudentAuth() {
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#FFF3D6,_#F8F1E7_52%,_#E7EEF8_100%)] px-6 py-10">
       <div className="mx-auto max-w-5xl grid gap-8 lg:grid-cols-[1.1fr_0.9fr] items-stretch">
         <div className="rounded-[2.8rem] border-4 border-brand-dark bg-white p-8 shadow-[10px_10px_0px_0px_#1A1A1A]">
-          <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-orange mb-4">Quizzi Student</p>
+          <BrandLogo onClick={() => navigate('/')} imageClassName="h-12 w-auto" />
+          <p className="mt-4 text-xs font-black uppercase tracking-[0.25em] text-brand-orange mb-4">Quizzi Student</p>
           <h1 className="text-4xl md:text-5xl font-black leading-tight text-brand-dark">{copy.title}</h1>
           <p className="mt-4 text-lg font-bold text-brand-dark/70 max-w-2xl">{copy.subtitle}</p>
           {draftRestored ? (

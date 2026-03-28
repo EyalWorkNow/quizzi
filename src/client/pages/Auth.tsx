@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
@@ -30,10 +30,12 @@ import {
   signOutTeacher,
   type TeacherAuthSession,
 } from '../lib/teacherAuth.ts';
+import BrandLogo from '../components/BrandLogo.tsx';
 
 type AccessMode = 'login' | 'create';
 type PendingAction = 'password' | 'google' | 'facebook' | 'logout' | null;
 const TEACHER_AUTH_DRAFT_KEY = 'quizzi.teacher.auth.draft';
+const TEACHER_PASSWORD_MIN_LENGTH = 8;
 
 function readTeacherAuthDraft() {
   if (typeof window === 'undefined') return null;
@@ -84,8 +86,6 @@ export default function Auth() {
       demoSchool: 'Quizzi Academy',
     },
   }[language];
-
-  const socialLabel = useMemo(() => (mode === 'login' ? t('auth.social.label') : t('auth.social.label')), [mode, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -202,6 +202,10 @@ export default function Auth() {
     });
 
     try {
+      if (!useDemoAccount && password.trim().length < TEACHER_PASSWORD_MIN_LENGTH) {
+        throw new Error(`Password must be at least ${TEACHER_PASSWORD_MIN_LENGTH} characters.`);
+      }
+
       if (accessMode === 'create') {
         if (password !== confirmPassword) {
           throw new Error(t('settings.feedback.passwordsMismatch'));
@@ -359,7 +363,15 @@ export default function Auth() {
   };
 
   const emailLooksValid = /\S+@\S+\.\S+/.test(email);
-  const passwordReady = password.trim().length >= 6;
+  const usingDemoPasswordRules =
+    mode === 'login' &&
+    DEMO_AUTH_ENABLED &&
+    email.trim().toLowerCase() === DEMO_TEACHER_EMAIL.toLowerCase() &&
+    password === DEMO_TEACHER_PASSWORD;
+  const minimumPasswordLength = usingDemoPasswordRules
+    ? DEMO_TEACHER_PASSWORD.length
+    : TEACHER_PASSWORD_MIN_LENGTH;
+  const passwordReady = password.trim().length >= minimumPasswordLength;
   const confirmReady = mode === 'login' || password === confirmPassword;
   const canSubmit = emailLooksValid && passwordReady && confirmReady && pendingAction === null;
 
@@ -369,9 +381,7 @@ export default function Auth() {
       className="h-screen max-h-screen overflow-hidden bg-brand-bg text-brand-dark font-sans selection:bg-brand-orange selection:text-white flex flex-col"
     >
       <nav className="page-shell relative z-20 flex items-center justify-between gap-4 py-5 shrink-0">
-        <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
-          <span className="text-brand-orange">Quiz</span>zi
-        </div>
+        <BrandLogo onClick={() => navigate('/')} imageClassName="h-11 w-auto" />
         <button
           onClick={() => navigate('/')}
           className="w-12 h-12 flex items-center justify-center bg-white border-2 border-brand-dark rounded-full hover:bg-brand-yellow transition-colors shadow-[2px_2px_0px_0px_#1A1A1A]"
@@ -621,7 +631,13 @@ export default function Auth() {
                       {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
                   }
-                  helperText={password ? (passwordReady ? 'הסיסמה מוכנה' : 'מומלץ להשתמש בלפחות 6 תווים') : ''}
+                  helperText={
+                    password
+                      ? passwordReady
+                        ? 'הסיסמה מוכנה'
+                        : `מומלץ להשתמש בלפחות ${minimumPasswordLength} תווים`
+                      : ''
+                  }
                 />
                 {mode === 'create' && (
                   <Field
@@ -668,7 +684,7 @@ export default function Auth() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <SocialAccessButton
               brand="google"
-              title={`${socialLabel} Google`}
+              title="Google"
               body={t('auth.googleFastAccess')}
               loading={pendingAction === 'google'}
               disabled={pendingAction !== null}
@@ -676,7 +692,7 @@ export default function Auth() {
             />
             <SocialAccessButton
               brand="facebook"
-              title={`${socialLabel} Facebook`}
+              title="Facebook"
               body={t('auth.facebookActivation')}
               loading={pendingAction === 'facebook'}
               disabled={pendingAction !== null}

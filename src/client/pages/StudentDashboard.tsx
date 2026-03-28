@@ -25,6 +25,7 @@ import {
   QuestionStatusStripChart,
   SessionHistoryTrendChart,
 } from '../components/studentDashboardCharts.tsx';
+import AppLoadingScreen from '../components/AppLoadingScreen.tsx';
 import { apiFetchJson } from '../lib/api.ts';
 import Avatar, { extractNickname } from '../components/Avatar.tsx';
 import { clearJoinedParticipantSession, getParticipantToken } from '../lib/studentSession.ts';
@@ -199,12 +200,11 @@ export default function StudentDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-brand-bg flex items-center justify-center">
-        <div className="text-center text-brand-dark">
-          <div className="w-16 h-16 border-4 border-brand-dark border-t-brand-orange rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-xl font-black">{copy.loading}</p>
-        </div>
-      </div>
+      <AppLoadingScreen
+        dir={language === 'he' ? 'rtl' : 'ltr'}
+        label={copy.loading}
+        caption={language === 'he' ? 'מכינים את המגמות, החוזקות והאימון הבא שלך.' : 'Preparing your trends, strengths, and next practice move.'}
+      />
     );
   }
 

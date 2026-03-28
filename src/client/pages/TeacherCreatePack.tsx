@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Library, Search, Layout, Rocket, Play, PlusCircle, ChevronDown, ChevronUp, Monitor, Brain, MessageSquare, Globe } from 'lucide-react';
+import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Library, Layout, Rocket, Play, PlusCircle, ChevronDown, ChevronUp, Monitor, Brain, MessageSquare, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { listTeacherClasses, addPackToClass, type TeacherClassCard } from '../lib/teacherClasses.ts';
@@ -12,6 +12,9 @@ import {
 } from '../lib/questionGeneration.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
 import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
+import AppLoadingScreen from '../components/AppLoadingScreen.tsx';
+import GenerateMagicButton from '../components/GenerateMagicButton.tsx';
+import UiverseSearchField from '../components/UiverseSearchField.tsx';
 import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from '../../shared/sessionSoundtracks.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 
@@ -759,12 +762,10 @@ export default function TeacherCreatePack() {
 
   if (isLoadingPack) {
     return (
-      <div className="min-h-screen bg-brand-bg flex items-center justify-center px-6">
-        <div className="rounded-[2rem] border-4 border-brand-dark bg-white px-10 py-9 shadow-[10px_10px_0px_0px_#1A1A1A] text-center">
-          <div className="mx-auto mb-5 h-14 w-14 rounded-full border-4 border-brand-dark border-t-brand-orange animate-spin" />
-          <p className="text-2xl font-black text-brand-dark">{isEditMode ? 'Loading pack editor...' : 'Loading...'}</p>
-        </div>
-      </div>
+      <AppLoadingScreen
+        label={isEditMode ? 'Loading pack editor...' : 'Loading...'}
+        caption={isEditMode ? 'We are restoring your structure, questions, and AI drafting controls.' : 'Setting up the Quizzi studio for your next pack.'}
+      />
     );
   }
 
@@ -1171,14 +1172,14 @@ export default function TeacherCreatePack() {
                       </div>
 
                       <div className="p-8 bg-brand-bg border-t-4 border-brand-dark">
-                        <button
+                        <GenerateMagicButton
                           onClick={handleGenerate}
                           disabled={isGenerating || !sourceText.trim()}
-                          className="w-full py-6 bg-brand-dark text-white rounded-2xl font-black text-2xl shadow-[8px_8px_0px_0px_#B488FF] hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all flex items-center justify-center gap-4 disabled:opacity-50"
-                        >
-                          <Wand2 className="w-8 h-8" />
-                          GENERATE MAGIC
-                        </button>
+                          aria-busy={isGenerating}
+                          idleLabel="Generate"
+                          generatingLabel="Generating"
+                          icon={<Wand2 className="h-6 w-6 text-[#E8E8E8]" />}
+                        />
                         {genError && <p className="mt-4 text-red-600 font-bold text-center">⚠️ {genError}</p>}
                       </div>
                     </div>
@@ -1458,19 +1459,16 @@ export default function TeacherCreatePack() {
                   </div>
 
                   <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4 mb-5">
-                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2 block">
-                      Search your question bank
-                    </label>
-                    <div className="flex items-center gap-3 rounded-2xl border-2 border-brand-dark bg-white px-4 py-3">
-                      <Search className="w-4 h-4 text-brand-dark/55 shrink-0" />
-                      <input
-                        type="text"
-                        value={questionBankQuery}
-                        onChange={(event) => setQuestionBankQuery(event.target.value)}
-                        placeholder="Search by topic, prompt, or concept..."
-                        className="w-full bg-transparent border-none focus:outline-none font-bold text-sm"
-                      />
-                    </div>
+                    <UiverseSearchField
+                      id="question-bank-search"
+                      label="Search your question bank"
+                      value={questionBankQuery}
+                      onChange={(event) => setQuestionBankQuery(event.target.value)}
+                      placeholder="Search by topic, prompt, or concept..."
+                      accent="purple"
+                      dir={appLanguage === 'he' ? 'rtl' : 'ltr'}
+                      onClear={() => setQuestionBankQuery('')}
+                    />
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
@@ -1482,9 +1480,13 @@ export default function TeacherCreatePack() {
 
                   <div className="space-y-3 max-h-[540px] overflow-y-auto pr-1">
                     {isQuestionBankLoading ? (
-                      <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-5 font-black text-brand-dark/65">
-                        Scanning your library...
-                      </div>
+                      <AppLoadingScreen
+                        fullScreen={false}
+                        size={86}
+                        label="Scanning your library..."
+                        caption="Checking for reusable questions with strong classroom signal."
+                        panelClassName="max-w-none rounded-[1.5rem] border-2 px-4 py-5 shadow-[4px_4px_0px_0px_#1A1A1A]"
+                      />
                     ) : questionBankItems.length === 0 ? (
                       <div className="rounded-[1.5rem] border-2 border-dashed border-brand-dark/30 bg-brand-bg/50 p-6 text-center">
                         <p className="font-black text-brand-dark mb-2">No library matches yet.</p>

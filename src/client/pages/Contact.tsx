@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { addContactSubmission } from '../lib/localData.ts';
 import { apiFetchJson } from '../lib/api.ts';
 import { trackContactFlow, trackCtaClick, trackFormInteraction } from '../lib/appAnalytics.ts';
+import BrandLogo from '../components/BrandLogo.tsx';
 
 const INQUIRY_TYPES = [
   'שיתוף פעולה פדגוגי',
@@ -169,9 +170,7 @@ export default function Contact() {
       </div>
 
       <nav className="page-shell-wide flex items-center justify-between gap-4 py-6 relative z-30">
-        <div className="text-4xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
-          <span className="text-brand-orange">Quiz</span>zi
-        </div>
+        <BrandLogo onClick={() => navigate('/')} imageClassName="h-12 w-auto" />
         <button 
           onClick={() => navigate(-1)} 
           className="w-14 h-14 rounded-full border-2 border-brand-dark/10 bg-white/40 backdrop-blur-md flex items-center justify-center hover:bg-white hover:border-brand-dark transition-all shadow-xl group"
