@@ -6,6 +6,7 @@ export type StudentIdentityLinkSource =
   | 'claimed_device'
   | 'account_join'
   | 'social_login'
+  | 'password_reset'
   | 'teacher_merge';
 
 function normalizeIdentityKey(value: unknown) {
@@ -17,7 +18,7 @@ function normalizeIdentityKey(value: unknown) {
 
 function normalizeSource(value: unknown): StudentIdentityLinkSource {
   const normalized = String(value || '').trim() as StudentIdentityLinkSource;
-  return ['anonymous_device', 'claimed_device', 'account_join', 'social_login', 'teacher_merge'].includes(normalized)
+  return ['anonymous_device', 'claimed_device', 'account_join', 'social_login', 'password_reset', 'teacher_merge'].includes(normalized)
     ? normalized
     : 'claimed_device';
 }

@@ -80,9 +80,9 @@ export function ensureFirebaseAuthReady(): Promise<Auth | null> {
 }
 
 export function shouldPreferRedirectSignIn() {
-  if (typeof window === 'undefined') return false;
-  const userAgent = window.navigator.userAgent.toLowerCase();
-  return /iphone|ipad|ipod|android/.test(userAgent);
+  // Firebase popup flows are fragile when COOP/third-party auth windows are involved.
+  // Redirect-based sign-in is slower, but much more reliable across browsers and deployments.
+  return typeof window !== 'undefined';
 }
 
 export function getFirebaseDatabase(): Database | null {

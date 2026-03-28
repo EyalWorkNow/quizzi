@@ -54,12 +54,17 @@ import {
   getStudentUserByEmail,
   getStudentUserById,
   normalizeStudentEmail,
+  updateStudentPassword,
   updateStudentLastLogin,
   updateStudentPreferredLanguage,
   validateStudentEmail,
   validateStudentPassword,
   verifyStudentPassword,
 } from '../services/studentUsers.js';
+import {
+  createStudentPasswordResetRequest,
+  verifyStudentPasswordResetCode,
+} from '../services/studentPasswordReset.js';
 import {
   createTeacherUser,
   getTeacherUserByEmail,
@@ -4099,6 +4104,98 @@ router.post('/student-auth/login', async (req, res) => {
   });
   issueStudentSession(req, res, token);
   res.json({ ...session, token, student_user_id: Number(studentUser.id) });
+});
+
+router.post('/student-auth/password-reset/request', async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  if (!enforceRateLimit(req, res, 'student-auth-password-reset-request', 8, 10 * 60 * 1000)) return;
+
+  const email = sanitizeStudentEmailInput(req.body?.email);
+  const emailError = validateStudentEmail(email);
+  if (emailError) {
+    return res.status(400).json({ error: emailError });
+  }
+
+  const delivery = await createStudentPasswordResetRequest({
+    email,
+    locale: getRequestedUiLanguage(req),
+  });
+
+  if (!delivery.ok && delivery.deliveryStatus !== 'sent') {
+    return res.status(503).json({ error: 'Password reset email is temporarily unavailable. Please try again shortly.' });
+  }
+
+  res.json({
+    success: true,
+    message: 'If a student account exists for this email, a reset code was sent.',
+    expires_in_seconds: 5 * 60,
+  });
+});
+
+router.post('/student-auth/password-reset/confirm', async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  if (!enforceRateLimit(req, res, 'student-auth-password-reset-confirm', 12, 10 * 60 * 1000)) return;
+
+  const email = sanitizeStudentEmailInput(req.body?.email);
+  const code = String(req.body?.code || '').trim();
+  const password = String(req.body?.password || '');
+  const identityKey = resolveStudentIdentityKey(req.body?.identity_key, email);
+
+  const emailError = validateStudentEmail(email);
+  if (emailError) {
+    return res.status(400).json({ error: emailError });
+  }
+
+  if (!/^\d{6}$/.test(code)) {
+    return res.status(400).json({ error: 'Enter the 6-digit code from your email.' });
+  }
+
+  const passwordError = validateStudentPassword(password);
+  if (passwordError) {
+    return res.status(400).json({ error: passwordError });
+  }
+
+  const verification = await verifyStudentPasswordResetCode({ email, code });
+  if (verification.ok === false) {
+    if (verification.error === 'expired') {
+      return res.status(400).json({ error: 'This code has expired. Request a new code and try again.' });
+    }
+    if (verification.error === 'too_many_attempts') {
+      return res.status(429).json({ error: 'Too many incorrect attempts. Request a new code and try again.' });
+    }
+    return res.status(400).json({ error: 'The reset code is incorrect. Check the email and try again.' });
+  }
+
+  await updateStudentPassword(Number(verification.studentUser.id), password);
+  await updateStudentLastLogin(Number(verification.studentUser.id));
+  await linkStudentIdentity({
+    studentUserId: Number(verification.studentUser.id),
+    identityKey,
+    source: 'password_reset',
+  });
+  await claimRosterRowsForStudentUser({
+    studentUserId: Number(verification.studentUser.id),
+    email: verification.studentUser.email,
+  });
+
+  const uiLanguage = getRequestedUiLanguage(req);
+  if (uiLanguage) {
+    await updateStudentPreferredLanguage(Number(verification.studentUser.id), uiLanguage);
+  }
+
+  const { session, token } = createStudentSession({
+    studentUserId: Number(verification.studentUser.id),
+    email: verification.studentUser.email,
+    displayName: verification.studentUser.display_name || verification.studentUser.email,
+    provider: 'password',
+  });
+  issueStudentSession(req, res, token);
+  res.json({
+    ...session,
+    token,
+    student_user_id: Number(verification.studentUser.id),
+    reset_completed: true,
+  });
 });
 
 router.get('/student-auth/session', async (req, res) => {

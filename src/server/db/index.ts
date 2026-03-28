@@ -219,6 +219,17 @@ export async function initDb() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS student_password_reset_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_user_id INTEGER NOT NULL,
+      email TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      attempt_count INTEGER DEFAULT 0,
+      expires_at DATETIME NOT NULL,
+      consumed_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS quiz_packs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       teacher_id INTEGER,
@@ -581,6 +592,8 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_student_users_email ON student_users(email);
     CREATE INDEX IF NOT EXISTS idx_student_identity_links_student ON student_identity_links(student_user_id, is_primary, created_at);
     CREATE INDEX IF NOT EXISTS idx_student_identity_links_identity ON student_identity_links(identity_key);
+    CREATE INDEX IF NOT EXISTS idx_student_password_reset_user ON student_password_reset_codes(student_user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_student_password_reset_email ON student_password_reset_codes(email, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_questions_pack_question_order ON questions(quiz_pack_id, question_order, id);
     CREATE INDEX IF NOT EXISTS idx_questions_learning_objective ON questions(learning_objective);
     CREATE INDEX IF NOT EXISTS idx_sessions_game_type ON sessions(game_type);
@@ -677,6 +690,10 @@ export async function initDb() {
     SET joined_at = COALESCE(joined_at, created_at, CURRENT_TIMESTAMP),
         updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
     WHERE joined_at IS NULL OR updated_at IS NULL;
+
+    DELETE FROM student_password_reset_codes
+    WHERE consumed_at IS NOT NULL
+       OR DATETIME(expires_at) < DATETIME('now', '-1 day');
   `);
 }
 
