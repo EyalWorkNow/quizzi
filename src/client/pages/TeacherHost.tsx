@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Users, Play, CheckCircle, XCircle, BarChart3, ChevronRight, Sparkles, Clock, AlertTriangle, Copy, Check, BookOpen, Rocket, Link2, Trophy, Medal, Crown, Award, ArrowLeft, Lightbulb, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -38,6 +38,168 @@ function normalizeHostStatus(value: unknown) {
   return HOST_STATUS_ALIASES[raw] || raw;
 }
 
+const HOST_ANSWER_TONES = [
+  {
+    bg: '#B488FF',
+    text: '#ffffff',
+    hover: '#9E70F6',
+    hoverText: '#ffffff',
+    sweep: '#FFD13B',
+    shadow: '#1A1A1A',
+    hoverShadow: '#6D49C6',
+  },
+  {
+    bg: '#FFD13B',
+    text: '#1A1A1A',
+    hover: '#FFB703',
+    hoverText: '#1A1A1A',
+    sweep: '#FF5A36',
+    shadow: '#1A1A1A',
+    hoverShadow: '#B76F00',
+  },
+  {
+    bg: '#FF8A5B',
+    text: '#ffffff',
+    hover: '#FF6E45',
+    hoverText: '#ffffff',
+    sweep: '#FFD13B',
+    shadow: '#1A1A1A',
+    hoverShadow: '#C44120',
+  },
+  {
+    bg: '#78C6FF',
+    text: '#1A1A1A',
+    hover: '#4BA9F0',
+    hoverText: '#1A1A1A',
+    sweep: '#B488FF',
+    shadow: '#1A1A1A',
+    hoverShadow: '#1F6FA8',
+  },
+] as const;
+
+function buildHostAnswerToneStyle(index: number): CSSProperties {
+  const tone = HOST_ANSWER_TONES[index % HOST_ANSWER_TONES.length];
+  return {
+    ['--student-answer-bg' as string]: tone.bg,
+    ['--student-answer-text' as string]: tone.text,
+    ['--student-answer-hover-bg' as string]: tone.hover,
+    ['--student-answer-hover-text' as string]: tone.hoverText,
+    ['--student-answer-sweep' as string]: tone.sweep,
+    ['--student-answer-shadow' as string]: tone.shadow,
+    ['--student-answer-hover-shadow' as string]: tone.hoverShadow,
+  };
+}
+
+function buildMutedHostAnswerToneStyle(): CSSProperties {
+  return {
+    ['--student-answer-bg' as string]: '#F3F4F6',
+    ['--student-answer-text' as string]: '#1A1A1A',
+    ['--student-answer-hover-bg' as string]: '#F3F4F6',
+    ['--student-answer-hover-text' as string]: '#1A1A1A',
+    ['--student-answer-sweep' as string]: '#E5E7EB',
+    ['--student-answer-shadow' as string]: '#D1D5DB',
+    ['--student-answer-hover-shadow' as string]: '#D1D5DB',
+  };
+}
+
+function TeacherHostSendGamesButton({
+  state,
+  onClick,
+  disabled,
+  className = '',
+}: {
+  state: 'idle' | 'sending' | 'sent';
+  onClick: () => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const label = state === 'sent' ? 'Games Sent' : state === 'sending' ? 'Sending Games' : 'Send Personal Games';
+  const letters = label.replace(/\s/g, '').split('');
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      data-state={state}
+      className={`teacher-host-send-button ${className}`}
+    >
+      <div className="teacher-host-send-button__outline" />
+      <div className="teacher-host-send-button__surface" />
+      <div className="teacher-host-send-button__state teacher-host-send-button__state--default">
+        <div className="teacher-host-send-button__icon" aria-hidden="true">
+          <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <g style={{ filter: 'url(#teacher-host-send-shadow)' }}>
+              <path d="M14.2199 21.63C13.0399 21.63 11.3699 20.8 10.0499 16.83L9.32988 14.67L7.16988 13.95C3.20988 12.63 2.37988 10.96 2.37988 9.78001C2.37988 8.61001 3.20988 6.93001 7.16988 5.60001L15.6599 2.77001C17.7799 2.06001 19.5499 2.27001 20.6399 3.35001C21.7299 4.43001 21.9399 6.21001 21.2299 8.33001L18.3999 16.82C17.0699 20.8 15.3999 21.63 14.2199 21.63ZM7.63988 7.03001C4.85988 7.96001 3.86988 9.06001 3.86988 9.78001C3.86988 10.5 4.85988 11.6 7.63988 12.52L10.1599 13.36C10.3799 13.43 10.5599 13.61 10.6299 13.83L11.4699 16.35C12.3899 19.13 13.4999 20.12 14.2199 20.12C14.9399 20.12 16.0399 19.13 16.9699 16.35L19.7999 7.86001C20.3099 6.32001 20.2199 5.06001 19.5699 4.41001C18.9199 3.76001 17.6599 3.68001 16.1299 4.19001L7.63988 7.03001Z" fill="currentColor" />
+              <path d="M10.11 14.4C9.92005 14.4 9.73005 14.33 9.58005 14.18C9.29005 13.89 9.29005 13.41 9.58005 13.12L13.16 9.53C13.45 9.24 13.93 9.24 14.22 9.53C14.51 9.82 14.51 10.3 14.22 10.59L10.64 14.18C10.5 14.33 10.3 14.4 10.11 14.4Z" fill="currentColor" />
+            </g>
+            <defs>
+              <filter id="teacher-host-send-shadow">
+                <feDropShadow dx="0" dy="1" stdDeviation="0.6" floodOpacity="0.5" />
+              </filter>
+            </defs>
+          </svg>
+        </div>
+        <p>
+          {letters.map((letter, index) => (
+            <span key={`${letter}-${index}`} style={{ ['--i' as string]: index } as React.CSSProperties}>
+              {letter}
+            </span>
+          ))}
+        </p>
+      </div>
+      <div className="teacher-host-send-button__state teacher-host-send-button__state--sent">
+        <div className="teacher-host-send-button__icon" aria-hidden="true">
+          <CheckCircle2 className="h-5 w-5" />
+        </div>
+        <p>
+          <span style={{ ['--i' as string]: 0 } as React.CSSProperties}>S</span>
+          <span style={{ ['--i' as string]: 1 } as React.CSSProperties}>e</span>
+          <span style={{ ['--i' as string]: 2 } as React.CSSProperties}>n</span>
+          <span style={{ ['--i' as string]: 3 } as React.CSSProperties}>t</span>
+        </p>
+      </div>
+    </button>
+  );
+}
+
+function TeacherHostPhaseButton({
+  label,
+  onClick,
+  disabled,
+  tone = 'dark',
+  icon,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  tone?: 'dark' | 'success';
+  icon?: React.ReactNode;
+}) {
+  return (
+    <motion.button
+      whileHover={{ scale: disabled ? 1 : 1.03 }}
+      whileTap={{ scale: disabled ? 1 : 0.97 }}
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`student-play-submit-button student-play-submit-button--host ${tone === 'success' ? 'student-play-submit-button--success' : ''}`}
+    >
+      <span className="student-play-submit-button__text">{label}</span>
+      <span className="student-play-submit-button__icon" aria-hidden="true">
+        {icon || (
+          <svg xmlns="http://www.w3.org/2000/svg" width="50" height="20" viewBox="0 0 38 15" fill="none">
+            <path
+              fill="currentColor"
+              d="M10 7.519l-.939-.344h0l.939.344zm14.386-1.205l-.981-.192.981.192zm1.276 5.509l.537.843.148-.094.107-.139-.792-.611zm4.819-4.304l-.385-.923h0l.385.923zm7.227.707a1 1 0 0 0 0-1.414L31.343.448a1 1 0 0 0-1.414 0 1 1 0 0 0 0 1.414l5.657 5.657-5.657 5.657a1 1 0 0 0 1.414 1.414l6.364-6.364zM1 7.519l.554.833.029-.019.094-.061.361-.23 1.277-.77c1.054-.609 2.397-1.32 3.629-1.787.617-.234 1.17-.392 1.623-.455.477-.066.707-.008.788.034.025.013.031.021.039.034a.56.56 0 0 1 .058.235c.029.327-.047.906-.39 1.842l1.878.689c.383-1.044.571-1.949.505-2.705-.072-.815-.45-1.493-1.16-1.865-.627-.329-1.358-.332-1.993-.244-.659.092-1.367.305-2.056.566-1.381.523-2.833 1.297-3.921 1.925l-1.341.808-.385.245-.104.068-.028.018c-.011.007-.011.007.543.84zm8.061-.344c-.198.54-.328 1.038-.36 1.484-.032.441.024.94.325 1.364.319.45.786.64 1.21.697.403.054.824-.001 1.21-.09.775-.179 1.694-.566 2.633-1.014l3.023-1.554c2.115-1.122 4.107-2.168 5.476-2.524.329-.086.573-.117.742-.115s.195.038.161.014c-.15-.105.085-.139-.076.685l1.963.384c.192-.98.152-2.083-.74-2.707-.405-.283-.868-.37-1.28-.376s-.849.069-1.274.179c-1.65.43-3.888 1.621-5.909 2.693l-2.948 1.517c-.92.439-1.673.743-2.221.87-.276.064-.429.065-.492.057-.043-.006.066.003.155.127.07.099.024.131.038-.063.014-.187.078-.49.243-.94l-1.878-.689zm14.343-1.053c-.361 1.844-.474 3.185-.413 4.161.059.95.294 1.72.811 2.215.567.544 1.242.546 1.664.459a2.34 2.34 0 0 0 .502-.167l.15-.076.049-.028.018-.011c.013-.008.013-.008-.524-.852l-.536-.844.019-.012c-.038.018-.064.027-.084.032-.037.008.053-.013.125.056.021.02-.151-.135-.198-.895-.046-.734.034-1.887.38-3.652l-1.963-.384zm2.257 5.701l.791.611.024-.031.08-.101.311-.377 1.093-1.213c.922-.954 2.005-1.894 2.904-2.27l-.771-1.846c-1.31.547-2.637 1.758-3.572 2.725l-1.184 1.314-.341.414-.093.117-.025.032c-.01.013-.01.013.781.624zm5.204-3.381c.989-.413 1.791-.42 2.697-.307.871.108 2.083.385 3.437.385v-2c-1.197 0-2.041-.226-3.19-.369-1.114-.139-2.297-.146-3.715.447l.771 1.846z"
+            />
+          </svg>
+        )}
+      </span>
+    </motion.button>
+  );
+}
+
 type HostedParticipant = {
   id: number;
   nickname: string;
@@ -55,6 +217,9 @@ type HostedParticipant = {
   class_student_name: string;
   class_student_email: string;
   invite_status: string;
+  score: number;
+  correctCount: number;
+  answeredCount: number;
 };
 
 function normalizeHostedParticipant(value: any, fallback?: Partial<HostedParticipant>): HostedParticipant {
@@ -105,6 +270,34 @@ function normalizeHostedParticipant(value: any, fallback?: Partial<HostedPartici
       participant.class_student_email || participant.classStudentEmail || fallback?.class_student_email || '',
     ),
     invite_status: String(participant.invite_status || participant.inviteStatus || fallback?.invite_status || 'none'),
+    score: Number(participant.score ?? participant.total_score ?? fallback?.score ?? 0),
+    correctCount: Number(
+      participant.correctCount ??
+      participant.correct_count ??
+      participant.correct_answers ??
+      fallback?.correctCount ??
+      0,
+    ),
+    answeredCount: Math.max(
+      Number(
+        participant.answeredCount ??
+        participant.answered_count ??
+        participant.answersSubmitted ??
+        participant.answers_submitted ??
+        participant.questions_attempted ??
+        participant.attempted_count ??
+        participant.total_answers ??
+        fallback?.answeredCount ??
+        0,
+      ),
+      Number(
+        participant.correctCount ??
+        participant.correct_count ??
+        participant.correct_answers ??
+        fallback?.correctCount ??
+        0,
+      ),
+    ),
   };
 }
 
@@ -288,6 +481,7 @@ export default function TeacherHost() {
   const [questionReplayError, setQuestionReplayError] = useState('');
   const [isLaunchingQuestionRematch, setIsLaunchingQuestionRematch] = useState(false);
   const [pendingStateKey, setPendingStateKey] = useState('');
+  const [authoritativeQuestionPayload, setAuthoritativeQuestionPayload] = useState<Record<string, unknown> | null>(null);
   const participantCountRef = useRef(0);
   const questionIndexRef = useRef(0);
   const statusRef = useRef(status);
@@ -300,6 +494,8 @@ export default function TeacherHost() {
   const lastStateChangeAtRef = useRef(Date.now());
   const lastPhaseKeyRef = useRef(`${status}:${questionIndex}`);
   const hasInitializedPhaseRef = useRef(false);
+  const answeredParticipantIdsRef = useRef<Set<number>>(new Set());
+  const participantRefreshTimeoutRef = useRef<number | null>(null);
 
   // Transition tracking moved fully to Effects
 
@@ -318,6 +514,10 @@ export default function TeacherHost() {
     return groups;
   }, {});
   const currentQuestion = pack?.questions?.[questionIndex];
+  const hasPersonalizedGamesReady = Boolean(
+    personalizedGamesSummary
+    && (Number(personalizedGamesSummary.createdCount || 0) > 0 || Number(personalizedGamesSummary.reusedCount || 0) > 0)
+  );
   const linkedParticipantsCount = participants.filter((participant) => participant.account_linked).length;
   const rosterMatchedParticipantsCount = participants.filter((participant) => participant.class_student_id).length;
   const pendingRosterClaimsCount = participants.filter(
@@ -524,6 +724,17 @@ export default function TeacherHost() {
     return () => window.clearTimeout(timeoutId);
   }, [hostMessage]);
 
+  useEffect(() => () => {
+    if (participantRefreshTimeoutRef.current) {
+      window.clearTimeout(participantRefreshTimeoutRef.current);
+    }
+  }, []);
+
+  useEffect(() => {
+    setAuthoritativeQuestionPayload(null);
+    answeredParticipantIdsRef.current = new Set();
+  }, [pin, sessionId]);
+
   useEffect(() => {
     if (status !== 'ENDED' || !sessionId) return;
     const timeoutId = window.setTimeout(() => {
@@ -641,6 +852,68 @@ export default function TeacherHost() {
       });
   };
 
+  const patchParticipantLiveProgress = React.useCallback((data: any) => {
+    const participantId = Number(data?.participant_id || 0);
+    if (!participantId) return;
+
+    const nextScore = Number(data?.participant_score_total);
+    const isCorrect = Number(data?.is_correct || 0) === 1;
+    const hasCommittedAnswer = answeredParticipantIdsRef.current.has(participantId);
+
+    if (!hasCommittedAnswer) {
+      answeredParticipantIdsRef.current.add(participantId);
+    }
+
+    const patchRow = (row: any) => {
+      const rowId = Number(row?.id || row?.participant_id || row?.participantId || 0);
+      if (rowId !== participantId) return row;
+
+      const currentCorrectCount = Number(row?.correctCount ?? row?.correct_count ?? row?.correct_answers ?? 0);
+      const currentAnsweredCount = Math.max(
+        currentCorrectCount,
+        Number(
+          row?.answeredCount ??
+          row?.answered_count ??
+          row?.answersSubmitted ??
+          row?.answers_submitted ??
+          row?.questions_attempted ??
+          row?.attempted_count ??
+          row?.total_answers ??
+          0,
+        ),
+      );
+      const resolvedScore = Number.isFinite(nextScore)
+        ? nextScore
+        : Number(row?.score ?? row?.total_score ?? 0);
+      const updatedCorrectCount = hasCommittedAnswer ? currentCorrectCount : currentCorrectCount + (isCorrect ? 1 : 0);
+      const updatedAnsweredCount = hasCommittedAnswer ? currentAnsweredCount : currentAnsweredCount + 1;
+
+      return {
+        ...row,
+        score: resolvedScore,
+        total_score: resolvedScore,
+        correctCount: updatedCorrectCount,
+        correct_count: updatedCorrectCount,
+        correct_answers: updatedCorrectCount,
+        answeredCount: updatedAnsweredCount,
+        answered_count: updatedAnsweredCount,
+        total_answers: updatedAnsweredCount,
+      };
+    };
+
+    setParticipants((prev) => prev.map(patchRow));
+    setLeaderboard((prev) => (Array.isArray(prev) && prev.length ? prev.map(patchRow) : prev));
+
+    if (participantRefreshTimeoutRef.current) {
+      window.clearTimeout(participantRefreshTimeoutRef.current);
+    }
+    participantRefreshTimeoutRef.current = window.setTimeout(() => {
+      void refreshParticipants(false, true).catch((error: any) => {
+        console.error('[TeacherHost] Failed to refresh participants after answer:', error);
+      });
+    }, 220);
+  }, [refreshParticipants]);
+
   const queueFocusAlert = (nickname?: string) => {
     if (!nickname) return;
 
@@ -699,6 +972,11 @@ export default function TeacherHost() {
     const nextGameType = data?.game_type || data?.gameType;
     const nextTeamCount = data?.team_count ?? data?.teamCount;
     const nextModeConfig = data?.mode_config || data?.modeConfig;
+    const carriesQuestionPayload =
+      nextStatus === 'QUESTION_ACTIVE' ||
+      nextStatus === 'QUESTION_DISCUSSION' ||
+      nextStatus === 'QUESTION_REVOTE' ||
+      nextStatus === 'QUESTION_REVEAL';
 
     const nextStateStartedAt = data?.state_started_at;
 
@@ -733,9 +1011,18 @@ export default function TeacherHost() {
       };
     });
 
-    if (nextStatus === 'QUESTION_ACTIVE' || nextStatus === 'QUESTION_REVOTE' || nextStatus === 'LOBBY') {
+    if (carriesQuestionPayload && data?.question) {
+      setAuthoritativeQuestionPayload(data.question);
+    } else if (!carriesQuestionPayload) {
+      setAuthoritativeQuestionPayload(null);
+    }
+
+    if (nextStatus === 'QUESTION_ACTIVE' || nextStatus === 'QUESTION_DISCUSSION' || nextStatus === 'QUESTION_REVOTE' || nextStatus === 'LOBBY') {
       setTotalAnswers(0);
-      setStudentSelections({});
+      answeredParticipantIdsRef.current = new Set();
+      if (nextStatus === 'QUESTION_ACTIVE' || nextStatus === 'QUESTION_REVOTE' || nextStatus === 'LOBBY') {
+        setStudentSelections({});
+      }
       setFocusAlerts(new Set());
     } else if (nextStatus === 'LEADERBOARD' && statusRef.current !== 'LEADERBOARD') {
       loadLeaderboard();
@@ -844,6 +1131,13 @@ export default function TeacherHost() {
       eventSource.addEventListener('ANSWER_RECEIVED', (event) => {
         const data = JSON.parse(event.data);
         setTotalAnswers(data.total_answers);
+        if (Number.isFinite(Number(data.participant_id)) && Number.isFinite(Number(data.chosen_index))) {
+          setStudentSelections((prev) => ({
+            ...prev,
+            [Number(data.participant_id)]: Number(data.chosen_index),
+          }));
+        }
+        patchParticipantLiveProgress(data);
         const peerMode = isPeerInstructionMode(gameTypeRef.current, modeConfigRef.current);
         const shouldReveal =
           data.total_answers >= participantCountRef.current &&
@@ -937,7 +1231,7 @@ export default function TeacherHost() {
       (Object.values(focusAlertTimeoutsRef.current) as number[]).forEach((timeoutId) => window.clearTimeout(timeoutId));
       focusAlertTimeoutsRef.current = {};
     };
-  }, [pin, sessionId]);
+  }, [patchParticipantLiveProgress, pin, sessionId]);
 
   useEffect(() => {
     if (status !== 'LEADERBOARD') return;
@@ -951,6 +1245,16 @@ export default function TeacherHost() {
 
   useEffect(() => {
     if (!pin || !sessionId || !sessionMeta) return;
+    const normalizedStatus = normalizeHostStatus(sessionMeta?.status || status);
+    const shouldBroadcastQuestion =
+      normalizedStatus === 'QUESTION_ACTIVE' ||
+      normalizedStatus === 'QUESTION_DISCUSSION' ||
+      normalizedStatus === 'QUESTION_REVOTE' ||
+      normalizedStatus === 'QUESTION_REVEAL';
+
+    if (shouldBroadcastQuestion && !authoritativeQuestionPayload) {
+      return;
+    }
 
     void writeHostedSessionMeta(pin, {
       sessionId: Number(sessionId),
@@ -959,15 +1263,12 @@ export default function TeacherHost() {
       gameType: sessionMeta?.game_type || 'classic_quiz',
       teamCount: Number(sessionMeta?.team_count || 0),
       modeConfig,
-      status: normalizeHostStatus(sessionMeta?.status || status),
+      status: normalizedStatus,
       currentQuestionIndex: Number(sessionMeta?.current_question_index ?? questionIndex),
-      question: buildRealtimeQuestionPayload(
-        normalizeHostStatus(sessionMeta?.status || status),
-        Number(sessionMeta?.current_question_index ?? questionIndex),
-      ),
+      question: shouldBroadcastQuestion ? authoritativeQuestionPayload : null,
       expectedParticipants: participantCountRef.current,
     });
-  }, [modeConfig, pin, sessionId, packId, pack, sessionMeta, questionIndex, status]);
+  }, [authoritativeQuestionPayload, modeConfig, pin, sessionId, packId, pack, sessionMeta, questionIndex, status]);
 
   const updateState = async (newStatus: string, index: number) => {
     const normalizedSessionId = Number(sessionId || 0);
@@ -1624,15 +1925,12 @@ export default function TeacherHost() {
                 <Clock className={`h-5 w-5 ${phaseTimerWarning ? 'text-rose-500 animate-pulse' : 'text-brand-orange'}`} />
                 <span className={`text-xl font-black ${phaseTimerWarning ? 'text-rose-600' : ''}`}>{phaseTimerLabel}</span>
               </div>
-              <motion.button
-                whileHover={{ scale: phaseTransitionPending ? 1 : 1.03 }}
-                whileTap={{ scale: phaseTransitionPending ? 1 : 0.97 }}
+              <TeacherHostPhaseButton
+                label={phaseTransitionPending ? '...' : nextButtonLabel}
                 onClick={() => updateState(nextStatus, questionIndex)}
                 disabled={phaseTransitionPending}
-                className="game-action-button game-action-button--dark px-6 py-3 text-base sm:px-8"
-              >
-                {phaseTransitionPending ? '...' : nextButtonLabel}
-              </motion.button>
+                tone="dark"
+              />
             </div>
           </div>
         </div>
@@ -1676,13 +1974,15 @@ export default function TeacherHost() {
             <div className={`relative z-10 flex h-full w-full flex-col items-center justify-center ${
               liveQuestionDensity.isUltraDense ? 'p-4 sm:p-6' : 'p-6 sm:p-10 lg:p-14'
             }`}>
-               <div className={`w-full max-w-5xl rounded-[2rem] sm:rounded-[3rem] border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A] ${
-                 currentQuestion?.image_url ? 'bg-white/95 backdrop-blur-md' : 'bg-brand-bg/50'
-               } ${liveQuestionDensity.isUltraDense ? 'p-4 sm:p-6 lg:p-8' : 'p-6 sm:p-10 lg:p-12'}`}>
-                  <h2 className={`${activePromptClassName} text-balance font-black leading-[1.05] tracking-tight text-brand-dark text-center`}>
-                    {currentPrompt}
-                  </h2>
-               </div>
+              <div className={`w-full max-w-5xl ${
+                currentQuestion?.image_url
+                  ? 'rounded-[2rem] bg-white/92 p-4 backdrop-blur-md sm:rounded-[2.6rem] sm:p-6'
+                  : ''
+              }`}>
+                <h2 className={`${activePromptClassName} text-balance text-center font-black leading-[1.05] tracking-tight text-brand-dark`}>
+                  {currentPrompt}
+                </h2>
+              </div>
             </div>
           </motion.div>
 
@@ -1700,9 +2000,10 @@ export default function TeacherHost() {
               return (
                 <div
                   key={i}
-                  className={`group relative flex h-full flex-col overflow-hidden rounded-[1.5rem] sm:rounded-[2rem] border-[3px] sm:border-4 border-brand-dark transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none shadow-[6px_6px_0px_0px_#1A1A1A] ${
-                    isDiscussion ? 'bg-brand-dark text-white' : 'bg-white text-brand-dark'
-                  } ${liveQuestionDensity.isUltraDense ? 'p-3 sm:p-4' : 'p-4 sm:p-6'}`}
+                  style={buildHostAnswerToneStyle(i)}
+                  className={`student-play-answer-tile group relative flex h-full flex-col overflow-hidden rounded-[1.5rem] sm:rounded-[2rem] border-[3px] sm:border-4 border-brand-dark shadow-[6px_6px_0px_0px_#1A1A1A] ${
+                    liveQuestionDensity.isUltraDense ? 'p-3 sm:p-4' : 'p-4 sm:p-6'
+                  } ${isDiscussion ? 'bg-brand-dark text-white' : ''}`}
                 >
                   <div className="relative z-10 flex h-full gap-3 items-center">
                     <div className={`flex ${
@@ -1855,34 +2156,48 @@ export default function TeacherHost() {
 
       <div className="relative flex-1 min-h-0 flex flex-col p-2 sm:p-4 lg:p-5 gap-2 sm:gap-4 overflow-hidden w-full max-w-[1600px] mx-auto">
           
-          {/* Simplified Emerald Unified Hero */}
+          {/* Question Reveal Hero aligned with live question layout */}
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`relative ${questionHeroFlexClass} min-h-0 w-full rounded-[1.5rem] sm:rounded-[2rem] border-4 border-emerald-600 bg-emerald-500 shadow-[6px_6px_0px_0px_#064e3b] flex flex-col items-center justify-center overflow-hidden p-6 sm:p-10`}
-            style={{
-              backgroundImage: 'radial-gradient(rgba(255,255,255,0.15) 1px, transparent 1px)',
-              backgroundSize: '24px 24px'
-            }}
+            className={`relative ${questionHeroFlexClass} min-h-0 w-full overflow-hidden rounded-[2.5rem] sm:rounded-[3rem] border-4 border-brand-dark bg-white shadow-[8px_8px_0px_0px_#1A1A1A]`}
           >
-            <div className="relative z-10 w-full max-w-5xl flex flex-col items-center text-center">
-              <p className={`${
-                liveQuestionDensity.isUltraDense ? 'text-lg sm:text-xl' : 'text-2xl sm:text-4xl'
-              } font-black leading-tight text-white tracking-tight drop-shadow-md overflow-y-auto custom-scrollbar-thin max-h-[30vh]`}>
-                "{currentQuestion?.explanation || currentAnswers[correctIndex]}"
-              </p>
-              <div className="absolute -bottom-2 -right-2 opacity-10">
-                 <CheckCircle2 className="w-32 h-32 text-white" />
+            {currentQuestion?.image_url && (
+              <div className="absolute inset-0 z-0">
+                <img
+                  src={currentQuestion.image_url}
+                  alt={currentPrompt}
+                  className="h-full w-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-brand-dark/90 via-brand-dark/35 to-transparent" />
+              </div>
+            )}
+
+            <div className={`relative z-10 flex h-full w-full flex-col items-center justify-center ${
+              liveQuestionDensity.isUltraDense ? 'p-4 sm:p-6' : 'p-6 sm:p-10 lg:p-14'
+            }`}>
+              <div className={`w-full max-w-5xl ${
+                currentQuestion?.image_url
+                  ? 'rounded-[2rem] bg-white/92 p-4 backdrop-blur-md sm:rounded-[2.6rem] sm:p-6'
+                  : ''
+              }`}>
+                <p className={`text-balance text-center font-black leading-[1.08] tracking-tight text-brand-dark ${
+                  liveQuestionDensity.isUltraDense ? 'text-[clamp(1.2rem,1.8vw,2rem)]' : 'text-[clamp(1.5rem,2.4vw,3rem)]'
+                }`}>
+                  {currentQuestion?.explanation || currentAnswers[correctIndex]}
+                </p>
               </div>
             </div>
           </motion.div>
 
-          {/* Answer Distribution Grid - Optimized staggered layout */}
+          {/* Answer Distribution Grid aligned with live answer cards */}
           <div className={`grid flex-1 min-h-0 ${answerGridHeightClass} w-full gap-2 sm:gap-4 auto-rows-fr ${answerGridColumnsClass}`}>
             {currentAnswers.map((choice: string, i: number) => {
               const isCorrect = i === correctIndex;
               const choiceResult = answerSelectionSummary[i] || { count: 0, pct: 0 };
               const selectionPct = choiceResult.pct;
+              const voteCount = choiceResult.count;
+              const toneColor = getReplayChoiceColor(i);
 
               return (
                 <motion.div
@@ -1890,29 +2205,48 @@ export default function TeacherHost() {
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: 0.3 + (i * 0.08) }}
-                  className={`group relative flex items-center justify-between overflow-hidden rounded-[2.5rem] border-2 transition-all h-[4.5rem] sm:h-[5.8rem] px-5 sm:px-8 ${
-                    isCorrect 
-                      ? 'border-brand-dark bg-emerald-500 text-white shadow-[4px_4px_0px_0px_#1A1A1A]' 
-                      : 'border-brand-dark/10 bg-gray-100 text-brand-dark shadow-[2px_2px_0px_0px_rgba(0,0,0,0.05)]'
-                  }`}
+                  style={isCorrect ? buildHostAnswerToneStyle(i) : buildMutedHostAnswerToneStyle()}
+                  className={`student-play-answer-tile relative flex h-full flex-col overflow-hidden rounded-[1.5rem] border-[3px] border-brand-dark p-4 shadow-[6px_6px_0px_0px_#1A1A1A] sm:rounded-[2rem] sm:border-4 sm:p-6 ${
+                    isCorrect ? 'student-play-answer-tile--selected' : ''
+                  } ${isCorrect ? 'text-white' : 'opacity-95'}`}
+                  data-locked="true"
                 >
-                   {/* Centered Answer Text (Left-Center) */}
-                   <div className="flex-1 flex items-center justify-center text-center mr-6 sm:mr-10 min-w-0">
-                      <p className={`font-black leading-tight break-words ${
-                        choice.length > 50 ? 'text-[10px] sm:text-xs' : 
-                        choice.length > 30 ? 'text-xs sm:text-sm' : 
-                        'text-sm sm:text-lg lg:text-2xl'
+                  <div className="relative z-10 flex h-full items-center gap-3">
+                    <div className={`flex shrink-0 items-center justify-center rounded-xl border-2 border-brand-dark font-black shadow-[2px_2px_0px_0px_#1A1A1A] ${
+                      liveQuestionDensity.isUltraDense ? 'h-9 w-9 text-base' : 'h-12 w-12 text-xl'
+                    } ${isCorrect ? 'bg-white/10 text-white' : 'bg-white text-brand-dark/55'}`}>
+                      {formatAnswerSlotLabel(i)}
+                    </div>
+
+                    <div className="flex min-w-0 flex-1 items-center justify-center px-1 text-center">
+                      <p className={`block flex-1 break-words font-black leading-tight ${
+                        liveQuestionDensity.isUltraDense ? 'text-xs sm:text-sm line-clamp-3' : answerTextClass
                       }`}>
                         {choice}
                       </p>
-                   </div>
+                    </div>
 
-                   {/* Right Metrics Pill */}
-                   <div className={`flex shrink-0 items-center justify-center px-4 py-1.5 min-w-[3.5rem] sm:min-w-[4.8rem] rounded-xl border-2 font-black shadow-[2px_2px_0px_0px_rgba(0,0,0,0.05)] bg-white ${
-                     isCorrect ? 'border-emerald-700/30 text-emerald-600' : 'border-brand-dark/10 text-brand-dark/40'
-                   }`}>
-                      <span className="text-base sm:text-xl">{selectionPct}%</span>
-                   </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <div className={`min-w-[4.5rem] rounded-xl border-2 bg-white px-3 py-1.5 text-center font-black shadow-[2px_2px_0px_0px_rgba(0,0,0,0.08)] ${
+                        isCorrect ? 'border-emerald-700/30 text-emerald-600' : 'border-brand-dark/10 text-brand-dark/60'
+                      }`}>
+                        <span className="text-base sm:text-xl">{selectionPct}%</span>
+                      </div>
+                      <span className={`text-[9px] font-black uppercase tracking-widest ${
+                        isCorrect ? 'text-white/75' : 'text-brand-dark/40'
+                      }`}>
+                        {voteCount} votes
+                      </span>
+                    </div>
+                  </div>
+
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${selectionPct}%` }}
+                    className={`absolute bottom-0 left-0 h-1.5 opacity-20 ${
+                      isCorrect ? 'bg-white' : 'bg-brand-dark'
+                    }`}
+                  />
                 </motion.div>
               );
             })}
@@ -1947,16 +2281,6 @@ export default function TeacherHost() {
     const podiumRows = rankedRows.slice(0, 3);
     const leadingParticipant = rankedRows[0] || null;
     const runnerUpParticipant = rankedRows[1] || null;
-    const roomAverageScore = rankedRows.length
-      ? Math.round(rankedRows.reduce((sum, participant) => sum + Number(participant?.score || 0), 0) / rankedRows.length)
-      : 0;
-    const roomAverageAccuracy = rankedRows.length
-      ? Math.round(rankedRows.reduce((sum, participant) => sum + Number(participant?.accuracyPct || 0), 0) / rankedRows.length)
-      : 0;
-    const leaderGap = leadingParticipant
-      ? Math.max(0, Number(leadingParticipant?.score || 0) - Number(runnerUpParticipant?.score || 0))
-      : 0;
-    const leadingTeam = isTeamMode ? teamLeaderboardRows[0] || null : null;
     const accuracyBoard = gameMode.id === 'accuracy_quiz';
     const boardTitle = isLast ? 'The Winners Circle' : accuracyBoard ? 'Accuracy Leaderboard' : 'Leaderboard';
     const boardBadge = isLast ? 'Final Standings' : accuracyBoard ? 'Accuracy Standings' : 'Current Standings';
@@ -1971,6 +2295,7 @@ export default function TeacherHost() {
         : roundAccuracyPct >= 45
           ? 'The room is split enough to warrant a quick debrief before you move on.'
           : 'This round produced friction. Pause on the top misconception before the next launch.';
+    const compactPodium = podiumRows.length <= 1;
 
     return (
       <div className="game-viewport-shell flex flex-col h-screen overflow-hidden text-brand-dark bg-brand-bg">
@@ -2006,16 +2331,12 @@ export default function TeacherHost() {
 
             <div className="flex items-center gap-3">
               {isLast && (
-                <motion.button
-                  whileHover={{ scale: isCreatingPersonalizedGames ? 1 : 1.03 }}
-                  whileTap={{ scale: isCreatingPersonalizedGames ? 1 : 0.97 }}
+                <TeacherHostSendGamesButton
+                  state={hasPersonalizedGamesReady ? 'sent' : isCreatingPersonalizedGames ? 'sending' : 'idle'}
                   onClick={() => void handleCreatePersonalizedGames()}
-                  disabled={isCreatingPersonalizedGames}
-                  className="game-action-button game-action-button--yellow hidden px-5 py-2.5 text-sm sm:flex"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  {isCreatingPersonalizedGames ? 'Building...' : 'Personal Games'}
-                </motion.button>
+                  disabled={isCreatingPersonalizedGames || hasPersonalizedGamesReady}
+                  className="hidden sm:flex"
+                />
               )}
               <motion.button
                 whileHover={{ scale: phaseTransitionPending ? 1 : 1.03 }}
@@ -2044,158 +2365,132 @@ export default function TeacherHost() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="relative flex h-full min-h-0 flex-col overflow-y-auto rounded-[2.8rem] border border-brand-dark/10 bg-white/92 shadow-[0_28px_80px_rgba(15,23,42,0.14)] backdrop-blur-xl"
+            className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[2.4rem] border border-brand-dark/10 bg-white/92 shadow-[0_28px_80px_rgba(15,23,42,0.14)] backdrop-blur-xl"
           >
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(120,160,255,0.16),_transparent_28%),radial-gradient(circle_at_bottom_left,_rgba(255,214,95,0.16),_transparent_24%),linear-gradient(180deg,_rgba(255,255,255,0.98)_0%,_rgba(245,249,255,0.96)_100%)]" />
             <div className="absolute right-10 top-10 h-32 w-32 rounded-full bg-brand-purple/10 blur-3xl" />
             <div className="absolute left-10 bottom-10 h-28 w-28 rounded-full bg-brand-yellow/20 blur-3xl" />
 
-            <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-5 p-4 sm:gap-6 sm:p-6 lg:p-8">
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-3 p-3 sm:gap-3 sm:p-4 lg:p-5">
               <div className="shrink-0">
-                <div className="mb-3 flex items-center gap-3 text-brand-purple/70">
-                  <span className="h-[2px] w-10 bg-brand-purple/15" />
+                <div className="mb-1.5 flex items-center gap-2.5 text-brand-purple/70">
+                  <span className="h-[2px] w-6 bg-brand-purple/15" />
                   <span className="text-[11px] font-black uppercase tracking-[0.42em]">Class Spotlight</span>
-                  <span className="h-[2px] w-10 bg-brand-purple/15" />
+                  <span className="h-[2px] w-6 bg-brand-purple/15" />
                 </div>
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div className="flex flex-col gap-1.5 lg:flex-row lg:items-end lg:justify-between">
                   <div>
-                    <h2 className="text-4xl font-black tracking-[-0.04em] text-brand-dark sm:text-5xl lg:text-6xl">
+                    <h2 className="text-2xl font-black tracking-[-0.04em] text-brand-dark sm:text-3xl lg:text-4xl">
                       {boardTitle}
                     </h2>
-                    <p className="mt-2 max-w-3xl text-sm font-bold leading-relaxed text-brand-dark/55 sm:text-base">
+                    <p className="mt-1 max-w-3xl text-[11px] font-bold leading-relaxed text-brand-dark/55 sm:text-xs">
                       {boardNarrative}
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="rounded-full border-2 border-brand-dark/25 bg-white/95 px-4 py-2 text-xs font-black uppercase tracking-[0.24em] text-brand-dark/65 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="rounded-full border-2 border-brand-dark/20 bg-brand-bg/70 px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] text-brand-dark/65 shadow-[0_6px_14px_rgba(15,23,42,0.08)]">
                       Ranked Players: {rankedRows.length}
                     </div>
-                    <div className="rounded-full border-2 border-brand-dark/25 bg-white/95 px-4 py-2 text-xs font-black uppercase tracking-[0.24em] text-brand-dark/65 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+                    <div className="rounded-full border-2 border-brand-dark/20 bg-brand-bg/70 px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] text-brand-dark/65 shadow-[0_6px_14px_rgba(15,23,42,0.08)]">
                       Round Accuracy: {roundAccuracyPct}%
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <LeaderboardOverviewCard
-                  label="Top Score"
-                  value={leadingParticipant ? leadingParticipant.score || 0 : '--'}
-                  detail={leadingParticipant ? extractNickname(String(leadingParticipant.nickname || '')) : 'Waiting for the room'}
-                  tone="indigo"
-                />
-                <LeaderboardOverviewCard
-                  label="Leader Gap"
-                  value={leadingParticipant ? `+${leaderGap}` : '--'}
-                  detail={runnerUpParticipant ? `Ahead of ${extractNickname(String(runnerUpParticipant.nickname || ''))}` : 'No runner-up yet'}
-                  tone="amber"
-                />
-                <LeaderboardOverviewCard
-                  label="Room Average"
-                  value={rankedRows.length ? roomAverageScore : '--'}
-                  detail={rankedRows.length ? `${roomAverageAccuracy}% average accuracy` : 'Awaiting ranked players'}
-                  tone="emerald"
-                />
-                <LeaderboardOverviewCard
-                  label={isTeamMode ? 'Top Team' : 'Host Insight'}
-                  value={isTeamMode ? (leadingTeam?.name || '--') : `${roundAccuracyPct}%`}
-                  detail={isTeamMode && leadingTeam
-                    ? `${leadingTeam.members || 0} members • ${leadingTeam.score || 0} points`
-                    : insightMessage}
-                  tone="sky"
-                />
-              </div>
-
-              <div className="shrink-0 rounded-[2.7rem] border border-brand-dark/10 bg-white/90 px-4 pb-4 pt-5 shadow-[0_22px_55px_rgba(15,23,42,0.1)] sm:px-6 sm:pb-6">
-                <div className="mb-5 flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-[11px] font-black uppercase tracking-[0.28em] text-brand-purple/55">Podium Spotlight</p>
-                    <p className="text-xl font-black text-brand-dark">Top three right now</p>
+              <div className="grid min-h-0 flex-1 gap-2 lg:grid-cols-[minmax(300px,0.78fr)_minmax(0,1.22fr)]">
+                {isLeaderboardLoading ? (
+                  <div className="lg:col-span-2 flex h-full min-h-[320px] items-center justify-center rounded-[2.5rem] border border-brand-dark/10 border-dashed bg-white/95 p-12 shadow-[0_18px_40px_rgba(15,23,42,0.08)]">
+                    <div className="text-center">
+                      <Trophy className="mx-auto mb-4 h-16 w-16 text-brand-dark/15" />
+                      <p className="text-2xl font-black text-brand-dark/40">Syncing scores...</p>
+                    </div>
                   </div>
-                  <div className="rounded-full border border-brand-dark/15 bg-white px-4 py-2 text-[11px] font-black uppercase tracking-[0.24em] text-brand-dark/55 shadow-[0_8px_16px_rgba(15,23,42,0.08)]">
-                    {isLast ? 'Final lock-in' : 'Live reshuffle'}
+                ) : rankedRows.length === 0 ? (
+                  <div className="lg:col-span-2 flex h-full min-h-[320px] items-center justify-center rounded-[2.5rem] border border-brand-dark/10 border-dashed bg-white/95 p-12 shadow-[0_18px_40px_rgba(15,23,42,0.08)]">
+                    <div className="text-center">
+                      <Users className="mx-auto mb-4 h-16 w-16 text-brand-dark/15" />
+                      <p className="text-2xl font-black text-brand-dark/40">Waiting for data sync...</p>
+                    </div>
                   </div>
-                </div>
-
-                <div className="relative rounded-[2.4rem] border border-brand-dark/8 bg-[linear-gradient(180deg,rgba(247,250,255,0.96)_0%,rgba(255,255,255,0.98)_42%,rgba(248,250,255,0.95)_100%)] px-3 pb-7 pt-10 sm:px-6">
-                  <div className="pointer-events-none absolute inset-x-8 bottom-0 h-20 rounded-t-[2.5rem] border border-brand-dark/8 bg-white/70" />
-                  <div className="pointer-events-none absolute inset-x-0 bottom-12 flex justify-center">
-                    <div className="h-[2px] w-[78%] rounded-full bg-brand-dark/10" />
-                  </div>
-                  <div className="relative z-10 flex items-end justify-center gap-3 sm:gap-5 lg:gap-7">
-                    {podiumRows[1] && (
-                      <PodiumStep
-                        participant={podiumRows[1]}
-                        rank={2}
-                        height="h-32 sm:h-40 lg:h-48"
-                        delay={0.12}
-                        color="bg-[linear-gradient(180deg,#E7B7F4_0%,#D9A5EA_100%)]"
-                        icon={<Medal className="h-5 w-5 text-brand-dark/70" />}
-                      />
-                    )}
-                    {podiumRows[0] && (
-                      <PodiumStep
-                        participant={podiumRows[0]}
-                        rank={1}
-                        height="h-40 sm:h-52 lg:h-60"
-                        delay={0}
-                        color="bg-[linear-gradient(180deg,#FFE79E_0%,#FFD86D_100%)]"
-                        icon={<Trophy className="h-6 w-6 text-brand-dark/70" />}
-                        isWinner={true}
-                      />
-                    )}
-                    {podiumRows[2] && (
-                      <PodiumStep
-                        participant={podiumRows[2]}
-                        rank={3}
-                        height="h-28 sm:h-36 lg:h-44"
-                        delay={0.24}
-                        color="bg-[linear-gradient(180deg,#FFB9AE_0%,#F59F94_100%)]"
-                        icon={<Award className="h-5 w-5 text-brand-dark/70" />}
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] xl:items-start">
-                <div className="order-2 flex flex-col xl:order-1">
-                  {isLeaderboardLoading ? (
-                    <div className="flex h-full min-h-[320px] items-center justify-center rounded-[2.5rem] border border-brand-dark/10 border-dashed bg-white/95 p-12 shadow-[0_18px_40px_rgba(15,23,42,0.08)]">
-                      <div className="text-center">
-                        <Trophy className="mx-auto mb-4 h-16 w-16 text-brand-dark/15" />
-                        <p className="text-2xl font-black text-brand-dark/40">Syncing scores...</p>
+                ) : (
+                  <>
+                    <div className="flex min-h-0 flex-col overflow-hidden rounded-[1.45rem] border border-brand-dark/10 bg-white/96 p-2.5 shadow-[0_16px_34px_rgba(15,23,42,0.1)]">
+                      <div className="mb-1.5 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-black uppercase tracking-[0.2em] text-brand-purple/55">Podium Spotlight</p>
+                          <p className="mt-0.5 text-base font-black text-brand-dark">Top players right now</p>
+                        </div>
+                        <div className="rounded-full border border-brand-dark/15 bg-brand-bg/60 px-3 py-1 text-[9px] font-black uppercase tracking-[0.16em] text-brand-dark/55 shadow-[0_6px_14px_rgba(15,23,42,0.08)]">
+                          {isLast ? 'Final lock-in' : 'Live reshuffle'}
+                        </div>
+                      </div>
+                      <div className={`relative flex flex-1 items-end justify-center rounded-[1.3rem] border border-brand-dark/8 bg-[linear-gradient(180deg,rgba(247,250,255,0.96)_0%,rgba(255,255,255,0.98)_42%,rgba(248,250,255,0.95)_100%)] px-3 ${
+                        compactPodium ? 'min-h-[220px] pb-2 pt-2' : 'min-h-[250px] pb-2 pt-3'
+                      }`}>
+                        <div className="pointer-events-none absolute inset-x-6 bottom-0 h-5 rounded-t-[1.2rem] border border-brand-dark/8 bg-white/70" />
+                        <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+                          <div className="h-[2px] w-[78%] rounded-full bg-brand-dark/10" />
+                        </div>
+                        <div className={`relative z-10 flex w-full items-end justify-center ${
+                          compactPodium ? 'gap-3' : 'gap-2.5 sm:gap-3 lg:gap-4'
+                        }`}>
+                          {podiumRows[1] && (
+                            <PodiumStep
+                              participant={podiumRows[1]}
+                              rank={2}
+                              height={compactPodium ? 'h-14 sm:h-16' : 'h-12 sm:h-14 lg:h-16'}
+                              delay={0.12}
+                              color="bg-[linear-gradient(180deg,#E7B7F4_0%,#D9A5EA_100%)]"
+                              icon={<Medal className="h-5 w-5 text-brand-dark/70" />}
+                            />
+                          )}
+                          {podiumRows[0] && (
+                            <PodiumStep
+                              participant={podiumRows[0]}
+                              rank={1}
+                              height={compactPodium ? 'h-18 sm:h-20' : 'h-15 sm:h-18 lg:h-20'}
+                              delay={0}
+                              color="bg-[linear-gradient(180deg,#FFE79E_0%,#FFD86D_100%)]"
+                              icon={<Trophy className="h-6 w-6 text-brand-dark/70" />}
+                              isWinner={true}
+                            />
+                          )}
+                          {podiumRows[2] && (
+                            <PodiumStep
+                              participant={podiumRows[2]}
+                              rank={3}
+                              height={compactPodium ? 'h-12 sm:h-14' : 'h-10 sm:h-12 lg:h-14'}
+                              delay={0.24}
+                              color="bg-[linear-gradient(180deg,#FFB9AE_0%,#F59F94_100%)]"
+                              icon={<Award className="h-5 w-5 text-brand-dark/70" />}
+                            />
+                          )}
+                        </div>
                       </div>
                     </div>
-                  ) : rankedRows.length === 0 ? (
-                    <div className="flex h-full min-h-[320px] items-center justify-center rounded-[2.5rem] border border-brand-dark/10 border-dashed bg-white/95 p-12 shadow-[0_18px_40px_rgba(15,23,42,0.08)]">
-                      <div className="text-center">
-                        <Users className="mx-auto mb-4 h-16 w-16 text-brand-dark/15" />
-                        <p className="text-2xl font-black text-brand-dark/40">Waiting for data sync...</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col rounded-[2.5rem] border border-brand-dark/10 bg-white/96 p-5 shadow-[0_22px_50px_rgba(15,23,42,0.1)]">
-                      <div className="mb-4 flex items-start justify-between gap-4">
+
+                    <div className="flex min-h-0 flex-col overflow-hidden rounded-[1.45rem] border border-brand-dark/10 bg-white/96 p-2.5 shadow-[0_16px_34px_rgba(15,23,42,0.1)] lg:col-start-2 lg:row-start-1">
+                      <div className="mb-1.5 flex items-start justify-between gap-4">
                         <div className="flex-1 text-right">
-                          <p className="text-[11px] font-black uppercase tracking-[0.28em] text-brand-purple/55">Game Leaderboard</p>
-                          <p className="mt-1 text-lg font-black text-brand-dark">
+                          <p className="text-[11px] font-black uppercase tracking-[0.2em] text-brand-purple/55">Game Leaderboard</p>
+                          <p className="mt-0.5 text-base font-black text-brand-dark">
                             {accuracyBoard ? 'Room accuracy standings' : `Room standings after question ${questionIndex + 1}`}
                           </p>
                         </div>
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-brand-dark/15 bg-[#eef0ff] shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
-                          <BarChart3 className="h-5 w-5 text-brand-purple" />
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-brand-dark/15 bg-white shadow-[0_6px_14px_rgba(15,23,42,0.08)]">
+                          <BarChart3 className="h-4 w-4 text-brand-purple" />
                         </div>
                       </div>
 
-                      <div className="mb-4 flex justify-start">
-                        <div className="rounded-full border border-brand-dark/15 bg-white px-4 py-2 text-[11px] font-black uppercase tracking-[0.24em] text-brand-dark/55 shadow-[0_8px_16px_rgba(15,23,42,0.08)]">
+                      <div className="mb-1.5 flex justify-start">
+                        <div className="rounded-full border border-brand-dark/15 bg-brand-bg/60 px-3 py-1 text-[9px] font-black uppercase tracking-[0.16em] text-brand-dark/55 shadow-[0_6px_14px_rgba(15,23,42,0.08)]">
                           Live Rank View
                         </div>
                       </div>
 
-                      <div className="pr-1">
-                        <div className="grid gap-4 xl:grid-cols-2">
+                      <div className="min-h-0 flex-1 overflow-hidden pr-1">
+                        <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-2">
                           {rankedRows.map((participant, index) => (
                             <LeaderboardStandingRow
                               key={participant.id || participant.nickname || index}
@@ -2207,54 +2502,8 @@ export default function TeacherHost() {
                         </div>
                       </div>
                     </div>
-                  )}
-                </div>
-
-                <div className="order-1 flex flex-col gap-5 xl:order-2">
-                  <div className="rounded-[2.5rem] border border-brand-dark/10 bg-white/96 p-5 shadow-[0_22px_50px_rgba(15,23,42,0.1)]">
-                    <div className="mb-4 flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-[11px] font-black uppercase tracking-[0.28em] text-brand-purple/55">
-                          {isTeamMode ? 'Team Pulse' : 'Host Insight'}
-                        </p>
-                        <p className="text-lg font-black text-brand-dark">
-                          {isTeamMode && leadingTeam ? leadingTeam.name : 'Read the room before you launch again'}
-                        </p>
-                      </div>
-                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-brand-dark/15 bg-[#fff6db] shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
-                        <Lightbulb className="h-5 w-5 text-brand-dark" />
-                      </div>
-                    </div>
-
-                    {isTeamMode && leadingTeam ? (
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-3">
-                          <LeaderboardOverviewCard
-                            label="Team Points"
-                            value={leadingTeam.score || 0}
-                            detail="Best combined score"
-                            tone="amber"
-                            compact
-                          />
-                          <LeaderboardOverviewCard
-                            label="Members"
-                            value={leadingTeam.members || 0}
-                            detail={`${leadingTeam.accuracyPct || 0}% team accuracy`}
-                            tone="sky"
-                            compact
-                          />
-                        </div>
-                        <p className="rounded-[1.7rem] border border-brand-dark/10 bg-[#f8faff] px-4 py-4 text-sm font-bold leading-relaxed text-brand-dark/72">
-                          {insightMessage}
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="rounded-[1.7rem] border border-brand-dark/10 bg-[#f8faff] px-4 py-4 text-sm font-bold leading-relaxed text-brand-dark/72">
-                        {insightMessage}
-                      </p>
-                    )}
-                  </div>
-                </div>
+                  </>
+                )}
               </div>
             </div>
           </motion.div>
@@ -2320,6 +2569,30 @@ export default function TeacherHost() {
           <p className="mx-auto mb-10 max-w-md text-lg font-bold leading-relaxed text-brand-dark/50">
             Quizzi is wrapping up the classroom session and preparing your detailed mastery analytics.
           </p>
+
+          <div className="mb-8 rounded-[2rem] border-3 border-brand-dark bg-brand-bg/70 p-5 shadow-[6px_6px_0px_0px_#1A1A1A] sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-left">
+                <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-purple">Post-session follow-up</p>
+                <h3 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Send a personal game to every student</h3>
+                <p className="mt-2 max-w-xl text-sm font-bold leading-relaxed text-brand-dark/55 sm:text-base">
+                  Build adaptive follow-up games from this live session while the misconceptions are still fresh.
+                </p>
+                {personalizedGamesSummary ? (
+                  <p className="mt-3 text-sm font-black text-brand-dark/70">
+                    {personalizedGamesSummary.createdCount} created • {personalizedGamesSummary.reusedCount} reused • {personalizedGamesSummary.failedCount} skipped
+                  </p>
+                ) : null}
+              </div>
+
+              <TeacherHostSendGamesButton
+                state={hasPersonalizedGamesReady ? 'sent' : isCreatingPersonalizedGames ? 'sending' : 'idle'}
+                onClick={() => void handleCreatePersonalizedGames()}
+                disabled={isCreatingPersonalizedGames || hasPersonalizedGamesReady}
+                className="w-full sm:w-auto"
+              />
+            </div>
+          </div>
 
           <div className="flex flex-col gap-4 sm:flex-row sm:justify-center">
             <motion.button
@@ -2719,7 +2992,7 @@ function PodiumStep({
       transition={{ delay: delay * 0.45, duration: 1, type: 'spring', bounce: 0.2 }}
       className="relative flex min-w-0 flex-1 flex-col items-center justify-end"
     >
-      <div className="z-20 mb-4 flex flex-col items-center">
+      <div className="z-20 mb-3 flex flex-col items-center">
         <motion.div
           initial={{ scale: 0, rotate: -20 }}
           animate={{ scale: 1, rotate: 0 }}
@@ -2732,7 +3005,7 @@ function PodiumStep({
               transition={{ repeat: Infinity, duration: 4 }}
               className="absolute -top-9 left-1/2 z-30 -translate-x-1/2"
             >
-              <Crown className="h-10 w-10 text-brand-yellow drop-shadow-[0_0_18px_rgba(255,210,51,0.55)]" />
+              <Crown className="h-8 w-8 text-brand-yellow drop-shadow-[0_0_18px_rgba(255,210,51,0.55)]" />
             </motion.div>
           )}
 
@@ -2741,13 +3014,13 @@ function PodiumStep({
           }`}>
             <LeaderboardAvatarBadge
               nickname={nickname}
-              sizeClass="h-16 w-16 sm:h-20 sm:w-20 lg:h-24 lg:w-24"
+              sizeClass="h-14 w-14 sm:h-16 sm:w-16 lg:h-20 lg:w-20"
               className="rounded-[1.35rem] border-brand-dark bg-brand-bg"
             />
           </div>
 
           {rank > 0 && (
-            <div className={`absolute -bottom-3 -right-3 z-40 flex h-10 w-10 items-center justify-center rounded-2xl border-[3px] border-brand-dark font-black shadow-[0_10px_18px_rgba(15,23,42,0.18)] ${
+            <div className={`absolute -bottom-2 -right-2 z-40 flex h-8 w-8 items-center justify-center rounded-xl border-[3px] border-brand-dark text-sm font-black shadow-[0_10px_18px_rgba(15,23,42,0.18)] ${
               isWinner ? 'bg-brand-yellow text-brand-dark' : 'bg-white text-brand-dark'
             }`}>
               {rank}
@@ -2759,10 +3032,10 @@ function PodiumStep({
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: delay + 0.8 }}
-          className="mt-4 max-w-[12rem] text-center sm:max-w-[16rem]"
+          className="mt-3 max-w-[10rem] text-center sm:max-w-[13rem]"
         >
           <p className="truncate text-sm font-black text-brand-dark sm:text-base">{extractNickname(nickname)}</p>
-          <div className={`mx-auto mt-2 inline-flex items-center justify-center rounded-full border border-brand-dark/12 px-4 py-2 text-sm font-black shadow-[0_10px_22px_rgba(15,23,42,0.12)] ${
+          <div className={`mx-auto mt-1.5 inline-flex items-center justify-center rounded-full border border-brand-dark/12 px-3 py-1.5 text-xs font-black shadow-[0_10px_22px_rgba(15,23,42,0.12)] ${
             isWinner
               ? 'bg-white/95 text-brand-dark'
               : 'bg-white/92 text-brand-dark'
@@ -2778,17 +3051,17 @@ function PodiumStep({
         transition={{ delay: delay + 0.15, duration: 0.9, ease: 'easeOut' }}
         className={`relative z-10 flex w-full origin-bottom items-center justify-center overflow-hidden rounded-t-[2.4rem] border-[3px] border-brand-dark ${height} ${color} shadow-[0_18px_34px_rgba(15,23,42,0.16)]`}
       >
-        <div className="absolute inset-x-0 top-0 h-8 bg-white/30 blur-lg" />
+        <div className="absolute inset-x-0 top-0 h-6 bg-white/30 blur-lg" />
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.24),transparent_40%,rgba(0,0,0,0.06))]" />
-        <div className="absolute right-0 top-0 p-4 opacity-[0.14]">
-           <div className="pointer-events-none select-none text-[6rem] font-black leading-none text-white sm:text-[8rem]">{rank}</div>
+        <div className="absolute right-0 top-0 p-3 opacity-[0.14]">
+           <div className="pointer-events-none select-none text-[4.5rem] font-black leading-none text-white sm:text-[6rem]">{rank}</div>
         </div>
         {icon && (
-          <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full border-[3px] border-brand-dark bg-white/90 p-2 text-brand-dark shadow-[0_10px_18px_rgba(15,23,42,0.18)]">
+          <div className="absolute left-1/2 top-2 z-20 -translate-x-1/2 rounded-full border-[3px] border-brand-dark bg-white/90 p-1.5 text-brand-dark shadow-[0_10px_18px_rgba(15,23,42,0.18)]">
             {icon}
           </div>
         )}
-        <div className="relative z-10 mt-6 text-[3.4rem] font-black leading-none text-white drop-shadow-[0_8px_18px_rgba(255,255,255,0.45)] sm:text-[4.8rem]">
+        <div className="relative z-10 mt-4 text-[2.6rem] font-black leading-none text-white drop-shadow-[0_8px_18px_rgba(255,255,255,0.45)] sm:text-[3.6rem]">
           {rank}
         </div>
       </motion.div>
@@ -2848,35 +3121,35 @@ function LeaderboardOverviewCard({
     indigo: {
       dot: 'bg-brand-purple',
       value: 'text-brand-dark',
-      card: 'bg-white',
+      card: 'bg-[linear-gradient(180deg,rgba(180,136,255,0.16)_0%,rgba(255,255,255,0.96)_100%)]',
     },
     amber: {
       dot: 'bg-brand-yellow',
       value: 'text-brand-dark',
-      card: 'bg-[#fff7df]',
+      card: 'bg-[linear-gradient(180deg,rgba(255,210,51,0.2)_0%,rgba(255,255,255,0.96)_100%)]',
     },
     emerald: {
-      dot: 'bg-emerald-400',
+      dot: 'bg-brand-orange',
       value: 'text-brand-dark',
-      card: 'bg-[#ecfff6]',
+      card: 'bg-[linear-gradient(180deg,rgba(255,90,54,0.14)_0%,rgba(255,255,255,0.96)_100%)]',
     },
     sky: {
-      dot: 'bg-sky-400',
+      dot: 'bg-brand-dark',
       value: 'text-brand-dark',
-      card: 'bg-[#eef8ff]',
+      card: 'bg-[linear-gradient(180deg,rgba(26,26,26,0.08)_0%,rgba(255,255,255,0.96)_100%)]',
     },
   }[tone];
 
   return (
-    <div className={`rounded-[1.7rem] border border-brand-dark/10 px-4 py-4 shadow-[0_16px_34px_rgba(15,23,42,0.08)] ${toneClasses.card} ${compact ? 'min-h-[118px]' : ''}`}>
+    <div className={`rounded-[1.15rem] border-2 border-brand-dark/15 px-2.5 py-2 shadow-[3px_3px_0px_0px_rgba(26,26,26,0.12)] ${toneClasses.card} ${compact ? 'min-h-[84px]' : ''}`}>
       <div className="flex items-center gap-2">
         <span className={`h-2.5 w-2.5 rounded-full ${toneClasses.dot}`} />
-        <p className="text-[11px] font-black uppercase tracking-[0.28em] text-brand-dark/45">{label}</p>
+        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-dark/45">{label}</p>
       </div>
-      <p className={`mt-3 text-2xl font-black tracking-[-0.04em] ${toneClasses.value} ${compact ? 'text-xl' : 'sm:text-3xl'}`}>
+      <p className={`mt-1.5 text-lg font-black tracking-[-0.04em] ${toneClasses.value} ${compact ? 'text-base' : 'sm:text-xl'}`}>
         {value}
       </p>
-      <p className="mt-2 text-sm font-bold leading-relaxed text-brand-dark/56">
+      <p className="mt-1 text-[11px] font-bold leading-snug text-brand-dark/56 sm:text-xs">
         {detail}
       </p>
     </div>
@@ -2905,13 +3178,13 @@ function LeaderboardStandingRow({
       initial={{ x: -24, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={{ delay: rank * 0.05 }}
-      className={`grid grid-cols-[auto,1fr,auto] items-center gap-4 rounded-[2rem] border-[3px] border-brand-dark bg-white px-4 py-4 shadow-[0_20px_36px_rgba(15,23,42,0.1)] sm:px-5 ${
+      className={`grid grid-cols-[auto,1fr,auto] items-center gap-2.5 rounded-[1.2rem] border-[3px] border-brand-dark bg-white px-3 py-2.5 shadow-[0_16px_30px_rgba(15,23,42,0.1)] sm:px-3.5 ${
         isTopThree
           ? 'ring-2 ring-brand-purple/10'
           : ''
       }`}
     >
-      <div className={`flex h-11 w-11 items-center justify-center rounded-full border-[3px] border-brand-dark text-base font-black shadow-[0_10px_18px_rgba(15,23,42,0.14)] ${
+      <div className={`flex h-9 w-9 items-center justify-center rounded-full border-[3px] border-brand-dark text-sm font-black shadow-[0_8px_14px_rgba(15,23,42,0.14)] ${
         rank === 1
           ? 'bg-brand-yellow text-brand-dark'
           : rank === 2
@@ -2924,17 +3197,17 @@ function LeaderboardStandingRow({
       </div>
 
       <div className="min-w-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <LeaderboardAvatarBadge nickname={String(participant?.nickname || '')} />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-black text-brand-dark sm:text-lg">{displayName}</p>
-            <p className="mt-1 truncate text-sm font-bold text-brand-dark/58">{performanceLabel}</p>
+            <p className="truncate text-sm font-black text-brand-dark">{displayName}</p>
+            <p className="mt-0.5 truncate text-xs font-bold text-brand-dark/58 sm:text-sm">{performanceLabel}</p>
           </div>
-          <div className="hidden rounded-full bg-[#ececec] px-4 py-2 text-sm font-black text-brand-dark/82 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] md:block">
+          <div className="hidden rounded-full bg-[#ececec] px-2.5 py-1 text-[11px] font-black text-brand-dark/82 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] md:block">
             {badgeLabel}
           </div>
         </div>
-        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-brand-dark/8">
+        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-brand-dark/8">
           <div
             className="h-full rounded-full bg-gradient-to-r from-brand-orange via-brand-yellow to-brand-purple"
             style={{ width: `${Math.max(8, Math.min(100, accuracyPct || 0))}%` }}
@@ -2943,14 +3216,14 @@ function LeaderboardStandingRow({
       </div>
 
       <div className="text-right">
-        <div className={`rounded-full border border-brand-dark/10 px-4 py-2 text-xl font-black shadow-[0_12px_24px_rgba(15,23,42,0.1)] sm:text-2xl ${
+        <div className={`rounded-full border border-brand-dark/10 px-3 py-1.5 text-base font-black shadow-[0_10px_18px_rgba(15,23,42,0.1)] sm:text-lg ${
           isTopThree
             ? 'bg-[#ececec] text-brand-dark'
             : 'bg-[#ececec] text-brand-dark'
         }`}>
           XP {participant?.score || 0}
         </div>
-        <p className="mt-1 text-[10px] font-black uppercase tracking-[0.28em] text-brand-dark/32">Score</p>
+        <p className="mt-0.5 text-[8px] font-black uppercase tracking-[0.18em] text-brand-dark/32">Score</p>
       </div>
     </motion.div>
   );

@@ -62,6 +62,7 @@ function buildResetEmailHtml(code: string, locale: PasswordResetLocale) {
   const align = isRtl ? 'right' : 'left';
   const dir = isRtl ? 'rtl' : 'ltr';
   const baseUrl = getPublicAppUrl();
+  const logoSrc = `${baseUrl}/quizzi-logo-email.png`;
 
   return `
     <!doctype html>
@@ -82,12 +83,18 @@ function buildResetEmailHtml(code: string, locale: PasswordResetLocale) {
               <table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="width:640px;max-width:640px;">
                 <tr>
                   <td align="${align}" style="padding:0 0 14px 0;">
-                    <img
-                      src="${escapeHtml(`${baseUrl}/quizzi-logo-email.svg`)}"
-                      alt="Quizzi"
-                      width="170"
-                      style="display:block;width:170px;max-width:100%;height:auto;border:0;outline:none;"
-                    />
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                      <tr>
+                        <td style="padding:12px 16px;background:#FFFFFF;border:2px solid #1A1A1A;border-radius:22px;box-shadow:4px 4px 0 0 #1A1A1A;">
+                          <img
+                            src="${escapeHtml(logoSrc)}"
+                            alt="Quizzi"
+                            width="186"
+                            style="display:block;width:186px;max-width:100%;height:auto;border:0;outline:none;"
+                          />
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
                 <tr>
