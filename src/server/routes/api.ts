@@ -396,6 +396,12 @@ function sanitizeStudentEmailInput(value: unknown) {
   return normalizeStudentEmail(String(value || ''));
 }
 
+function deriveStudentNameFromEmail(email: string) {
+  const localPart = String(email || '').split('@')[0] || '';
+  const readableName = localPart.replace(/[._-]+/g, ' ').trim();
+  return sanitizeTeacherStudentName(readableName || 'Student');
+}
+
 function sanitizeQuestionImage(value: unknown) {
   const normalized = sanitizeMultiline(value, 4_000_000);
   if (!normalized) return '';
@@ -5163,10 +5169,11 @@ router.post('/teacher/classes/:id/students', requireTeacherSession, async (req, 
       return res.status(404).json({ error: 'Class not found' });
     }
 
-    const studentName = sanitizeTeacherStudentName(req.body?.name);
+    const providedStudentName = sanitizeTeacherStudentName(req.body?.name);
     const studentEmail = sanitizeStudentEmailInput(req.body?.email);
-    if (!studentName) {
-      return res.status(400).json({ error: 'Student name is required.' });
+    const studentName = providedStudentName || (studentEmail ? deriveStudentNameFromEmail(studentEmail) : '');
+    if (!studentName && !studentEmail) {
+      return res.status(400).json({ error: 'Student name or email is required.' });
     }
     if (studentEmail) {
       const emailError = validateStudentEmail(studentEmail);
