@@ -2903,6 +2903,137 @@ function takeLastRows<T>(rows: T[], limit: number) {
   return rows.slice(rows.length - limit);
 }
 
+function normalizeQuestionForEngine(question: any, index = 0) {
+  const answers = Array.isArray(question?.answers)
+    ? question.answers.map((answer: unknown) => String(answer || '').trim()).filter(Boolean)
+    : parseJsonArray(question?.answers_json).map((answer) => String(answer || '').trim()).filter(Boolean);
+  const tags = Array.isArray(question?.tags)
+    ? question.tags.map((tag: unknown) => String(tag || '').trim()).filter(Boolean)
+    : parseJsonArray(question?.tags_json).map((tag) => String(tag || '').trim()).filter(Boolean);
+
+  return {
+    ...question,
+    id: Number(question?.id || 0),
+    question_order: Number(question?.question_order || index + 1),
+    prompt: String(question?.prompt || '').trim(),
+    answers,
+    answers_json: JSON.stringify(answers),
+    tags,
+    tags_json: JSON.stringify(tags),
+    correct_index: Number(question?.correct_index || 0),
+    explanation: String(question?.explanation || ''),
+    image_url: String(question?.image_url || ''),
+    time_limit_seconds: Number(question?.time_limit_seconds || 20),
+    learning_objective: String(question?.learning_objective || ''),
+    bloom_level: String(question?.bloom_level || ''),
+  };
+}
+
+function buildEngineReadySessionPayload(payload: Record<string, any>): Record<string, any> {
+  return {
+    ...payload,
+    participants: Array.isArray(payload?.participants) ? payload.participants : [],
+    answers: Array.isArray(payload?.answers) ? payload.answers : [],
+    behavior_logs: Array.isArray(payload?.behavior_logs) ? payload.behavior_logs : [],
+    questions: (Array.isArray(payload?.questions) ? payload.questions : [])
+      .map((question, index) => normalizeQuestionForEngine(question, index))
+      .filter((question) => Number(question.id) > 0 && String(question.prompt || '').length > 0),
+  };
+}
+
+function buildFallbackClassDashboard(payload: Record<string, any>) {
+  const normalizedPayload = buildEngineReadySessionPayload(payload);
+  const answersByParticipantId = new Map<number, any[]>();
+
+  for (const answer of Array.isArray(normalizedPayload.answers) ? normalizedPayload.answers : []) {
+    const participantId = Number(answer?.participant_id || 0);
+    if (!participantId) continue;
+    const current = answersByParticipantId.get(participantId) || [];
+    current.push(answer);
+    answersByParticipantId.set(participantId, current);
+  }
+
+  return {
+    analytics_version: 'class_dashboard_fallback',
+    session: {
+      id: Number(normalizedPayload?.session?.id || 0),
+      pin: String(normalizedPayload?.session?.pin || ''),
+      status: String(normalizedPayload?.session?.status || 'ENDED'),
+      quiz_pack_id: Number(normalizedPayload?.session?.quiz_pack_id || 0),
+      pack_title: String(normalizedPayload?.pack?.title || ''),
+      question_count: normalizedPayload.questions.length,
+    },
+    participants: (Array.isArray(normalizedPayload.participants) ? normalizedPayload.participants : []).map((participant: any) => {
+      const participantId = Number(participant?.id || 0);
+      const participantAnswers = answersByParticipantId.get(participantId) || [];
+      const correctAnswers = participantAnswers.filter((answer: any) => Number(answer?.is_correct || 0) === 1).length;
+      const totalScore = participantAnswers.reduce((sum: number, answer: any) => sum + Number(answer?.score_awarded || 0), 0);
+      const accuracy = participantAnswers.length ? Math.round((correctAnswers / participantAnswers.length) * 100) : 0;
+
+      return {
+        id: participantId,
+        nickname: String(participant?.nickname || 'Student'),
+        total_score: totalScore,
+        accuracy,
+        answers_count: participantAnswers.length,
+        correct_answers: correctAnswers,
+        weak_tags: [],
+        strong_tags: [],
+        recommendation: '',
+        risk_level: participantAnswers.length > 0 ? 'medium' : 'low',
+        stress_index: 0,
+      };
+    }),
+    questions: normalizedPayload.questions.map((question: any) => ({
+      id: Number(question?.id || 0),
+      question_id: Number(question?.id || 0),
+      question_index: Number(question?.question_order || 0),
+      prompt: String(question?.prompt || ''),
+      question_prompt: String(question?.prompt || ''),
+      tags: Array.isArray(question?.tags) ? question.tags : [],
+      accuracy: 0,
+      stress_index: 0,
+      changed_away_from_correct_rate: 0,
+      deadline_dependency_rate: 0,
+    })),
+    studentSpotlight: {
+      attention_needed: [],
+    },
+    research: {
+      question_diagnostics: [],
+      topic_behavior_profiles: [],
+    },
+    tagSummary: [],
+    alerts: [],
+    summary_tiles: [],
+  };
+}
+
+async function runClassDashboardWithFallback(payload: Record<string, any>) {
+  const enginePayload = buildEngineReadySessionPayload(payload);
+
+  try {
+    return await runPythonEngine<any>('class-dashboard', enginePayload);
+  } catch (error: any) {
+    console.error('[class-dashboard] primary generation failed:', error);
+
+    const reducedPayload = {
+      ...enginePayload,
+      questions: takeLastRows(Array.isArray(enginePayload.questions) ? enginePayload.questions : [], 250),
+      answers: takeLastRows(Array.isArray(enginePayload.answers) ? enginePayload.answers : [], 500),
+      behavior_logs: takeLastRows(Array.isArray(enginePayload.behavior_logs) ? enginePayload.behavior_logs : [], 600),
+      participants: takeLastRows(Array.isArray(enginePayload.participants) ? enginePayload.participants : [], 120),
+    };
+
+    try {
+      return await runPythonEngine<any>('class-dashboard', reducedPayload);
+    } catch (retryError: any) {
+      console.error('[class-dashboard] fallback generation failed:', retryError);
+      return buildFallbackClassDashboard(reducedPayload);
+    }
+  }
+}
+
 async function runStudentDashboardWithFallback(payload: Record<string, any>) {
   try {
     return await runPythonEngine<any>('student-dashboard', payload);
@@ -2941,7 +3072,7 @@ async function runStudentDashboardWithFallback(payload: Record<string, any>) {
 
 async function runPracticeSetWithFallback(payload: Record<string, any>) {
   const sanitizeQuestions = (rows: any[]) =>
-    (Array.isArray(rows) ? rows : []).filter((question: any) => {
+    (Array.isArray(rows) ? rows : []).map((question: any, index: number) => normalizeQuestionForEngine(question, index)).filter((question: any) => {
       const id = Number(question?.id || 0);
       const prompt = String(question?.prompt || '').trim();
       return id > 0 && prompt.length > 0;
@@ -3178,7 +3309,7 @@ async function getSessionStudentContext(sessionId: number, participantId: number
     displayName: participant?.display_name_snapshot || participant?.nickname,
   });
 
-  const adaptivePreview = await runPythonEngine<any>('practice-set', {
+  const adaptivePreview = await runPracticeSetWithFallback({
       nickname: studentScope.canonical_nickname,
       mastery,
       questions: classPayload.questions,
@@ -3195,7 +3326,7 @@ async function getSessionStudentContext(sessionId: number, participantId: number
       [],
   });
 
-  const classDashboard = await runPythonEngine<any>('class-dashboard', classPayload);
+  const classDashboard = await runClassDashboardWithFallback(classPayload);
   const studentSummary =
     classDashboard?.participants?.find((row: any) => Number(row.id) === participantId) || null;
   const studentMemory = await updateStudentMemorySnapshot({
@@ -3235,7 +3366,7 @@ async function getClassFollowUpContext(sessionId: number) {
   const classPayload = (await getSessionPayload(sessionId));
   if (!classPayload) return null;
 
-  const classDashboard = (await runPythonEngine<any>('class-dashboard', classPayload)) as Record<string, any>;
+  const classDashboard = (await runClassDashboardWithFallback(classPayload)) as Record<string, any>;
   const packDetail = (await getHydratedPackWithQuestions(Number(classPayload.pack?.id || classPayload.session?.quiz_pack_id || 0)));
   const followUpEngine = buildFollowUpEnginePreview({
     participants: Array.isArray(classDashboard?.participants) ? classDashboard.participants : [],
@@ -3318,28 +3449,54 @@ async function buildStudentPortalPayload(studentUserId: number) {
     return null;
   }
 
-  const classes = await buildStudentClassSummaries(studentUserId);
-  const analytics = await getOverallStudentAnalytics({
-    studentUserId,
-    displayName: studentUser.display_name || studentUser.email,
-    nickname: studentUser.display_name || studentUser.email,
-  });
-  const context = await buildStudentAnalyticsContext({
-    studentUserId,
-    displayName: studentUser.display_name || studentUser.email,
-    nickname: studentUser.display_name || studentUser.email,
-  });
-  const packById = new Map<number, any>(context.packs.map((pack: any) => [Number(pack.id), pack] as const));
-  const sortedSessions = sortByNewestTimestamp(context.sessions, 'started_at', 'ended_at');
+  let classes: any[] = [];
+  try {
+    const loadedClasses = await buildStudentClassSummaries(studentUserId);
+    classes = Array.isArray(loadedClasses) ? loadedClasses : [];
+  } catch (error: any) {
+    console.error('[WARN] Student portal class summary fallback engaged:', error);
+  }
+  let analytics: any = null;
+  try {
+    analytics = await getOverallStudentAnalytics({
+      studentUserId,
+      displayName: studentUser.display_name || studentUser.email,
+      nickname: studentUser.display_name || studentUser.email,
+    });
+  } catch (error: any) {
+    console.error('[WARN] Student portal analytics fallback engaged:', error);
+  }
+
+  let context: any = {
+    packs: [],
+    sessions: [],
+    participants: [],
+    answers: [],
+  };
+  try {
+    context = await buildStudentAnalyticsContext({
+      studentUserId,
+      displayName: studentUser.display_name || studentUser.email,
+      nickname: studentUser.display_name || studentUser.email,
+    });
+  } catch (error: any) {
+    console.error('[WARN] Student portal context fallback engaged:', error);
+  }
+  const safePacks = Array.isArray(context?.packs) ? context.packs : [];
+  const safeSessions = Array.isArray(context?.sessions) ? context.sessions : [];
+  const safeParticipants = Array.isArray(context?.participants) ? context.participants : [];
+  const safeAnswers = Array.isArray(context?.answers) ? context.answers : [];
+  const packById = new Map<number, any>(safePacks.map((pack: any) => [Number(pack.id), pack] as const));
+  const sortedSessions = sortByNewestTimestamp(safeSessions, 'started_at', 'ended_at');
   const latestSession = sortedSessions[0] || null;
   const latestPack = latestSession ? packById.get(Number(latestSession.quiz_pack_id || 0)) || null : null;
   const sessionHistory = Array.isArray(analytics?.sessionHistory) && analytics.sessionHistory.length > 0
     ? analytics.sessionHistory
     : buildFallbackStudentSessionHistory({
-        participants: context.participants,
-        sessions: context.sessions,
-        packs: context.packs,
-        answers: context.answers,
+        participants: safeParticipants,
+        sessions: safeSessions,
+        packs: safePacks,
+        answers: safeAnswers,
       });
   const recommendations = {
     next_step: analytics?.student_memory?.recommended_next_step || null,
@@ -3582,7 +3739,7 @@ async function createAdaptivePackForParticipant({
     };
   }
 
-  const adaptiveGame = await runPythonEngine<any>('practice-set', {
+  const adaptiveGame = await runPracticeSetWithFallback({
     nickname: participant?.nickname,
     mastery,
     questions,
@@ -3684,7 +3841,7 @@ async function executeFollowUpPlan({
       ? context.packDetail.questions
       : [];
 
-  const practiceSet = await runPythonEngine<any>('practice-set', {
+  const practiceSet = await runPracticeSetWithFallback({
     questions: sourceQuestions,
     count: Math.min(selectedPlan.question_count, Math.max(1, sourceQuestions.length || 1)),
     focus_tags: selectedPlan.focus_tags,
@@ -6113,7 +6270,8 @@ router.get('/teacher/sessions/pin/:pin/participants', requireTeacherSession, asy
         tcs.claimed_at,
         tcs.last_seen_at,
         COALESCE(SUM(a.score_awarded), 0) AS score,
-        COALESCE(SUM(CASE WHEN a.is_correct = 1 THEN 1 ELSE 0 END), 0) AS correct_count
+        COALESCE(SUM(CASE WHEN a.is_correct = 1 THEN 1 ELSE 0 END), 0) AS correct_count,
+        COUNT(a.id) AS answered_count
       FROM participants p
       LEFT JOIN teacher_class_students tcs
         ON tcs.id = p.class_student_id
@@ -6781,6 +6939,11 @@ router.post('/sessions/:pin/answer', async (req, res) => {
     const participantScoreState = await getParticipantSessionScoreState(session.id, participant_id);
 
     broadcastToSession(session.id, 'ANSWER_RECEIVED', {
+      participant_id,
+      chosen_index,
+      is_correct: isCorrect ? 1 : 0,
+      score_awarded: writeResult.score_awarded,
+      participant_score_total: participantScoreState.score,
       total_answers: totalAnswers,
       expected: totalParticipants,
     });
@@ -6790,6 +6953,9 @@ router.post('/sessions/:pin/answer', async (req, res) => {
       score_awarded: writeResult.score_awarded,
       participant_score_total: participantScoreState.score,
       participant_streak: participantScoreState.streak,
+      participant_id,
+      chosen_index,
+      is_correct: isCorrect ? 1 : 0,
       total_answers: totalAnswers,
       expected: totalParticipants,
       confidence_level,
@@ -6879,138 +7045,168 @@ router.get('/sessions/:pin/stream', async (req, res) => {
 router.get('/analytics/class/:sessionId', async (req, res) => {
   const session = readTeacherSession(req);
   if (!session) return res.status(401).json({ error: 'Teacher authentication required' });
+  let sessionId = 0;
+  let ownedSession: any = null;
+  let payload: any = null;
   try {
     const teacherUserId = Number((await getTeacherUserByEmail(session.email))?.id || 0);
     if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
     if (!enforceRateLimit(req, res, 'analytics-class', 60, 5 * 60 * 1000, teacherUserId, req.params.sessionId)) return;
-    const sessionId = parsePositiveInt(req.params.sessionId);
-    const ownedSession = (await getTeacherOwnedSession(sessionId, teacherUserId));
+    sessionId = parsePositiveInt(req.params.sessionId);
+    ownedSession = (await getTeacherOwnedSession(sessionId, teacherUserId));
     if (!ownedSession) return res.status(404).json({ error: 'Session not found' });
-    const payload = (await getSessionPayload(sessionId));
+    payload = (await getSessionPayload(sessionId));
     if (!payload) return res.status(404).json({ error: 'Session not found' });
 
-    const dashboard = (await runPythonEngine<any>('class-dashboard', payload)) as Record<string, any>;
-    const memoryBoard = await buildClassMemorySummary(sessionId);
-    const packDetail = (await getHydratedPackWithQuestions(Number(payload.pack?.id || ownedSession.quiz_pack_id)));
-    const followUpEngine = buildFollowUpEnginePreview({
-      participants: Array.isArray(dashboard?.participants) ? dashboard.participants : [],
-      attentionQueue: Array.isArray(dashboard?.studentSpotlight?.attention_needed) ? dashboard.studentSpotlight.attention_needed : [],
-      questionDiagnostics: Array.isArray(dashboard?.research?.question_diagnostics) ? dashboard.research.question_diagnostics : [],
-      topicBehaviorProfiles: Array.isArray(dashboard?.research?.topic_behavior_profiles)
-        ? dashboard.research.topic_behavior_profiles
-        : Array.isArray(dashboard?.tagSummary)
-          ? dashboard.tagSummary
-          : [],
-      packQuestions: Array.isArray(packDetail?.questions) ? packDetail.questions : [],
-    });
-    const questionMeta = new Map(
-      (packDetail?.questions || []).map((question: any) => [
-        Number(question.id),
-        {
-          learning_objective: question.learning_objective || '',
-          bloom_level: question.bloom_level || '',
-        },
-      ]),
-    );
-    const participantMeta = new Map(
-      (Array.isArray(payload.participants) ? payload.participants : []).map((participant: any) => [
-        Number(participant.id),
-        {
-          student_user_id: Number(participant.student_user_id || 0) || null,
-          class_student_id: Number(participant.class_student_id || 0) || null,
-          account_linked: Boolean(Number(participant.student_user_id || 0)),
-          profile_mode: Number(participant.student_user_id || 0) ? 'longitudinal' : 'session-only',
-          display_name_snapshot: String(participant.display_name_snapshot || ''),
-          join_mode: String(participant.join_mode || 'anonymous'),
-        },
-      ] as const),
-    );
-    const classRosterRows = Number(ownedSession.teacher_class_id || 0)
-      ? ((await db
-            .prepare(`
-              SELECT id, invite_status, claimed_at, last_seen_at
-              FROM teacher_class_students
-              WHERE class_id = ?
-            `)
-            .all(Number(ownedSession.teacher_class_id || 0))) as any[])
-      : [];
-    const rosterMetaById = new Map(
-      classRosterRows.map((row: any) => [
-        Number(row.id),
-        {
-          invite_status: String(row.invite_status || 'none'),
-          claimed_at: row.claimed_at || null,
-          last_seen_at: row.last_seen_at || null,
-        },
-      ] as const),
-    );
-    const mapQuestionMeta = (question: any) =>
-      Object.assign(
-        {},
-        question && typeof question === 'object' ? question : {},
-        questionMeta.get(Number(question?.question_id || question?.id)) || {},
+    try {
+      const dashboard = (await runClassDashboardWithFallback(payload)) as Record<string, any>;
+      const memoryBoard = await buildClassMemorySummary(sessionId).catch((error: any) => {
+        console.error('[class-analytics] memory board failed:', error);
+        return null;
+      });
+      const packDetail = await getHydratedPackWithQuestions(Number(payload.pack?.id || ownedSession.quiz_pack_id)).catch((error: any) => {
+        console.error('[class-analytics] pack detail failed:', error);
+        return null;
+      });
+      const followUpEngine = buildFollowUpEnginePreview({
+        participants: Array.isArray(dashboard?.participants) ? dashboard.participants : [],
+        attentionQueue: Array.isArray(dashboard?.studentSpotlight?.attention_needed) ? dashboard.studentSpotlight.attention_needed : [],
+        questionDiagnostics: Array.isArray(dashboard?.research?.question_diagnostics) ? dashboard.research.question_diagnostics : [],
+        topicBehaviorProfiles: Array.isArray(dashboard?.research?.topic_behavior_profiles)
+          ? dashboard.research.topic_behavior_profiles
+          : Array.isArray(dashboard?.tagSummary)
+            ? dashboard.tagSummary
+            : [],
+        packQuestions: Array.isArray(packDetail?.questions) ? packDetail.questions : [],
+      });
+      const questionMeta = new Map(
+        (packDetail?.questions || []).map((question: any) => [
+          Number(question.id),
+          {
+            learning_objective: question.learning_objective || '',
+            bloom_level: question.bloom_level || '',
+          },
+        ]),
       );
-    const mapParticipantMeta = (participant: any) => {
-      const meta = participantMeta.get(Number(participant?.id || 0)) || null;
-      const rosterMeta = meta?.class_student_id ? rosterMetaById.get(Number(meta.class_student_id || 0)) || null : null;
-      return {
-        ...(participant && typeof participant === 'object' ? participant : {}),
-        ...(meta || {}),
-        ...(rosterMeta || {}),
+      const participantMeta = new Map(
+        (Array.isArray(payload.participants) ? payload.participants : []).map((participant: any) => [
+          Number(participant.id),
+          {
+            student_user_id: Number(participant.student_user_id || 0) || null,
+            class_student_id: Number(participant.class_student_id || 0) || null,
+            account_linked: Boolean(Number(participant.student_user_id || 0)),
+            profile_mode: Number(participant.student_user_id || 0) ? 'longitudinal' : 'session-only',
+            display_name_snapshot: String(participant.display_name_snapshot || ''),
+            join_mode: String(participant.join_mode || 'anonymous'),
+          },
+        ] as const),
+      );
+      const classRosterRows = Number(ownedSession.teacher_class_id || 0)
+        ? ((await db
+              .prepare(`
+                SELECT id, invite_status, claimed_at, last_seen_at
+                FROM teacher_class_students
+                WHERE class_id = ?
+              `)
+              .all(Number(ownedSession.teacher_class_id || 0))) as any[])
+        : [];
+      const rosterMetaById = new Map(
+        classRosterRows.map((row: any) => [
+          Number(row.id),
+          {
+            invite_status: String(row.invite_status || 'none'),
+            claimed_at: row.claimed_at || null,
+            last_seen_at: row.last_seen_at || null,
+          },
+        ] as const),
+      );
+      const mapQuestionMeta = (question: any) =>
+        Object.assign(
+          {},
+          question && typeof question === 'object' ? question : {},
+          questionMeta.get(Number(question?.question_id || question?.id)) || {},
+        );
+      const mapParticipantMeta = (participant: any) => {
+        const meta = (participantMeta.get(Number(participant?.id || 0)) || null) as Record<string, any> | null;
+        const rosterMeta = meta?.class_student_id ? rosterMetaById.get(Number(meta.class_student_id || 0)) || null : null;
+        return {
+          ...(participant && typeof participant === 'object' ? participant : {}),
+          ...(meta || {}),
+          ...(rosterMeta || {}),
+        };
       };
-    };
-    const mapStudentCollectionEntries = (entries: any[]) =>
-      Array.isArray(entries) ? entries.map((entry: any) => mapParticipantMeta(entry)) : entries;
+      const mapStudentCollectionEntries = (entries: any[]) =>
+        Array.isArray(entries) ? entries.map((entry: any) => mapParticipantMeta(entry)) : entries;
 
-    const responsePayload = {
-      ...dashboard,
-      memory_board: memoryBoard
-        ? {
-            ...memoryBoard,
-            watchlist: mapStudentCollectionEntries(memoryBoard.watchlist),
-            autopilot_queue: mapStudentCollectionEntries(memoryBoard.autopilot_queue),
-          }
-        : memoryBoard,
-      pack: packDetail,
-      follow_up_engine: followUpEngine,
-      cross_section_comparison: (await buildCrossSectionComparison(sessionId, teacherUserId)),
-      participants: Array.isArray(dashboard?.participants) ? dashboard.participants.map(mapParticipantMeta) : dashboard?.participants,
-      studentSpotlight: dashboard?.studentSpotlight
-        ? {
-            ...dashboard.studentSpotlight,
-            attention_needed: mapStudentCollectionEntries(dashboard.studentSpotlight.attention_needed),
-          }
-        : dashboard?.studentSpotlight,
-      questions: Array.isArray(dashboard?.questions) ? dashboard.questions.map(mapQuestionMeta) : dashboard?.questions,
-      research: {
-        ...(dashboard?.research || {}),
-        question_diagnostics: Array.isArray(dashboard?.research?.question_diagnostics)
-          ? dashboard.research.question_diagnostics.map(mapQuestionMeta)
-          : dashboard?.research?.question_diagnostics,
-      },
-    };
+      const responsePayload = {
+        ...dashboard,
+        memory_board: memoryBoard
+          ? {
+              ...memoryBoard,
+              watchlist: mapStudentCollectionEntries(memoryBoard.watchlist),
+              autopilot_queue: mapStudentCollectionEntries(memoryBoard.autopilot_queue),
+            }
+          : memoryBoard,
+        pack: packDetail,
+        follow_up_engine: followUpEngine,
+        cross_section_comparison: await buildCrossSectionComparison(sessionId, teacherUserId).catch((error: any) => {
+          console.error('[class-analytics] cross section comparison failed:', error);
+          return null;
+        }),
+        participants: Array.isArray(dashboard?.participants) ? dashboard.participants.map(mapParticipantMeta) : dashboard?.participants,
+        studentSpotlight: dashboard?.studentSpotlight
+          ? {
+              ...dashboard.studentSpotlight,
+              attention_needed: mapStudentCollectionEntries(dashboard.studentSpotlight.attention_needed),
+            }
+          : dashboard?.studentSpotlight,
+        questions: Array.isArray(dashboard?.questions) ? dashboard.questions.map(mapQuestionMeta) : dashboard?.questions,
+        research: {
+          ...(dashboard?.research || {}),
+          question_diagnostics: Array.isArray(dashboard?.research?.question_diagnostics)
+            ? dashboard.research.question_diagnostics.map(mapQuestionMeta)
+            : dashboard?.research?.question_diagnostics,
+        },
+      };
 
-    const uiLanguage = getRequestedUiLanguage(req);
-    await translateAnalyticsFields(responsePayload, uiLanguage, [
-      (root) => (Array.isArray(root?.questions) ? root.questions : []).flatMap((question: any) => [
-        { holder: question, key: 'prompt' },
-        { holder: question, key: 'question_prompt' },
-        { holder: question, key: 'learning_objective' },
-      ]),
-      (root) => (Array.isArray(root?.questions) ? root.questions : []).flatMap((question: any) =>
-        Array.isArray(question?.tags) ? question.tags.map((_tag: string, index: number) => ({ holder: question.tags, key: String(index) })) : []),
-      (root) => (Array.isArray(root?.research?.question_diagnostics) ? root.research.question_diagnostics : []).flatMap((question: any) => [
-        { holder: question, key: 'question_prompt' },
-        { holder: question, key: 'recommendation' },
-        { holder: question, key: 'learning_objective' },
-      ]),
-      (root) => (Array.isArray(root?.research?.question_diagnostics) ? root.research.question_diagnostics : []).flatMap((question: any) =>
-        Array.isArray(question?.tags) ? question.tags.map((_tag: string, index: number) => ({ holder: question.tags, key: String(index) })) : []),
-      (root) => (Array.isArray(root?.research?.topic_behavior_profiles) ? root.research.topic_behavior_profiles : []).map((row: any) => ({ holder: row, key: 'tag' })),
-      (root) => (Array.isArray(root?.participants) ? root.participants : []).map((row: any) => ({ holder: row, key: 'recommendation' })),
-    ]);
+      const uiLanguage = getRequestedUiLanguage(req);
+      await translateAnalyticsFields(responsePayload, uiLanguage, [
+        (root) => (Array.isArray(root?.questions) ? root.questions : []).flatMap((question: any) => [
+          { holder: question, key: 'prompt' },
+          { holder: question, key: 'question_prompt' },
+          { holder: question, key: 'learning_objective' },
+        ]),
+        (root) => (Array.isArray(root?.questions) ? root.questions : []).flatMap((question: any) =>
+          Array.isArray(question?.tags) ? question.tags.map((_tag: string, index: number) => ({ holder: question.tags, key: String(index) })) : []),
+        (root) => (Array.isArray(root?.research?.question_diagnostics) ? root.research.question_diagnostics : []).flatMap((question: any) => [
+          { holder: question, key: 'question_prompt' },
+          { holder: question, key: 'recommendation' },
+          { holder: question, key: 'learning_objective' },
+        ]),
+        (root) => (Array.isArray(root?.research?.question_diagnostics) ? root.research.question_diagnostics : []).flatMap((question: any) =>
+          Array.isArray(question?.tags) ? question.tags.map((_tag: string, index: number) => ({ holder: question.tags, key: String(index) })) : []),
+        (root) => (Array.isArray(root?.research?.topic_behavior_profiles) ? root.research.topic_behavior_profiles : []).map((row: any) => ({ holder: row, key: 'tag' })),
+        (root) => (Array.isArray(root?.participants) ? root.participants : []).map((row: any) => ({ holder: row, key: 'recommendation' })),
+      ]);
 
-    res.json(responsePayload);
+      res.json(responsePayload);
+    } catch (analyticsError: any) {
+      console.error('[ERROR] Class analytics response assembly failed:', analyticsError);
+      const fallbackDashboard = buildFallbackClassDashboard(payload);
+      res.json({
+        ...fallbackDashboard,
+        pack: null,
+        memory_board: null,
+        follow_up_engine: buildFollowUpEnginePreview({
+          participants: Array.isArray(fallbackDashboard?.participants) ? fallbackDashboard.participants : [],
+          attentionQueue: [],
+          questionDiagnostics: [],
+          topicBehaviorProfiles: [],
+          packQuestions: [],
+        }),
+        cross_section_comparison: null,
+      });
+    }
   } catch (error: any) {
     console.error('[ERROR] Class analytics failed:', error);
     respondWithServerError(res, 'Failed to load class analytics');
@@ -7102,7 +7298,7 @@ router.post('/analytics/class/:sessionId/questions/:questionId/rematch', async (
     const focusTags = uniqueStrings(
       parseJsonArray(question?.tags_json).map((tag) => sanitizeLine(tag, 40)),
     ).slice(0, 4);
-    const practiceSet = await runPythonEngine<any>('practice-set', {
+    const practiceSet = await runPracticeSetWithFallback({
       questions: sourceQuestions,
       count: desiredCount,
       focus_tags: focusTags,
@@ -7269,7 +7465,7 @@ router.post('/analytics/class/:sessionId/personalized-games', async (req, res) =
     if (!classPayload) return res.status(404).json({ error: 'Class analytics not found' });
     const requestedParticipantIds = uniqueNumbers(Array.isArray(req.body?.participant_ids) ? req.body.participant_ids : []);
 
-    const classDashboard = (await runPythonEngine<any>('class-dashboard', classPayload)) as Record<string, any>;
+    const classDashboard = (await runClassDashboardWithFallback(classPayload)) as Record<string, any>;
     const studentSummaries = new Map<number, any>(
       (Array.isArray(classDashboard?.participants) ? classDashboard.participants : []).map((row: any) => [Number(row.id), row] as const),
     );

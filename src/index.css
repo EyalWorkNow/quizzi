@@ -213,6 +213,443 @@
     @apply transition-all;
   }
 
+  .student-play-answer-tile {
+    position: relative;
+    overflow: hidden;
+    border-radius: 1.7rem;
+    border: 2px solid #1A1A1A;
+    background-color: var(--student-answer-bg, #ffffff);
+    color: var(--student-answer-text, #1A1A1A);
+    box-shadow: 0 4px 0 0 var(--student-answer-shadow, #1A1A1A);
+    transition:
+      transform 0.24s ease,
+      box-shadow 0.24s ease,
+      background-color 0.24s ease,
+      color 0.24s ease;
+  }
+
+  .student-play-answer-tile > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .student-play-answer-tile::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 180px;
+    height: 135%;
+    background-color: var(--student-answer-sweep, #FF5A36);
+    transform: skewX(30deg) translate(-175%, -50%);
+    transition: transform 0.55s ease;
+    opacity: 0.92;
+    z-index: 0;
+  }
+
+  .student-play-answer-tile:hover:not([data-locked="true"]) {
+    background-color: var(--student-answer-hover-bg, var(--student-answer-bg, #ffffff));
+    color: var(--student-answer-hover-text, var(--student-answer-text, #1A1A1A));
+    box-shadow: 0 4px 0 0 var(--student-answer-hover-shadow, var(--student-answer-shadow, #1A1A1A));
+    transform: translateY(2px);
+  }
+
+  .student-play-answer-tile:hover:not([data-locked="true"])::before {
+    transform: skewX(30deg) translate(190%, -50%);
+  }
+
+  .student-play-answer-tile:active:not([data-locked="true"]) {
+    transform: scale(0.985);
+  }
+
+  .student-play-answer-tile--selected {
+    box-shadow: 0 4px 0 0 #FF5A36;
+  }
+
+  .student-play-submit-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    padding: 0.85rem 1.55rem 0.85rem 1.8rem;
+    border-radius: 999px;
+    border: 6px solid #FFD98A;
+    background-color: #FF5A36;
+    color: #ffffff;
+    cursor: pointer;
+    transition:
+      transform 0.24s ease,
+      border-width 0.24s ease,
+      background-color 0.24s ease,
+      box-shadow 0.24s ease;
+    box-shadow: 0 6px 0 0 #1A1A1A;
+  }
+
+  .student-play-submit-button:hover {
+    background-color: #FF704A;
+    border-color: #FFE4A7;
+    box-shadow: 0 4px 0 0 #1A1A1A;
+    transform: translateY(2px);
+  }
+
+  .student-play-submit-button:active {
+    border-width: 4px;
+    box-shadow: 0 2px 0 0 #1A1A1A;
+    transform: translateY(4px);
+  }
+
+  .student-play-submit-button__text {
+    font-size: 1.05rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    line-height: 1;
+  }
+
+  .student-play-submit-button__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 0.15rem;
+    color: currentColor;
+  }
+
+  .student-play-submit-button__icon svg {
+    width: 44px;
+    height: 18px;
+  }
+
+  .student-play-submit-button--host {
+    min-width: 190px;
+    height: 68px;
+    padding-inline: 1.4rem 1.65rem;
+  }
+
+  .student-play-submit-button--success {
+    border-color: #d6f7e6;
+    background-color: #10b981;
+  }
+
+  .student-play-submit-button--success:hover {
+    background-color: #14c48b;
+    border-color: #e3fbef;
+  }
+
+  .student-play-submit-button:hover .student-play-submit-button__icon svg {
+    animation: studentPlayJelloVertical 0.9s both;
+    transform-origin: left;
+  }
+
+  .student-play-submit-state {
+    display: inline-flex;
+    height: 3.5rem;
+    align-items: center;
+    gap: 0.75rem;
+    border-radius: 999px;
+    border: 4px solid #D3F4E4;
+    background-color: #10B981;
+    padding: 0 1.8rem;
+    font-size: 1rem;
+    font-weight: 800;
+    color: #ffffff;
+    box-shadow: 0 6px 0 0 #065F46;
+  }
+
+  .teacher-host-send-button {
+    --primary: #b488ff;
+    --primary-strong: #8f5eff;
+    --neutral-1: #f6efff;
+    --neutral-2: #ffffff;
+    --radius: 18px;
+    cursor: pointer;
+    position: relative;
+    min-width: 248px;
+    height: 74px;
+    padding: 0 1.4rem;
+    border: none;
+    border-radius: var(--radius);
+    color: #1a1a1a;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 800;
+    transition: transform 0.28s ease, box-shadow 0.28s ease, opacity 0.28s ease;
+    box-shadow:
+      0 1px 0 1px rgba(255, 255, 255, 0.55),
+      0 14px 28px rgba(130, 92, 215, 0.18),
+      0 7px 0 0 #1a1a1a;
+  }
+
+  .teacher-host-send-button:hover:not(:disabled) {
+    transform: translateY(-2px) scale(1.015);
+    box-shadow:
+      0 1px 0 1px rgba(255, 255, 255, 0.62),
+      0 18px 34px rgba(130, 92, 215, 0.24),
+      0 9px 0 0 #1a1a1a;
+  }
+
+  .teacher-host-send-button:active:not(:disabled) {
+    transform: translateY(1px) scale(1);
+    box-shadow:
+      0 1px 0 1px rgba(255, 255, 255, 0.48),
+      0 10px 20px rgba(130, 92, 215, 0.18),
+      0 5px 0 0 #1a1a1a;
+  }
+
+  .teacher-host-send-button:disabled {
+    cursor: default;
+  }
+
+  .teacher-host-send-button::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border-radius: var(--radius);
+    border: 2.5px solid transparent;
+    background:
+      linear-gradient(var(--neutral-1), var(--neutral-2)) padding-box,
+      linear-gradient(to bottom, rgba(180, 136, 255, 0.35), rgba(26, 26, 26, 0.25)) border-box;
+    transition: transform 0.4s ease, box-shadow 0.4s ease;
+  }
+
+  .teacher-host-send-button:hover:not(:disabled)::after {
+    transform: scale(1.02, 1.04);
+    box-shadow:
+      inset 0 -1px 3px rgba(255, 255, 255, 0.92),
+      0 0 0 1px rgba(180, 136, 255, 0.12);
+  }
+
+  .teacher-host-send-button__surface {
+    position: absolute;
+    inset: 7px 6px 6px 6px;
+    z-index: 1;
+    border-radius: 999px;
+    background: linear-gradient(180deg, var(--neutral-1), var(--neutral-2));
+    filter: blur(0.5px);
+  }
+
+  .teacher-host-send-button__outline {
+    position: absolute;
+    inset: -2px -3.5px;
+    z-index: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+  }
+
+  .teacher-host-send-button__outline::before {
+    content: "";
+    position: absolute;
+    inset: -100%;
+    background: conic-gradient(from 180deg, transparent 58%, rgba(180, 136, 255, 0.95) 80%, transparent 100%);
+    animation: teacherHostSendSpin 2s linear infinite;
+    animation-play-state: paused;
+  }
+
+  .teacher-host-send-button:hover:not(:disabled) .teacher-host-send-button__outline {
+    opacity: 1;
+  }
+
+  .teacher-host-send-button:hover:not(:disabled) .teacher-host-send-button__outline::before {
+    animation-play-state: running;
+  }
+
+  .teacher-host-send-button__state {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    height: 100%;
+    padding-left: 1.9rem;
+  }
+
+  .teacher-host-send-button__state p {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    row-gap: 0.1rem;
+  }
+
+  .teacher-host-send-button__state p span {
+    display: inline-flex;
+    opacity: 0;
+    animation: teacherHostSlideDown 0.8s ease forwards calc(var(--i) * 0.03s);
+  }
+
+  .teacher-host-send-button__icon {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    margin: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: scale(1.18);
+    transition: transform 0.3s ease;
+    color: var(--primary-strong);
+  }
+
+  .teacher-host-send-button__icon svg {
+    overflow: visible;
+  }
+
+  .teacher-host-send-button:hover:not(:disabled) .teacher-host-send-button__state--default span {
+    animation: teacherHostWave 0.5s ease forwards calc(var(--i) * 0.02s);
+  }
+
+  .teacher-host-send-button:hover:not(:disabled) .teacher-host-send-button__state--default .teacher-host-send-button__icon {
+    transform: rotate(32deg) scale(1.22);
+  }
+
+  .teacher-host-send-button__state--sent {
+    display: none;
+  }
+
+  .teacher-host-send-button[data-state="sending"] .teacher-host-send-button__state--default .teacher-host-send-button__icon svg {
+    animation: teacherHostTakeOff 1.2s linear infinite;
+  }
+
+  .teacher-host-send-button[data-state="sending"] .teacher-host-send-button__outline {
+    opacity: 1;
+  }
+
+  .teacher-host-send-button[data-state="sending"] .teacher-host-send-button__outline::before {
+    animation-play-state: running;
+  }
+
+  .teacher-host-send-button[data-state="sent"] {
+    color: #065f46;
+    box-shadow:
+      0 1px 0 1px rgba(255, 255, 255, 0.24),
+      0 12px 22px rgba(6, 95, 70, 0.14),
+      0 7px 0 0 #065f46;
+  }
+
+  .teacher-host-send-button[data-state="sent"] .teacher-host-send-button__surface,
+  .teacher-host-send-button[data-state="sent"]::after {
+    background:
+      linear-gradient(#effcf5, #d9f8e8) padding-box,
+      linear-gradient(to bottom, rgba(6, 95, 70, 0.1), rgba(6, 95, 70, 0.35)) border-box;
+  }
+
+  .teacher-host-send-button[data-state="sent"] .teacher-host-send-button__state--default {
+    display: none;
+  }
+
+  .teacher-host-send-button[data-state="sent"] .teacher-host-send-button__state--sent {
+    display: flex;
+  }
+
+  .teacher-host-send-button[data-state="sent"] .teacher-host-send-button__state--sent span,
+  .teacher-host-send-button[data-state="sent"] .teacher-host-send-button__state--sent .teacher-host-send-button__icon {
+    opacity: 1;
+    animation: teacherHostAppear 0.8s ease forwards;
+  }
+
+  @keyframes studentPlayJelloVertical {
+    0% {
+      transform: scale3d(1, 1, 1);
+    }
+    30% {
+      transform: scale3d(0.75, 1.25, 1);
+    }
+    40% {
+      transform: scale3d(1.25, 0.75, 1);
+    }
+    50% {
+      transform: scale3d(0.85, 1.15, 1);
+    }
+    65% {
+      transform: scale3d(1.05, 0.95, 1);
+    }
+    75% {
+      transform: scale3d(0.95, 1.05, 1);
+    }
+    100% {
+      transform: scale3d(1, 1, 1);
+    }
+  }
+
+  @keyframes teacherHostSendSpin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes teacherHostWave {
+    30% {
+      opacity: 1;
+      transform: translateY(4px);
+    }
+    50% {
+      opacity: 1;
+      transform: translateY(-3px);
+      color: var(--primary);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes teacherHostSlideDown {
+    0% {
+      opacity: 0;
+      transform: translateY(-20px) translateX(5px) rotate(-90deg);
+      color: var(--primary);
+      filter: blur(5px);
+    }
+    30% {
+      opacity: 1;
+      transform: translateY(4px) translateX(0) rotate(0);
+      filter: blur(0);
+    }
+    50% {
+      opacity: 1;
+      transform: translateY(-3px) translateX(0) rotate(0);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) translateX(0) rotate(0);
+    }
+  }
+
+  @keyframes teacherHostTakeOff {
+    0%,
+    100% {
+      transform: translateX(0) translateY(0) rotate(0deg) scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: translateX(8px) translateY(-3px) rotate(28deg) scale(1.18);
+      opacity: 0.92;
+    }
+  }
+
+  @keyframes teacherHostAppear {
+    0% {
+      opacity: 0;
+      transform: scale(1.8) rotate(-20deg);
+      filter: blur(4px);
+    }
+    40% {
+      opacity: 1;
+      transform: scale(0.88);
+      filter: blur(0);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1) rotate(0deg);
+    }
+  }
+
   .game-action-button {
     @apply inline-flex items-center justify-center gap-2 rounded-full border-2 border-brand-dark font-black transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-60;
     box-shadow: 4px 4px 0 0 #1A1A1A;
@@ -245,29 +682,33 @@
   }
 
   .game-action-button--dark {
-    @apply bg-brand-dark text-white;
-    box-shadow: 4px 4px 0 0 #FF5A36;
+    color: #ffffff;
+    background: linear-gradient(180deg, #24212d 0%, #121212 100%);
+    border-color: #1a1a1a;
+    box-shadow: 4px 4px 0 0 #b488ff;
   }
 
   .game-action-button--dark:hover:not(:disabled) {
-    box-shadow: 2px 2px 0 0 #FF5A36;
+    box-shadow: 2px 2px 0 0 #b488ff;
   }
 
   .game-action-button--dark:active:not(:disabled) {
-    box-shadow: 0 0 0 0 #FF5A36;
+    box-shadow: 0 0 0 0 #b488ff;
   }
 
   .game-action-button--success {
-    @apply bg-emerald-600 text-white;
-    box-shadow: 4px 4px 0 0 #065F46;
+    color: #1a1a1a;
+    background: linear-gradient(180deg, #ffd962 0%, #ffc933 100%);
+    border-color: #1a1a1a;
+    box-shadow: 4px 4px 0 0 #ff5a36;
   }
 
   .game-action-button--success:hover:not(:disabled) {
-    box-shadow: 2px 2px 0 0 #065F46;
+    box-shadow: 2px 2px 0 0 #ff5a36;
   }
 
   .game-action-button--success:active:not(:disabled) {
-    box-shadow: 0 0 0 0 #065F46;
+    box-shadow: 0 0 0 0 #ff5a36;
   }
 
   .game-icon-button {

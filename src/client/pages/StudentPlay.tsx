@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AlertTriangle, CheckCircle, CheckCircle2, Clock, Flame, LoaderCircle, Sparkles, Stars, Trophy, Wifi, WifiOff, XCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
@@ -21,12 +21,67 @@ import { getParticipantToken } from '../lib/studentSession.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { getLiveQuestionDensity, formatAnswerSlotLabel } from '../../shared/liveQuestionDensity.ts';
 
-const COLORS = [
-  { bg: 'bg-brand-purple', text: 'text-white', border: 'border-brand-dark', shadow: 'shadow-[8px_8px_0px_0px_#1A1A1A]' },
-  { bg: 'bg-brand-yellow', text: 'text-brand-dark', border: 'border-brand-dark', shadow: 'shadow-[8px_8px_0px_0px_#1A1A1A]' },
-  { bg: 'bg-brand-orange', text: 'text-white', border: 'border-brand-dark', shadow: 'shadow-[8px_8px_0px_0px_#1A1A1A]' },
-  { bg: 'bg-white', text: 'text-brand-dark', border: 'border-brand-dark', shadow: 'shadow-[8px_8px_0px_0px_#1A1A1A]' }
-];
+const ANSWER_TONES = [
+  {
+    bg: '#B488FF',
+    text: '#ffffff',
+    hover: '#9E70F6',
+    hoverText: '#ffffff',
+    sweep: '#FFD13B',
+    shadow: '#1A1A1A',
+    hoverShadow: '#6D49C6',
+  },
+  {
+    bg: '#FFD13B',
+    text: '#1A1A1A',
+    hover: '#FFB703',
+    hoverText: '#1A1A1A',
+    sweep: '#FF5A36',
+    shadow: '#1A1A1A',
+    hoverShadow: '#B76F00',
+  },
+  {
+    bg: '#FF8A5B',
+    text: '#ffffff',
+    hover: '#FF6E45',
+    hoverText: '#ffffff',
+    sweep: '#FFD13B',
+    shadow: '#1A1A1A',
+    hoverShadow: '#C44120',
+  },
+  {
+    bg: '#FFF8EA',
+    text: '#1A1A1A',
+    hover: '#B488FF',
+    hoverText: '#ffffff',
+    sweep: '#FFD13B',
+    shadow: '#1A1A1A',
+    hoverShadow: '#6D49C6',
+  },
+] as const;
+
+const SELECTED_ANSWER_TONE = {
+  bg: '#1A1A1A',
+  text: '#ffffff',
+  hover: '#1A1A1A',
+  hoverText: '#ffffff',
+  sweep: '#FF5A36',
+  shadow: '#FF5A36',
+  hoverShadow: '#FF5A36',
+} as const;
+
+function buildAnswerToneStyle(index: number, isSelected: boolean): CSSProperties {
+  const tone = isSelected ? SELECTED_ANSWER_TONE : ANSWER_TONES[index % ANSWER_TONES.length];
+  return {
+    ['--student-answer-bg' as string]: tone.bg,
+    ['--student-answer-text' as string]: tone.text,
+    ['--student-answer-hover-bg' as string]: tone.hover,
+    ['--student-answer-hover-text' as string]: tone.hoverText,
+    ['--student-answer-sweep' as string]: tone.sweep,
+    ['--student-answer-shadow' as string]: tone.shadow,
+    ['--student-answer-hover-shadow' as string]: tone.hoverShadow,
+  };
+}
 
 type PersistedStudentPlayState = {
   questionId: number | null;
@@ -151,6 +206,34 @@ function detectDeviceProfile() {
   if (width > 0 && width < 640) return hasTouch ? 'mobile-touch' : 'mobile';
   if (width > 0 && width < 1024) return hasTouch ? 'tablet-touch' : 'tablet';
   return hasTouch ? 'hybrid' : 'desktop';
+}
+
+function StudentPlaySubmitButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <motion.button
+      whileHover={{ scale: 1.03 }}
+      whileTap={{ scale: 0.97 }}
+      onClick={onClick}
+      type="button"
+      className="student-play-submit-button"
+    >
+      <span className="student-play-submit-button__text">{label}</span>
+      <span className="student-play-submit-button__icon" aria-hidden="true">
+        <svg xmlns="http://www.w3.org/2000/svg" width="50" height="20" viewBox="0 0 38 15" fill="none">
+          <path
+            fill="currentColor"
+            d="M10 7.519l-.939-.344h0l.939.344zm14.386-1.205l-.981-.192.981.192zm1.276 5.509l.537.843.148-.094.107-.139-.792-.611zm4.819-4.304l-.385-.923h0l.385.923zm7.227.707a1 1 0 0 0 0-1.414L31.343.448a1 1 0 0 0-1.414 0 1 1 0 0 0 0 1.414l5.657 5.657-5.657 5.657a1 1 0 0 0 1.414 1.414l6.364-6.364zM1 7.519l.554.833.029-.019.094-.061.361-.23 1.277-.77c1.054-.609 2.397-1.32 3.629-1.787.617-.234 1.17-.392 1.623-.455.477-.066.707-.008.788.034.025.013.031.021.039.034a.56.56 0 0 1 .058.235c.029.327-.047.906-.39 1.842l1.878.689c.383-1.044.571-1.949.505-2.705-.072-.815-.45-1.493-1.16-1.865-.627-.329-1.358-.332-1.993-.244-.659.092-1.367.305-2.056.566-1.381.523-2.833 1.297-3.921 1.925l-1.341.808-.385.245-.104.068-.028.018c-.011.007-.011.007.543.84zm8.061-.344c-.198.54-.328 1.038-.36 1.484-.032.441.024.94.325 1.364.319.45.786.64 1.21.697.403.054.824-.001 1.21-.09.775-.179 1.694-.566 2.633-1.014l3.023-1.554c2.115-1.122 4.107-2.168 5.476-2.524.329-.086.573-.117.742-.115s.195.038.161.014c-.15-.105.085-.139-.076.685l1.963.384c.192-.98.152-2.083-.74-2.707-.405-.283-.868-.37-1.28-.376s-.849.069-1.274.179c-1.65.43-3.888 1.621-5.909 2.693l-2.948 1.517c-.92.439-1.673.743-2.221.87-.276.064-.429.065-.492.057-.043-.006.066.003.155.127.07.099.024.131.038-.063.014-.187.078-.49.243-.94l-1.878-.689zm14.343-1.053c-.361 1.844-.474 3.185-.413 4.161.059.95.294 1.72.811 2.215.567.544 1.242.546 1.664.459a2.34 2.34 0 0 0 .502-.167l.15-.076.049-.028.018-.011c.013-.008.013-.008-.524-.852l-.536-.844.019-.012c-.038.018-.064.027-.084.032-.037.008.053-.013.125.056.021.02-.151-.135-.198-.895-.046-.734.034-1.887.38-3.652l-1.963-.384zm2.257 5.701l.791.611.024-.031.08-.101.311-.377 1.093-1.213c.922-.954 2.005-1.894 2.904-2.27l-.771-1.846c-1.31.547-2.637 1.758-3.572 2.725l-1.184 1.314-.341.414-.093.117-.025.032c-.01.013-.01.013.781.624zm5.204-3.381c.989-.413 1.791-.42 2.697-.307.871.108 2.083.385 3.437.385v-2c-1.197 0-2.041-.226-3.19-.369-1.114-.139-2.297-.146-3.715.447l.771 1.846z"
+          />
+        </svg>
+      </span>
+    </motion.button>
+  );
 }
 
 export default function StudentPlay() {
@@ -335,6 +418,7 @@ export default function StudentPlay() {
     const scoreAwarded = Number(payload?.score_awarded || 0);
     const participantScoreTotal = Number(payload?.participant_score_total);
     const participantStreak = Number(payload?.participant_streak);
+    const chosenIndex = Number(payload?.chosen_index);
     setLastScoreAwarded(Math.max(0, scoreAwarded));
 
     if (Number.isFinite(participantScoreTotal)) {
@@ -357,6 +441,11 @@ export default function StudentPlay() {
       participantId: Number(participantId),
       totalAnswers: Number(payload?.total_answers || 0),
       expected: Number(payload?.expected || 0),
+    });
+    void publishLiveSelection(String(pin || ''), {
+      participantId: Number(participantId),
+      nickname: String(nickname || ''),
+      chosenIndex: Number.isFinite(chosenIndex) ? chosenIndex : -1,
     });
   };
 
@@ -452,7 +541,9 @@ export default function StudentPlay() {
           setActionError('The room moved on before your queued answer could sync.');
         }
         setLastScoreAwarded(0);
-        setQuestion(nextQuestion);
+        if (nextQuestion) {
+          setQuestion(nextQuestion);
+        }
         setHasAnswered(false);
         setHasLockedInitialVote(false);
         setFirstRoundChoice(null);
@@ -1418,7 +1509,7 @@ export default function StudentPlay() {
         )}
 
         {/* Main Content Viewport */}
-        <div className="relative flex-1 min-h-0 flex flex-col gap-4 p-4 sm:p-6 lg:p-8 w-full max-w-[1540px] mx-auto overflow-hidden">
+        <div className="relative flex-1 min-h-0 flex flex-col gap-4 p-4 sm:p-6 lg:p-8 w-full max-w-[1540px] mx-auto overflow-x-visible overflow-y-hidden">
           
           {/* Question Hero */}
           <motion.div
@@ -1430,19 +1521,23 @@ export default function StudentPlay() {
             
             <div className="relative z-10 flex h-full w-full flex-col p-6 sm:p-8">
                {question?.image_url ? (
-                  <div className="flex flex-1 min-h-0 flex-col gap-5 lg:flex-row lg:items-center lg:gap-8">
-                    <QuestionImageCard
-                      imageUrl={question.image_url}
-                      alt={question?.prompt || 'Question image'}
-                      className="h-[220px] w-full shrink-0 sm:h-[280px] lg:h-[300px] lg:w-[320px] xl:h-[340px] xl:w-[360px]"
-                      imgClassName="h-full w-full bg-white"
-                    />
-                    <div className="flex min-w-0 flex-1 flex-col justify-center">
-                       <h2 className={`${studentPromptClassName} font-black leading-[1.1] tracking-tight text-brand-dark text-balance`}>
-                          {question?.prompt}
-                       </h2>
+                  <>
+                    <div className="absolute inset-0 z-0">
+                      <img
+                        src={question.image_url}
+                        alt={question?.prompt || 'Question image'}
+                        className="h-full w-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-brand-dark/90 via-brand-dark/28 to-transparent" />
                     </div>
-                  </div>
+                    <div className="relative z-10 flex h-full w-full items-center justify-center">
+                      <div className="w-full max-w-5xl rounded-[2rem] border-4 border-brand-dark bg-white/94 p-5 text-center shadow-[6px_6px_0px_0px_#1A1A1A] backdrop-blur-md sm:rounded-[2.6rem] sm:p-8">
+                        <h2 className={`${studentPromptClassName} font-black leading-[1.1] tracking-tight text-brand-dark text-balance`}>
+                          {question?.prompt}
+                        </h2>
+                      </div>
+                    </div>
+                  </>
                ) : (
                   <div className="flex-1 flex flex-col justify-center text-center">
                      <h2 className={`${studentPromptClassName} font-black leading-[1.1] tracking-tight text-brand-dark max-w-[35ch] mx-auto text-balance`}>
@@ -1457,7 +1552,7 @@ export default function StudentPlay() {
           <section className={`relative z-10 flex min-h-0 ${answerBoardFlexClass} flex-col overflow-hidden rounded-[2.8rem] border-4 border-brand-dark bg-white shadow-[12px_12px_0px_0px_#1A1A1A]`}>
             
             {/* Answer Grid Container - Added bottom padding to avoid overlap with floating bar */}
-            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 pb-28 sm:p-6 sm:pb-32 lg:p-8 lg:pb-36 custom-scrollbar">
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 pb-28 sm:p-6 sm:pb-32 lg:p-8 lg:pb-12 custom-scrollbar">
                <div className={`grid min-h-full ${answerGridColumnsClass} gap-4 sm:gap-6`}>
                   {question?.answers?.map((ans: string, i: number) => {
                     const isSelected = currentSelectedAnswer === i;
@@ -1470,12 +1565,11 @@ export default function StudentPlay() {
                         whileTap={{ scale: isSelectionLocked ? 1 : 0.98 }}
                         transition={{ duration: 0.15 }}
                         onClick={() => handleAnswerSelect(i)}
+                        style={buildAnswerToneStyle(i, isSelected)}
+                        data-locked={isSelectionLocked && !isSelected ? 'true' : 'false'}
                         className={`
-                          student-answer-button group relative flex ${studentAnswerMinHeightClass} items-center rounded-[1.7rem] border-2 border-brand-dark px-6 py-4 text-left sm:px-8
-                          ${isSelected
-                            ? 'bg-brand-dark text-white shadow-[4px_4px_0px_0px_#FF5A36]'
-                            : `${COLORS[i % 4].bg} ${COLORS[i % 4].text} shadow-[4px_4px_0px_0px_#1A1A1A]`
-                          }
+                          student-answer-button student-play-answer-tile group relative flex ${studentAnswerMinHeightClass} items-center px-6 py-4 text-left sm:px-8
+                          ${isSelected ? 'student-play-answer-tile--selected' : ''}
                           ${isSelectionLocked && !isSelected ? 'opacity-30 grayscale-[0.8]' : ''}
                         `}
                       >
@@ -1501,48 +1595,33 @@ export default function StudentPlay() {
             </div>
 
             {/* Space-Optimized Floating Action Overlay - Now at the BOTTOM */}
-            <AnimatePresence>
-              {(currentSelectedAnswer !== null || hasAnswered) && (
-                <motion.div 
-                  initial={{ y: 50, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: 50, opacity: 0 }}
-                  className="absolute bottom-0 left-0 right-0 z-40 border-t-4 border-brand-dark bg-brand-bg/90 backdrop-blur-xl px-4 py-4 sm:px-8 sm:py-6 shadow-[0px_-8px_30px_rgba(0,0,0,0.1)]"
-                >
-                  <div className="flex items-center justify-between gap-4 max-w-4xl mx-auto">
-                    <div className="min-w-0 flex-1">
-                       <p className="text-[10px] font-black uppercase text-brand-purple tracking-widest leading-none mb-2">
-                         {isRevote ? 'Final Selection' : 'Choice Locked?'}
-                       </p>
-                       <p className="text-base font-bold truncate italic text-brand-dark leading-tight">
-                         "{selectedAnswerText}"
-                       </p>
-                    </div>
-
-                    <div className="flex items-center">
-                       {shouldShowAnswerSummary && !hasAnswered && (
-                         <motion.button
-                           whileHover={{ scale: 1.05 }}
-                           whileTap={{ scale: 0.95 }}
-                           onClick={handleLockIn}
-                           className="game-action-button game-action-button--dark h-14 px-10 text-base"
-                         >
-                           <CheckCircle className="h-5 w-5 text-brand-yellow" />
-                           <span>{lockLabel}</span>
-                         </motion.button>
-                       )}
-                       {hasAnswered && (
-                         <div className="flex h-14 items-center gap-3 rounded-2xl border-4 border-brand-dark bg-emerald-500 px-10 text-base font-black text-white shadow-[6px_6px_0px_0px_#1A1A1A]">
-                            <CheckCircle2 className="h-5 w-5" />
-                            <span>Submitted</span>
-                         </div>
-                       )}
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
           </section>
+
+          <AnimatePresence>
+            {(currentSelectedAnswer !== null || hasAnswered) && (
+              <motion.div
+                initial={{ y: 28, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 28, opacity: 0 }}
+                className="pointer-events-none absolute inset-x-0 bottom-4 z-40 flex justify-center px-4 sm:bottom-6"
+              >
+                <div className="pointer-events-auto">
+                  {shouldShowAnswerSummary && !hasAnswered && (
+                    <StudentPlaySubmitButton
+                      label={lockLabel}
+                      onClick={handleLockIn}
+                    />
+                  )}
+                  {hasAnswered && (
+                    <div className="student-play-submit-state">
+                      <CheckCircle2 className="h-5 w-5" />
+                      <span>Submitted</span>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
     );
@@ -1582,33 +1661,33 @@ export default function StudentPlay() {
         </div>
 
         {/* Reveal Content Viewport - Optimized for 100vh */}
-        <div className="relative flex-1 min-h-0 flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8 w-full max-w-2xl mx-auto overflow-hidden">
+        <div className="relative mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col items-center justify-center overflow-hidden p-3 sm:p-5 lg:p-6">
            <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
-              className="relative z-10 w-full rounded-[2.5rem] border-4 border-brand-dark bg-white p-5 text-center shadow-[6px_6px_0px_0px_#1A1A1A] sm:p-7"
+              className="relative z-10 max-h-[calc(100vh-8.75rem)] w-full overflow-y-auto rounded-[2rem] border-4 border-brand-dark bg-white p-4 text-center shadow-[6px_6px_0px_0px_#1A1A1A] sm:max-h-[calc(100vh-9.5rem)] sm:p-5"
            >
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[1.5rem] border-4 border-brand-dark bg-brand-bg shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-20 sm:w-20">
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-[1.15rem] border-4 border-brand-dark bg-brand-bg shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-16 sm:w-16">
                  {answeredCorrectly ? (
                     <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', delay: 0.2 }}>
-                       <CheckCircle className="h-8 w-8 text-emerald-500 sm:h-10 sm:w-10" />
+                       <CheckCircle className="h-7 w-7 text-emerald-500 sm:h-8 sm:w-8" />
                     </motion.div>
                  ) : (
                     <motion.div animate={{ rotate: [0, -10, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 2 }}>
-                       <Flame className="h-8 w-8 text-brand-orange sm:h-10 sm:w-10" />
+                       <Flame className="h-7 w-7 text-brand-orange sm:h-8 sm:w-8" />
                     </motion.div>
                  )}
               </div>
 
-              <h2 className="mb-2 text-2xl font-black tracking-tighter text-brand-dark sm:text-4xl">
+              <h2 className="mb-2 text-xl font-black tracking-tighter text-brand-dark sm:text-3xl">
                  {answeredCorrectly ? t('game.feedback.correct') : chosenAnswer ? t('game.feedback.incorrect') : t('game.feedback.timesUp')}
               </h2>
               
-              <p className="mx-auto max-w-[32ch] text-base font-bold leading-tight text-brand-dark/50 sm:text-lg">
+              <p className="mx-auto max-w-[30ch] text-sm font-bold leading-tight text-brand-dark/50 sm:text-base">
                  {answeredCorrectly ? 'Dynamic performance! You’re crushing this.' : 'A learning moment! Swipe through the details below.'}
               </p>
 
-              <div className="mt-6 grid gap-4 text-left sm:grid-cols-2">
+              <div className="mt-5 grid gap-3 text-left sm:grid-cols-2">
                  <RevealAnswerCard
                     label="Your Submission"
                     value={chosenAnswer || 'Thinking...'}
@@ -1621,18 +1700,18 @@ export default function StudentPlay() {
                  />
               </div>
 
-              <div className="mt-4 flex flex-wrap justify-center gap-3">
+              <div className="mt-3 flex flex-wrap justify-center gap-2.5">
                  <PlayerMetricCard label="Score" value={score} tone="dark" />
                  {lastScoreAwarded > 0 && <PlayerMetricCard label="This Round" value={`+${lastScoreAwarded}`} tone="warm" />}
                  <PlayerMetricCard label="Streak" value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
               </div>
 
               {question?.image_url && (
-                 <div className="mt-5">
+                 <div className="mt-4">
                     <QuestionImageCard
                       imageUrl={question.image_url}
                       alt={question?.prompt || 'Question image'}
-                      className="mx-auto h-[200px] w-full max-w-xl sm:h-[240px]"
+                      className="mx-auto h-[150px] w-full max-w-lg sm:h-[180px]"
                       imgClassName="h-full w-full bg-white"
                     />
                  </div>
@@ -1643,23 +1722,23 @@ export default function StudentPlay() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.5 }}
-                    className="mt-6 rounded-[1.8rem] border-4 border-brand-dark bg-brand-bg/40 p-4 text-left border-dashed"
+                    className="mt-4 rounded-[1.5rem] border-4 border-brand-dark border-dashed bg-brand-bg/40 p-3 text-left"
                  >
                     <div className="mb-2 flex items-center gap-2">
                        <Sparkles className="h-3 w-3 text-brand-purple" />
                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-purple">The "Why" Factor</p>
                     </div>
-                    <p className="text-sm font-bold text-brand-dark/80 sm:text-base italic leading-tight">
+                    <p className="text-xs font-bold italic leading-tight text-brand-dark/80 sm:text-sm">
                        "{question.explanation}"
                     </p>
                  </motion.div>
               )}
 
-              <div className="mt-8 flex items-center justify-center gap-3">
-                 <div className="h-2 w-2 animate-bounce rounded-full bg-brand-purple" />
-                 <div className="h-2 w-2 animate-bounce rounded-full bg-brand-yellow [animation-delay:0.2s]" />
-                 <div className="h-2 w-2 animate-bounce rounded-full bg-brand-orange [animation-delay:0.4s]" />
-                 <span className="ml-1 font-black uppercase tracking-[0.15em] text-[8px] text-brand-dark/30">Host Synced</span>
+              <div className="mt-5 flex items-center justify-center gap-2.5">
+                 <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-purple" />
+                 <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-yellow [animation-delay:0.2s]" />
+                 <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-orange [animation-delay:0.4s]" />
+                 <span className="ml-1 text-[8px] font-black uppercase tracking-[0.15em] text-brand-dark/30">Host Synced</span>
               </div>
            </motion.div>
         </div>

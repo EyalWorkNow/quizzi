@@ -54,6 +54,50 @@ function createEmptyQuestion() {
   };
 }
 
+function derivePackTitleFromSource(source: string) {
+  const firstMeaningfulLine =
+    String(source || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.length >= 4) || '';
+
+  const normalized = firstMeaningfulLine
+    .replace(/^[#*\-\d.\s]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 72);
+
+  return normalized || 'Untitled Quiz Pack';
+}
+
+function normalizeGeneratedQuestionsForEditor(questions: any[], fallbackTags: string[] = []) {
+  const safeFallbackTags = fallbackTags.length > 0 ? fallbackTags.slice(0, 3) : ['general'];
+
+  return (Array.isArray(questions) ? questions : [])
+    .map((question: any) => {
+      const answers = (Array.isArray(question?.answers) ? question.answers : [])
+        .map((answer: unknown) => String(answer || '').trim())
+        .filter(Boolean)
+        .slice(0, MAX_QUESTION_ANSWERS);
+      const tags = (Array.isArray(question?.tags) ? question.tags : [])
+        .map((tag: unknown) => String(tag || '').trim())
+        .filter(Boolean);
+
+      return {
+        prompt: String(question?.prompt || '').trim(),
+        image_url: String(question?.image_url || question?.imageUrl || '').trim(),
+        answers: answers.length >= 2 ? answers : ['', '', '', ''],
+        correct_index: Math.max(0, Math.min(Math.max(answers.length, 1) - 1, Number(question?.correct_index || 0))),
+        explanation: String(question?.explanation || '').trim(),
+        tags: (tags.length > 0 ? tags : safeFallbackTags).slice(0, 4),
+        time_limit_seconds: Math.max(10, Number(question?.time_limit_seconds || 20)),
+        learning_objective: String(question?.learning_objective || '').trim(),
+        bloom_level: String(question?.bloom_level || '').trim(),
+      };
+    })
+    .filter((question) => question.prompt);
+}
+
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -493,10 +537,20 @@ export default function TeacherCreatePack() {
         body: JSON.stringify(payload)
       });
       if (data.questions) {
-        setQuestions(data.questions);
+        const normalizedQuestions = normalizeGeneratedQuestionsForEditor(
+          data.questions,
+          Array.isArray(data?.material_profile?.topic_fingerprint) ? data.material_profile.topic_fingerprint : ['general'],
+        );
+        setQuestions(normalizedQuestions);
         setMaterialProfile(data.material_profile || materialProfile);
         setGenerationMeta(data.generation_meta || null);
-        setCreationStep('QUESTIONS');
+        if (!title.trim()) {
+          setTitle(String(data?.title || data?.material_profile?.suggested_title || derivePackTitleFromSource(sourceText)));
+        }
+        setCreationStep(normalizedQuestions.length > 0 ? 'QUESTIONS' : 'CONTENT');
+        if (normalizedQuestions.length === 0) {
+          setGenError('Generation finished, but no valid questions came back. Try adjusting the source text or generation settings.');
+        }
       }
     } catch (err: any) {
       console.error(err);
@@ -520,9 +574,19 @@ export default function TeacherCreatePack() {
     setQuestionCount(preset.questionCount);
   };
 
+  const validatePackBeforeSave = () => {
+    if (questions.length === 0) {
+      return 'Pack title and at least one question are required.';
+    }
+    return '';
+  };
+
   const persistPack = async () => {
-    if (!title.trim() || questions.length === 0) {
-      throw new Error('Pack title and at least one question are required.');
+    const validationError = validatePackBeforeSave();
+    if (validationError) {
+      const error = new Error(validationError) as Error & { isValidationError?: boolean };
+      error.isValidationError = true;
+      throw error;
     }
     const preparedQuestions = questions.map((question, index) => {
       const prompt = String(question?.prompt || '').trim();
@@ -559,11 +623,13 @@ export default function TeacherCreatePack() {
       };
     });
 
+    const resolvedTitle = title.trim() || derivePackTitleFromSource(sourceText);
+
     const res = await apiFetch(isEditMode ? `/api/teacher/packs/${editPackId}` : '/api/packs', {
       method: isEditMode ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        title,
+        title: resolvedTitle,
         source_text: sourceText,
         questions: preparedQuestions,
         language,
@@ -603,7 +669,9 @@ export default function TeacherCreatePack() {
         state: { notice: buildSaveNotice(savedPack) },
       });
     } catch (err: any) {
-      console.error(err);
+      if (!err?.isValidationError) {
+        console.error(err);
+      }
       setSaveError(err?.message || 'Failed to save pack.');
     } finally {
       setIsSaving(false);
@@ -649,7 +717,9 @@ export default function TeacherCreatePack() {
         state: { sessionId: session.id, packId: savedPack.id },
       });
     } catch (err: any) {
-      console.error(err);
+      if (!err?.isValidationError) {
+        console.error(err);
+      }
       setSaveError(err?.message || 'Failed to launch live session.');
     } finally {
       setIsHosting(false);
@@ -1426,7 +1496,7 @@ export default function TeacherCreatePack() {
                      <div className="pt-4 space-y-4">
                        <button
                          onClick={handleSaveAndHost}
-                         disabled={isSaving || isHosting || questions.length === 0}
+                         disabled={isSaving || isHosting || !title.trim() || questions.length === 0}
                          className="w-full py-6 bg-brand-orange text-white rounded-[2rem] border-4 border-brand-dark font-black text-2xl shadow-[8px_8px_0px_0px_#1A1A1A] hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all flex items-center justify-center gap-4 disabled:opacity-50"
                        >
                          <Play className="w-8 h-8 fill-white" />
@@ -1435,7 +1505,7 @@ export default function TeacherCreatePack() {
 
                        <button
                          onClick={handleSave}
-                         disabled={isSaving || questions.length === 0}
+                         disabled={isSaving || !title.trim() || questions.length === 0}
                          className="w-full py-4 text-brand-dark font-black uppercase tracking-widest hover:underline disabled:opacity-30"
                        >
                          Save to Library only
