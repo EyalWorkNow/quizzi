@@ -80,9 +80,18 @@ export function ensureFirebaseAuthReady(): Promise<Auth | null> {
 }
 
 export function shouldPreferRedirectSignIn() {
-  // Firebase popup flows are fragile when COOP/third-party auth windows are involved.
-  // Redirect-based sign-in is slower, but much more reliable across browsers and deployments.
-  return typeof window !== 'undefined';
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent || '';
+  const isMobileBrowser = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    userAgent,
+  );
+
+  // Desktop browsers handle popup auth more reliably and keep the user on the page.
+  // Mobile browsers still do better with redirects, so we keep that fallback there.
+  return isMobileBrowser;
 }
 
 export function getFirebaseDatabase(): Database | null {

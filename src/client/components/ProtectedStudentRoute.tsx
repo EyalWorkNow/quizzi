@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
+import AppLoadingScreen from './AppLoadingScreen.tsx';
 import { loadStudentAuth, refreshStudentSession } from '../lib/studentAuth.ts';
 
 export default function ProtectedStudentRoute({ children }: { children: React.ReactNode }) {
@@ -31,12 +32,10 @@ export default function ProtectedStudentRoute({ children }: { children: React.Re
 
   if (status === 'checking') {
     return (
-      <div className="min-h-screen bg-brand-bg flex items-center justify-center">
-        <div className="text-center text-brand-dark">
-          <div className="w-16 h-16 border-4 border-brand-dark border-t-brand-orange rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-xl font-black">Checking student access...</p>
-        </div>
-      </div>
+      <AppLoadingScreen
+        label="Checking student access..."
+        caption="Making sure your student session is ready before we drop you in."
+      />
     );
   }
 

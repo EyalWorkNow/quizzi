@@ -312,9 +312,13 @@ export async function handleTeacherAuthRedirect() {
   });
 
   if (!redirectResult?.user) {
+    if (window.location.hash.includes('access_token') || window.location.hash.includes('id_token')) {
+      console.warn('[teacherAuth] Hash contains tokens but getRedirectResult returned null. Possible COOP or Domain mismatch.');
+    }
     return null;
   }
 
+  console.log('[teacherAuth] Google redirect result detected for:', redirectResult.user.email);
   const idToken = await redirectResult.user.getIdToken();
   const response = await fetchWithTimeout('/api/auth/social', {
     method: 'POST',

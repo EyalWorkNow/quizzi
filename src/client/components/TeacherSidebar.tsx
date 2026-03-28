@@ -17,6 +17,7 @@ import { motion } from 'motion/react';
 import { loadTeacherSettings } from '../lib/localData.ts';
 import { signOutTeacher } from '../lib/teacherAuth.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
+import BrandLogo from './BrandLogo.tsx';
 
 export default function TeacherSidebar() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -90,9 +91,7 @@ export default function TeacherSidebar() {
       >
         <div className="h-20 flex items-center px-6 border-b-2 border-brand-dark">
           {isSidebarOpen ? (
-            <div className="text-2xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => goTo('/')}>
-              <span className="text-brand-orange">Quiz</span>zi
-            </div>
+            <BrandLogo onClick={() => goTo('/')} imageClassName="h-10 w-auto" />
           ) : (
             <div className="w-10 h-10 bg-brand-yellow border-2 border-brand-dark text-brand-dark rounded-full flex items-center justify-center text-xl font-black mx-auto cursor-pointer" onClick={() => goTo('/')}>
               Q

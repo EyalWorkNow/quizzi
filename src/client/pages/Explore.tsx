@@ -13,7 +13,6 @@ import {
   Laptop,
   Music,
   Palette,
-  Search,
   Sparkles,
   Trophy,
   XCircle,
@@ -21,7 +20,9 @@ import {
 import { motion } from 'motion/react';
 import { isTeacherAuthenticated, refreshTeacherSession } from '../lib/teacherAuth.ts';
 import { apiFetchJson } from '../lib/api.ts';
+import BrandLogo from '../components/BrandLogo.tsx';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
+import UiverseSearchField from '../components/UiverseSearchField.tsx';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 
 const CATEGORY_ICONS: Record<string, any> = {
@@ -172,9 +173,7 @@ export default function Explore() {
 
         {!teacherSignedIn && (
           <nav className="page-shell-wide relative z-20 flex flex-wrap items-center justify-between gap-4 py-5">
-            <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
-              <span className="text-brand-orange">Quiz</span>zi
-            </div>
+            <BrandLogo onClick={() => navigate('/')} imageClassName="h-11 w-auto" />
             <div className="hidden md:flex items-center gap-10 font-bold text-lg">
               <button onClick={() => navigate('/explore')} className="text-brand-orange transition-colors flex items-center gap-1">{t('explore.nav.explore')}</button>
               <button onClick={() => navigate('/auth')} className="hover:text-brand-orange transition-colors">{t('explore.nav.forTeachers')}</button>
@@ -206,17 +205,16 @@ export default function Explore() {
                 </p>
 
                 <div className="mb-8 flex flex-col gap-4 sm:flex-row">
-                  <div className="relative flex-1">
-                    <input
-                      id="search-explore"
-                      type="text"
-                      placeholder={t('explore.searchPlaceholder')}
-                      value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
-                      className={`w-full rounded-full border-2 border-brand-dark bg-white px-6 py-4 text-base font-bold placeholder:text-brand-dark/35 shadow-[4px_4px_0px_0px_#1A1A1A] focus:outline-none focus:ring-4 focus:ring-brand-purple/20 sm:px-8 sm:py-5 sm:text-xl ${isRtl ? 'pr-12 pl-6 sm:pr-14 sm:pl-8 text-right' : 'pl-12 pr-6 sm:pl-14 sm:pr-8 text-left'}`}
-                    />
-                    <Search className={`absolute top-1/2 -translate-y-1/2 w-6 h-6 text-brand-dark/40 ${isRtl ? 'right-5' : 'left-5'}`} />
-                  </div>
+                  <UiverseSearchField
+                    id="search-explore"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder={t('explore.searchPlaceholder')}
+                    shellClassName="flex-1"
+                    accent="purple"
+                    dir={isRtl ? 'rtl' : 'ltr'}
+                    onClear={() => setSearchQuery('')}
+                  />
                   <button
                     onClick={() => {
                       setSearchQuery('');

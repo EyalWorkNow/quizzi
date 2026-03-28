@@ -46,6 +46,7 @@ import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
 import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
+import UiverseSearchField from '../components/UiverseSearchField.tsx';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from '../../shared/sessionSoundtracks.ts';
 
@@ -636,18 +637,16 @@ export default function TeacherDashboard() {
             <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-5 lg:p-6 mb-6">
             <div className="flex flex-col lg:flex-row gap-3 lg:items-center justify-between mb-4">
               <div className="flex-1 flex flex-col md:flex-row gap-3">
-                <div className="flex-1 relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-brand-dark/40" />
-                  <input
-                    id="search-quizzes"
-                    type="text"
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder={t('dash.filter.searchPlaceholder')}
-                    aria-label="Search your quizzes"
-                    className="w-full bg-brand-bg border-2 border-brand-dark rounded-full py-3.5 pl-12 pr-4 text-base font-black placeholder:text-brand-dark/40 focus:outline-none focus:ring-4 focus:ring-brand-orange/10"
-                  />
-                </div>
+                <UiverseSearchField
+                  id="search-quizzes"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder={t('dash.filter.searchPlaceholder')}
+                  aria-label="Search your quizzes"
+                  shellClassName="flex-1"
+                  dir={direction}
+                  onClear={() => setSearchQuery('')}
+                />
                 <div className="flex items-center gap-3">
                   <div className="min-w-[180px] rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-3 flex items-center gap-3">
                     <Filter className="w-4 h-4 shrink-0" />

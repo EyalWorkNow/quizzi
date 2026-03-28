@@ -22,6 +22,7 @@ import { motion } from 'motion/react';
 import { loadContactSubmissions, loadTeacherSettings } from '../lib/localData.ts';
 import { isTeacherAuthenticated, refreshTeacherSession } from '../lib/teacherAuth.ts';
 import { apiFetchJson } from '../lib/api.ts';
+import BrandLogo from '../components/BrandLogo.tsx';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 
@@ -363,9 +364,7 @@ export default function HelpCenter() {
 
         {!teacherSignedIn && (
           <nav className="page-shell-wide relative z-20 flex flex-wrap items-center justify-between gap-4 py-5">
-            <div className="text-3xl font-black tracking-tight flex items-center gap-1 cursor-pointer" onClick={() => navigate('/')}>
-              <span className="text-brand-orange">Quiz</span>zi
-            </div>
+            <BrandLogo onClick={() => navigate('/')} imageClassName="h-11 w-auto" />
             <div className="hidden md:flex items-center gap-10 font-bold text-lg">
               <button onClick={() => navigate('/explore')} className="hover:text-brand-orange transition-colors">{copy.explore}</button>
               <button onClick={() => navigate('/auth')} className="hover:text-brand-orange transition-colors">{copy.forTeachers}</button>
