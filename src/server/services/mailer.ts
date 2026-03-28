@@ -107,18 +107,25 @@ function getTransporter() {
 }
 
 export function getPublicAppUrl() {
-  const configured = [
-    process.env.APP_URL,
+  const normalizeUrl = (value: unknown) => String(value || '').trim().replace(/\/+$/, '');
+  const isLocalUrl = (value: string) => /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?/i.test(value);
+  const configuredCandidates = [
     process.env.PUBLIC_APP_URL,
     process.env.RENDER_EXTERNAL_URL,
+    process.env.APP_URL,
     process.env.VITE_APP_URL,
     process.env.NEXT_PUBLIC_APP_URL,
   ]
-    .map((value) => String(value || '').trim())
-    .find(Boolean);
+    .map(normalizeUrl)
+    .filter(Boolean);
+
+  const configured =
+    (process.env.NODE_ENV === 'production'
+      ? configuredCandidates.find((value) => !isLocalUrl(value))
+      : null) || configuredCandidates[0];
 
   if (configured) {
-    return configured.replace(/\/+$/, '');
+    return configured;
   }
 
   return 'http://127.0.0.1:5173';
