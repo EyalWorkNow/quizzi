@@ -200,6 +200,42 @@ function buildBrandLogoHtml(baseUrl: string, locale: InviteLocale) {
   `;
 }
 
+function buildAnimatedLogoHeroHtml(baseUrl: string, locale: InviteLocale) {
+  const alt = locale === 'he' ? 'לוגו Quizzi באנימציה' : 'Animated Quizzi logo';
+  const caption = locale === 'he' ? 'Quizzi בתנועה' : 'Quizzi in motion';
+  const subcaption = locale === 'he' ? 'כניסה, מעקב והתקדמות במקום אחד' : 'Join, track, and keep moving';
+  return `
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#FFFFFF;border:2px solid #1A1A1A;border-radius:26px;box-shadow:6px 6px 0 0 #1A1A1A;overflow:hidden;">
+      <tr>
+        <td style="padding:14px;background:linear-gradient(135deg,#FFF3D6 0%,#FFFFFF 55%,#F0E7FF 100%);">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#FFFFFF;border:2px solid #1A1A1A;border-radius:20px;">
+            <tr>
+              <td align="center" style="padding:14px 14px 10px 14px;">
+                <img
+                  src="${escapeHtml(`${baseUrl}/quizzi-logo-animated.gif`)}"
+                  alt="${escapeHtml(alt)}"
+                  width="250"
+                  style="display:block;width:100%;max-width:250px;height:auto;border:0;outline:none;text-decoration:none;border-radius:16px;"
+                />
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:0 14px 14px 14px;font-family:Arial,Helvetica,sans-serif;">
+                <div style="font-size:11px;line-height:1;font-weight:900;letter-spacing:0.2em;text-transform:uppercase;color:#B488FF;margin-bottom:8px;">
+                  ${escapeHtml(caption)}
+                </div>
+                <div style="font-size:14px;line-height:1.6;font-weight:800;color:#3F3F3F;">
+                  ${escapeHtml(subcaption)}
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+}
+
 function buildMetaLine(parts: string[], locale: InviteLocale) {
   const filtered = parts.map((part) => String(part || '').trim()).filter(Boolean);
   if (!filtered.length) return '';
@@ -342,6 +378,8 @@ function buildInviteHtml({
             .hero-copy { font-size: 16px !important; }
             .cta-button { display: block !important; width: 100% !important; box-sizing: border-box !important; text-align: center !important; }
             .stack-mobile { display: block !important; width: 100% !important; }
+            .stack-mobile-cell { display: block !important; width: 100% !important; box-sizing: border-box !important; }
+            .hero-visual-cell { padding-top: 18px !important; }
           }
         </style>
       </head>
@@ -373,49 +411,58 @@ function buildInviteHtml({
                     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" class="email-card" style="background:#FFFDF9;border:3px solid #1A1A1A;border-radius:32px;box-shadow:8px 8px 0 0 #1A1A1A;overflow:hidden;">
                       <tr>
                         <td style="background:linear-gradient(135deg,#FFF3D6 0%,#FFFFFF 50%,#F0E7FF 100%);padding:30px 30px 24px 30px;" class="email-pad">
-                          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" class="stack-mobile">
                             <tr>
-                              <td align="${align}" style="padding:0 0 14px 0;">
-                                <span style="display:inline-block;padding:8px 14px;border-radius:999px;background:#1A1A1A;border:2px solid #1A1A1A;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1;font-weight:900;letter-spacing:0.12em;text-transform:uppercase;color:#FFFFFF;">
-                                  ${escapeHtml(copy.eyebrow)}
-                                </span>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td align="${align}" style="padding:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:40px;line-height:1.05;font-weight:900;color:#1A1A1A;" class="hero-title">
-                                ${introLead}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td align="${align}" style="padding:0 0 18px 0;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:1.75;color:#3A3A3A;font-weight:600;" class="hero-copy">
-                                ${escapeHtml(copy.intro)}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td align="${align}" style="padding:0 0 22px 0;">
-                                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="background:#FFFFFF;border:2px solid #1A1A1A;border-radius:20px;box-shadow:4px 4px 0 0 #1A1A1A;">
+                              <td width="56%" valign="top" class="stack-mobile-cell" style="padding:${isRtl ? '0 0 0 16px' : '0 16px 0 0'};">
+                                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
                                   <tr>
-                                    <td style="padding:14px 18px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.7;font-weight:800;color:#3F3F3F;text-align:${align};">
-                                      ${escapeHtml(studentSpaceHint)}
+                                    <td align="${align}" style="padding:0 0 14px 0;">
+                                      <span style="display:inline-block;padding:8px 14px;border-radius:999px;background:#1A1A1A;border:2px solid #1A1A1A;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1;font-weight:900;letter-spacing:0.12em;text-transform:uppercase;color:#FFFFFF;">
+                                        ${escapeHtml(copy.eyebrow)}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td align="${align}" style="padding:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:40px;line-height:1.05;font-weight:900;color:#1A1A1A;" class="hero-title">
+                                      ${introLead}
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td align="${align}" style="padding:0 0 18px 0;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:1.75;color:#3A3A3A;font-weight:600;" class="hero-copy">
+                                      ${escapeHtml(copy.intro)}
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td align="${align}" style="padding:0 0 22px 0;">
+                                      <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="background:#FFFFFF;border:2px solid #1A1A1A;border-radius:20px;box-shadow:4px 4px 0 0 #1A1A1A;">
+                                        <tr>
+                                          <td style="padding:14px 18px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.7;font-weight:800;color:#3F3F3F;text-align:${align};">
+                                            ${escapeHtml(studentSpaceHint)}
+                                          </td>
+                                        </tr>
+                                      </table>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td align="${align}" style="padding:0 0 18px 0;">
+                                      <a
+                                        href="${inviteLink}"
+                                        class="cta-button"
+                                        style="display:inline-block;padding:16px 26px;border-radius:999px;border:2px solid #1A1A1A;background:#FF5A36;color:#FFFFFF;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1;font-weight:900;box-shadow:4px 4px 0 0 #1A1A1A;"
+                                      >
+                                        ${escapeHtml(copy.primaryCta)}
+                                      </a>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td align="${align}" style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.7;color:#4C4C4C;font-weight:700;">
+                                      ${escapeHtml(copy.secondaryLine)}
                                     </td>
                                   </tr>
                                 </table>
                               </td>
-                            </tr>
-                            <tr>
-                              <td align="${align}" style="padding:0 0 18px 0;">
-                                <a
-                                  href="${inviteLink}"
-                                  class="cta-button"
-                                  style="display:inline-block;padding:16px 26px;border-radius:999px;border:2px solid #1A1A1A;background:#FF5A36;color:#FFFFFF;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1;font-weight:900;box-shadow:4px 4px 0 0 #1A1A1A;"
-                                >
-                                  ${escapeHtml(copy.primaryCta)}
-                                </a>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td align="${align}" style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.7;color:#4C4C4C;font-weight:700;">
-                                ${escapeHtml(copy.secondaryLine)}
+                              <td width="44%" valign="top" class="stack-mobile-cell hero-visual-cell" style="padding:${isRtl ? '0 16px 0 0' : '0 0 0 16px'};">
+                                ${buildAnimatedLogoHeroHtml(baseUrl, locale)}
                               </td>
                             </tr>
                           </table>

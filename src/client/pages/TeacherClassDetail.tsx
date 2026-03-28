@@ -224,7 +224,7 @@ export default function TeacherClassDetail() {
       linkedPack: 'חבילת הכיתה',
       openPack: 'פתח עריכת חבילה',
       inviteSent: 'המייל נשלח מחדש.',
-      addStudentFirst: 'מלא/י שם תלמיד לפני ההוספה.',
+      addStudentFirst: 'מלא/י שם תלמיד או אימייל לפני ההוספה.',
       classSaved: 'שינויי הכיתה נשמרו.',
       studentAdded: 'התלמיד נוסף לכיתה.',
       studentRemoved: 'התלמיד הוסר מהכיתה.',
@@ -335,7 +335,7 @@ export default function TeacherClassDetail() {
       linkedPack: 'حزمة الصف',
       openPack: 'افتح تحرير الحزمة',
       inviteSent: 'تمت إعادة إرسال البريد.',
-      addStudentFirst: 'أدخل اسم الطالب قبل الإضافة.',
+      addStudentFirst: 'أدخل اسم الطالب أو بريده قبل الإضافة.',
       classSaved: 'تم حفظ تغييرات الصف.',
       studentAdded: 'تمت إضافة الطالب إلى الصف.',
       studentRemoved: 'تمت إزالة الطالب من الصف.',
@@ -446,7 +446,7 @@ export default function TeacherClassDetail() {
       linkedPack: 'Class pack',
       openPack: 'Open pack editor',
       inviteSent: 'Invite email sent again.',
-      addStudentFirst: 'Fill student name before adding.',
+      addStudentFirst: 'Add a student name or email before creating the row.',
       classSaved: 'Class changes saved.',
       studentAdded: 'Student added to the class.',
       studentRemoved: 'Student removed from the class.',
@@ -557,7 +557,7 @@ export default function TeacherClassDetail() {
     linkedPack: 'Class pack',
     openPack: 'Open pack editor',
     inviteSent: 'Invite email sent again.',
-    addStudentFirst: 'Fill student name before adding.',
+    addStudentFirst: 'Add a student name or email before creating the row.',
     classSaved: 'Class changes saved.',
     studentAdded: 'Student added to the class.',
     studentRemoved: 'Student removed from the class.',
@@ -968,7 +968,7 @@ export default function TeacherClassDetail() {
 
   const handleAddStudent = async () => {
     if (!classBoard) return;
-    if (!studentName.trim()) {
+    if (!studentName.trim() && !studentEmail.trim()) {
       setFeedback(copy.addStudentFirst);
       return;
     }
