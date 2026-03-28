@@ -56,13 +56,13 @@ function buildPasswordResetCopy(locale: PasswordResetLocale) {
   };
 }
 
-function buildResetEmailHtml(code: string, locale: PasswordResetLocale) {
+function buildResetEmailHtml(code: string, locale: PasswordResetLocale, baseUrl?: string | null) {
   const copy = buildPasswordResetCopy(locale);
   const isRtl = locale === 'he';
   const align = isRtl ? 'right' : 'left';
   const dir = isRtl ? 'rtl' : 'ltr';
-  const baseUrl = getPublicAppUrl();
-  const logoSrc = `${baseUrl}/quizzi-logo-email.png`;
+  const resolvedBaseUrl = String(baseUrl || getPublicAppUrl()).trim().replace(/\/+$/, '');
+  const logoSrc = `${resolvedBaseUrl}/quizzi-logo-email.png`;
 
   return `
     <!doctype html>
@@ -162,17 +162,19 @@ export async function sendStudentPasswordResetCodeEmail({
   email,
   code,
   locale,
+  baseUrl,
 }: {
   email: string;
   code: string;
   locale?: string | null;
+  baseUrl?: string | null;
 }): Promise<MailDeliveryResult> {
   const resolvedLocale = resolveLocale(locale);
   const copy = buildPasswordResetCopy(resolvedLocale);
   return sendMail({
     to: email,
     subject: copy.subject,
-    html: buildResetEmailHtml(code, resolvedLocale),
+    html: buildResetEmailHtml(code, resolvedLocale, baseUrl),
     text: buildResetEmailText(code, resolvedLocale),
   });
 }
@@ -180,9 +182,11 @@ export async function sendStudentPasswordResetCodeEmail({
 export async function createStudentPasswordResetRequest({
   email,
   locale,
+  baseUrl,
 }: {
   email: string;
   locale?: string | null;
+  baseUrl?: string | null;
 }) {
   const normalizedEmail = normalizeStudentEmail(email);
   const studentUser = await getStudentUserByEmail(normalizedEmail);
@@ -224,6 +228,7 @@ export async function createStudentPasswordResetRequest({
     email: normalizedEmail,
     code,
     locale,
+    baseUrl,
   });
 
   return {
