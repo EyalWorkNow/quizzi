@@ -5,6 +5,7 @@ type PostgresQueryable = Pick<Pool, 'query'> | Pick<PoolClient, 'query'>;
 export const POSTGRES_TABLE_ORDER = [
   'users',
   'student_users',
+  'student_password_reset_codes',
   'student_identity_links',
   'quiz_packs',
   'teacher_classes',
@@ -62,6 +63,18 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       is_primary INTEGER DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS student_password_reset_codes (
+      id SERIAL PRIMARY KEY,
+      student_user_id INTEGER NOT NULL,
+      email TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      attempt_count INTEGER DEFAULT 0,
+      expires_at TIMESTAMP NOT NULL,
+      consumed_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `,
   `
@@ -414,6 +427,8 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'CREATE INDEX IF NOT EXISTS idx_sessions_pin ON sessions(pin)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_pack_status ON sessions(quiz_pack_id, status)',
   'CREATE INDEX IF NOT EXISTS idx_student_users_email ON student_users(email)',
+  'CREATE INDEX IF NOT EXISTS idx_student_password_reset_user ON student_password_reset_codes(student_user_id, created_at DESC)',
+  'CREATE INDEX IF NOT EXISTS idx_student_password_reset_email ON student_password_reset_codes(email, created_at DESC)',
   'CREATE INDEX IF NOT EXISTS idx_student_identity_links_student ON student_identity_links(student_user_id, is_primary, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_student_identity_links_identity ON student_identity_links(identity_key)',
   'CREATE INDEX IF NOT EXISTS idx_participants_session ON participants(session_id)',

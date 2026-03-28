@@ -1,13 +1,4 @@
 import { apiFetch } from './api.ts';
-import {
-  ensureFirebaseAuthReady,
-  getRedirectResult,
-  googleProvider,
-  shouldPreferRedirectSignIn,
-  signInWithPopup,
-  signInWithRedirect,
-  signOutFirebase,
-} from './firebase.ts';
 import { getOrCreateStudentIdentityKey } from './studentSession.ts';
 
 const AUTH_KEY = 'quizzi.student.auth';
@@ -185,88 +176,44 @@ export async function signInStudentWithPassword({
   return payload;
 }
 
-export async function signInStudentWithProvider({
-  provider,
+export async function requestStudentPasswordResetCode({
+  email,
 }: {
-  provider: 'google';
-}): Promise<StudentAuthSession | null> {
-  if (provider !== 'google') {
-    throw new Error(`Student ${provider} sign-in is not available yet.`);
-  }
-
-  const auth = await ensureFirebaseAuthReady();
-  if (!auth) {
-    throw new Error('Firebase Authentication is not available. Please check your configuration.');
-  }
-
-  const completeGoogleServerSession = async (idToken: string, displayName?: string | null) => {
-    const response = await fetchWithTimeout('/api/student-auth/social', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        provider: 'google',
-        idToken,
-        identity_key: getOrCreateStudentIdentityKey(),
-      }),
-    });
-
-    const payload = ensureStudentSessionPayload(await readJsonOrThrow(response));
-    writeAuth(payload);
-    return payload;
-  };
-
-  try {
-    if (shouldPreferRedirectSignIn()) {
-      await signInWithRedirect(auth, googleProvider);
-      return null;
-    }
-
-    const popupResult = await signInWithPopup(auth, googleProvider);
-    const idToken = await popupResult.user.getIdToken();
-    return await completeGoogleServerSession(idToken, popupResult.user.displayName);
-  } catch (error: any) {
-    const message = String(error?.message || '').toLowerCase();
-    if (
-      error?.code === 'auth/popup-blocked' ||
-      message.includes('cross-origin-opener-policy') ||
-      message.includes('window.closed') ||
-      error?.code === 'auth/operation-not-supported-in-this-environment'
-    ) {
-      await signInWithRedirect(auth, googleProvider);
-      return null;
-    }
-    if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') {
-      throw new Error('Google sign-in was cancelled.');
-    }
-    throw error;
-  }
-}
-
-export async function handleStudentAuthRedirect() {
-  const auth = await ensureFirebaseAuthReady();
-  if (!auth) return null;
-
-  const redirectResult = await getRedirectResult(auth).catch((error: any) => {
-    console.error('[studentAuth] Failed to restore Google redirect:', error);
-    throw new Error('Google sign-in could not be completed. Please try again.');
-  });
-
-  if (!redirectResult?.user) {
-    return null;
-  }
-
-  const idToken = await redirectResult.user.getIdToken();
-  const response = await fetchWithTimeout('/api/student-auth/social', {
+  email: string;
+}) {
+  const response = await fetchWithTimeout('/api/student-auth/password-reset/request', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: JSON.stringify({
-      provider: 'google',
-      idToken,
+      email: email.trim().toLowerCase(),
+    }),
+  });
+
+  return readJsonOrThrow(response);
+}
+
+export async function confirmStudentPasswordReset({
+  email,
+  code,
+  password,
+}: {
+  email: string;
+  code: string;
+  password: string;
+}) {
+  const response = await fetchWithTimeout('/api/student-auth/password-reset/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      email: email.trim().toLowerCase(),
+      code: code.trim(),
+      password,
       identity_key: getOrCreateStudentIdentityKey(),
     }),
   });
+
   const payload = ensureStudentSessionPayload(await readJsonOrThrow(response));
   writeAuth(payload);
   return payload;
@@ -274,10 +221,6 @@ export async function handleStudentAuthRedirect() {
 
 export async function signOutStudent() {
   writeAuth(null);
-  const auth = await ensureFirebaseAuthReady().catch(() => null);
-  if (auth) {
-    await signOutFirebase(auth).catch(() => undefined);
-  }
   try {
     await fetchWithTimeout('/api/student-auth/logout', {
       method: 'POST',

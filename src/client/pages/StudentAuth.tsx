@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, Mail, UserCircle2 } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, Mail, ShieldCheck, UserCircle2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
-import { 
-  registerStudentWithPassword, 
+import {
+  confirmStudentPasswordReset,
+  registerStudentWithPassword,
+  requestStudentPasswordResetCode,
   signInStudentWithPassword,
-  signInStudentWithProvider,
-  handleStudentAuthRedirect,
 } from '../lib/studentAuth.ts';
 import { trackCtaClick, trackFormInteraction } from '../lib/appAnalytics.ts';
 
 const STUDENT_AUTH_DRAFT_KEY = 'quizzi.student.auth.draft';
+
+type AuthMode = 'login' | 'register';
+type PanelMode = 'auth' | 'reset-request' | 'reset-confirm';
 
 function readStudentAuthDraft() {
   if (typeof window === 'undefined') return null;
@@ -30,13 +33,19 @@ export default function StudentAuth() {
   const search = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const requestedMode = String(search.get('mode') || '').trim().toLowerCase();
   const draft = readStudentAuthDraft();
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+
+  const [mode, setMode] = useState<AuthMode>('login');
+  const [panelMode, setPanelMode] = useState<PanelMode>('auth');
   const [displayName, setDisplayName] = useState(typeof draft?.displayName === 'string' ? draft.displayName : '');
   const [email, setEmail] = useState(typeof draft?.email === 'string' ? draft.email : '');
   const [password, setPassword] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [draftRestored, setDraftRestored] = useState(Boolean(draft));
 
   const invitedClassName = String(search.get('class_name') || '').trim();
@@ -55,13 +64,31 @@ export default function StudentAuth() {
       displayName: 'שם מלא',
       email: 'אימייל',
       password: 'סיסמה',
+      resetCode: 'קוד אימות',
+      newPassword: 'סיסמה חדשה',
       submitLogin: 'כניסה לסביבת התלמיד',
       submitRegister: 'צור חשבון תלמיד',
+      sendResetCode: 'שליחת קוד למייל',
+      completeReset: 'איפוס סיסמה וכניסה',
       helper: 'אפשר עדיין להצטרף אנונימית דרך קוד סשן. החשבון הזה הוא שכבה נוספת למעקב והתאמה אישית, ובשלב הזה עובד עם מייל וסיסמה.',
+      resetHelper: 'נשלח קוד בן 6 ספרות למייל שלך. הקוד פעיל ל-5 דקות בלבד ומאפשר לקבוע סיסמה חדשה.',
       inviteBanner: 'הוזמנת לכיתה',
       registerNow: 'הרשם עם מייל',
       signInInstead: 'כבר יש לך חשבון? התחבר',
+      forgotPassword: 'שכחתי סיסמה',
+      backToLogin: 'חזרה להתחברות',
       backHome: 'חזרה לעמוד הבית',
+      codeSent: 'אם החשבון קיים, שלחנו עכשיו קוד למייל. אפשר להזין אותו כאן ולקבוע סיסמה חדשה.',
+      resetDone: 'הסיסמה עודכנה והחשבון מוכן לכניסה.',
+      resetTitle: 'איפוס סיסמה',
+      resetRequestTitle: 'צריך קוד חדש למייל?',
+      resetConfirmTitle: 'הזינו את הקוד והגדירו סיסמה חדשה',
+      emailLooksGood: 'נראה תקין',
+      emailNeedsFix: 'כדאי להזין כתובת מייל מלאה',
+      emailHint: 'נשתמש במייל הזה כדי לשמור היסטוריה ולהתחבר בעתיד',
+      passwordGood: 'אורך הסיסמה מספיק להמשך',
+      passwordHint: 'מומלץ לפחות 8 תווים',
+      resetCodeHint: 'הקוד צריך להיות בן 6 ספרות ונשאר פעיל ל-5 דקות.',
       cards: [
         ['היסטוריה', 'היסטוריית סשנים והתקדמות לאורך זמן.'],
         ['תרגול', 'תרגול אדפטיבי שמותאם בדיוק ללומד/ת.'],
@@ -76,13 +103,31 @@ export default function StudentAuth() {
       displayName: 'الاسم الكامل',
       email: 'البريد الإلكتروني',
       password: 'كلمة المرور',
+      resetCode: 'رمز التحقق',
+      newPassword: 'كلمة مرور جديدة',
       submitLogin: 'ادخل إلى مساحة الطالب',
       submitRegister: 'أنشئ حساب طالب',
-      helper: 'لا يزال بإمكانك الانضمام بشكل مجهول عبر رمز الجلسة. هذا الحساب طبقة إضافية للمتابعة والتخصيص، وفي هذه المرحلة يعمل بالبريد الإلكتروني وكلمة المرور.',
+      sendResetCode: 'إرسال رمز إلى البريد',
+      completeReset: 'إعادة التعيين والدخول',
+      helper: 'لا يزال بإمكانك الانضمام بشكل مجهول عبر رمز الجلسة. هذا الحساب طبقة إضافية للمتابعة والتخصيص.',
+      resetHelper: 'سنرسل رمزًا مكوّنًا من 6 أرقام إلى بريدك الإلكتروني. الرمز صالح لمدة 5 دقائق فقط.',
       inviteBanner: 'تمت دعوتك إلى صف',
       registerNow: 'أنشئ حسابًا بالبريد',
       signInInstead: 'لديك حساب بالفعل؟ سجّل الدخول',
+      forgotPassword: 'نسيت كلمة المرور',
+      backToLogin: 'العودة لتسجيل الدخول',
       backHome: 'العودة إلى الصفحة الرئيسية',
+      codeSent: 'إذا كان الحساب موجودًا، فقد أرسلنا الآن رمزًا إلى بريدك الإلكتروني.',
+      resetDone: 'تم تحديث كلمة المرور والحساب جاهز للدخول.',
+      resetTitle: 'إعادة تعيين كلمة المرور',
+      resetRequestTitle: 'تحتاج إلى رمز جديد؟',
+      resetConfirmTitle: 'أدخل الرمز وحدد كلمة مرور جديدة',
+      emailLooksGood: 'يبدو صحيحًا',
+      emailNeedsFix: 'أدخل عنوان بريد كامل',
+      emailHint: 'سنستخدم هذا البريد لحفظ السجل والدخول لاحقًا',
+      passwordGood: 'الطول مناسب للمتابعة',
+      passwordHint: 'نوصي بـ 8 أحرف على الأقل',
+      resetCodeHint: 'الرمز مكوّن من 6 أرقام ويظل صالحًا لمدة 5 دقائق.',
       cards: [
         ['السجل', 'سجل جلسات وتقدم طويل المدى.'],
         ['التدريب', 'تدريب تكيفي مضبوط على المتعلم/ة.'],
@@ -97,13 +142,31 @@ export default function StudentAuth() {
       displayName: 'Full Name',
       email: 'Email',
       password: 'Password',
+      resetCode: 'Verification Code',
+      newPassword: 'New Password',
       submitLogin: 'Enter Student Space',
       submitRegister: 'Create Student Account',
-      helper: 'You can still join live games anonymously with a session code. This account is the extra layer for progress tracking and personalization, and in this version it uses email and password.',
+      sendResetCode: 'Send Code to Email',
+      completeReset: 'Reset Password and Sign In',
+      helper: 'You can still join live games anonymously with a session code. This account adds progress tracking and personalization.',
+      resetHelper: 'We will send a 6-digit code to your email. The code stays active for 5 minutes only and lets you set a new password.',
       inviteBanner: 'You were invited to a class',
       registerNow: 'Create account with email',
       signInInstead: 'Already have an account? Sign in',
+      forgotPassword: 'Forgot password?',
+      backToLogin: 'Back to sign in',
       backHome: 'Back Home',
+      codeSent: 'If the account exists, we just sent a code to your email. Enter it here to choose a new password.',
+      resetDone: 'Your password was updated and the account is ready to enter.',
+      resetTitle: 'Password Reset',
+      resetRequestTitle: 'Need a fresh code by email?',
+      resetConfirmTitle: 'Enter the code and choose a new password',
+      emailLooksGood: 'Looks valid',
+      emailNeedsFix: 'Enter a complete email address',
+      emailHint: 'We use this email to save your history and sign you in later',
+      passwordGood: 'Password length is good to continue',
+      passwordHint: 'We recommend at least 8 characters',
+      resetCodeHint: 'The code is 6 digits and stays active for 5 minutes.',
       cards: [
         ['History', 'Long-term session history and progress.'],
         ['Practice', 'Adaptive practice tuned to the learner.'],
@@ -118,13 +181,31 @@ export default function StudentAuth() {
     displayName: 'Full Name',
     email: 'Email',
     password: 'Password',
+    resetCode: 'Verification Code',
+    newPassword: 'New Password',
     submitLogin: 'Enter Student Space',
     submitRegister: 'Create Student Account',
-    helper: 'You can still join live games anonymously with a session code. This account is the extra layer for progress tracking and personalization, and in this version it uses email and password.',
+    sendResetCode: 'Send Code to Email',
+    completeReset: 'Reset Password and Sign In',
+    helper: 'You can still join live games anonymously with a session code.',
+    resetHelper: 'We will send a 6-digit code to your email.',
     inviteBanner: 'You were invited to a class',
     registerNow: 'Create account with email',
     signInInstead: 'Already have an account? Sign in',
+    forgotPassword: 'Forgot password?',
+    backToLogin: 'Back to sign in',
     backHome: 'Back Home',
+    codeSent: 'If the account exists, we sent a code to your email.',
+    resetDone: 'Your password was updated.',
+    resetTitle: 'Password Reset',
+    resetRequestTitle: 'Need a fresh code by email?',
+    resetConfirmTitle: 'Enter the code and choose a new password',
+    emailLooksGood: 'Looks valid',
+    emailNeedsFix: 'Enter a complete email address',
+    emailHint: 'We use this email to save your history and sign you in later',
+    passwordGood: 'Password length is good to continue',
+    passwordHint: 'We recommend at least 8 characters',
+    resetCodeHint: 'The code is 6 digits and stays active for 5 minutes.',
     cards: [],
   };
 
@@ -146,21 +227,41 @@ export default function StudentAuth() {
   }, [displayName, email]);
 
   useEffect(() => {
-    handleStudentAuthRedirect()
-      .then((session) => {
-        if (session) {
-          navigate(nextPath, { replace: true });
-        }
-      })
-      .catch((redirectError: any) => {
-        setError(redirectError?.message || 'Google sign-in could not be completed.');
-      });
-  }, [navigate, nextPath]);
+    const prefilledEmail = String(search.get('email') || '').trim().toLowerCase();
+    if (prefilledEmail && !email) {
+      setEmail(prefilledEmail);
+    }
+  }, [search, email]);
 
-  const handleSubmit = async (event: FormEvent) => {
+  const emailLooksValid = /\S+@\S+\.\S+/.test(email);
+  const passwordReady = password.trim().length >= 8;
+  const newPasswordReady = newPassword.trim().length >= 8;
+  const nameReady = mode === 'login' || displayName.trim().length >= 2;
+  const resetCodeReady = /^\d{6}$/.test(resetCode.trim());
+  const canSubmitAuth = emailLooksValid && passwordReady && nameReady && !loading;
+  const canRequestReset = emailLooksValid && !loading;
+  const canConfirmReset = emailLooksValid && resetCodeReady && newPasswordReady && !loading;
+
+  const switchMode = (nextMode: AuthMode) => {
+    setMode(nextMode);
+    setPanelMode('auth');
+    setError('');
+    setNotice('');
+    setPassword('');
+    setResetCode('');
+    setNewPassword('');
+    void trackCtaClick({
+      location: 'student_auth_mode_switch',
+      ctaId: 'switch_mode',
+      label: nextMode,
+    });
+  };
+
+  const handleAuthSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setLoading(true);
     setError('');
+    setNotice('');
     try {
       if (mode === 'register') {
         await registerStudentWithPassword({ email, password, displayName });
@@ -176,33 +277,66 @@ export default function StudentAuth() {
     }
   };
 
-  useEffect(() => {
-    const prefilledEmail = String(search.get('email') || '').trim().toLowerCase();
-    if (prefilledEmail && !email) {
-      setEmail(prefilledEmail);
-    }
-  }, [search, email]);
-
-  const handleGoogleLogin = async () => {
+  const handleResetRequest = async (event: FormEvent) => {
+    event.preventDefault();
     setLoading(true);
     setError('');
+    setNotice('');
     try {
-      const session = await signInStudentWithProvider({ provider: 'google' });
-      if (session) {
-        window.localStorage.removeItem(STUDENT_AUTH_DRAFT_KEY);
-        navigate(nextPath, { replace: true });
-      }
+      await requestStudentPasswordResetCode({ email });
+      setPanelMode('reset-confirm');
+      setResetCode('');
+      setNewPassword('');
+      setNotice(copy.codeSent);
     } catch (submitError: any) {
-      setError(submitError?.message || 'Google sign-in failed');
+      setError(submitError?.message || 'Failed to send reset code');
     } finally {
       setLoading(false);
     }
   };
 
-  const emailLooksValid = /\S+@\S+\.\S+/.test(email);
-  const passwordReady = password.trim().length >= 6;
-  const nameReady = mode === 'login' || displayName.trim().length >= 2;
-  const canSubmit = emailLooksValid && passwordReady && nameReady && !loading;
+  const handleResetConfirm = async (event: FormEvent) => {
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+    setNotice('');
+    try {
+      await confirmStudentPasswordReset({
+        email,
+        code: resetCode,
+        password: newPassword,
+      });
+      window.localStorage.removeItem(STUDENT_AUTH_DRAFT_KEY);
+      setNotice(copy.resetDone);
+      navigate(nextPath, { replace: true });
+    } catch (submitError: any) {
+      setError(submitError?.message || 'Password reset failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openResetFlow = () => {
+    setPanelMode('reset-request');
+    setError('');
+    setNotice('');
+    setPassword('');
+    setResetCode('');
+    setNewPassword('');
+    void trackCtaClick({
+      location: 'student_auth',
+      ctaId: 'forgot_password',
+      label: 'forgot_password',
+    });
+  };
+
+  const goBackToAuth = () => {
+    setPanelMode('auth');
+    setError('');
+    setNotice('');
+    setResetCode('');
+    setNewPassword('');
+  };
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#FFF3D6,_#F8F1E7_52%,_#E7EEF8_100%)] px-6 py-10">
@@ -215,7 +349,11 @@ export default function StudentAuth() {
             <div className="mt-5 rounded-[1.4rem] border-2 border-brand-dark bg-brand-yellow/70 p-4">
               <p className="flex items-center gap-2 text-sm font-black">
                 <CheckCircle2 className="h-4 w-4" />
-                החזרנו את הפרטים שהוקלדו קודם כדי שתמשיכו מאיפה שעצרתם.
+                {language === 'he'
+                  ? 'החזרנו את הפרטים שהוקלדו קודם כדי שתמשיכו מאיפה שעצרתם.'
+                  : language === 'ar'
+                    ? 'أعدنا البيانات التي كتبتها سابقًا لتتابع من حيث توقفت.'
+                    : 'We restored your last draft so you can continue from where you stopped.'}
               </p>
             </div>
           ) : null}
@@ -223,7 +361,13 @@ export default function StudentAuth() {
             <div className="mt-6 rounded-[1.6rem] border-2 border-brand-dark bg-brand-yellow p-4">
               <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/55">{copy.inviteBanner}</p>
               <p className="mt-2 text-xl font-black text-brand-dark">{invitedClassName}</p>
-              <p className="mt-1 text-sm font-bold text-brand-dark/70">Use the same email from the invite and the class will appear in your student space waiting for your approval.</p>
+              <p className="mt-1 text-sm font-bold text-brand-dark/70">
+                {language === 'he'
+                  ? 'השתמש/י באותו מייל מההזמנה כדי שהכיתה תופיע מיד במרחב התלמיד.'
+                  : language === 'ar'
+                    ? 'استخدم البريد نفسه الموجود في الدعوة لكي يظهر الصف مباشرة في مساحة الطالب.'
+                    : 'Use the same email from the invite so the class appears immediately in your student space.'}
+              </p>
             </div>
           ) : null}
           <div className="mt-8 grid gap-4 md:grid-cols-3">
@@ -241,84 +385,85 @@ export default function StudentAuth() {
           animate={{ opacity: 1, y: 0 }}
           className="rounded-[2.8rem] border-4 border-brand-dark bg-brand-dark p-8 text-white shadow-[10px_10px_0px_0px_#FF5A36]"
         >
-          <div className="inline-flex rounded-full border-2 border-white/30 p-1 bg-white/10 mb-6">
-            {([
-              ['login', copy.login],
-              ['register', copy.register],
-            ] as const).map(([value, label]) => (
+          {panelMode === 'auth' ? (
+            <div className="inline-flex rounded-full border-2 border-white/30 p-1 bg-white/10 mb-6">
+              {([
+                ['login', copy.login],
+                ['register', copy.register],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => switchMode(value)}
+                  className={`px-5 py-2 rounded-full text-sm font-black transition-colors ${
+                    mode === value ? 'bg-white text-brand-dark' : 'text-white/75'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="mb-6 flex flex-wrap items-center gap-3">
+              <div className="inline-flex items-center gap-2 rounded-full border-2 border-white/20 bg-white/10 px-4 py-2 text-sm font-black text-white/80">
+                <ShieldCheck className="h-4 w-4" />
+                {copy.resetTitle}
+              </div>
               <button
-                key={value}
                 type="button"
-                onClick={() => {
-                  setMode(value);
-                  void trackCtaClick({
-                    location: 'student_auth_mode_switch',
-                    ctaId: 'switch_mode',
-                    label: value,
-                  });
-                }}
-                className={`px-5 py-2 rounded-full text-sm font-black transition-colors ${
-                  mode === value ? 'bg-white text-brand-dark' : 'text-white/75'
+                onClick={goBackToAuth}
+                className="rounded-full border-2 border-white/30 bg-white/10 px-4 py-2 text-sm font-black text-white"
+              >
+                {copy.backToLogin}
+              </button>
+            </div>
+          )}
+
+          {panelMode === 'auth' ? (
+            <div className="mb-5 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => switchMode('register')}
+                className={`rounded-full border-2 px-4 py-2 text-sm font-black ${
+                  mode === 'register'
+                    ? 'border-brand-yellow bg-brand-yellow text-brand-dark'
+                    : 'border-white/30 bg-white/10 text-white'
                 }`}
               >
-                {label}
+                {copy.registerNow}
               </button>
-            ))}
-          </div>
+              <button
+                type="button"
+                onClick={() => switchMode('login')}
+                className={`rounded-full border-2 px-4 py-2 text-sm font-black ${
+                  mode === 'login'
+                    ? 'border-brand-yellow bg-brand-yellow text-brand-dark'
+                    : 'border-white/30 bg-white/10 text-white'
+                }`}
+              >
+                {copy.signInInstead}
+              </button>
+              {mode === 'login' ? (
+                <button
+                  type="button"
+                  onClick={openResetFlow}
+                  className="rounded-full border-2 border-white/30 bg-white/10 px-4 py-2 text-sm font-black text-white"
+                >
+                  {copy.forgotPassword}
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <div className="mb-5 rounded-[1.4rem] border-2 border-white/20 bg-white/10 p-4">
+              <p className="text-sm font-black uppercase tracking-[0.18em] text-brand-yellow">
+                {panelMode === 'reset-request' ? copy.resetRequestTitle : copy.resetConfirmTitle}
+              </p>
+              <p className="mt-2 text-sm font-medium text-white/75">{copy.resetHelper}</p>
+            </div>
+          )}
 
-          <div className="mb-5 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void handleGoogleLogin()}
-              disabled={loading}
-              className="flex min-w-[220px] items-center justify-center gap-3 rounded-full border-2 border-white/30 bg-white/10 px-4 py-2 text-sm font-black text-white disabled:opacity-60"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                  fill="#4285F4"
-                />
-                <path
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  fill="#34A853"
-                />
-                <path
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
-                  fill="#FBBC05"
-                />
-                <path
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                  fill="#EA4335"
-                />
-              </svg>
-              {language === 'he' ? 'המשך עם Google' : language === 'ar' ? 'المتابعة عبر Google' : 'Continue with Google'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('register')}
-              className={`rounded-full border-2 px-4 py-2 text-sm font-black ${
-                mode === 'register'
-                  ? 'border-brand-yellow bg-brand-yellow text-brand-dark'
-                  : 'border-white/30 bg-white/10 text-white'
-              }`}
-            >
-              {copy.registerNow}
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('login')}
-              className={`rounded-full border-2 px-4 py-2 text-sm font-black ${
-                mode === 'login'
-                  ? 'border-brand-yellow bg-brand-yellow text-brand-dark'
-                  : 'border-white/30 bg-white/10 text-white'
-              }`}
-            >
-              {copy.signInInstead}
-            </button>
-          </div>
-
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            {mode === 'register' ? (
+          <form className="space-y-4" onSubmit={panelMode === 'auth' ? handleAuthSubmit : panelMode === 'reset-request' ? handleResetRequest : handleResetConfirm}>
+            {panelMode === 'auth' && mode === 'register' ? (
               <label className="block">
                 <span className="mb-2 flex items-center gap-2 text-sm font-black uppercase tracking-[0.18em] text-white/70">
                   <UserCircle2 className="w-4 h-4" />
@@ -358,40 +503,97 @@ export default function StudentAuth() {
                 autoComplete="email"
               />
               <p className="mt-2 text-xs font-black text-white/55">
-                {email ? (emailLooksValid ? 'נראה תקין' : 'כדאי להזין כתובת מייל מלאה') : 'נשתמש במייל הזה כדי לשמור היסטוריה ולהתחבר בעתיד'}
+                {email
+                  ? emailLooksValid ? copy.emailLooksGood : copy.emailNeedsFix
+                  : copy.emailHint}
               </p>
             </label>
 
-            <label className="block">
-              <span className="mb-2 flex items-center gap-2 text-sm font-black uppercase tracking-[0.18em] text-white/70">
-                <KeyRound className="w-4 h-4" />
-                {copy.password}
-              </span>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onFocus={() => void trackFormInteraction({ formId: 'student_auth', field: 'password', action: 'focus' })}
-                  onChange={(event) => {
-                    void trackFormInteraction({ formId: 'student_auth', field: 'password', action: 'change' });
-                    setPassword(event.target.value);
-                  }}
-                  className="w-full rounded-[1.2rem] border-2 border-white/20 bg-white/10 px-4 py-4 pr-14 text-lg font-bold text-white placeholder:text-white/45 outline-none focus:border-brand-yellow"
-                  placeholder="********"
-                  autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((current) => !current)}
-                  className="absolute inset-y-0 right-4 flex items-center text-white/70"
-                >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                </button>
+            {panelMode === 'auth' ? (
+              <label className="block">
+                <span className="mb-2 flex items-center gap-2 text-sm font-black uppercase tracking-[0.18em] text-white/70">
+                  <KeyRound className="w-4 h-4" />
+                  {copy.password}
+                </span>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onFocus={() => void trackFormInteraction({ formId: 'student_auth', field: 'password', action: 'focus' })}
+                    onChange={(event) => {
+                      void trackFormInteraction({ formId: 'student_auth', field: 'password', action: 'change' });
+                      setPassword(event.target.value);
+                    }}
+                    className="w-full rounded-[1.2rem] border-2 border-white/20 bg-white/10 px-4 py-4 pr-14 text-lg font-bold text-white placeholder:text-white/45 outline-none focus:border-brand-yellow"
+                    placeholder="********"
+                    autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((current) => !current)}
+                    className="absolute inset-y-0 right-4 flex items-center text-white/70"
+                  >
+                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
+                <p className="mt-2 text-xs font-black text-white/55">
+                  {password ? (passwordReady ? copy.passwordGood : copy.passwordHint) : copy.passwordHint}
+                </p>
+              </label>
+            ) : null}
+
+            {panelMode === 'reset-confirm' ? (
+              <>
+                <label className="block">
+                  <span className="mb-2 flex items-center gap-2 text-sm font-black uppercase tracking-[0.18em] text-white/70">
+                    <ShieldCheck className="w-4 h-4" />
+                    {copy.resetCode}
+                  </span>
+                  <input
+                    value={resetCode}
+                    onChange={(event) => setResetCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="w-full rounded-[1.2rem] border-2 border-white/20 bg-white/10 px-4 py-4 text-center text-2xl tracking-[0.35em] font-black text-white placeholder:text-white/45 outline-none focus:border-brand-yellow"
+                    placeholder="000000"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                  />
+                  <p className="mt-2 text-xs font-black text-white/55">{copy.resetCodeHint}</p>
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 flex items-center gap-2 text-sm font-black uppercase tracking-[0.18em] text-white/70">
+                    <KeyRound className="w-4 h-4" />
+                    {copy.newPassword}
+                  </span>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={(event) => setNewPassword(event.target.value)}
+                      className="w-full rounded-[1.2rem] border-2 border-white/20 bg-white/10 px-4 py-4 pr-14 text-lg font-bold text-white placeholder:text-white/45 outline-none focus:border-brand-yellow"
+                      placeholder="********"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword((current) => !current)}
+                      className="absolute inset-y-0 right-4 flex items-center text-white/70"
+                    >
+                      {showNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs font-black text-white/55">
+                    {newPassword ? (newPasswordReady ? copy.passwordGood : copy.passwordHint) : copy.passwordHint}
+                  </p>
+                </label>
+              </>
+            ) : null}
+
+            {notice ? (
+              <div className="rounded-[1.2rem] border-2 border-[#C8F2D3] bg-[#1F5C32] px-4 py-3 text-sm font-bold text-white">
+                {notice}
               </div>
-              <p className="mt-2 text-xs font-black text-white/55">
-                {password ? (passwordReady ? 'אורך הסיסמה מספיק להמשך' : 'מומלץ לפחות 6 תווים') : 'הסיסמה משמשת רק לכניסה לסביבת התלמיד'}
-              </p>
-            </label>
+            ) : null}
 
             {error ? (
               <div className="rounded-[1.2rem] border-2 border-[#FFB4A2] bg-[#6E1C1C] px-4 py-3 text-sm font-bold text-white">
@@ -401,14 +603,28 @@ export default function StudentAuth() {
 
             <button
               type="submit"
-              disabled={!canSubmit}
+              disabled={
+                panelMode === 'auth'
+                  ? !canSubmitAuth
+                  : panelMode === 'reset-request'
+                    ? !canRequestReset
+                    : !canConfirmReset
+              }
               className="w-full rounded-[1.4rem] border-2 border-brand-dark bg-brand-yellow px-5 py-4 text-lg font-black text-brand-dark shadow-[4px_4px_0px_0px_#FFFFFF] transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {loading ? '...' : mode === 'register' ? copy.submitRegister : copy.submitLogin}
+              {loading
+                ? '...'
+                : panelMode === 'auth'
+                  ? mode === 'register' ? copy.submitRegister : copy.submitLogin
+                  : panelMode === 'reset-request'
+                    ? copy.sendResetCode
+                    : copy.completeReset}
             </button>
           </form>
 
-          <p className="mt-5 text-sm font-medium text-white/70">{copy.helper}</p>
+          <p className="mt-5 text-sm font-medium text-white/70">
+            {panelMode === 'auth' ? copy.helper : copy.resetHelper}
+          </p>
           <button
             type="button"
             onClick={() => navigate('/')}

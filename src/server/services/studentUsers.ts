@@ -128,3 +128,15 @@ export async function updateStudentPreferredLanguage(studentUserId: number, lang
     `)
     .run(String(language || '').trim().slice(0, 12), studentUserId);
 }
+
+export async function updateStudentPassword(studentUserId: number, password: string) {
+  const passwordHash = hashStudentPassword(String(password || ''));
+  await db
+    .prepare(`
+      UPDATE student_users
+      SET password_hash = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `)
+    .run(passwordHash, studentUserId);
+}
