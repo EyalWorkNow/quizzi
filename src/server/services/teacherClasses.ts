@@ -874,9 +874,10 @@ function buildTeacherDisplayName(row: any) {
   return displayName || String(row.teacher_email || '').trim() || 'Teacher';
 }
 
-export async function listStudentClassWorkspaces(studentUserId: number): Promise<StudentClassWorkspace[]> {
+export async function listStudentClassWorkspaces(studentUserId: number, studentEmail?: string | null): Promise<StudentClassWorkspace[]> {
   const studentId = Math.max(0, Math.floor(Number(studentUserId) || 0));
-  if (!studentId) return [];
+  const normalizedEmail = String(studentEmail || '').trim().toLowerCase();
+  if (!studentId && !normalizedEmail) return [];
 
   const classRows = (await db
     .prepare(`
@@ -895,10 +896,13 @@ export async function listStudentClassWorkspaces(studentUserId: number): Promise
       FROM teacher_class_students tcs
       JOIN teacher_classes tc ON tc.id = tcs.class_id
       LEFT JOIN users u ON u.id = tc.teacher_id
-      WHERE tcs.student_user_id = ?
+      WHERE (
+        tcs.student_user_id = ?
+        OR LOWER(COALESCE(tcs.email, '')) = LOWER(?)
+      )
       ORDER BY COALESCE(tcs.last_seen_at, tcs.updated_at, tcs.created_at) DESC, tcs.id DESC
     `)
-    .all(studentId)) as any[];
+    .all(studentId, normalizedEmail)) as any[];
 
   const classIds = uniqueNumbers(classRows.map((row: any) => row.class_id));
   if (!classIds.length) return [];

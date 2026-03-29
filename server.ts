@@ -158,21 +158,36 @@ async function startServer() {
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
-  // Using standard 'cors' middleware for reliable preflight/actual handling
-  app.use(cors({
-    origin: (origin, callback) => {
-      const allowed = !origin || isAllowedBrowserOrigin(origin) || process.env.NODE_ENV !== 'production';
-      if (allowed) {
-        callback(null, true);
-      } else {
+  // Using standard 'cors' middleware for reliable preflight/actual handling.
+  // Same-origin browser requests should always work, even on custom domains or preview URLs.
+  app.use(
+    cors((req, callback) => {
+      const origin = String(req.headers.origin || '').trim();
+      const forwardedProto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http')
+        .split(',')[0]
+        .trim();
+      const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+        .split(',')[0]
+        .trim();
+      const expectedOrigin = forwardedHost ? normalizeOrigin(`${forwardedProto}://${forwardedHost}`) : '';
+      const allowed =
+        !origin ||
+        isAllowedBrowserOrigin(origin) ||
+        (expectedOrigin && normalizeOrigin(origin) === expectedOrigin) ||
+        process.env.NODE_ENV !== 'production';
+
+      if (!allowed) {
         console.warn(`[cors] Blocked origin: ${origin}`);
-        callback(null, false);
       }
-    },
-    credentials: true,
-    methods: allowedMethods,
-    exposedHeaders: ['X-Quizzi-Participant-Token', 'X-Request-Id'],
-  }));
+
+      callback(null, {
+        origin: allowed ? true : false,
+        credentials: true,
+        methods: allowedMethods,
+        exposedHeaders: ['X-Quizzi-Participant-Token', 'X-Request-Id'],
+      });
+    }),
+  );
 
   // In production, we move seeding to background to avoid blocking port binding
   const initializeHeavyData = async () => {
@@ -214,7 +229,9 @@ async function startServer() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
-    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    // Firebase/Google auth popups rely on window.close/window.closed checks that are noisy
+    // under stricter COOP settings in some browsers. We do not need cross-origin isolation here.
+    res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
     res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
     res.setHeader('X-DNS-Prefetch-Control', 'off');
     if (process.env.NODE_ENV === 'production') {

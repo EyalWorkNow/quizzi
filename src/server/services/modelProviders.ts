@@ -17,9 +17,21 @@ type RuntimeModelProvider = {
   generateJson: (request: GenerationRequest) => Promise<string>;
 };
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+function normalizeEnvValue(value: unknown) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (
+    (raw.startsWith('"') && raw.endsWith('"')) ||
+    (raw.startsWith("'") && raw.endsWith("'"))
+  ) {
+    return raw.slice(1, -1).trim();
+  }
+  return raw;
+}
+
+const GEMINI_API_KEY = normalizeEnvValue(process.env.GEMINI_API_KEY);
+const OPENAI_API_KEY = normalizeEnvValue(process.env.OPENAI_API_KEY);
+const OPENAI_BASE_URL = normalizeEnvValue(process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
 
 const geminiClient = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 

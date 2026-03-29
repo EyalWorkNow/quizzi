@@ -260,6 +260,22 @@ async function executeValidatedQuestionGeneration(input: {
   promptFactory: (retryFeedback: string) => string;
 }) {
   let lastFailureSummary = '';
+  let bestEffortCandidate:
+    | {
+        attempts: number;
+        normalizedQuestions: any[];
+        issues: string[];
+      }
+    | null = null;
+
+  const isBestEffortIssue = (issue: string) =>
+    issue.startsWith('Expected exactly ') ||
+    issue.includes('bloom_level must match the allowed taxonomy labels.');
+
+  const canUseBestEffort = (questions: any[], issues: string[]) => {
+    const minimumQuestionCount = Math.max(2, Math.ceil(input.context.request.count * 0.8));
+    return questions.length >= minimumQuestionCount && issues.length > 0 && issues.every(isBestEffortIssue);
+  };
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
@@ -273,7 +289,7 @@ async function executeValidatedQuestionGeneration(input: {
         normalizeGeneratedQuestions(parsed?.questions || [], input.context.materialProfile.topic_fingerprint || []),
         input.context.request,
         input.context.materialProfile,
-      );
+      ).slice(0, input.context.request.count);
 
       const validation = validateQuestionGenerationOutput({
         questions: normalizedQuestions,
@@ -286,6 +302,18 @@ async function executeValidatedQuestionGeneration(input: {
         return {
           attempts: attempt,
           normalizedQuestions,
+          bestEffort: false,
+        };
+      }
+
+      if (
+        canUseBestEffort(normalizedQuestions, validation.issues) &&
+        (!bestEffortCandidate || normalizedQuestions.length > bestEffortCandidate.normalizedQuestions.length)
+      ) {
+        bestEffortCandidate = {
+          attempts: attempt,
+          normalizedQuestions,
+          issues: validation.issues,
         };
       }
 
@@ -296,6 +324,18 @@ async function executeValidatedQuestionGeneration(input: {
         `Parser/runtime detail: ${String(error?.message || error || 'Unknown parsing error').slice(0, 240)}`,
       ].join('\n');
     }
+  }
+
+  if (bestEffortCandidate) {
+    console.warn(
+      `[AI GEN] Accepting best-effort question set (${bestEffortCandidate.normalizedQuestions.length}/${input.context.request.count}) after validation drift: ${bestEffortCandidate.issues.join(' | ')}`,
+    );
+    return {
+      attempts: bestEffortCandidate.attempts,
+      normalizedQuestions: bestEffortCandidate.normalizedQuestions,
+      bestEffort: true,
+      validationIssues: bestEffortCandidate.issues,
+    };
   }
 
   throw new Error(
@@ -370,6 +410,8 @@ export async function generateQuestionsFromSource(request: QuestionGenerationReq
   const payload = buildQuestionGenerationResult(context, execution.normalizedQuestions, {
     attempts: execution.attempts,
     language_validated: true,
+    best_effort: Boolean((execution as any).bestEffort),
+    validation_issues: Array.isArray((execution as any).validationIssues) ? (execution as any).validationIssues.slice(0, 6) : [],
   });
 
   await saveCachedQuestionGeneration(
@@ -431,5 +473,7 @@ export async function improveQuestionsFromSource(
     improvement_mode: true,
     language_validated: true,
     existing_questions_count: existingQuestionsBlock.length,
+    best_effort: Boolean((execution as any).bestEffort),
+    validation_issues: Array.isArray((execution as any).validationIssues) ? (execution as any).validationIssues.slice(0, 6) : [],
   });
 }
