@@ -1,13 +1,15 @@
 /**
  * Central API Client for Quizzi
- * 
- * Handles prepending the backend URL (Render) in production and 
- * uses relative paths in development (proxied by Vite).
+ *
+ * Uses same-origin requests by default so production, previews, and local
+ * smoke builds all talk to the host that served the app. Override with
+ * VITE_API_PROXY_TARGET only when the frontend is intentionally deployed
+ * on a different origin from the API.
  */
 
 import { getParticipantToken } from './studentSession.ts';
 
-const API_BASE = import.meta.env.VITE_API_PROXY_TARGET || (import.meta.env.PROD ? 'https://quizzi-mqru.onrender.com' : '');
+const API_BASE = String(import.meta.env.VITE_API_PROXY_TARGET || '').trim().replace(/\/+$/, '');
 const TEACHER_AUTH_KEY = 'quizzi.teacher.auth';
 const TEACHER_TOKEN_KEY = 'quizzi.teacher.token';
 const TEACHER_AUTH_RETRY_HEADER = 'X-Quizzi-Teacher-Auth-Retry';
@@ -44,8 +46,6 @@ export function getApiUrl(path: string): string {
   // Ensure we don't double slash
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   
-  // In development, API_BASE is empty (Vite proxy handles it)
-  // In production, API_BASE is the Render URL (e.g. https://quizzi.onrender.com)
   return `${API_BASE}${cleanPath}`;
 }
 

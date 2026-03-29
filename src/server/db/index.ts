@@ -4,17 +4,43 @@ import fs from 'fs';
 import { buildLegacyStudentIdentityKey } from '../services/studentIdentity.js';
 import { createPostgresMirror } from './postgresMirror.js';
 
+function normalizeEnvValue(value: unknown) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (
+    (raw.startsWith('"') && raw.endsWith('"')) ||
+    (raw.startsWith("'") && raw.endsWith("'"))
+  ) {
+    return raw.slice(1, -1).trim();
+  }
+  return raw;
+}
+
 function resolveSqliteDbPath() {
   const cwdDbPath = path.resolve(process.cwd(), 'quizzi.db');
-  const explicitPath = String(process.env.SQLITE_DB_PATH || process.env.QUIZZI_SQLITE_PATH || '').trim();
-  const renderDiskPath = String(process.env.RENDER_DISK_PATH || '').trim();
+  const explicitPath = normalizeEnvValue(process.env.SQLITE_DB_PATH || process.env.QUIZZI_SQLITE_PATH);
+  const renderDiskPath = normalizeEnvValue(process.env.RENDER_DISK_PATH);
   const varDataPath = fs.existsSync('/var/data') ? '/var/data/quizzi.db' : '';
+  const persistentRoot = renderDiskPath || (varDataPath ? path.dirname(varDataPath) : '');
+  const shouldPreferPersistentDisk =
+    process.env.NODE_ENV === 'production' &&
+    Boolean(persistentRoot) &&
+    Boolean(explicitPath) &&
+    !path.isAbsolute(explicitPath);
 
   let candidate = explicitPath
-    ? path.resolve(explicitPath)
+    ? shouldPreferPersistentDisk
+      ? path.resolve(persistentRoot, explicitPath)
+      : path.resolve(explicitPath)
     : renderDiskPath
       ? path.resolve(renderDiskPath, 'quizzi.db')
       : varDataPath || cwdDbPath;
+
+  if (shouldPreferPersistentDisk) {
+    console.warn(
+      `[db] SQLITE_DB_PATH="${explicitPath}" is relative in production, so Quizzi will store SQLite on the persistent disk at ${candidate}.`,
+    );
+  }
 
   const targetDirectory = path.dirname(candidate);
 
@@ -726,7 +752,7 @@ export function getPostgresMirrorStatus() {
 
 export function getSqliteStorageStatus(): SqliteStorageStatus {
   const explicitPathConfigured = Boolean(
-    String(process.env.SQLITE_DB_PATH || process.env.QUIZZI_SQLITE_PATH || process.env.RENDER_DISK_PATH || '').trim(),
+    normalizeEnvValue(process.env.SQLITE_DB_PATH || process.env.QUIZZI_SQLITE_PATH || process.env.RENDER_DISK_PATH),
   );
   const usingWorkingDirectory = dbPath === defaultCwdDbPath;
   const onRenderDisk = dbPath.startsWith('/var/data/');

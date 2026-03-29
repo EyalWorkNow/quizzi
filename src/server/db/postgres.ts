@@ -17,6 +17,7 @@ type PoolOptions = {
 };
 
 let sharedRuntimePool: Pool | null = null;
+let warnedAboutSuspiciousDirectUrl = false;
 
 const POOLED_CONNECTION_ENV_KEYS = [
   'DATABASE_URL',
@@ -34,7 +35,7 @@ const DIRECT_CONNECTION_ENV_KEYS = [
 
 function resolveEnvValue(keys: readonly string[]) {
   for (const key of keys) {
-    const value = String(process.env[key] || '').trim();
+    const value = normalizeEnvValue(process.env[key]);
     if (value) {
       return {
         key,
@@ -49,26 +50,64 @@ function resolveEnvValue(keys: readonly string[]) {
   };
 }
 
-export function getPostgresConnectionString(options: PoolOptions = {}) {
+function normalizeEnvValue(value: unknown) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (
+    (raw.startsWith('"') && raw.endsWith('"')) ||
+    (raw.startsWith("'") && raw.endsWith("'"))
+  ) {
+    return raw.slice(1, -1).trim();
+  }
+  return raw;
+}
+
+function pointsToSupabasePooler(connectionString: string) {
+  try {
+    const parsed = new URL(connectionString);
+    return /pooler\.supabase\.com$/i.test(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function resolveConnectionCandidate(options: PoolOptions = {}) {
   const pooled = resolveEnvValue(POOLED_CONNECTION_ENV_KEYS);
   const direct = resolveEnvValue(DIRECT_CONNECTION_ENV_KEYS);
 
   if (options.preferDirect) {
-    return direct.value || pooled.value || '';
+    const suspiciousDirect = Boolean(direct.value) && pointsToSupabasePooler(direct.value);
+    if (suspiciousDirect && pooled.value) {
+      if (!warnedAboutSuspiciousDirectUrl) {
+        warnedAboutSuspiciousDirectUrl = true;
+        console.warn(
+          `[db] ${direct.key} points at the Supabase pooler host, so mirror/setup operations will fall back to ${pooled.key}.`,
+        );
+      }
+      return {
+        key: pooled.key,
+        value: pooled.value,
+      };
+    }
+
+    return {
+      key: direct.key || pooled.key,
+      value: direct.value || pooled.value,
+    };
   }
 
-  return pooled.value || direct.value || '';
+  return {
+    key: pooled.key || direct.key,
+    value: pooled.value || direct.value,
+  };
+}
+
+export function getPostgresConnectionString(options: PoolOptions = {}) {
+  return resolveConnectionCandidate(options).value || '';
 }
 
 export function getPostgresConnectionSource(options: PoolOptions = {}) {
-  const pooled = resolveEnvValue(POOLED_CONNECTION_ENV_KEYS);
-  const direct = resolveEnvValue(DIRECT_CONNECTION_ENV_KEYS);
-
-  if (options.preferDirect) {
-    return direct.key || pooled.key || null;
-  }
-
-  return pooled.key || direct.key || null;
+  return resolveConnectionCandidate(options).key || null;
 }
 
 export function isPostgresConfigured() {
@@ -104,7 +143,8 @@ export function createPostgresPool(options: PoolOptions = {}) {
     connectionString,
     max: options.max ?? (options.preferDirect ? 2 : 6),
     idleTimeoutMillis: 10_000,
-    connectionTimeoutMillis: 3_500,
+    connectionTimeoutMillis: Math.max(3_500, Number(process.env.QUIZZI_POSTGRES_CONNECT_TIMEOUT_MS || 15_000)),
+    keepAliveInitialDelayMillis: 10_000,
   };
 
   if (shouldUseSsl(connectionString)) {
