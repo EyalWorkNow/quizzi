@@ -92,6 +92,10 @@ async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit) {
 }
 
 async function readJsonOrThrow(response: Response) {
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (!contentType.includes('application/json')) {
+    throw new Error('Authentication endpoint returned HTML instead of JSON. Check the deployed API base or hosting rewrites.');
+  }
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(payload?.error || response.statusText || 'Student authentication request failed');
@@ -124,7 +128,7 @@ export async function refreshStudentSession() {
     return null;
   }
 
-  const payload = ensureStudentSessionPayload(await response.json());
+  const payload = ensureStudentSessionPayload(await readJsonOrThrow(response));
   writeAuth(payload);
   return payload;
 }

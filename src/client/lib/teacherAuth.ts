@@ -112,6 +112,10 @@ function syncTeacherProfile(email: string, name?: string, school?: string) {
 }
 
 async function readJsonOrThrow(response: Response) {
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (!contentType.includes('application/json')) {
+    throw new Error('Authentication endpoint returned HTML instead of JSON. Check the deployed API base or hosting rewrites.');
+  }
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(payload?.error || response.statusText || 'Teacher authentication request failed');
@@ -173,7 +177,7 @@ export async function refreshTeacherSession() {
     return null;
   }
 
-  const payload = ensureTeacherSessionPayload(await response.json());
+  const payload = ensureTeacherSessionPayload(await readJsonOrThrow(response));
   writeAuth(payload);
   return payload;
 }

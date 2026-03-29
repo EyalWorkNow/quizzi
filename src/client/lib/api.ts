@@ -1,15 +1,35 @@
 /**
  * Central API Client for Quizzi
  *
- * Uses same-origin requests by default so production, previews, and local
- * smoke builds all talk to the host that served the app. Override with
- * VITE_API_PROXY_TARGET only when the frontend is intentionally deployed
- * on a different origin from the API.
+ * Defaults to same-origin on localhost and Render-hosted deployments, but
+ * automatically falls back to the canonical Render API when the frontend is
+ * served from a separate host such as Vercel or a preview domain.
  */
 
 import { getParticipantToken } from './studentSession.ts';
 
-const API_BASE = String(import.meta.env.VITE_API_PROXY_TARGET || '').trim().replace(/\/+$/, '');
+const RENDER_API_FALLBACK = 'https://quizzi-mqru.onrender.com';
+
+function resolveApiBase() {
+  const explicitBase = String(import.meta.env.VITE_API_PROXY_TARGET || '').trim().replace(/\/+$/, '');
+  if (explicitBase) return explicitBase;
+
+  if (typeof window === 'undefined') {
+    return '';
+  }
+
+  const host = String(window.location.hostname || '').trim().toLowerCase();
+  const isLocalHost = host === 'localhost' || host === '127.0.0.1';
+  const isRenderHost = host.endsWith('.onrender.com');
+
+  if (isLocalHost || isRenderHost) {
+    return '';
+  }
+
+  return RENDER_API_FALLBACK;
+}
+
+const API_BASE = resolveApiBase();
 const TEACHER_AUTH_KEY = 'quizzi.teacher.auth';
 const TEACHER_TOKEN_KEY = 'quizzi.teacher.token';
 const TEACHER_AUTH_RETRY_HEADER = 'X-Quizzi-Teacher-Auth-Retry';
