@@ -214,7 +214,9 @@ async function startServer() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
-    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    // Firebase/Google auth popups rely on window.close/window.closed checks that are noisy
+    // under stricter COOP settings in some browsers. We do not need cross-origin isolation here.
+    res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
     res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
     res.setHeader('X-DNS-Prefetch-Control', 'off');
     if (process.env.NODE_ENV === 'production') {

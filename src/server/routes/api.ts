@@ -1189,7 +1189,8 @@ async function getMasteryRowsForIdentityKeys(identityKeys: string[]) {
 }
 
 async function buildStudentClassSummaries(studentUserId: number) {
-  return await listStudentClassWorkspaces(studentUserId);
+  const studentUser = await getStudentUserById(studentUserId);
+  return await listStudentClassWorkspaces(studentUserId, studentUser?.email || '');
 }
 
 function sanitizeAssignmentTitle(value: unknown) {
@@ -3745,6 +3746,15 @@ async function buildStudentPortalPayload(studentUserId: number) {
     return null;
   }
 
+  try {
+    await claimRosterRowsForStudentUser({
+      studentUserId: Number(studentUser.id),
+      email: String(studentUser.email || ''),
+    });
+  } catch (error: any) {
+    console.error('[WARN] Student portal roster-claim fallback engaged:', error);
+  }
+
   let classes: any[] = [];
   try {
     const loadedClasses = await buildStudentClassSummaries(studentUserId);
@@ -4680,7 +4690,7 @@ router.get('/student-auth/session', async (req, res) => {
     });
     issueStudentSession(req, res, token);
 
-    const claimedClasses = await listStudentClassWorkspaces(Number(studentUser.id));
+    const claimedClasses = await listStudentClassWorkspaces(Number(studentUser.id), studentUser.email || '');
     res.json({
       ...session,
       token,
