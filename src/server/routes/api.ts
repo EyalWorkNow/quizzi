@@ -6318,11 +6318,22 @@ router.post('/packs/generate', requireTeacherSession, async (req, res) => {
     res.json(responsePayload);
   } catch (error: any) {
     console.error('[ERROR] Generate Route Crash:', error);
-    if (/saturated/i.test(String(error?.message || ''))) {
-      res.status(503).json({ error: 'AI generation is busy. Try again shortly.' });
+    const message = String(error?.message || '').trim();
+    if (/saturated|quota|resource_exhausted|rate limit|429/i.test(message)) {
+      res.status(503).json({ error: 'AI generation is busy right now. Try again in a moment.' });
       return;
     }
-    respondWithServerError(res, 'Failed to generate questions');
+    if (/not configured|no configured ai model providers|api key/i.test(message)) {
+      res.status(503).json({ error: 'The AI provider is not configured correctly on the server yet.' });
+      return;
+    }
+    if (/language contract|invalid json|unusable payload|parser\/runtime detail/i.test(message)) {
+      res.status(502).json({
+        error: 'The AI returned an unstable response. Try fewer questions, slightly shorter material, or run generation again.',
+      });
+      return;
+    }
+    respondWithServerError(res, message || 'Failed to generate questions');
   }
 });
 
@@ -6354,7 +6365,22 @@ router.post('/packs/improve-questions', requireTeacherSession, async (req, res) 
     res.json(payload);
   } catch (error: any) {
     console.error('[ERROR] Improve questions route crash:', error);
-    respondWithServerError(res, 'Failed to improve questions');
+    const message = String(error?.message || '').trim();
+    if (/saturated|quota|resource_exhausted|rate limit|429/i.test(message)) {
+      res.status(503).json({ error: 'AI generation is busy right now. Try again in a moment.' });
+      return;
+    }
+    if (/not configured|no configured ai model providers|api key/i.test(message)) {
+      res.status(503).json({ error: 'The AI provider is not configured correctly on the server yet.' });
+      return;
+    }
+    if (/language contract|invalid json|unusable payload|parser\/runtime detail/i.test(message)) {
+      res.status(502).json({
+        error: 'The AI returned an unstable response while improving the questions. Try again or reduce the request size.',
+      });
+      return;
+    }
+    respondWithServerError(res, message || 'Failed to improve questions');
   }
 });
 
