@@ -1,3 +1,4 @@
+import type { Request } from 'express';
 import nodemailer from 'nodemailer';
 
 type MailPayload = {
@@ -129,6 +130,27 @@ export function getPublicAppUrl() {
   }
 
   return 'http://127.0.0.1:5173';
+}
+
+export function resolvePublicAppUrlFromRequest(req?: Pick<Request, 'headers' | 'protocol'> | null) {
+  const forwardedProto = String(req?.headers?.['x-forwarded-proto'] || req?.protocol || '')
+    .split(',')[0]
+    .trim();
+  const forwardedHost = String(req?.headers?.['x-forwarded-host'] || req?.headers?.host || '')
+    .split(',')[0]
+    .trim();
+
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`.replace(/\/+$/, '');
+  }
+
+  const origin = String(req?.headers?.origin || '')
+    .split(',')[0]
+    .trim()
+    .replace(/\/+$/, '');
+  if (origin) return origin;
+
+  return getPublicAppUrl();
 }
 
 export function isMailConfigured() {

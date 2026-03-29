@@ -10,6 +10,7 @@ import { runPythonEngine } from '../services/pythonEngine.js';
 import { translateUiTexts } from '../services/uiTranslation.js';
 import { buildStudentMemorySnapshot, type StudentMemoryBuildInput, type StudentMemorySnapshot } from '../services/studentMemory.js';
 import { broadcastToSession, registerSseClient } from '../services/sseHub.js';
+import { resolvePublicAppUrlFromRequest } from '../services/mailer.js';
 import { buildRateLimitKey, checkRateLimit, isTrustedOrigin } from '../services/requestGuards.js';
 import { createBoundedTaskGate, defaultTaskConcurrency, envTaskConcurrency } from '../services/taskGate.js';
 import { getFirebaseAdminAuth } from '../services/firebaseAdmin.js';
@@ -1237,10 +1238,12 @@ async function sendClassInviteForRosterStudent({
   teacherUserId,
   classBoard,
   studentRow,
+  baseUrl,
 }: {
   teacherUserId: number;
   classBoard: any;
   studentRow: any;
+  baseUrl?: string | null;
 }) {
   const email = sanitizeStudentEmailInput(studentRow?.email);
   if (!email) return null;
@@ -1255,6 +1258,7 @@ async function sendClassInviteForRosterStudent({
     teacherName: teacherProfile?.display_name || null,
     teacherEmail: teacherProfile?.email || null,
     alreadyClaimed: String(studentRow?.invite_status || '') === 'claimed',
+    baseUrl,
   });
 
   await recordTeacherClassInviteDelivery({
@@ -1271,10 +1275,12 @@ async function sendClassInvitesForBoard({
   teacherUserId,
   classBoard,
   rosterStudentIds,
+  baseUrl,
 }: {
   teacherUserId: number;
   classBoard: any;
   rosterStudentIds?: number[] | null;
+  baseUrl?: string | null;
 }) {
   const targetIds = new Set(uniqueNumbers(rosterStudentIds || []));
   const candidates = Array.isArray(classBoard?.students)
@@ -1289,6 +1295,7 @@ async function sendClassInvitesForBoard({
       teacherUserId,
       classBoard,
       studentRow,
+      baseUrl,
     });
   }
 }
@@ -4282,6 +4289,7 @@ router.post('/student-auth/password-reset/request', async (req, res) => {
   const delivery = await createStudentPasswordResetRequest({
     email,
     locale: getRequestedUiLanguage(req),
+    baseUrl: resolvePublicAppUrlFromRequest(req),
   });
 
   if (!delivery.ok && delivery.deliveryStatus !== 'sent') {
@@ -5050,6 +5058,7 @@ router.post('/teacher/classes', requireTeacherSession, async (req, res) => {
     await sendClassInvitesForBoard({
       teacherUserId,
       classBoard: createdClass,
+      baseUrl: resolvePublicAppUrlFromRequest(req),
     });
 
     res.status(201).json((await getHydratedTeacherClass(classId, teacherUserId)) || createdClass);
@@ -5229,6 +5238,7 @@ router.post('/teacher/classes/:id/students', requireTeacherSession, async (req, 
       teacherUserId,
       classBoard,
       rosterStudentIds: addedStudentId ? [addedStudentId] : null,
+      baseUrl: resolvePublicAppUrlFromRequest(req),
     });
 
     res.status(201).json((await getHydratedTeacherClass(classId, teacherUserId)) || classBoard);
@@ -5273,6 +5283,7 @@ router.post('/teacher/classes/:classId/students/:studentId/resend-invite', requi
       teacherUserId,
       classBoard,
       rosterStudentIds: [studentId],
+      baseUrl: resolvePublicAppUrlFromRequest(req),
     });
 
     res.json((await getHydratedTeacherClass(classId, teacherUserId)) || classBoard);

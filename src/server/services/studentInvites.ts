@@ -10,6 +10,7 @@ type StudentInvitePayload = {
   teacherName?: string | null;
   teacherEmail?: string | null;
   alreadyClaimed?: boolean;
+  baseUrl?: string | null;
 };
 
 type InviteLocale = 'he' | 'en';
@@ -46,18 +47,21 @@ function buildInviteLink({
   studentEmail,
   className,
   alreadyClaimed,
+  baseUrl,
 }: {
   classId: number;
   studentEmail: string;
   className: string;
   alreadyClaimed?: boolean;
+  baseUrl?: string | null;
 }) {
   const params = new URLSearchParams();
   params.set('email', studentEmail);
   params.set('class_id', String(classId));
   params.set('class_name', className);
   params.set('mode', alreadyClaimed ? 'login' : 'register');
-  return `${getPublicAppUrl()}/student/auth?${params.toString()}`;
+  const resolvedBaseUrl = String(baseUrl || getPublicAppUrl()).trim().replace(/\/+$/, '');
+  return `${resolvedBaseUrl}/student/auth?${params.toString()}`;
 }
 
 function getInviteCopy(locale: InviteLocale, alreadyClaimed: boolean) {
@@ -260,7 +264,7 @@ function buildInviteHtml({
   const safeClassName = escapeHtml(payload.className || (locale === 'he' ? 'הכיתה שלך' : 'Your class'));
   const safeTeacherName = escapeHtml(payload.teacherName || (locale === 'he' ? 'המורה שלך' : 'your teacher'));
   const safeTeacherEmail = escapeHtml(payload.teacherEmail || '');
-  const baseUrl = getPublicAppUrl();
+  const baseUrl = String(payload.baseUrl || getPublicAppUrl()).trim().replace(/\/+$/, '');
   const classMeta = buildMetaLine([payload.classSubject || '', payload.classGrade || ''], locale);
   const introLead =
     locale === 'he'
@@ -622,6 +626,7 @@ export async function sendStudentClassInviteEmail(payload: StudentInvitePayload)
     studentEmail: payload.studentEmail,
     className: payload.className,
     alreadyClaimed: payload.alreadyClaimed,
+    baseUrl: payload.baseUrl,
   });
   const locale = resolveInviteLocale(payload);
   const copy = getInviteCopy(locale, Boolean(payload.alreadyClaimed));
