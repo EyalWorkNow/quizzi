@@ -16,6 +16,7 @@ import { checkPostgresHealth, closePostgresPool } from './src/server/db/postgres
 import { checkSupabaseRestHealth } from './src/server/services/supabaseAdmin.js';
 import { isAllowedBrowserOrigin, normalizeOrigin } from './src/server/services/requestGuards.js';
 import { assertSecureAuthConfig, getAuthSecretStatus } from './src/server/services/authSecrets.js';
+import { logMailHealth } from './src/server/services/mailer.js';
 import apiRouter from './src/server/routes/api.js';
 
 // Global error handlers for better logging on Render
@@ -131,6 +132,8 @@ async function startServer() {
     console.warn('[startup] Persistence configuration warning:', err?.message || err);
     // We log the error but continue to allow the server to start so the user can see logs/health status
   }
+
+  logMailHealth('startup');
 
 
 

@@ -335,10 +335,6 @@ export default function StudentClassView() {
       try {
         payload = await apiFetchJson(`/api/student/me/classes/${classId}`);
       } catch (classError: any) {
-        const message = String(classError?.message || '');
-        if (!message.includes('API route not found')) {
-          throw classError;
-        }
         const portalPayload = await apiFetchJson('/api/student/me');
         const allClasses = [
           ...(Array.isArray(portalPayload?.active_classes) ? portalPayload.active_classes : []),
@@ -356,12 +352,17 @@ export default function StudentClassView() {
           recommendations: portalPayload.recommendations,
           student_memory: portalPayload.student_memory,
           session_history: Array.isArray(portalPayload.session_history) ? portalPayload.session_history : [],
+          assignment: null,
           class_progress: {
             accuracy: matchedClass?.stats?.average_accuracy ?? null,
             session_count: Number(matchedClass?.stats?.session_count || 0),
             active_session_count: Number(matchedClass?.stats?.active_session_count || 0),
           },
         };
+        console.warn('[StudentClassView] Falling back to student portal payload for class view:', {
+          classId,
+          message: String(classError?.message || 'Unknown class detail error'),
+        });
       }
       setData(payload);
     } catch (loadError: any) {
