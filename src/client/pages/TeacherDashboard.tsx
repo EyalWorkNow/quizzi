@@ -2,26 +2,19 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowUpRight,
-  BarChart,
-  BarChart3,
   BookOpen,
   Building2,
   CalendarDays,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
+  ChevronDown,
   Compass,
   Copy,
   Filter,
   Globe,
-  HelpCircle,
   History,
-  Layout,
   Leaf,
   Library,
-  LogOut,
   Map,
-  Menu,
   Mountain,
   Play,
   Pin,
@@ -29,7 +22,6 @@ import {
   RefreshCw,
   Rocket,
   Search,
-  Settings,
   Sparkles,
   SquarePen,
   Trash2,
@@ -40,9 +32,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { loadTeacherSettings } from '../lib/localData.ts';
 import { trackTeacherSessionLaunch } from '../lib/appAnalytics.ts';
-import { signOutTeacher } from '../lib/teacherAuth.ts';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
@@ -50,7 +40,6 @@ import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
 import UiverseSearchField from '../components/UiverseSearchField.tsx';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from '../../shared/sessionSoundtracks.ts';
-import { listTeacherClasses, type TeacherClassCard } from '../lib/teacherClasses.ts';
 
 const SORT_OPTIONS = [
   { id: 'recent' },
@@ -97,7 +86,7 @@ function getCategoryIcon(category: string) {
   }
 }
 
-function formatRelativeTime(t: any, value?: string | null) {
+function formatRelativeTime(t: any, value?: string | null, language: 'en' | 'he' | 'ar' = 'en') {
   if (!value) return t('dash.preview.notSet');
   const timestamp = new Date(value).getTime();
   if (!Number.isFinite(timestamp)) return t('dash.preview.lastRun');
@@ -111,10 +100,16 @@ function formatRelativeTime(t: any, value?: string | null) {
   const diffDays = Math.round(diffHours / 24);
   if (diffDays < 7) return t('dash.preview.daysAgo', { days: diffDays });
 
-  return new Intl.DateTimeFormat('he-IL', { month: 'short', day: 'numeric' }).format(new Date(timestamp));
+  const localeMap = {
+    he: 'he-IL',
+    ar: 'ar',
+    en: 'en-US',
+  } as const;
+
+  return new Intl.DateTimeFormat(localeMap[language], { month: 'short', day: 'numeric' }).format(new Date(timestamp));
 }
 
-function getPackState(t: any, pack: any) {
+function getPackState(t: any, pack: any, language: 'en' | 'he' | 'ar') {
   if (Number(pack.active_session_count || 0) > 0) {
     return {
       label: t('dash.pack.activeSession'),
@@ -125,7 +120,7 @@ function getPackState(t: any, pack: any) {
   if (Number(pack.session_count || 0) > 0) {
     return {
       label: t('dash.pack.readyToRerun'),
-      body: t('dash.pack.rerunBody', { time: formatRelativeTime(t, pack.last_session_at), players: pack.last_session_players || 0 }),
+      body: t('dash.pack.rerunBody', { time: formatRelativeTime(t, pack.last_session_at, language), players: pack.last_session_players || 0 }),
       tone: 'bg-brand-yellow text-brand-dark',
     };
   }
@@ -166,7 +161,6 @@ function recommendModesForPack(pack: any) {
 
 export default function TeacherDashboard() {
   const [packs, setPacks] = useState<any[]>([]);
-  const [classes, setClasses] = useState<TeacherClassCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -186,15 +180,13 @@ export default function TeacherDashboard() {
   const [busyAction, setBusyAction] = useState<{ packId: number; action: string } | null>(null);
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [hasLoadedPackBoard, setHasLoadedPackBoard] = useState(false);
-  const [recentPackIds, setRecentPackIds] = useState<number[]>(() => readStoredPackIds(RECENT_PACKS_KEY));
+  const [, setRecentPackIds] = useState<number[]>(() => readStoredPackIds(RECENT_PACKS_KEY));
   const [pinnedPackIds, setPinnedPackIds] = useState<number[]>(() => readStoredPackIds(PINNED_PACKS_KEY));
   const [pinnedOnly, setPinnedOnly] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const { t, direction } = useAppLanguage();
+  const { t, direction, language } = useAppLanguage();
   const isRtl = direction === 'rtl';
-  const teacherProfile = loadTeacherSettings().profile;
-
   const loadPacks = async () => {
     try {
       setLoading(true);
@@ -209,14 +201,8 @@ export default function TeacherDashboard() {
     }
   };
 
-  const loadClasses = async () => {
-    const payload = await listTeacherClasses();
-    setClasses(Array.isArray(payload) ? payload : []);
-  };
-
-
   const refreshDashboard = async () => {
-    await Promise.allSettled([loadPacks(), loadClasses()]);
+    await loadPacks();
   };
 
   useEffect(() => {
@@ -235,11 +221,6 @@ export default function TeacherDashboard() {
     setNotice(state.notice);
     navigate(location.pathname, { replace: true });
   }, [location.pathname, location.state, navigate]);
-
-  const handleLogout = async () => {
-    await signOutTeacher();
-    navigate('/');
-  };
 
   const openPackEditor = (packId: number) => {
     setRecentPackIds((current) => {
@@ -313,129 +294,6 @@ export default function TeacherDashboard() {
       return rightDate - leftDate || Number(right.id || 0) - Number(left.id || 0);
     });
   }, [activeCategory, packs, pinnedOnly, pinnedPackIds, searchQuery, sortBy]);
-
-  const recentPacks = useMemo(
-    () => recentPackIds.map((id) => packs.find((pack) => Number(pack.id) === Number(id)) || null).filter(Boolean) as any[],
-    [packs, recentPackIds],
-  );
-
-  const dashboardStats = useMemo(() => {
-    const totalQuestions = packs.reduce((sum, pack) => sum + Number(pack.question_count || 0), 0);
-    return [
-      {
-        id: 'packs',
-        label: t('dash.stats.myQuizzes'),
-        value: packs.length,
-        body: t('dash.stats.myQuizzesBody'),
-        tone: 'bg-white',
-      },
-      {
-        id: 'questions',
-        label: t('dash.stats.questions'),
-        value: totalQuestions,
-        body: t('dash.stats.questionsBody'),
-        tone: 'bg-brand-yellow',
-      },
-      {
-        id: 'live',
-        label: t('dash.stats.activeSessions'),
-        value: packs.filter((pack) => Number(pack.active_session_count || 0) > 0).length,
-        body: t('dash.stats.activeSessionsBody'),
-        tone: 'bg-brand-orange text-white',
-      },
-      {
-        id: 'history',
-        label: t('dash.stats.readyToHost'),
-        value: packs.filter((pack) => Number(pack.session_count || 0) > 0).length,
-        body: t('dash.stats.readyToHostBody'),
-        tone: 'bg-brand-purple text-white',
-      },
-      {
-        id: 'classes',
-        label: 'Active classes',
-        value: classes.length,
-        body: 'Track which classes are ready, drifting, or waiting on your next move.',
-        tone: 'bg-brand-bg',
-      },
-    ];
-  }, [classes.length, packs, t]);
-
-  const classActionFeed = useMemo(() => {
-    const items = classes.flatMap((classRow) => {
-      const actions: Array<{
-        id: string;
-        title: string;
-        body: string;
-        cta: string;
-        href: string;
-        tone: string;
-      }> = [];
-
-      if (Number(classRow.active_session?.id || 0) > 0) {
-        actions.push({
-          id: `live-${classRow.id}`,
-          title: `${classRow.name} is live right now`,
-          body: `Room ${classRow.active_session?.pin || 'open'} is already running. Jump back in before the room cools off.`,
-          cta: 'Open live room',
-          href: `/teacher/session/${classRow.active_session?.pin}/host`,
-          tone: 'bg-brand-orange text-white',
-        });
-      }
-
-      if (Number(classRow.pending_approval_count || 0) > 0) {
-        actions.push({
-          id: `pending-${classRow.id}`,
-          title: `${classRow.pending_approval_count} students still need approval`,
-          body: `${classRow.name} has invites waiting. A quick resend or roster cleanup can unblock access.`,
-          cta: 'Open class',
-          href: `/teacher/classes/${classRow.id}`,
-          tone: 'bg-brand-yellow',
-        });
-      }
-
-      if ((classRow.retention?.needs_attention_count || 0) > 0) {
-        actions.push({
-          id: `retention-${classRow.id}`,
-          title: `${classRow.retention?.needs_attention_count || 0} students are slipping`,
-          body: classRow.retention?.body || 'This class needs a short follow-up before students drift further.',
-          cta: 'Review class',
-          href: `/teacher/classes/${classRow.id}`,
-          tone: 'bg-brand-purple text-white',
-        });
-      }
-
-      if (!classRow.pack?.id) {
-        actions.push({
-          id: `pack-${classRow.id}`,
-          title: `${classRow.name} still needs a pack`,
-          body: 'Attach a pack so this class is actually ready for a live run or follow-up practice.',
-          cta: 'Set pack',
-          href: `/teacher/classes/${classRow.id}`,
-          tone: 'bg-white',
-        });
-      }
-
-      return actions;
-    });
-
-    return items.slice(0, 6);
-  }, [classes]);
-
-  const classPriorityBoard = useMemo(() => {
-    const scoreClass = (classRow: TeacherClassCard) => {
-      let score = 0;
-      if (Number(classRow.active_session?.id || 0) > 0) score += 100;
-      score += Number(classRow.pending_approval_count || 0) * 8;
-      score += Number(classRow.retention?.needs_attention_count || 0) * 10;
-      if (!classRow.pack?.id) score += 20;
-      return score;
-    };
-
-    return [...classes]
-      .sort((left, right) => scoreClass(right) - scoreClass(left))
-      .slice(0, 6);
-  }, [classes]);
-
 
   const handleHost = async (packId: number, gameType = selectedGameMode, teamCount = selectedTeamCount) => {
     try {
@@ -694,45 +552,11 @@ export default function TeacherDashboard() {
         <header className="page-shell-wide relative z-20 flex flex-wrap items-center justify-between gap-4 py-6 border-b-2 border-brand-dark/5">
           <div className={isRtl ? 'text-right' : 'text-left'}>
             <h1 className="text-4xl font-black tracking-tight">{t('dash.nav.myQuizzes')}</h1>
-            <p className="font-bold text-brand-dark/60 mt-1">{t('settings.subtitle')}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate('/teacher/pack/create')}
-              className="px-6 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all flex items-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              {t('dash.nav.createQuiz')}
-            </button>
+            <p className="font-bold text-brand-dark/60 mt-1">{t('dash.page.subtitle')}</p>
           </div>
         </header>
 
         <main className="flex-1 overflow-y-auto page-shell-wide relative z-10 pt-20 lg:pt-6 pb-20">
-          <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 mb-6">
-            <div className="max-w-3xl">
-              <h1 className="text-4xl lg:text-5xl font-black tracking-tight leading-tight">{t('dash.header.title')}</h1>
-              <p className="font-bold text-brand-dark/62 mt-3 text-lg">
-                {t('dash.header.subtitle')}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => void refreshDashboard()}
-                className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-brand-bg transition-all"
-              >
-                <RefreshCw className="w-4 h-4" />
-                {t('dash.action.refresh')}
-              </button>
-              <button
-                onClick={() => navigate('/teacher/pack/create')}
-                className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all"
-              >
-                <Plus className="w-4 h-4" />
-                {t('dash.action.create')}
-              </button>
-            </div>
-          </div>
-
           {notice && (
             <div className={`mb-6 rounded-[1.5rem] border-2 border-brand-dark p-4 shadow-[3px_3px_0px_0px_#1A1A1A] ${notice.tone === 'success' ? 'bg-emerald-100' : 'bg-brand-orange/15'}`}>
               <div className="flex items-start gap-3">
@@ -748,187 +572,106 @@ export default function TeacherDashboard() {
           )}
 
           {!hasBlockingLoadError && (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-              {dashboardStats.map((stat) => (
-                <div key={stat.id} className={`${stat.tone} rounded-[1.7rem] border-4 border-brand-dark p-5 shadow-[6px_6px_0px_0px_#1A1A1A]`}>
-                  <p className="text-xs font-black uppercase tracking-[0.2em] opacity-70 mb-3">{stat.label}</p>
-                  <p className="text-4xl font-black leading-none">{stat.value}</p>
-                  <p className="font-medium text-sm opacity-80 mt-3">{stat.body}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!hasBlockingLoadError && (
-            <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr] mb-6">
-              <section className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
-                <div className="flex items-center gap-3 mb-5">
-                  <Zap className="w-6 h-6 text-brand-orange" />
-                  <div>
-                    <h2 className="text-3xl font-black">Teacher Action Feed</h2>
-                    <p className="text-sm font-bold text-brand-dark/60">The next highest-impact moves across your live rooms and classes.</p>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  {classActionFeed.length > 0 ? classActionFeed.map((item) => (
-                    <div key={item.id} className={`rounded-[1.5rem] border-2 border-brand-dark p-4 ${item.tone}`}>
-                      <p className="text-xs font-black uppercase tracking-[0.18em] opacity-70 mb-2">Action</p>
-                      <p className="text-xl font-black">{item.title}</p>
-                      <p className="mt-2 font-medium opacity-80">{item.body}</p>
-                      <button
-                        type="button"
-                        onClick={() => navigate(item.href)}
-                        className="mt-4 inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black text-brand-dark"
-                      >
-                        {item.cta}
-                        <ArrowUpRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )) : (
-                    <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4 font-medium text-brand-dark/70">
-                      Everything looks stable right now. Use this space to spot live rooms, approval bottlenecks, and drifting classes as soon as they appear.
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <section className="rounded-[2rem] border-4 border-brand-dark bg-brand-bg p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
-                <div className="flex items-center gap-3 mb-5">
-                  <Users className="w-6 h-6 text-brand-purple" />
-                  <div>
-                    <h2 className="text-3xl font-black">Class Priority Board</h2>
-                    <p className="text-sm font-bold text-brand-dark/60">Classes ranked by live urgency, pending approvals, and attention risk.</p>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  {classPriorityBoard.length > 0 ? classPriorityBoard.map((classRow, index) => (
-                    <div key={classRow.id} className="rounded-[1.45rem] border-2 border-brand-dark bg-white p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-black uppercase tracking-[0.16em] text-brand-dark/45">Priority #{index + 1}</p>
-                          <p className="mt-2 text-xl font-black">{classRow.name}</p>
-                          <p className="font-medium text-brand-dark/60">{classRow.subject} • {classRow.grade}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/teacher/classes/${classRow.id}`)}
-                          className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black"
-                        >
-                          Open
-                        </button>
-                      </div>
-                      <div className="mt-4 grid grid-cols-2 gap-3">
-                        <PriorityMetric label="Pending" value={Number(classRow.pending_approval_count || 0)} />
-                        <PriorityMetric label="Needs attention" value={Number(classRow.retention?.needs_attention_count || 0)} />
-                        <PriorityMetric label="Students" value={Number(classRow.student_count || 0)} />
-                        <PriorityMetric label="Accuracy" value={`${Math.round(Number(classRow.stats?.average_accuracy || 0))}%`} />
-                      </div>
-                    </div>
-                  )) : (
-                    <div className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4 font-medium text-brand-dark/70">
-                      As soon as classes are attached to this teacher, this board will rank them by what needs attention first.
-                    </div>
-                  )}
-                </div>
-              </section>
-            </div>
-          )}
-
-
-          {!hasBlockingLoadError && (
             <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-5 lg:p-6 mb-6">
-            <div className="flex flex-col lg:flex-row gap-3 lg:items-center justify-between mb-4">
-              <div className="flex-1 flex flex-col md:flex-row gap-3">
+            <div className="flex flex-col gap-4">
+              <div className="flex-1">
                 <UiverseSearchField
                   id="search-quizzes"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder={t('dash.filter.searchPlaceholder')}
-                  aria-label="Search your quizzes"
+                  aria-label={t('dash.filter.searchAria')}
                   shellClassName="flex-1"
                   dir={direction}
                   onClear={() => setSearchQuery('')}
                 />
-                <div className="flex items-center gap-3">
-                  <div className="min-w-[180px] rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-3 flex items-center gap-3">
-                    <Filter className="w-4 h-4 shrink-0" />
-                    <select
-                      value={sortBy}
-                      onChange={(event) => setSortBy(event.target.value as SortOption)}
-                      className="bg-transparent w-full font-black focus:outline-none"
-                    >
-                      {SORT_OPTIONS.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {t(`dash.sort.${option.id}`)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <button
-                    aria-label="Reset quiz filters"
-                    onClick={() => {
-                      setSearchQuery('');
-                      setActiveCategory(ALL_CATEGORY_ID);
-                      setSortBy('recent');
-                    }}
-                    className="px-5 py-3 bg-brand-bg border-2 border-brand-dark rounded-full flex items-center gap-2 hover:bg-brand-yellow transition-colors font-black"
-                  >
-                    {t('dash.filter.clear')}
-                  </button>
-                </div>
               </div>
-            </div>
 
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
-                {categories.map((category) => (
-                  <button
-                    key={category}
-                    aria-pressed={activeCategory === category}
-                    onClick={() => setActiveCategory(category)}
-                    className={`flex items-center gap-2 shrink-0 px-4 py-2 rounded-full whitespace-nowrap text-sm font-black border-2 border-brand-dark transition-all ${activeCategory === category ? 'bg-brand-purple text-white shadow-[2px_2px_0px_0px_#1A1A1A]' : 'bg-white text-brand-dark hover:bg-brand-yellow'}`}
-                  >
-                    {getCategoryIcon(category)}
-                    <span>{category === ALL_CATEGORY_ID ? 'All' : category}</span>
-                  </button>
-                ))}
-              </div>
               <div className="flex items-center gap-3 text-sm font-black text-brand-dark/60">
                 <span>{t('dash.filter.showing', { count: filteredPacks.length, total: packs.length })}</span>
                 <span className="hidden md:inline">•</span>
                 <span>{t('dash.filter.activeNow', { count: packs.filter((pack) => Number(pack.active_session_count || 0) > 0).length })}</span>
-                <button
-                  type="button"
-                  onClick={() => setPinnedOnly((current) => !current)}
-                  className={`rounded-full border-2 border-brand-dark px-3 py-1 text-xs font-black ${pinnedOnly ? 'bg-brand-purple text-white' : 'bg-white text-brand-dark'}`}
-                >
-                  {pinnedOnly ? 'Pinned only' : 'Show pinned'}
-                </button>
               </div>
+
+              <details className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg px-4 py-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-black">
+                  <span>{t('dash.filter.moreOptions')}</span>
+                  <ChevronDown className="h-4 w-4 shrink-0" />
+                </summary>
+                <div className="mt-4 space-y-4">
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={() => void refreshDashboard()}
+                      className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-brand-bg transition-all"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      {t('dash.action.refresh')}
+                    </button>
+                    <button
+                      onClick={() => navigate('/teacher/pack/create')}
+                      className="px-5 py-3 bg-brand-orange text-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[4px_4px_0px_0px_#1A1A1A] hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all"
+                    >
+                      <Plus className="w-4 h-4" />
+                      {t('dash.nav.createQuiz')}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t('dash.filter.resetAria')}
+                      onClick={() => {
+                        setSearchQuery('');
+                        setActiveCategory(ALL_CATEGORY_ID);
+                        setSortBy('recent');
+                        setPinnedOnly(false);
+                      }}
+                      className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black"
+                    >
+                      {t('dash.filter.clear')}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col md:flex-row gap-3 md:items-center">
+                    <div className="min-w-[180px] rounded-full border-2 border-brand-dark bg-white px-4 py-3 flex items-center gap-3">
+                      <Filter className="w-4 h-4 shrink-0" />
+                      <select
+                        value={sortBy}
+                        onChange={(event) => setSortBy(event.target.value as SortOption)}
+                        className="bg-transparent w-full font-black focus:outline-none"
+                      >
+                        {SORT_OPTIONS.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {t(`dash.sort.${option.id}`)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setPinnedOnly((current) => !current)}
+                      className={`rounded-full border-2 border-brand-dark px-4 py-3 text-sm font-black ${pinnedOnly ? 'bg-brand-purple text-white' : 'bg-white text-brand-dark'}`}
+                    >
+                      {pinnedOnly ? t('dash.filter.pinnedOnly') : t('dash.filter.showPinned')}
+                    </button>
+                  </div>
+
+                  <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+                    {categories.map((category) => (
+                      <button
+                        key={category}
+                        aria-pressed={activeCategory === category}
+                        onClick={() => setActiveCategory(category)}
+                        className={`flex items-center gap-2 shrink-0 px-4 py-2 rounded-full whitespace-nowrap text-sm font-black border-2 border-brand-dark transition-all ${activeCategory === category ? 'bg-brand-purple text-white shadow-[2px_2px_0px_0px_#1A1A1A]' : 'bg-white text-brand-dark hover:bg-brand-yellow'}`}
+                      >
+                        {getCategoryIcon(category)}
+                        <span>{category === ALL_CATEGORY_ID ? t('dash.filter.categoryAll') : category}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </details>
             </div>
             </div>
           )}
-
-          {!hasBlockingLoadError && recentPacks.length > 0 ? (
-            <div className="mb-6 rounded-[1.8rem] border-4 border-brand-dark bg-white p-5 shadow-[6px_6px_0px_0px_#1A1A1A]">
-              <div className="mb-4 flex items-center gap-3">
-                <History className="w-5 h-5 text-brand-orange" />
-                <h2 className="text-2xl font-black">Recently viewed packs</h2>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {recentPacks.map((pack) => (
-                  <button
-                    key={`recent-${pack.id}`}
-                    type="button"
-                    onClick={() => void handlePreview(pack)}
-                    className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black"
-                  >
-                    {pack.title}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
 
           {error && !loading && (
             <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-8 mb-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
@@ -968,23 +711,8 @@ export default function TeacherDashboard() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                <motion.button
-                  whileHover={{ scale: 1.02, rotate: 1 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => navigate('/teacher/pack/create')}
-                  className="rounded-[2rem] border-4 border-dashed border-brand-dark bg-brand-yellow/10 min-h-[320px] p-8 flex flex-col items-center justify-center text-center shadow-[6px_6px_0px_0px_#1A1A1A]"
-                >
-                  <div className="w-24 h-24 bg-brand-yellow border-4 border-brand-dark rounded-[2rem] flex items-center justify-center shadow-[6px_6px_0px_0px_#1A1A1A] mb-6">
-                    <Plus className="w-12 h-12 text-brand-dark" />
-                  </div>
-                  <h3 className="text-2xl font-black uppercase tracking-tight">{t('dash.action.createNewPack')}</h3>
-                  <p className="font-bold text-brand-dark/60 mt-3 max-w-xs">
-                    {t('auth.heroBody')}
-                  </p>
-                </motion.button>
-
                 {filteredPacks.map((pack, index) => {
-                  const state = getPackState(t, pack);
+                  const state = getPackState(t, pack, language);
                   const isBusy = Number(busyAction?.packId) === Number(pack.id);
                   const discoverVisible = isPackPublic(pack);
                   const isLive = Number(pack.active_session_count || 0) > 0;
@@ -1044,14 +772,14 @@ export default function TeacherDashboard() {
                         <div className="bg-brand-bg rounded-xl border-2 border-brand-dark p-3 flex items-center gap-3">
                           <BookOpen className="w-5 h-5 text-brand-orange" />
                           <div>
-                            <p className="text-[10px] font-black opacity-40 leading-none mb-1">שאלות</p>
+                            <p className="text-[10px] font-black opacity-40 leading-none mb-1">{t('dash.stats.questions')}</p>
                             <p className="font-black leading-none">{pack.question_count || 0}</p>
                           </div>
                         </div>
                         <div className="bg-brand-bg rounded-xl border-2 border-brand-dark p-3 flex items-center gap-3">
                           <Users className="w-5 h-5 text-brand-purple" />
                           <div>
-                            <p className="text-[10px] font-black opacity-40 leading-none mb-1">הרצות</p>
+                            <p className="text-[10px] font-black opacity-40 leading-none mb-1">{t('dash.stats.sessions')}</p>
                             <p className="font-black leading-none">{pack.session_count || 0}</p>
                           </div>
                         </div>
@@ -1059,7 +787,7 @@ export default function TeacherDashboard() {
 
                       <div className="relative mb-4">
                         <p data-no-translate="true" className="text-sm font-medium text-brand-dark/70 line-clamp-2 leading-relaxed h-10">
-                          {pack.teaching_brief || pack.source_excerpt || pack.source_text || 'אין תקציר זמין לחבילה זו.'}
+                          {pack.teaching_brief || pack.source_excerpt || pack.source_text || t('dash.pack.noBrief')}
                         </p>
                         <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-white to-transparent" />
                       </div>
@@ -1117,7 +845,7 @@ export default function TeacherDashboard() {
                             });
                           }}
                           disabled={isBusy}
-                          title={pinnedPackIds.includes(Number(pack.id)) ? 'Unpin pack' : 'Pin pack'}
+                          title={pinnedPackIds.includes(Number(pack.id)) ? t('dash.action.unpin') : t('dash.action.pin')}
                           className={`bg-white border-2 border-brand-dark rounded-xl py-2.5 font-black text-sm shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-brand-bg hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all flex items-center justify-center disabled:opacity-60 ${pinnedPackIds.includes(Number(pack.id)) ? 'text-brand-purple' : ''}`}
                         >
                           <Pin className="w-4 h-4" />
@@ -1192,7 +920,7 @@ export default function TeacherDashboard() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-6">
-              <PackMetric label={t('dash.preview.lastRun')} value={formatRelativeTime(t, selectedPack.last_session_at)} />
+              <PackMetric label={t('dash.preview.lastRun')} value={formatRelativeTime(t, selectedPack.last_session_at, language)} />
               <PackMetric label={t('dash.preview.students')} value={selectedPack.last_session_players || 0} />
               <PackMetric label={t('dash.preview.language')} value={selectedPack.source_language || t('dash.preview.notSet')} />
               <PackMetric label={t('dash.preview.versions')} value={selectedPack.version_count || selectedPack.versions?.length || 0} />
@@ -1286,7 +1014,7 @@ export default function TeacherDashboard() {
                       <div className="flex items-center justify-between gap-3 mb-2">
                         <div>
                           <p className="font-black">V{version.version_number} • {version.version_label}</p>
-                          <p className="text-xs font-bold text-brand-dark/55">{version.source_label || 'snapshot'} • {formatRelativeTime(version.created_at)}</p>
+                          <p className="text-xs font-bold text-brand-dark/55">{version.source_label || t('dash.preview.snapshot')} • {formatRelativeTime(t, version.created_at, language)}</p>
                         </div>
                         <button
                           onClick={() => void handleRestoreVersion(selectedPack, version)}
@@ -1371,7 +1099,7 @@ export default function TeacherDashboard() {
                 onClick={() => void handleDuplicate(selectedPack)}
                 className="bg-white border-2 border-brand-dark rounded-2xl py-4 font-black"
               >
-                Duplicate
+                {t('dash.action.duplicate')}
               </button>
               {Number(selectedPack.last_completed_session_id || 0) > 0 && (
                 <button
@@ -1379,15 +1107,15 @@ export default function TeacherDashboard() {
                     void handleCreateRematchFromSession(
                       Number(selectedPack.last_completed_session_id),
                       Number(selectedPack.id),
-                      String(selectedPack.title || 'this pack'),
+                      String(selectedPack.title || t('dash.pack.thisPack')),
                     )
                   }
                   disabled={Number(busyAction?.packId) === Number(selectedPack.id) && busyAction?.action === 'rematch'}
                   className="col-span-2 bg-brand-yellow border-2 border-brand-dark rounded-2xl py-4 font-black disabled:opacity-60"
                 >
                   {Number(busyAction?.packId) === Number(selectedPack.id) && busyAction?.action === 'rematch'
-                    ? 'Building Rematch...'
-                    : 'Build Rematch Pack From Last Completed Run'}
+                    ? t('dash.preview.buildingRematch')
+                    : t('dash.preview.buildRematch')}
                 </button>
               )}
               <button
@@ -1398,7 +1126,7 @@ export default function TeacherDashboard() {
                 className="col-span-2 bg-brand-bg border-2 border-brand-dark rounded-2xl py-4 font-black flex items-center justify-center gap-2"
               >
                 <Trash2 className="w-4 h-4" />
-                Delete Pack
+                {t('dash.preview.deletePack')}
               </button>
             </div>
           </div>
@@ -1440,7 +1168,7 @@ export default function TeacherDashboard() {
               <PackMetric label={t('dash.stats.questions')} value={deletingPack.question_count || 0} />
               <PackMetric label={t('dash.stats.sessions')} value={deletingPack.session_count || 0} />
               <PackMetric label={t('dash.preview.students')} value={deletingPack.last_session_players || 0} />
-              <PackMetric label={t('dash.preview.lastRun')} value={formatRelativeTime(t, deletingPack.last_session_at)} />
+              <PackMetric label={t('dash.preview.lastRun')} value={formatRelativeTime(t, deletingPack.last_session_at, language)} />
             </div>
 
             <div className="flex gap-3">
@@ -1448,14 +1176,14 @@ export default function TeacherDashboard() {
                 onClick={() => setDeletingPack(null)}
                 className="flex-1 bg-white border-2 border-brand-dark rounded-2xl py-4 font-black"
               >
-                Cancel
+                {t('dash.delete.cancel')}
               </button>
               <button
                 onClick={() => void handleDelete()}
                 disabled={!deletingPack.can_delete || Number(busyAction?.packId) === Number(deletingPack.id)}
                 className="flex-1 bg-brand-orange text-white border-2 border-brand-dark rounded-2xl py-4 font-black disabled:opacity-50"
               >
-                Delete Permanently
+                {t('dash.delete.confirm')}
               </button>
             </div>
           </div>
