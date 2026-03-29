@@ -46,6 +46,18 @@ function formatRelativeTime(value?: string | null) {
   return `${diffDays}d ago`;
 }
 
+function formatDueDateTime(value?: string | null, language = 'en') {
+  if (!value) return '--';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '--';
+  return new Intl.DateTimeFormat(language === 'he' ? 'he-IL' : language === 'ar' ? 'ar' : 'en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(parsed);
+}
+
 function formatDeliveryLabel(status: string, language: string) {
   const normalized = String(status || 'none').trim().toLowerCase();
   if (language === 'he') {
@@ -371,6 +383,7 @@ export default function StudentClassView() {
   const classHistory = Array.isArray(classRow?.recent_sessions) ? classRow.recent_sessions : [];
   const personalHistory = Array.isArray(data?.session_history) ? data.session_history : [];
   const weakTags = Array.isArray(data?.recommendations?.weak_tags) ? data.recommendations.weak_tags.slice(0, 4) : [];
+  const assignment = data?.assignment || null;
   const practiceHeadline = data?.recommendations?.next_step?.title || data?.student_memory?.summary?.headline || copy.practice;
   const practiceBody =
     data?.recommendations?.next_step?.body ||
@@ -617,6 +630,96 @@ export default function StudentClassView() {
             />
           </div>
         </section>
+
+        {assignment ? (
+          <section className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+              <div className="max-w-3xl">
+                <p className="mb-2 text-xs font-black uppercase tracking-[0.22em] text-brand-purple">
+                  {language === 'he' ? 'משימה כיתתית' : language === 'ar' ? 'مهمة صفية' : 'Class assignment'}
+                </p>
+                <h2 className="text-3xl font-black text-brand-dark md:text-4xl">{assignment.title}</h2>
+                <p className="mt-3 max-w-2xl font-bold text-brand-dark/65">
+                  {assignment.instructions || (
+                    language === 'he'
+                      ? 'המורה שלח משימה ממוקדת על אותו חומר. סיימו את היעד כדי להגיע מוכנים יותר לסשן הבא.'
+                      : language === 'ar'
+                        ? 'أرسل المعلم مهمة مركزة على نفس المادة. أكمل الهدف للوصول أكثر جاهزية للجلسة القادمة.'
+                        : 'Your teacher sent a focused assignment on the same material. Finish the goal to show up steadier for the next class run.'
+                  )}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <StatusPill tone={assignment.progress?.status === 'completed' ? 'ready' : assignment.progress?.status === 'overdue' ? 'live' : 'neutral'}>
+                    {language === 'he'
+                      ? assignment.progress?.status === 'completed'
+                        ? 'הושלם'
+                        : assignment.progress?.status === 'overdue'
+                          ? 'באיחור'
+                          : assignment.progress?.status === 'in_progress'
+                            ? 'בתהליך'
+                            : 'עוד לא התחיל'
+                      : language === 'ar'
+                        ? assignment.progress?.status === 'completed'
+                          ? 'اكتمل'
+                          : assignment.progress?.status === 'overdue'
+                            ? 'متأخر'
+                            : assignment.progress?.status === 'in_progress'
+                              ? 'قيد التنفيذ'
+                              : 'لم يبدأ'
+                        : assignment.progress?.status === 'completed'
+                          ? 'Completed'
+                          : assignment.progress?.status === 'overdue'
+                            ? 'Overdue'
+                            : assignment.progress?.status === 'in_progress'
+                              ? 'In progress'
+                              : 'Not started'}
+                  </StatusPill>
+                  <StatusPill tone="neutral">
+                    {language === 'he' ? 'דדליין' : language === 'ar' ? 'الموعد النهائي' : 'Due'}: {formatDueDateTime(assignment.due_at, language)}
+                  </StatusPill>
+                  <StatusPill tone="ready">
+                    {language === 'he' ? 'יעד' : language === 'ar' ? 'الهدف' : 'Goal'}: {assignment.question_goal}
+                  </StatusPill>
+                </div>
+              </div>
+
+              <div className="w-full max-w-md rounded-[1.8rem] border-2 border-brand-dark bg-brand-bg p-5">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45">
+                  {language === 'he' ? 'התקדמות אישית' : language === 'ar' ? 'تقدمك الشخصي' : 'Your progress'}
+                </p>
+                <div className="mt-4 h-5 overflow-hidden rounded-full border-2 border-brand-dark bg-white">
+                  <div
+                    className="h-full bg-brand-purple"
+                    style={{ width: `${Math.max(6, Math.min(100, Number(assignment.progress?.completion_pct || 0)))}%` }}
+                  />
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <WorkspaceCard
+                    label={language === 'he' ? 'שאלות שהושלמו' : language === 'ar' ? 'الأسئلة المنجزة' : 'Questions done'}
+                    value={`${Number(assignment.progress?.attempted_questions || 0)}/${Number(assignment.question_goal || 0)}`}
+                    meta={language === 'he' ? 'מתוך יעד המשימה' : language === 'ar' ? 'من هدف المهمة' : 'Toward the assignment goal'}
+                    tone="neutral"
+                    badge={language === 'he' ? 'בתנועה' : language === 'ar' ? 'قيد الحركة' : 'Moving'}
+                  />
+                  <WorkspaceCard
+                    label={copy.accuracy}
+                    value={assignment.progress?.accuracy_pct !== null && assignment.progress?.accuracy_pct !== undefined ? `${Math.round(Number(assignment.progress.accuracy_pct))}%` : '--'}
+                    meta={`${copy.lastSeen}: ${formatRelativeTime(assignment.progress?.last_activity_at)}`}
+                    tone="neutral"
+                    badge={language === 'he' ? 'חי' : language === 'ar' ? 'نشط' : 'Live'}
+                  />
+                </div>
+                <Link
+                  to={practicePath}
+                  className="mt-5 inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-dark px-5 py-3 font-black text-white"
+                >
+                  {copy.enterPractice}
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {[

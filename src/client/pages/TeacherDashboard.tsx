@@ -24,6 +24,7 @@ import {
   Menu,
   Mountain,
   Play,
+  Pin,
   Plus,
   RefreshCw,
   Rocket,
@@ -49,6 +50,7 @@ import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
 import UiverseSearchField from '../components/UiverseSearchField.tsx';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from '../../shared/sessionSoundtracks.ts';
+import { listTeacherClasses, type TeacherClassCard } from '../lib/teacherClasses.ts';
 
 const SORT_OPTIONS = [
   { id: 'recent' },
@@ -59,6 +61,23 @@ const SORT_OPTIONS = [
 ] as const;
 
 const ALL_CATEGORY_ID = '__all__';
+const RECENT_PACKS_KEY = 'quizzi.teacher.recent-packs';
+const PINNED_PACKS_KEY = 'quizzi.teacher.pinned-packs';
+
+function readStoredPackIds(key: string) {
+  if (typeof window === 'undefined') return [] as number[];
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(key) || '[]');
+    return Array.isArray(raw) ? raw.map((value) => Number(value || 0)).filter((value) => value > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredPackIds(key: string, packIds: number[]) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(key, JSON.stringify(Array.from(new Set(packIds)).slice(0, 8)));
+}
 
 type SortOption = (typeof SORT_OPTIONS)[number]['id'];
 
@@ -147,6 +166,7 @@ function recommendModesForPack(pack: any) {
 
 export default function TeacherDashboard() {
   const [packs, setPacks] = useState<any[]>([]);
+  const [classes, setClasses] = useState<TeacherClassCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -166,6 +186,9 @@ export default function TeacherDashboard() {
   const [busyAction, setBusyAction] = useState<{ packId: number; action: string } | null>(null);
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [hasLoadedPackBoard, setHasLoadedPackBoard] = useState(false);
+  const [recentPackIds, setRecentPackIds] = useState<number[]>(() => readStoredPackIds(RECENT_PACKS_KEY));
+  const [pinnedPackIds, setPinnedPackIds] = useState<number[]>(() => readStoredPackIds(PINNED_PACKS_KEY));
+  const [pinnedOnly, setPinnedOnly] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { t, direction } = useAppLanguage();
@@ -186,9 +209,14 @@ export default function TeacherDashboard() {
     }
   };
 
+  const loadClasses = async () => {
+    const payload = await listTeacherClasses();
+    setClasses(Array.isArray(payload) ? payload : []);
+  };
+
 
   const refreshDashboard = async () => {
-    await Promise.allSettled([loadPacks()]);
+    await Promise.allSettled([loadPacks(), loadClasses()]);
   };
 
   useEffect(() => {
@@ -214,6 +242,11 @@ export default function TeacherDashboard() {
   };
 
   const openPackEditor = (packId: number) => {
+    setRecentPackIds((current) => {
+      const next = [packId, ...current.filter((value) => value !== packId)];
+      writeStoredPackIds(RECENT_PACKS_KEY, next);
+      return next;
+    });
     navigate(`/teacher/pack/${packId}/edit`);
   };
 
@@ -258,7 +291,8 @@ export default function TeacherDashboard() {
         activeCategory === ALL_CATEGORY_ID ||
         (pack.top_tags || []).includes(activeCategory) ||
         (pack.topic_fingerprint || []).includes(activeCategory);
-      return matchesSearch && matchesCategory;
+      const matchesPinned = !pinnedOnly || pinnedPackIds.includes(Number(pack.id));
+      return matchesSearch && matchesCategory && matchesPinned;
     });
 
     return [...scoped].sort((left, right) => {
@@ -278,7 +312,12 @@ export default function TeacherDashboard() {
         new Date((sortBy === 'recent' ? right.last_session_at : right.created_at) || 0).getTime() || 0;
       return rightDate - leftDate || Number(right.id || 0) - Number(left.id || 0);
     });
-  }, [activeCategory, packs, searchQuery, sortBy]);
+  }, [activeCategory, packs, pinnedOnly, pinnedPackIds, searchQuery, sortBy]);
+
+  const recentPacks = useMemo(
+    () => recentPackIds.map((id) => packs.find((pack) => Number(pack.id) === Number(id)) || null).filter(Boolean) as any[],
+    [packs, recentPackIds],
+  );
 
   const dashboardStats = useMemo(() => {
     const totalQuestions = packs.reduce((sum, pack) => sum + Number(pack.question_count || 0), 0);
@@ -311,8 +350,91 @@ export default function TeacherDashboard() {
         body: t('dash.stats.readyToHostBody'),
         tone: 'bg-brand-purple text-white',
       },
+      {
+        id: 'classes',
+        label: 'Active classes',
+        value: classes.length,
+        body: 'Track which classes are ready, drifting, or waiting on your next move.',
+        tone: 'bg-brand-bg',
+      },
     ];
-  }, [packs, t]);
+  }, [classes.length, packs, t]);
+
+  const classActionFeed = useMemo(() => {
+    const items = classes.flatMap((classRow) => {
+      const actions: Array<{
+        id: string;
+        title: string;
+        body: string;
+        cta: string;
+        href: string;
+        tone: string;
+      }> = [];
+
+      if (Number(classRow.active_session?.id || 0) > 0) {
+        actions.push({
+          id: `live-${classRow.id}`,
+          title: `${classRow.name} is live right now`,
+          body: `Room ${classRow.active_session?.pin || 'open'} is already running. Jump back in before the room cools off.`,
+          cta: 'Open live room',
+          href: `/teacher/session/${classRow.active_session?.pin}/host`,
+          tone: 'bg-brand-orange text-white',
+        });
+      }
+
+      if (Number(classRow.pending_approval_count || 0) > 0) {
+        actions.push({
+          id: `pending-${classRow.id}`,
+          title: `${classRow.pending_approval_count} students still need approval`,
+          body: `${classRow.name} has invites waiting. A quick resend or roster cleanup can unblock access.`,
+          cta: 'Open class',
+          href: `/teacher/classes/${classRow.id}`,
+          tone: 'bg-brand-yellow',
+        });
+      }
+
+      if ((classRow.retention?.needs_attention_count || 0) > 0) {
+        actions.push({
+          id: `retention-${classRow.id}`,
+          title: `${classRow.retention?.needs_attention_count || 0} students are slipping`,
+          body: classRow.retention?.body || 'This class needs a short follow-up before students drift further.',
+          cta: 'Review class',
+          href: `/teacher/classes/${classRow.id}`,
+          tone: 'bg-brand-purple text-white',
+        });
+      }
+
+      if (!classRow.pack?.id) {
+        actions.push({
+          id: `pack-${classRow.id}`,
+          title: `${classRow.name} still needs a pack`,
+          body: 'Attach a pack so this class is actually ready for a live run or follow-up practice.',
+          cta: 'Set pack',
+          href: `/teacher/classes/${classRow.id}`,
+          tone: 'bg-white',
+        });
+      }
+
+      return actions;
+    });
+
+    return items.slice(0, 6);
+  }, [classes]);
+
+  const classPriorityBoard = useMemo(() => {
+    const scoreClass = (classRow: TeacherClassCard) => {
+      let score = 0;
+      if (Number(classRow.active_session?.id || 0) > 0) score += 100;
+      score += Number(classRow.pending_approval_count || 0) * 8;
+      score += Number(classRow.retention?.needs_attention_count || 0) * 10;
+      if (!classRow.pack?.id) score += 20;
+      return score;
+    };
+
+    return [...classes]
+      .sort((left, right) => scoreClass(right) - scoreClass(left))
+      .slice(0, 6);
+  }, [classes]);
 
 
   const handleHost = async (packId: number, gameType = selectedGameMode, teamCount = selectedTeamCount) => {
@@ -372,6 +494,11 @@ export default function TeacherDashboard() {
 
   const handlePreview = async (pack: any) => {
     try {
+      setRecentPackIds((current) => {
+        const next = [Number(pack.id), ...current.filter((value) => value !== Number(pack.id))];
+        writeStoredPackIds(RECENT_PACKS_KEY, next);
+        return next;
+      });
       setBusyAction({ packId: Number(pack.id), action: 'preview' });
       const data = await loadPackPreview(Number(pack.id));
       setSelectedPack({ ...pack, ...data });
@@ -632,6 +759,81 @@ export default function TeacherDashboard() {
             </div>
           )}
 
+          {!hasBlockingLoadError && (
+            <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr] mb-6">
+              <section className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                <div className="flex items-center gap-3 mb-5">
+                  <Zap className="w-6 h-6 text-brand-orange" />
+                  <div>
+                    <h2 className="text-3xl font-black">Teacher Action Feed</h2>
+                    <p className="text-sm font-bold text-brand-dark/60">The next highest-impact moves across your live rooms and classes.</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {classActionFeed.length > 0 ? classActionFeed.map((item) => (
+                    <div key={item.id} className={`rounded-[1.5rem] border-2 border-brand-dark p-4 ${item.tone}`}>
+                      <p className="text-xs font-black uppercase tracking-[0.18em] opacity-70 mb-2">Action</p>
+                      <p className="text-xl font-black">{item.title}</p>
+                      <p className="mt-2 font-medium opacity-80">{item.body}</p>
+                      <button
+                        type="button"
+                        onClick={() => navigate(item.href)}
+                        className="mt-4 inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black text-brand-dark"
+                      >
+                        {item.cta}
+                        <ArrowUpRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )) : (
+                    <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4 font-medium text-brand-dark/70">
+                      Everything looks stable right now. Use this space to spot live rooms, approval bottlenecks, and drifting classes as soon as they appear.
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-[2rem] border-4 border-brand-dark bg-brand-bg p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                <div className="flex items-center gap-3 mb-5">
+                  <Users className="w-6 h-6 text-brand-purple" />
+                  <div>
+                    <h2 className="text-3xl font-black">Class Priority Board</h2>
+                    <p className="text-sm font-bold text-brand-dark/60">Classes ranked by live urgency, pending approvals, and attention risk.</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {classPriorityBoard.length > 0 ? classPriorityBoard.map((classRow, index) => (
+                    <div key={classRow.id} className="rounded-[1.45rem] border-2 border-brand-dark bg-white p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-[0.16em] text-brand-dark/45">Priority #{index + 1}</p>
+                          <p className="mt-2 text-xl font-black">{classRow.name}</p>
+                          <p className="font-medium text-brand-dark/60">{classRow.subject} • {classRow.grade}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/teacher/classes/${classRow.id}`)}
+                          className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black"
+                        >
+                          Open
+                        </button>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+                        <PriorityMetric label="Pending" value={Number(classRow.pending_approval_count || 0)} />
+                        <PriorityMetric label="Needs attention" value={Number(classRow.retention?.needs_attention_count || 0)} />
+                        <PriorityMetric label="Students" value={Number(classRow.student_count || 0)} />
+                        <PriorityMetric label="Accuracy" value={`${Math.round(Number(classRow.stats?.average_accuracy || 0))}%`} />
+                      </div>
+                    </div>
+                  )) : (
+                    <div className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4 font-medium text-brand-dark/70">
+                      As soon as classes are attached to this teacher, this board will rank them by what needs attention first.
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+          )}
+
 
           {!hasBlockingLoadError && (
             <div className="bg-white rounded-[2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-5 lg:p-6 mb-6">
@@ -695,10 +897,38 @@ export default function TeacherDashboard() {
                 <span>{t('dash.filter.showing', { count: filteredPacks.length, total: packs.length })}</span>
                 <span className="hidden md:inline">•</span>
                 <span>{t('dash.filter.activeNow', { count: packs.filter((pack) => Number(pack.active_session_count || 0) > 0).length })}</span>
+                <button
+                  type="button"
+                  onClick={() => setPinnedOnly((current) => !current)}
+                  className={`rounded-full border-2 border-brand-dark px-3 py-1 text-xs font-black ${pinnedOnly ? 'bg-brand-purple text-white' : 'bg-white text-brand-dark'}`}
+                >
+                  {pinnedOnly ? 'Pinned only' : 'Show pinned'}
+                </button>
               </div>
             </div>
             </div>
           )}
+
+          {!hasBlockingLoadError && recentPacks.length > 0 ? (
+            <div className="mb-6 rounded-[1.8rem] border-4 border-brand-dark bg-white p-5 shadow-[6px_6px_0px_0px_#1A1A1A]">
+              <div className="mb-4 flex items-center gap-3">
+                <History className="w-5 h-5 text-brand-orange" />
+                <h2 className="text-2xl font-black">Recently viewed packs</h2>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {recentPacks.map((pack) => (
+                  <button
+                    key={`recent-${pack.id}`}
+                    type="button"
+                    onClick={() => void handlePreview(pack)}
+                    className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black"
+                  >
+                    {pack.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {error && !loading && (
             <div className="bg-white border-2 border-brand-dark rounded-[2rem] p-8 mb-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
@@ -874,6 +1104,24 @@ export default function TeacherDashboard() {
                           {t('dash.action.edit')}
                         </button>
 
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPinnedPackIds((current) => {
+                              const packId = Number(pack.id);
+                              const next = current.includes(packId)
+                                ? current.filter((value) => value !== packId)
+                                : [packId, ...current];
+                              writeStoredPackIds(PINNED_PACKS_KEY, next);
+                              return next;
+                            });
+                          }}
+                          disabled={isBusy}
+                          title={pinnedPackIds.includes(Number(pack.id)) ? 'Unpin pack' : 'Pin pack'}
+                          className={`bg-white border-2 border-brand-dark rounded-xl py-2.5 font-black text-sm shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-brand-bg hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all flex items-center justify-center disabled:opacity-60 ${pinnedPackIds.includes(Number(pack.id)) ? 'text-brand-purple' : ''}`}
+                        >
+                          <Pin className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => void handleDuplicate(pack)}
                           disabled={isBusy}
@@ -1456,6 +1704,15 @@ function PackMetric({ label, value }: { label: string; value: string | number })
     <div className="rounded-[1.1rem] border-2 border-brand-dark bg-white p-3 shadow-[2px_2px_0px_0px_#1A1A1A]">
       <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-purple mb-1 truncate">{label}</p>
       <p className="font-black text-sm sm:text-base break-words">{value}</p>
+    </div>
+  );
+}
+
+function PriorityMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-[1.1rem] border-2 border-brand-dark bg-brand-bg p-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-brand-dark/45 mb-1">{label}</p>
+      <p className="text-lg font-black text-brand-dark">{value}</p>
     </div>
   );
 }

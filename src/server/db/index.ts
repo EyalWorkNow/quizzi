@@ -448,6 +448,21 @@ export async function initDb() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS teacher_class_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      class_id INTEGER NOT NULL,
+      pack_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      instructions TEXT DEFAULT '',
+      due_at DATETIME,
+      question_goal INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'active',
+      archived INTEGER DEFAULT 0,
+      created_by INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_sessions_pin ON sessions(pin);
     CREATE INDEX IF NOT EXISTS idx_sessions_pack_status ON sessions(quiz_pack_id, status);
@@ -539,6 +554,13 @@ export async function initDb() {
   (await ensureColumn('teacher_class_students', 'claimed_at', 'DATETIME'));
   (await ensureColumn('teacher_class_students', 'last_seen_at', 'DATETIME'));
   (await ensureColumn('teacher_class_students', 'updated_at', 'DATETIME'));
+  (await ensureColumn('teacher_class_assignments', 'instructions', "TEXT DEFAULT ''"));
+  (await ensureColumn('teacher_class_assignments', 'due_at', 'DATETIME'));
+  (await ensureColumn('teacher_class_assignments', 'question_goal', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('teacher_class_assignments', 'status', "TEXT DEFAULT 'active'"));
+  (await ensureColumn('teacher_class_assignments', 'archived', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('teacher_class_assignments', 'created_by', 'INTEGER'));
+  (await ensureColumn('teacher_class_assignments', 'updated_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP'));
   (await ensureColumn('questions', 'question_order', 'INTEGER DEFAULT 0'));
   (await ensureColumn('questions', 'learning_objective', "TEXT DEFAULT ''"));
   (await ensureColumn('questions', 'bloom_level', "TEXT DEFAULT ''"));
@@ -602,6 +624,7 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_teacher_class_students_class ON teacher_class_students(class_id);
     CREATE INDEX IF NOT EXISTS idx_teacher_class_students_email ON teacher_class_students(email);
     CREATE INDEX IF NOT EXISTS idx_teacher_class_students_student_user ON teacher_class_students(student_user_id, class_id);
+    CREATE INDEX IF NOT EXISTS idx_teacher_class_assignments_class ON teacher_class_assignments(class_id, archived, status, due_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_teacher_class ON sessions(teacher_class_id, status);
     CREATE INDEX IF NOT EXISTS idx_participants_session_team ON participants(session_id, team_id);
     CREATE INDEX IF NOT EXISTS idx_participants_identity_key ON participants(identity_key, created_at);

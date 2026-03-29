@@ -23,17 +23,21 @@ import { apiFetchJson } from '../lib/api.ts';
 import {
   addPackToClass,
   addTeacherClassStudent,
+  createTeacherClassAssignment,
   createClassSession,
+  deleteTeacherClassAssignment,
   getTeacherClass,
   getTeacherClassProgress,
   removePackFromClass,
   removeTeacherClassStudent,
   resendTeacherClassStudentInvite,
   TEACHER_CLASS_COLOR_OPTIONS,
+  type TeacherClassAssignment,
   type TeacherClassProgressBoard,
   type TeacherClassColor,
   type TeacherClassPayload,
   type TeacherClassWorkspace,
+  updateTeacherClassAssignment,
   updateTeacherClass,
 } from '../lib/teacherClasses.ts';
 
@@ -130,6 +134,18 @@ function formatSignedDelta(delta: number | null | undefined) {
   return `${delta > 0 ? '+' : ''}${Math.round(delta)}`;
 }
 
+function formatDueDateTime(value?: string | null, language = 'en') {
+  if (!value) return '--';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '--';
+  return new Intl.DateTimeFormat(language === 'he' ? 'he-IL' : language === 'ar' ? 'ar' : 'en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(parsed);
+}
+
 export default function TeacherClassDetail() {
   const { language } = useAppLanguage();
   const { id } = useParams();
@@ -148,6 +164,7 @@ export default function TeacherClassDetail() {
   const [copiedReminderKey, setCopiedReminderKey] = useState('');
   const [copiedClassLink, setCopiedClassLink] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState('');
+  const [selectedRosterStudentIds, setSelectedRosterStudentIds] = useState<number[]>([]);
   const [progressBoard, setProgressBoard] = useState<TeacherClassProgressBoard | null>(null);
   const [progressStudentSearch, setProgressStudentSearch] = useState('');
   const [selectedProgressStudentId, setSelectedProgressStudentId] = useState<number | null>(null);
@@ -156,6 +173,10 @@ export default function TeacherClassDetail() {
   const [progressStudentSort, setProgressStudentSort] = useState<ProgressStudentSort>('activity');
   const [progressTrackedOnly, setProgressTrackedOnly] = useState(true);
   const [compareStudentAgainstClass, setCompareStudentAgainstClass] = useState(true);
+  const [assignmentTitle, setAssignmentTitle] = useState('');
+  const [assignmentInstructions, setAssignmentInstructions] = useState('');
+  const [assignmentDueAt, setAssignmentDueAt] = useState('');
+  const [assignmentQuestionGoal, setAssignmentQuestionGoal] = useState('5');
 
   const copy = ({
     he: {
@@ -885,6 +906,25 @@ export default function TeacherClassDetail() {
     void loadClass();
   }, [loadClass]);
 
+  useEffect(() => {
+    const activeAssignment = classBoard?.assignment_board?.active_assignment || null;
+    if (!activeAssignment) {
+      setAssignmentTitle('');
+      setAssignmentInstructions('');
+      setAssignmentDueAt('');
+      setAssignmentQuestionGoal('5');
+      return;
+    }
+    setAssignmentTitle(String(activeAssignment.title || ''));
+    setAssignmentInstructions(String(activeAssignment.instructions || ''));
+    setAssignmentDueAt(activeAssignment.due_at ? String(activeAssignment.due_at).slice(0, 16) : '');
+    setAssignmentQuestionGoal(String(activeAssignment.question_goal || 5));
+  }, [classBoard?.assignment_board?.active_assignment?.id]);
+
+  useEffect(() => {
+    setSelectedRosterStudentIds([]);
+  }, [classBoard?.id]);
+
   const loadProgress = useCallback(async (studentId?: number | null, compareStudentId?: number | null) => {
     if (!classId) return;
     try {
@@ -1034,17 +1074,19 @@ export default function TeacherClassDetail() {
     if (!classBoard) return;
     try {
       setBusyKey(`invite-${studentId}`);
-      const refreshed = await resendTeacherClassStudentInvite(classBoard.id, studentId);
+      const { board, delivery } = await resendTeacherClassStudentInvite(classBoard.id, studentId);
+      const refreshed = board;
       setClassBoard(refreshed);
       const updatedStudent = refreshed.students.find((student) => Number(student.id) === Number(studentId)) || null;
-      if (updatedStudent?.invite_delivery_status === 'sent') {
+      const deliveryState = String(delivery?.deliveryStatus || updatedStudent?.invite_delivery_status || 'none').toLowerCase();
+      if (deliveryState === 'sent') {
         setFeedback(copy.inviteSent);
-      } else if (updatedStudent?.invite_delivery_status === 'not_configured') {
+      } else if (deliveryState === 'not_configured') {
         setFeedback(
-          `${copy.mailMissing} ${updatedStudent?.invite_last_error || refreshed.mail_health?.missing?.join(', ') || 'EMAIL_PASS'}`,
+          `${copy.mailMissing} ${delivery?.error || updatedStudent?.invite_last_error || refreshed.mail_health?.missing?.join(', ') || 'EMAIL_PASS'}`,
         );
       } else {
-        setFeedback(updatedStudent?.invite_last_error || 'Failed to resend the invite.');
+        setFeedback(delivery?.error || updatedStudent?.invite_last_error || 'Failed to resend the invite.');
       }
     } catch (inviteError: any) {
       setFeedback(inviteError?.message || 'Failed to resend the invite.');
@@ -1061,10 +1103,154 @@ export default function TeacherClassDetail() {
     try {
       setBusyKey(`remove-${studentId}`);
       const refreshed = await removeTeacherClassStudent(classBoard.id, studentId);
-      setClassBoard(refreshed);
+      setClassBoard({
+        ...refreshed,
+        students: refreshed.students.filter((student) => Number(student.id) !== Number(studentId)),
+      });
       setFeedback(copy.studentRemoved);
     } catch (removeError: any) {
       setFeedback(removeError?.message || 'Failed to remove the student.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const toggleRosterStudentSelection = (studentId: number) => {
+    setSelectedRosterStudentIds((current) =>
+      current.includes(studentId)
+        ? current.filter((value) => value !== studentId)
+        : [...current, studentId],
+    );
+  };
+
+  const handleSelectAllRosterStudents = () => {
+    if (!classBoard) return;
+    setSelectedRosterStudentIds((current) =>
+      current.length === classBoard.students.length ? [] : classBoard.students.map((student) => Number(student.id)),
+    );
+  };
+
+  const handleBulkRemoveStudents = async () => {
+    if (!classBoard || !selectedRosterStudentIds.length) return;
+    if (!window.confirm(`Remove ${selectedRosterStudentIds.length} students from ${classBoard.name}?`)) {
+      return;
+    }
+    try {
+      setBusyKey('bulk-remove-students');
+      let refreshedBoard = classBoard;
+      for (const studentId of selectedRosterStudentIds) {
+        refreshedBoard = await removeTeacherClassStudent(classBoard.id, studentId);
+      }
+      setClassBoard({
+        ...refreshedBoard,
+        students: refreshedBoard.students.filter((student) => !selectedRosterStudentIds.includes(Number(student.id))),
+      });
+      setSelectedRosterStudentIds([]);
+      setFeedback(language === 'he' ? 'התלמידים הוסרו מהכיתה.' : language === 'ar' ? 'تمت إزالة الطلاب من الصف.' : 'Selected students were removed.');
+    } catch (removeError: any) {
+      setFeedback(removeError?.message || 'Failed to remove selected students.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const handleResendAllPendingInvites = async () => {
+    if (!classBoard) return;
+    const pendingStudents = classBoard.students.filter((student) => {
+      const hasEmail = Boolean(String(student.email || '').trim());
+      const inviteState = String(student.invite_status || 'none').toLowerCase();
+      return hasEmail && inviteState !== 'claimed';
+    });
+    if (!pendingStudents.length) {
+      setFeedback(language === 'he' ? 'אין כרגע תלמידים עם הזמנה ממתינה.' : language === 'ar' ? 'لا يوجد طلاب لديهم دعوة معلقة الآن.' : 'There are no pending invites right now.');
+      return;
+    }
+    try {
+      setBusyKey('bulk-resend-invites');
+      let refreshedBoard = classBoard;
+      for (const student of pendingStudents) {
+        const payload = await resendTeacherClassStudentInvite(classBoard.id, Number(student.id));
+        refreshedBoard = payload.board;
+      }
+      setClassBoard(refreshedBoard);
+      setFeedback(language === 'he' ? 'נשלחו מחדש כל ההזמנות הממתינות.' : language === 'ar' ? 'تمت إعادة إرسال كل الدعوات المعلقة.' : 'Resent all pending invites.');
+    } catch (inviteError: any) {
+      setFeedback(inviteError?.message || 'Failed to resend pending invites.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const handleExportRosterCsv = async () => {
+    if (!classBoard) return;
+    const rows = [
+      ['Name', 'Email', 'Invite Status', 'Delivery', 'Last Seen'],
+      ...classBoard.students.map((student) => [
+        String(student.name || ''),
+        String(student.email || ''),
+        formatInviteStatus(student.invite_status),
+        formatDelivery(student.invite_delivery_status),
+        formatRelativeTime(student.last_seen_at),
+      ]),
+    ];
+    const csv = rows
+      .map((row) => row.map((value) => `"${String(value || '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    try {
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${String(classBoard.name || 'class').trim().replace(/\s+/g, '-').toLowerCase()}-roster.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setFeedback(language === 'he' ? 'רשימת התלמידים יוצאה ל-CSV.' : language === 'ar' ? 'تم تصدير قائمة الطلاب إلى CSV.' : 'Exported class roster to CSV.');
+    } catch (exportError: any) {
+      setFeedback(exportError?.message || 'Failed to export class roster.');
+    }
+  };
+
+  const handleSaveAssignment = async () => {
+    if (!classBoard) return;
+    if (!classBoard.pack?.id) {
+      setFeedback(language === 'he' ? 'צריך לשייך חבילה לפני יצירת משימה.' : language === 'ar' ? 'يجب ربط حزمة قبل إنشاء المهمة.' : 'Assign a pack before creating an assignment.');
+      return;
+    }
+    if (!assignmentTitle.trim()) {
+      setFeedback(language === 'he' ? 'צריך כותרת למשימה.' : language === 'ar' ? 'يجب إدخال عنوان للمهمة.' : 'Assignment title is required.');
+      return;
+    }
+    try {
+      setBusyKey('save-assignment');
+      const activeAssignment = classBoard.assignment_board?.active_assignment || null;
+      const payload = {
+        title: assignmentTitle,
+        instructions: assignmentInstructions,
+        due_at: assignmentDueAt ? new Date(assignmentDueAt).toISOString() : null,
+        question_goal: Number(assignmentQuestionGoal || 0) || 5,
+        pack_id: Number(classBoard.pack.id),
+      };
+      const refreshed = activeAssignment?.id
+        ? await updateTeacherClassAssignment(classBoard.id, Number(activeAssignment.id), payload)
+        : await createTeacherClassAssignment(classBoard.id, payload);
+      setClassBoard(refreshed);
+      setFeedback(language === 'he' ? 'המשימה נשמרה לכיתה.' : language === 'ar' ? 'تم حفظ المهمة لهذا الصف.' : 'Assignment saved for this class.');
+    } catch (assignmentError: any) {
+      setFeedback(assignmentError?.message || 'Failed to save assignment.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const handleArchiveAssignment = async (assignment: TeacherClassAssignment) => {
+    if (!classBoard) return;
+    try {
+      setBusyKey('archive-assignment');
+      const refreshed = await deleteTeacherClassAssignment(classBoard.id, Number(assignment.id));
+      setClassBoard(refreshed);
+      setFeedback(language === 'he' ? 'המשימה הועברה לארכיון.' : language === 'ar' ? 'تمت أرشفة المهمة.' : 'Assignment archived.');
+    } catch (assignmentError: any) {
+      setFeedback(assignmentError?.message || 'Failed to archive assignment.');
     } finally {
       setBusyKey('');
     }
@@ -1258,6 +1444,9 @@ export default function TeacherClassDetail() {
   });
   const selectedStudentSessionLog = [...selectedStudentWindowSeries].reverse();
   const topicRows = topicSummary.slice(0, 6);
+  const assignmentBoard = classBoard.assignment_board || { active_assignment: null, assignments: [] };
+  const activeAssignment = assignmentBoard.active_assignment || null;
+  const archivedAssignments = assignmentBoard.assignments.filter((assignment) => Number(assignment.id) !== Number(activeAssignment?.id || 0));
   const weakestClassTopic = [...topicSummary]
     .filter((row) => Number(row.class_answers || 0) > 0 && row.class_accuracy !== null)
     .sort((left, right) => {
@@ -1944,11 +2133,310 @@ export default function TeacherClassDetail() {
 
               <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
                 <div className="mb-5 flex items-center gap-3">
+                  <CheckCircle2 className="h-6 w-6 text-brand-purple" />
+                  <div>
+                    <h2 className="text-2xl font-black">
+                      {language === 'he' ? 'מצב משימה' : language === 'ar' ? 'وضع المهمة' : 'Assignment mode'}
+                    </h2>
+                    <p className="text-sm font-bold text-brand-dark/55">
+                      {language === 'he'
+                        ? 'שלח לכיתה משימה פעילה עם דדליין ברור וראה מי התחיל, מי סיים, ומי צריך דחיפה.'
+                        : language === 'ar'
+                          ? 'أرسل للصف مهمة نشطة مع موعد نهائي واضح وراقب من بدأ ومن أنهى ومن يحتاج دفعة.'
+                          : 'Send the class a focused assignment with a deadline and track who started, finished, or needs a nudge.'}
+                    </p>
+                  </div>
+                </div>
+
+                {!classBoard.pack?.id ? (
+                  <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-5 font-bold text-brand-dark/70">
+                    {language === 'he'
+                      ? 'לפני יצירת משימה צריך לחבר pack לכיתה. ברגע שתשייך שאלון, תוכל להגדיר משימה פעילה לתלמידים.'
+                      : language === 'ar'
+                        ? 'قبل إنشاء مهمة يجب ربط حزمة بالصف. بعد اختيار الاختبار ستتمكن من إنشاء مهمة نشطة للطلاب.'
+                        : 'Connect a pack to this class first. Once a quiz is linked, you can publish an active assignment for students.'}
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Field
+                        label={language === 'he' ? 'כותרת משימה' : language === 'ar' ? 'عنوان المهمة' : 'Assignment title'}
+                        value={assignmentTitle}
+                        onChange={setAssignmentTitle}
+                      />
+                      <div>
+                        <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">
+                          {language === 'he' ? 'דדליין' : language === 'ar' ? 'الموعد النهائي' : 'Due date'}
+                        </label>
+                        <input
+                          type="datetime-local"
+                          value={assignmentDueAt}
+                          onChange={(event) => setAssignmentDueAt(event.target.value)}
+                          className="w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
+                      <div>
+                        <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">
+                          {language === 'he' ? 'הוראות לתלמיד' : language === 'ar' ? 'تعليمات للطالب' : 'Student instructions'}
+                        </label>
+                        <textarea
+                          value={assignmentInstructions}
+                          onChange={(event) => setAssignmentInstructions(event.target.value)}
+                          className="min-h-28 w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
+                          placeholder={
+                            language === 'he'
+                              ? 'לדוגמה: תענו על 8 שאלות לפני מחר ותתרכזו באותו חומר שתרגלנו בכיתה.'
+                              : language === 'ar'
+                                ? 'مثال: أجيبوا عن 8 أسئلة قبل الغد وركزوا على نفس المادة التي تدربنا عليها في الصف.'
+                                : 'Example: answer 8 questions before tomorrow and stay focused on the material we covered in class.'
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">
+                          {language === 'he' ? 'יעד שאלות' : language === 'ar' ? 'هدف الأسئلة' : 'Question goal'}
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="50"
+                          value={assignmentQuestionGoal}
+                          onChange={(event) => setAssignmentQuestionGoal(event.target.value)}
+                          className="w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
+                        />
+                        <p className="mt-2 text-sm font-bold text-brand-dark/55">
+                          {language === 'he'
+                            ? `המשימה תתבסס על ${classBoard.pack.title}`
+                            : language === 'ar'
+                              ? `المهمة ستعتمد على ${classBoard.pack.title}`
+                              : `Assignment will use ${classBoard.pack.title}`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveAssignment()}
+                        disabled={busyKey === 'save-assignment'}
+                        className="inline-flex items-center gap-2 rounded-xl border-2 border-brand-dark bg-brand-purple px-5 py-3 font-black text-white shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-60"
+                      >
+                        <Save className="h-4 w-4" />
+                        {busyKey === 'save-assignment'
+                          ? language === 'he' ? 'שומר...' : language === 'ar' ? 'جارٍ الحفظ...' : 'Saving...'
+                          : activeAssignment
+                            ? language === 'he' ? 'עדכן משימה' : language === 'ar' ? 'تحديث المهمة' : 'Update assignment'
+                            : language === 'he' ? 'צור משימה' : language === 'ar' ? 'إنشاء مهمة' : 'Create assignment'}
+                      </button>
+                      {activeAssignment ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleArchiveAssignment(activeAssignment)}
+                          disabled={busyKey === 'archive-assignment'}
+                          className="inline-flex items-center gap-2 rounded-xl border-2 border-brand-dark bg-white px-5 py-3 font-black shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-60"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          {language === 'he' ? 'סיים וארכב' : language === 'ar' ? 'إنهاء وأرشفة' : 'End and archive'}
+                        </button>
+                      ) : null}
+                    </div>
+
+                    {activeAssignment ? (
+                      <>
+                        <div className="grid gap-3 md:grid-cols-4">
+                          <MetricTile
+                            label={language === 'he' ? 'הוקצו' : language === 'ar' ? 'تم الإسناد' : 'Assigned'}
+                            value={String(activeAssignment.summary.assigned_count || 0)}
+                          />
+                          <MetricTile
+                            label={language === 'he' ? 'התחילו' : language === 'ar' ? 'بدأوا' : 'Started'}
+                            value={String(activeAssignment.summary.started_count || 0)}
+                          />
+                          <MetricTile
+                            label={language === 'he' ? 'סיימו' : language === 'ar' ? 'أنهوا' : 'Completed'}
+                            value={String(activeAssignment.summary.completed_count || 0)}
+                          />
+                          <MetricTile
+                            label={language === 'he' ? 'איחרו' : language === 'ar' ? 'متأخرون' : 'Overdue'}
+                            value={String(activeAssignment.summary.overdue_count || 0)}
+                          />
+                        </div>
+
+                        <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">
+                                {language === 'he' ? 'משימה פעילה' : language === 'ar' ? 'مهمة نشطة' : 'Active assignment'}
+                              </p>
+                              <h3 className="mt-2 text-2xl font-black text-brand-dark">{activeAssignment.title}</h3>
+                              <p className="mt-2 max-w-3xl font-bold text-brand-dark/65">
+                                {activeAssignment.instructions || (
+                                  language === 'he'
+                                    ? 'אין עדיין הוראות נוספות. התלמידים פשוט יקבלו תרגול על אותו שאלון.'
+                                    : language === 'ar'
+                                      ? 'لا توجد تعليمات إضافية بعد. سيتلقى الطلاب تدريبًا على نفس الاختبار.'
+                                      : 'No extra instructions yet. Students will simply receive practice on the same pack.'
+                                )}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2 text-xs font-black uppercase">
+                              <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-2">
+                                {language === 'he' ? 'יעד' : language === 'ar' ? 'الهدف' : 'Goal'}: {activeAssignment.question_goal}
+                              </span>
+                              <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-2">
+                                {language === 'he' ? 'דדליין' : language === 'ar' ? 'الموعد' : 'Due'}: {formatDueDateTime(activeAssignment.due_at, language)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-5">
+                          <div className="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">
+                                {language === 'he' ? 'התקדמות תלמידים' : language === 'ar' ? 'تقدم الطلاب' : 'Student progress'}
+                              </p>
+                              <p className="text-sm font-bold text-brand-dark/60">
+                                {language === 'he'
+                                  ? 'מבט מהיר על מי כבר בתנועה, מי קרוב לסיום, ומי עוד לא התחיל.'
+                                  : language === 'ar'
+                                    ? 'نظرة سريعة على من بدأ ومن اقترب من النهاية ومن لم يبدأ بعد.'
+                                    : 'A quick view of who started, who is close to done, and who has not moved yet.'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="space-y-3">
+                            {activeAssignment.roster_progress.length > 0 ? (
+                              activeAssignment.roster_progress.map((student) => (
+                                <div key={`assignment-progress-${student.student_id}`} className="rounded-[1.1rem] border-2 border-brand-dark bg-brand-bg p-4">
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                      <p className="text-lg font-black text-brand-dark">{student.name}</p>
+                                      <p className="text-sm font-bold text-brand-dark/60">
+                                        {student.email || (language === 'he' ? 'ללא אימייל' : language === 'ar' ? 'بدون بريد' : 'No email')}
+                                      </p>
+                                    </div>
+                                    <span className={`rounded-full border-2 border-brand-dark px-3 py-1 text-xs font-black uppercase ${
+                                      student.status === 'completed'
+                                        ? 'bg-[#E8FFF4]'
+                                        : student.status === 'overdue'
+                                          ? 'bg-[#FFE5E5]'
+                                          : student.status === 'in_progress'
+                                            ? 'bg-[#FFF5CC]'
+                                            : 'bg-white'
+                                    }`}>
+                                      {student.status.replace('_', ' ')}
+                                    </span>
+                                  </div>
+                                  <div className="mt-4 h-4 overflow-hidden rounded-full border-2 border-brand-dark bg-white">
+                                    <div
+                                      className={`h-full ${
+                                        student.status === 'completed'
+                                          ? 'bg-brand-purple'
+                                          : student.status === 'overdue'
+                                            ? 'bg-brand-orange'
+                                            : 'bg-brand-yellow'
+                                      }`}
+                                      style={{ width: `${Math.max(6, Math.min(100, Number(student.completion_pct || 0)))}%` }}
+                                    />
+                                  </div>
+                                  <div className="mt-3 grid gap-2 text-xs font-black uppercase text-brand-dark/65 sm:grid-cols-4">
+                                    <span>{language === 'he' ? 'הושלמו' : language === 'ar' ? 'أُنجز' : 'Done'}: {student.attempted_questions}/{student.question_goal}</span>
+                                    <span>{language === 'he' ? 'ניסיונות' : language === 'ar' ? 'المحاولات' : 'Attempts'}: {student.attempt_count}</span>
+                                    <span>{language === 'he' ? 'דיוק' : language === 'ar' ? 'الدقة' : 'Accuracy'}: {student.accuracy_pct !== null ? `${Math.round(Number(student.accuracy_pct))}%` : '--'}</span>
+                                    <span>{copy.lastSeen}: {formatRelativeTime(student.last_activity_at)}</span>
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="font-bold text-brand-dark/60">
+                                {language === 'he'
+                                  ? 'עדיין אין נתוני התקדמות למשימה הזו.'
+                                  : language === 'ar'
+                                    ? 'لا توجد بيانات تقدم لهذه المهمة بعد.'
+                                    : 'No progress data for this assignment yet.'}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
+
+                    {archivedAssignments.length > 0 ? (
+                      <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-5">
+                        <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">
+                          {language === 'he' ? 'משימות קודמות' : language === 'ar' ? 'مهام سابقة' : 'Past assignments'}
+                        </p>
+                        <div className="mt-3 space-y-3">
+                          {archivedAssignments.slice(0, 3).map((assignment) => (
+                            <div key={`archived-assignment-${assignment.id}`} className="rounded-[1rem] border border-brand-dark/10 bg-brand-bg px-4 py-3">
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                  <p className="font-black text-brand-dark">{assignment.title}</p>
+                                  <p className="text-sm font-bold text-brand-dark/60">
+                                    {formatDueDateTime(assignment.due_at, language)} • {assignment.pack_title}
+                                  </p>
+                                </div>
+                                <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black uppercase">
+                                  {assignment.summary.completed_count}/{assignment.summary.assigned_count}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <div className="mb-5 flex items-center gap-3">
                   <Users className="h-6 w-6 text-brand-orange" />
                   <div>
                     <h2 className="text-2xl font-black">{copy.roster}</h2>
                     <p className="text-sm font-bold text-brand-dark/55">{copy.rosterBody}</p>
                   </div>
+                </div>
+
+                <div className="mb-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleResendAllPendingInvites()}
+                    disabled={busyKey === 'bulk-resend-invites'}
+                    className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black disabled:opacity-60"
+                  >
+                    {language === 'he' ? 'שלח שוב לכל הממתינים' : language === 'ar' ? 'أعد الإرسال للمعلقين' : 'Resend all pending'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleExportRosterCsv()}
+                    className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black"
+                  >
+                    {language === 'he' ? 'ייצא CSV' : language === 'ar' ? 'تصدير CSV' : 'Export CSV'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSelectAllRosterStudents}
+                    className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black"
+                  >
+                    {selectedRosterStudentIds.length === classBoard.students.length && classBoard.students.length > 0
+                      ? (language === 'he' ? 'נקה בחירה' : language === 'ar' ? 'إلغاء التحديد' : 'Clear selection')
+                      : (language === 'he' ? 'בחר את כולם' : language === 'ar' ? 'اختر الكل' : 'Select all')}
+                  </button>
+                  {selectedRosterStudentIds.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleBulkRemoveStudents()}
+                      disabled={busyKey === 'bulk-remove-students'}
+                      className="rounded-full border-2 border-brand-dark bg-rose-100 px-4 py-2 text-sm font-black disabled:opacity-60"
+                    >
+                      {language === 'he' ? `הסר ${selectedRosterStudentIds.length}` : language === 'ar' ? `إزالة ${selectedRosterStudentIds.length}` : `Remove ${selectedRosterStudentIds.length}`}
+                    </button>
+                  ) : null}
                 </div>
 
                 <div className="mb-5 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
@@ -1978,9 +2466,17 @@ export default function TeacherClassDetail() {
                   {classBoard.students.map((student) => (
                     <div key={student.id} className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedRosterStudentIds.includes(Number(student.id))}
+                            onChange={() => toggleRosterStudentSelection(Number(student.id))}
+                            className="mt-1 h-5 w-5 rounded border-2 border-brand-dark"
+                          />
+                          <div>
                           <p className="text-xl font-black">{student.name}</p>
                           {student.email ? <p className="font-bold text-brand-dark/65">{student.email}</p> : null}
+                          </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black uppercase">
@@ -2004,6 +2500,7 @@ export default function TeacherClassDetail() {
                       <div className="mt-4 flex flex-wrap gap-2">
                         {student.email ? (
                           <button
+                            type="button"
                             onClick={() => void handleResendInvite(student.id)}
                             disabled={busyKey === `invite-${student.id}`}
                             className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black disabled:opacity-60"
@@ -2013,6 +2510,7 @@ export default function TeacherClassDetail() {
                           </button>
                         ) : null}
                         <button
+                          type="button"
                           onClick={() => void handleRemoveStudent(student.id, student.name)}
                           disabled={busyKey === `remove-${student.id}`}
                           className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-rose-100 px-4 py-2 text-sm font-black disabled:opacity-60"
@@ -2120,6 +2618,7 @@ export default function TeacherClassDetail() {
                         <div className="mt-4 flex flex-wrap gap-2">
                           {student.email ? (
                             <button
+                              type="button"
                               onClick={() => void handleResendInvite(student.id)}
                               disabled={busyKey === `invite-${student.id}`}
                               className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black disabled:opacity-60"
@@ -2206,6 +2705,7 @@ export default function TeacherClassDetail() {
                         </div>
                         {student.email && String(student.invite_status || 'none') === 'invited' ? (
                           <button
+                            type="button"
                             onClick={() => void handleResendInvite(student.id)}
                             disabled={busyKey === `invite-${student.id}`}
                             className="mt-4 inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black disabled:opacity-60"

@@ -1192,6 +1192,289 @@ async function buildStudentClassSummaries(studentUserId: number) {
   return await listStudentClassWorkspaces(studentUserId);
 }
 
+function sanitizeAssignmentTitle(value: unknown) {
+  return String(value || '').trim().slice(0, 140);
+}
+
+function sanitizeAssignmentInstructions(value: unknown) {
+  return String(value || '').trim().slice(0, 2000);
+}
+
+function sanitizeAssignmentDueAt(value: unknown) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function sanitizeAssignmentQuestionGoal(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.max(1, Math.floor(parsed));
+}
+
+async function listTeacherClassAssignments(classId: number) {
+  return (await db
+    .prepare(`
+      SELECT
+        tca.*,
+        qp.title AS pack_title,
+        COALESCE(qp.question_count_cache, 0) AS pack_question_count
+      FROM teacher_class_assignments tca
+      LEFT JOIN quiz_packs qp ON qp.id = tca.pack_id
+      WHERE tca.class_id = ?
+        AND COALESCE(tca.archived, 0) = 0
+      ORDER BY
+        CASE WHEN LOWER(COALESCE(tca.status, 'active')) = 'active' THEN 0 ELSE 1 END,
+        COALESCE(tca.due_at, tca.created_at) ASC,
+        tca.id DESC
+    `)
+    .all(classId)) as any[];
+}
+
+async function getTeacherClassAssignmentById(classId: number, assignmentId: number) {
+  return (await db
+    .prepare(`
+      SELECT *
+      FROM teacher_class_assignments
+      WHERE id = ?
+        AND class_id = ?
+        AND COALESCE(archived, 0) = 0
+      LIMIT 1
+    `)
+    .get(assignmentId, classId)) as any;
+}
+
+async function buildAssignmentProgressMap(classBoard: any, packId: number) {
+  const students = Array.isArray(classBoard?.students) ? classBoard.students : [];
+  const questionRows = (await db
+    .prepare(`
+      SELECT id
+      FROM questions
+      WHERE quiz_pack_id = ?
+    `)
+    .all(packId)) as any[];
+  const questionIds = uniqueNumbers(questionRows.map((row: any) => row.id));
+  if (!students.length || !questionIds.length) {
+    return {
+      totalQuestions: questionIds.length,
+      byStudentId: new Map<number, { attemptedQuestions: number; attemptCount: number; accuracyPct: number | null; lastActivityAt: string | null }>(),
+    };
+  }
+
+  const identityKeyToStudentId = new Map<string, number>();
+  for (const student of students) {
+    const studentUserId = Number(student?.student_user_id || 0);
+    if (!studentUserId) continue;
+    const identityKeys = await listResolvedIdentityKeys({ studentUserId });
+    identityKeys.forEach((identityKey) => {
+      const safeKey = resolveStudentIdentityKey(identityKey, '');
+      if (safeKey) identityKeyToStudentId.set(safeKey, Number(student.id));
+    });
+  }
+
+  const identityKeys = Array.from(identityKeyToStudentId.keys());
+  if (!identityKeys.length) {
+    return {
+      totalQuestions: questionIds.length,
+      byStudentId: new Map<number, { attemptedQuestions: number; attemptCount: number; accuracyPct: number | null; lastActivityAt: string | null }>(),
+    };
+  }
+
+  const attemptRows = (await db
+    .prepare(`
+      SELECT identity_key, question_id, is_correct, created_at
+      FROM practice_attempts
+      WHERE identity_key IN (${buildSqlPlaceholders(identityKeys.length)})
+        AND question_id IN (${buildSqlPlaceholders(questionIds.length)})
+      ORDER BY created_at DESC, id DESC
+    `)
+    .all(...identityKeys, ...questionIds)) as any[];
+
+  const statsByStudentId = new Map<number, { questionIds: Set<number>; attemptCount: number; correctCount: number; lastActivityAt: string | null }>();
+  attemptRows.forEach((row: any) => {
+    const studentId = identityKeyToStudentId.get(String(row.identity_key || '').trim());
+    if (!studentId) return;
+    const existing = statsByStudentId.get(studentId) || {
+      questionIds: new Set<number>(),
+      attemptCount: 0,
+      correctCount: 0,
+      lastActivityAt: null,
+    };
+    existing.questionIds.add(Number(row.question_id || 0));
+    existing.attemptCount += 1;
+    existing.correctCount += Number(row.is_correct) ? 1 : 0;
+    if (!existing.lastActivityAt || new Date(String(row.created_at || 0)).getTime() > new Date(String(existing.lastActivityAt || 0)).getTime()) {
+      existing.lastActivityAt = row.created_at || null;
+    }
+    statsByStudentId.set(studentId, existing);
+  });
+
+  const byStudentId = new Map<number, { attemptedQuestions: number; attemptCount: number; accuracyPct: number | null; lastActivityAt: string | null }>();
+  statsByStudentId.forEach((value, studentId) => {
+    byStudentId.set(studentId, {
+      attemptedQuestions: value.questionIds.size,
+      attemptCount: value.attemptCount,
+      accuracyPct: value.attemptCount > 0 ? Math.round((value.correctCount / Math.max(1, value.attemptCount)) * 100) : null,
+      lastActivityAt: value.lastActivityAt,
+    });
+  });
+
+  return {
+    totalQuestions: questionIds.length,
+    byStudentId,
+  };
+}
+
+async function buildTeacherAssignmentBoard(classBoard: any) {
+  const classId = Number(classBoard?.id || 0);
+  if (!classId) {
+    return { active_assignment: null, assignments: [] };
+  }
+
+  const assignments = await listTeacherClassAssignments(classId);
+  const hydratedAssignments = [];
+  for (const assignment of assignments) {
+    const progressMap = await buildAssignmentProgressMap(classBoard, Number(assignment.pack_id || 0));
+    const questionGoal = sanitizeAssignmentQuestionGoal(
+      assignment.question_goal,
+      Math.max(1, Math.min(Number(progressMap.totalQuestions || assignment.pack_question_count || 0) || 1, 10)),
+    );
+    const roster = (Array.isArray(classBoard?.students) ? classBoard.students : []).map((student: any) => {
+      const progress = progressMap.byStudentId.get(Number(student.id)) || {
+        attemptedQuestions: 0,
+        attemptCount: 0,
+        accuracyPct: null,
+        lastActivityAt: null,
+      };
+      const completionPct = Math.round((Math.min(progress.attemptedQuestions, questionGoal) / Math.max(1, questionGoal)) * 100);
+      const overdue = assignment.due_at ? new Date(String(assignment.due_at)).getTime() < Date.now() && completionPct < 100 : false;
+      const status =
+        completionPct >= 100 ? 'completed' : overdue ? 'overdue' : progress.attemptedQuestions > 0 ? 'in_progress' : 'not_started';
+      return {
+        student_id: Number(student.id),
+        name: String(student.name || 'Student'),
+        email: String(student.email || ''),
+        attempted_questions: progress.attemptedQuestions,
+        attempt_count: progress.attemptCount,
+        accuracy_pct: progress.accuracyPct,
+        last_activity_at: progress.lastActivityAt,
+        completion_pct: completionPct,
+        question_goal: questionGoal,
+        status,
+      };
+    });
+
+    hydratedAssignments.push({
+      id: Number(assignment.id || 0),
+      class_id: classId,
+      pack_id: Number(assignment.pack_id || 0),
+      pack_title: String(assignment.pack_title || classBoard?.pack?.title || 'Pack'),
+      title: String(assignment.title || 'Class assignment'),
+      instructions: String(assignment.instructions || ''),
+      due_at: assignment.due_at || null,
+      question_goal: questionGoal,
+      status: String(assignment.status || 'active'),
+      created_at: assignment.created_at || null,
+      summary: {
+        assigned_count: roster.length,
+        started_count: roster.filter((row) => row.status === 'in_progress' || row.status === 'completed').length,
+        completed_count: roster.filter((row) => row.status === 'completed').length,
+        overdue_count: roster.filter((row) => row.status === 'overdue').length,
+      },
+      roster_progress: roster,
+    });
+  }
+
+  return {
+    active_assignment: hydratedAssignments.find((row) => String(row.status || 'active').toLowerCase() === 'active') || hydratedAssignments[0] || null,
+    assignments: hydratedAssignments,
+  };
+}
+
+async function buildStudentAssignmentView({
+  classRow,
+  studentUserId,
+}: {
+  classRow: any;
+  studentUserId: number;
+}) {
+  const classId = Number(classRow?.class_id || classRow?.id || 0);
+  const packId = Number(classRow?.pack?.id || 0);
+  if (!classId || !packId || !studentUserId) return null;
+
+  const assignmentRows = await listTeacherClassAssignments(classId);
+  const assignment = assignmentRows.find((row: any) => String(row.status || 'active').toLowerCase() === 'active') || assignmentRows[0] || null;
+  if (!assignment?.id) return null;
+
+  const identityKeys = await listResolvedIdentityKeys({ studentUserId });
+  const safeIdentityKeys = uniqueStrings(identityKeys.map((key) => resolveStudentIdentityKey(key, '')));
+  const questionRows = (await db.prepare(`SELECT id FROM questions WHERE quiz_pack_id = ?`).all(packId)) as any[];
+  const questionIds = uniqueNumbers(questionRows.map((row: any) => row.id));
+  const questionGoal = sanitizeAssignmentQuestionGoal(
+    assignment.question_goal,
+    Math.max(1, Math.min(Number(assignment.pack_question_count || questionIds.length || 0) || 1, 10)),
+  );
+  if (!safeIdentityKeys.length || !questionIds.length) {
+    return {
+      id: Number(assignment.id || 0),
+      title: String(assignment.title || 'Class assignment'),
+      instructions: String(assignment.instructions || ''),
+      due_at: assignment.due_at || null,
+      question_goal: questionGoal,
+      progress: {
+        attempted_questions: 0,
+        attempt_count: 0,
+        completion_pct: 0,
+        accuracy_pct: null,
+        last_activity_at: null,
+        status: assignment.due_at ? (new Date(String(assignment.due_at)).getTime() < Date.now() ? 'overdue' : 'not_started') : 'not_started',
+      },
+    };
+  }
+
+  const attemptRows = (await db
+    .prepare(`
+      SELECT question_id, is_correct, created_at
+      FROM practice_attempts
+      WHERE identity_key IN (${buildSqlPlaceholders(safeIdentityKeys.length)})
+        AND question_id IN (${buildSqlPlaceholders(questionIds.length)})
+      ORDER BY created_at DESC, id DESC
+    `)
+    .all(...safeIdentityKeys, ...questionIds)) as any[];
+
+  const attemptedQuestionIds = new Set<number>();
+  let correctCount = 0;
+  let lastActivityAt: string | null = null;
+  attemptRows.forEach((row: any) => {
+    attemptedQuestionIds.add(Number(row.question_id || 0));
+    correctCount += Number(row.is_correct) ? 1 : 0;
+    if (!lastActivityAt || new Date(String(row.created_at || 0)).getTime() > new Date(String(lastActivityAt || 0)).getTime()) {
+      lastActivityAt = row.created_at || null;
+    }
+  });
+  const attemptedQuestions = attemptedQuestionIds.size;
+  const completionPct = Math.round((Math.min(attemptedQuestions, questionGoal) / Math.max(1, questionGoal)) * 100);
+  const overdue = assignment.due_at ? new Date(String(assignment.due_at)).getTime() < Date.now() && completionPct < 100 : false;
+
+  return {
+    id: Number(assignment.id || 0),
+    title: String(assignment.title || 'Class assignment'),
+    instructions: String(assignment.instructions || ''),
+    due_at: assignment.due_at || null,
+    question_goal: questionGoal,
+    progress: {
+      attempted_questions: attemptedQuestions,
+      attempt_count: attemptRows.length,
+      completion_pct: completionPct,
+      accuracy_pct: attemptRows.length ? Math.round((correctCount / Math.max(1, attemptRows.length)) * 100) : null,
+      last_activity_at: lastActivityAt,
+      status: completionPct >= 100 ? 'completed' : overdue ? 'overdue' : attemptedQuestions > 0 ? 'in_progress' : 'not_started',
+    },
+  };
+}
+
 async function getTeacherProfileSummary(teacherUserId: number) {
   if (!teacherUserId) return null;
   const row = (await db
@@ -4546,10 +4829,132 @@ router.get('/teacher/classes/:id', requireTeacherSession, async (req, res) => {
       return res.status(404).json({ error: 'Class not found' });
     }
 
-    res.json(classBoard);
+    res.json({
+      ...classBoard,
+      assignment_board: await buildTeacherAssignmentBoard(classBoard),
+    });
   } catch (error: any) {
     console.error('[ERROR] Teacher class detail failed:', error);
     respondWithServerError(res, 'Failed to load class');
+  }
+});
+
+router.post('/teacher/classes/:id/assignments', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceRateLimit(req, res, 'teacher-class-assignment-create', 120, 10 * 60 * 1000, teacherUserId, req.params.id)) return;
+
+    const classId = parsePositiveInt(req.params.id);
+    const classBoard = await getHydratedTeacherClass(classId, teacherUserId);
+    if (!classBoard) return res.status(404).json({ error: 'Class not found' });
+    const packId = Number(req.body?.pack_id || classBoard.pack?.id || 0);
+    if (!packId) return res.status(400).json({ error: 'Assign a pack before creating class work.' });
+    const pack = await getTeacherOwnedPack(packId, teacherUserId);
+    if (!pack) return res.status(400).json({ error: 'Pack not found.' });
+
+    const title = sanitizeAssignmentTitle(req.body?.title) || `${String(classBoard.name || 'Class').trim()} assignment`;
+    const instructions = sanitizeAssignmentInstructions(req.body?.instructions);
+    const questionGoal = sanitizeAssignmentQuestionGoal(req.body?.question_goal, Math.max(1, Math.min(Number(pack.question_count || 0) || 5, 10)));
+    const dueAt = sanitizeAssignmentDueAt(req.body?.due_at);
+
+    const archivedActive = await db
+      .prepare(`
+        UPDATE teacher_class_assignments
+        SET status = 'archived', archived = 1, updated_at = CURRENT_TIMESTAMP
+        WHERE class_id = ?
+          AND COALESCE(archived, 0) = 0
+          AND LOWER(COALESCE(status, 'active')) = 'active'
+      `)
+      .run(classId);
+
+    await db
+      .prepare(`
+        INSERT INTO teacher_class_assignments (
+          class_id, pack_id, title, instructions, due_at, question_goal, status, archived, created_by, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 'active', 0, ?, CURRENT_TIMESTAMP)
+      `)
+      .run(classId, packId, title, instructions, dueAt, questionGoal, teacherUserId);
+
+    const refreshedClass = await getHydratedTeacherClass(classId, teacherUserId);
+    res.status(201).json({
+      ...(refreshedClass || classBoard),
+      assignment_board: await buildTeacherAssignmentBoard(refreshedClass || classBoard),
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Teacher class assignment create failed:', error);
+    respondWithServerError(res, 'Failed to create class assignment');
+  }
+});
+
+router.put('/teacher/classes/:classId/assignments/:assignmentId', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceRateLimit(req, res, 'teacher-class-assignment-update', 120, 10 * 60 * 1000, teacherUserId, req.params.classId, req.params.assignmentId)) return;
+
+    const classId = parsePositiveInt(req.params.classId);
+    const assignmentId = parsePositiveInt(req.params.assignmentId);
+    const classBoard = await getHydratedTeacherClass(classId, teacherUserId);
+    if (!classBoard) return res.status(404).json({ error: 'Class not found' });
+    const assignment = await getTeacherClassAssignmentById(classId, assignmentId);
+    if (!assignment?.id) return res.status(404).json({ error: 'Assignment not found' });
+
+    const title = sanitizeAssignmentTitle(req.body?.title) || String(assignment.title || '');
+    const instructions = sanitizeAssignmentInstructions(req.body?.instructions ?? assignment.instructions);
+    const dueAt = sanitizeAssignmentDueAt(req.body?.due_at) ?? assignment.due_at ?? null;
+    const questionGoal = sanitizeAssignmentQuestionGoal(req.body?.question_goal, Number(assignment.question_goal || 0) || 5);
+    const status = String(req.body?.status || assignment.status || 'active').trim().toLowerCase() === 'completed' ? 'completed' : 'active';
+
+    await db
+      .prepare(`
+        UPDATE teacher_class_assignments
+        SET title = ?, instructions = ?, due_at = ?, question_goal = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND class_id = ?
+      `)
+      .run(title, instructions, dueAt, questionGoal, status, assignmentId, classId);
+
+    const refreshedClass = await getHydratedTeacherClass(classId, teacherUserId);
+    res.json({
+      ...(refreshedClass || classBoard),
+      assignment_board: await buildTeacherAssignmentBoard(refreshedClass || classBoard),
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Teacher class assignment update failed:', error);
+    respondWithServerError(res, 'Failed to update class assignment');
+  }
+});
+
+router.delete('/teacher/classes/:classId/assignments/:assignmentId', requireTeacherSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  try {
+    const teacherUserId = (await getTeacherUserIdFromRequest(req));
+    if (!teacherUserId) return res.status(401).json({ error: 'Teacher authentication required' });
+    if (!enforceRateLimit(req, res, 'teacher-class-assignment-delete', 120, 10 * 60 * 1000, teacherUserId, req.params.classId, req.params.assignmentId)) return;
+    const classId = parsePositiveInt(req.params.classId);
+    const assignmentId = parsePositiveInt(req.params.assignmentId);
+    const classBoard = await getHydratedTeacherClass(classId, teacherUserId);
+    if (!classBoard) return res.status(404).json({ error: 'Class not found' });
+
+    await db
+      .prepare(`
+        UPDATE teacher_class_assignments
+        SET archived = 1, status = 'archived', updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND class_id = ?
+      `)
+      .run(assignmentId, classId);
+
+    const refreshedClass = await getHydratedTeacherClass(classId, teacherUserId);
+    res.json({
+      ...(refreshedClass || classBoard),
+      assignment_board: await buildTeacherAssignmentBoard(refreshedClass || classBoard),
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Teacher class assignment delete failed:', error);
+    respondWithServerError(res, 'Failed to archive class assignment');
   }
 });
 
@@ -5279,14 +5684,17 @@ router.post('/teacher/classes/:classId/students/:studentId/resend-invite', requi
       return res.status(404).json({ error: 'Class not found' });
     }
 
-    await sendClassInvitesForBoard({
+    const delivery = await sendClassInviteForRosterStudent({
       teacherUserId,
       classBoard,
-      rosterStudentIds: [studentId],
+      studentRow: existingStudent,
       baseUrl: resolvePublicAppUrlFromRequest(req),
     });
 
-    res.json((await getHydratedTeacherClass(classId, teacherUserId)) || classBoard);
+    res.json({
+      board: (await getHydratedTeacherClass(classId, teacherUserId)) || classBoard,
+      delivery,
+    });
   } catch (error: any) {
     console.error('[ERROR] Resend class invite failed:', error);
     respondWithServerError(res, 'Failed to resend class invite');
@@ -7942,10 +8350,15 @@ router.get('/student/me/classes/:classId', requireStudentSession, async (req, re
         : classSummary.stats?.average_accuracy === null || classSummary.stats?.average_accuracy === undefined
           ? null
           : Math.round(Number(classSummary.stats.average_accuracy || 0));
+    const assignment = await buildStudentAssignmentView({
+      classRow: classSummary,
+      studentUserId,
+    });
 
     res.json({
       student: payload.student,
       class: classSummary,
+      assignment,
       practice_defaults: payload.practice_defaults,
       recommendations: payload.recommendations,
       student_memory: payload.student_memory,

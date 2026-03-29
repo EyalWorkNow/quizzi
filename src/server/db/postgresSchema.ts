@@ -8,6 +8,7 @@ export const POSTGRES_TABLE_ORDER = [
   'student_password_reset_codes',
   'student_identity_links',
   'quiz_packs',
+  'teacher_class_assignments',
   'teacher_classes',
   'teacher_class_students',
   'questions',
@@ -108,6 +109,22 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       enabled_game_modes_json TEXT DEFAULT '[]',
       question_blueprints_json TEXT DEFAULT '[]',
       generation_contract TEXT DEFAULT 'manual_v1'
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS teacher_class_assignments (
+      id SERIAL PRIMARY KEY,
+      class_id INTEGER NOT NULL,
+      pack_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      instructions TEXT DEFAULT '',
+      due_at TIMESTAMP,
+      question_goal INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'active',
+      archived INTEGER DEFAULT 0,
+      created_by INTEGER,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `,
   `
@@ -322,6 +339,13 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP`,
   `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP`,
   `ALTER TABLE teacher_class_students ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
+  `ALTER TABLE teacher_class_assignments ADD COLUMN IF NOT EXISTS instructions TEXT DEFAULT ''`,
+  `ALTER TABLE teacher_class_assignments ADD COLUMN IF NOT EXISTS due_at TIMESTAMP`,
+  `ALTER TABLE teacher_class_assignments ADD COLUMN IF NOT EXISTS question_goal INTEGER DEFAULT 0`,
+  `ALTER TABLE teacher_class_assignments ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`,
+  `ALTER TABLE teacher_class_assignments ADD COLUMN IF NOT EXISTS archived INTEGER DEFAULT 0`,
+  `ALTER TABLE teacher_class_assignments ADD COLUMN IF NOT EXISTS created_by INTEGER`,
+  `ALTER TABLE teacher_class_assignments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS learning_objective TEXT DEFAULT ''`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS bloom_level TEXT DEFAULT ''`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS image_url TEXT DEFAULT ''`,
@@ -455,6 +479,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'CREATE INDEX IF NOT EXISTS idx_teacher_class_students_class ON teacher_class_students(class_id)',
   'CREATE INDEX IF NOT EXISTS idx_teacher_class_students_email ON teacher_class_students(email)',
   'CREATE INDEX IF NOT EXISTS idx_teacher_class_students_student_user ON teacher_class_students(student_user_id, class_id)',
+  'CREATE INDEX IF NOT EXISTS idx_teacher_class_assignments_class ON teacher_class_assignments(class_id, archived, status, due_at)',
   'CREATE INDEX IF NOT EXISTS idx_questions_pack_question_order ON questions(quiz_pack_id, question_order, id)',
   'CREATE INDEX IF NOT EXISTS idx_questions_learning_objective ON questions(learning_objective)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_game_type ON sessions(game_type)',

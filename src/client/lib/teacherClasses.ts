@@ -116,6 +116,7 @@ export type TeacherClassCard = {
 export type TeacherClassWorkspace = TeacherClassCard & {
   students: TeacherClassStudent[];
   recent_sessions: TeacherClassSessionSummary[];
+  assignment_board?: TeacherClassAssignmentBoard;
   mail_health: {
     configured: boolean;
     mode: 'smtp' | 'gmail' | 'none';
@@ -123,6 +124,44 @@ export type TeacherClassWorkspace = TeacherClassCard & {
     missing: string[];
     hint: string | null;
   };
+};
+
+export type TeacherClassAssignmentRosterProgress = {
+  student_id: number;
+  name: string;
+  email: string;
+  attempted_questions: number;
+  attempt_count: number;
+  accuracy_pct: number | null;
+  last_activity_at: string | null;
+  completion_pct: number;
+  question_goal: number;
+  status: 'not_started' | 'in_progress' | 'completed' | 'overdue';
+};
+
+export type TeacherClassAssignment = {
+  id: number;
+  class_id: number;
+  pack_id: number;
+  pack_title: string;
+  title: string;
+  instructions: string;
+  due_at: string | null;
+  question_goal: number;
+  status: string;
+  created_at: string | null;
+  summary: {
+    assigned_count: number;
+    started_count: number;
+    completed_count: number;
+    overdue_count: number;
+  };
+  roster_progress: TeacherClassAssignmentRosterProgress[];
+};
+
+export type TeacherClassAssignmentBoard = {
+  active_assignment: TeacherClassAssignment | null;
+  assignments: TeacherClassAssignment[];
 };
 
 export type TeacherClassProgressPoint = {
@@ -275,9 +314,46 @@ export async function removeTeacherClassStudent(classId: number, studentId: numb
   });
 }
 
+export type TeacherClassInviteDelivery = {
+  ok: boolean;
+  deliveryStatus: 'sent' | 'failed' | 'not_configured';
+  sentAt: string | null;
+  error: string | null;
+  messageId?: string | null;
+};
+
 export async function resendTeacherClassStudentInvite(classId: number, studentId: number) {
-  return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/students/${studentId}/resend-invite`, {
+  return apiFetchJson<{ board: TeacherClassWorkspace; delivery: TeacherClassInviteDelivery | null }>(
+    `/api/teacher/classes/${classId}/students/${studentId}/resend-invite`,
+    {
     method: 'POST',
+  });
+}
+
+export async function createTeacherClassAssignment(
+  classId: number,
+  payload: { title: string; instructions?: string; due_at?: string | null; question_goal?: number; pack_id?: number | null },
+) {
+  return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/assignments`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateTeacherClassAssignment(
+  classId: number,
+  assignmentId: number,
+  payload: { title: string; instructions?: string; due_at?: string | null; question_goal?: number; status?: string },
+) {
+  return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/assignments/${assignmentId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteTeacherClassAssignment(classId: number, assignmentId: number) {
+  return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/assignments/${assignmentId}`, {
+    method: 'DELETE',
   });
 }
 

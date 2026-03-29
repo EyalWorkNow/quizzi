@@ -2,16 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
+  Award,
   CheckCircle2,
   BookOpen,
   BrainCircuit,
   CalendarClock,
+  Flame,
   GraduationCap,
   History,
   LogOut,
+  ShieldCheck,
   Rocket,
   Sparkles,
   Target,
+  TrendingUp,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { apiFetchJson } from '../lib/api.ts';
@@ -232,6 +236,7 @@ export default function StudentPortal() {
   const focusTags = Array.isArray(data?.student_memory?.focus_tags) ? data.student_memory.focus_tags : [];
   const stats = data?.overall_analytics?.stats || {};
   const engagement = data?.overall_analytics?.engagement || {};
+  const masteryRows = Array.isArray(data?.overall_analytics?.mastery) ? data.overall_analytics.mastery : [];
   const practicePath = useMemo(() => buildPracticePath(data), [data]);
   const classes = Array.isArray(data?.classes) ? data.classes : [];
   const pendingInvites = Array.isArray(data?.pending_classes)
@@ -245,6 +250,79 @@ export default function StudentPortal() {
   const latestSessionPath =
     hasLiveParticipant && liveSessionPin ? `/student/session/${liveSessionPin}/play` : null;
   const isHistoryRoute = location.pathname.endsWith('/history');
+  const weeklyGoal = engagement?.weekly_goal || null;
+  const streakDays = Number(engagement?.comeback_streak_days || 0);
+  const personalBestAccuracy = historyRows.reduce((best: number, row: any) => Math.max(best, Number(row?.accuracy_pct || row?.accuracy || 0)), 0);
+  const personalBestSession = historyRows.find((row: any) => Number(row?.accuracy_pct || row?.accuracy || 0) === personalBestAccuracy) || null;
+  const mission = data?.recommendations?.comeback_mission || null;
+  const nextStep = data?.recommendations?.next_step || null;
+  const missionTitle = mission?.headline || nextStep?.title || copy.launchPractice;
+  const missionBody = mission?.body || nextStep?.body || '';
+  const missionCta = mission?.cta_label || copy.launchPractice;
+  const strongestTags = useMemo(
+    () =>
+      [...masteryRows]
+        .sort((left: any, right: any) => Number(right?.score || 0) - Number(left?.score || 0))
+        .slice(0, 3),
+    [masteryRows],
+  );
+  const weakestTags = useMemo(
+    () =>
+      [...masteryRows]
+        .sort((left: any, right: any) => Number(left?.score || 0) - Number(right?.score || 0))
+        .slice(0, 3),
+    [masteryRows],
+  );
+  const weeklyCompletion = Math.max(0, Math.min(100, Number(weeklyGoal?.completion_pct || 0)));
+  const missionChecklist = [
+    {
+      label: language === 'he' ? 'ימים פעילים השבוע' : language === 'ar' ? 'أيام النشاط هذا الأسبوع' : 'Active days this week',
+      value: `${Number(engagement?.active_days_7d || 0)}/${Number(weeklyGoal?.active_days_target || 0) || 0}`,
+      tone: 'bg-brand-yellow',
+      icon: Flame,
+    },
+    {
+      label: language === 'he' ? 'נסיונות תרגול השבוע' : language === 'ar' ? 'محاولات التدريب هذا الأسبوع' : 'Practice attempts this week',
+      value: `${Number(engagement?.practice_attempts_7d || 0)}`,
+      tone: 'bg-brand-purple text-white',
+      icon: BrainCircuit,
+    },
+    {
+      label: language === 'he' ? 'תשובות חיות השבוע' : language === 'ar' ? 'إجابات مباشرة هذا الأسبوع' : 'Live answers this week',
+      value: `${Number(engagement?.live_answers_7d || 0)}`,
+      tone: 'bg-brand-orange text-white',
+      icon: Rocket,
+    },
+  ];
+  const badgeCards = [
+    {
+      id: 'streak',
+      label: language === 'he' ? 'תג רצף' : language === 'ar' ? 'وسام الاستمرارية' : 'Streak badge',
+      unlocked: streakDays >= 3,
+      icon: Flame,
+      body: streakDays >= 3
+        ? (language === 'he' ? `${streakDays} ימי פעילות רצופים.` : language === 'ar' ? `${streakDays} أيام نشاط متتالية.` : `${streakDays} active days in a row.`)
+        : (language === 'he' ? 'צריך 3 ימי פעילות רצופים.' : language === 'ar' ? 'تحتاج إلى 3 أيام نشاط متتالية.' : 'Reach 3 active days in a row.'),
+    },
+    {
+      id: 'accuracy',
+      label: language === 'he' ? 'תג דיוק' : language === 'ar' ? 'وسام الدقة' : 'Accuracy badge',
+      unlocked: Number(stats?.accuracy || 0) >= 70,
+      icon: Target,
+      body: Number(stats?.accuracy || 0) >= 70
+        ? (language === 'he' ? 'הגעת לדיוק של 70% ומעלה.' : language === 'ar' ? 'وصلت إلى دقة 70٪ أو أكثر.' : 'You reached 70%+ accuracy.')
+        : (language === 'he' ? '70% דיוק יפתחו את התג.' : language === 'ar' ? 'دقة 70٪ ستفتح هذا الوسام.' : 'Hit 70% accuracy to unlock.'),
+    },
+    {
+      id: 'practice',
+      label: language === 'he' ? 'תג תרגול' : language === 'ar' ? 'وسام التدريب' : 'Practice badge',
+      unlocked: Number(data?.student_memory?.history_rollup?.practice_attempts || 0) >= 5,
+      icon: Award,
+      body: Number(data?.student_memory?.history_rollup?.practice_attempts || 0) >= 5
+        ? (language === 'he' ? 'כבר בנית הרגל תרגול.' : language === 'ar' ? 'لقد بنيت عادة تدريب.' : 'You already built a practice habit.')
+        : (language === 'he' ? '5 תרגולים יפתחו את התג.' : language === 'ar' ? '5 محاولات تدريب ستفتح هذا الوسام.' : 'Complete 5 practice runs to unlock.'),
+    },
+  ];
 
   const handleSignOut = async () => {
     await signOutStudent();
@@ -341,16 +419,16 @@ export default function StudentPortal() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">{copy.practice}</p>
-                    <p className="text-2xl font-black">{data.recommendations?.next_step?.title || data.recommendations?.comeback_mission?.headline || copy.launchPractice}</p>
+                    <p className="text-2xl font-black">{missionTitle}</p>
                   </div>
                   <Rocket className="w-6 h-6 text-brand-yellow" />
                 </div>
-                <p className="mt-3 font-medium text-white/75">{data.recommendations?.next_step?.body || data.recommendations?.comeback_mission?.body || ''}</p>
+                <p className="mt-3 font-medium text-white/75">{missionBody}</p>
                 <Link
                   to={practicePath}
                   className="mt-5 inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-5 py-3 font-black text-brand-dark"
                 >
-                  {copy.launchPractice}
+                  {missionCta}
                   <ArrowRight className="w-4 h-4" />
                 </Link>
               </div>
@@ -399,6 +477,99 @@ export default function StudentPortal() {
 
         <section className="grid gap-5 lg:grid-cols-[1.25fr_0.75fr]">
           <div className="space-y-5">
+            <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+              <div className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                <div className="flex items-center justify-between gap-3 mb-5">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange">
+                      {language === 'he' ? 'Mission Center' : language === 'ar' ? 'مركز المهمة' : 'Mission Center'}
+                    </p>
+                    <h2 className="mt-2 text-3xl font-black text-brand-dark">{missionTitle}</h2>
+                  </div>
+                  <div className="rounded-full border-2 border-brand-dark bg-brand-yellow p-3">
+                    <Sparkles className="w-6 h-6 text-brand-dark" />
+                  </div>
+                </div>
+                <p className="font-medium text-brand-dark/70">{missionBody}</p>
+                <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                  {missionChecklist.map((item) => (
+                    <div key={item.label} className={`${item.tone} rounded-[1.35rem] border-2 border-brand-dark p-4`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[11px] font-black uppercase tracking-[0.15em] opacity-70">{item.label}</p>
+                        <item.icon className="w-4 h-4" />
+                      </div>
+                      <p className="mt-3 text-3xl font-black">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <Link
+                    to={practicePath}
+                    className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-dark px-5 py-3 font-black text-white"
+                  >
+                    {missionCta}
+                    <ArrowRight className="w-4 h-4" />
+                  </Link>
+                  {latestSessionPath ? (
+                    <Link
+                      to={latestSessionPath}
+                      className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-5 py-3 font-black text-brand-dark"
+                    >
+                      {copy.continueLive}
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-bg p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45">
+                      {language === 'he' ? 'Momentum' : language === 'ar' ? 'الزخم' : 'Momentum'}
+                    </p>
+                    <h2 className="mt-2 text-3xl font-black text-brand-dark">
+                      {streakDays > 0 ? `${streakDays} ${language === 'he' ? 'ימי רצף' : language === 'ar' ? 'أيام متتالية' : 'day streak'}` : copy.nextMove}
+                    </h2>
+                  </div>
+                  <div className="rounded-full border-2 border-brand-dark bg-white p-3">
+                    <Award className="w-6 h-6 text-brand-purple" />
+                  </div>
+                </div>
+                <div className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-black text-brand-dark">
+                      {language === 'he' ? 'התקדמות ליעד השבועי' : language === 'ar' ? 'التقدم نحو هدف الأسبوع' : 'Progress to weekly goal'}
+                    </p>
+                    <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-3 py-1 text-xs font-black">
+                      {weeklyCompletion}%
+                    </span>
+                  </div>
+                  <div className="mt-4 h-4 overflow-hidden rounded-full border-2 border-brand-dark bg-brand-bg">
+                    <div
+                      className="h-full rounded-full bg-[linear-gradient(90deg,#FF5A36_0%,#FFD13B_55%,#B488FF_100%)]"
+                      style={{ width: `${weeklyCompletion}%` }}
+                    />
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <div className="rounded-[1.1rem] border-2 border-brand-dark bg-brand-bg p-3">
+                      <p className="text-[11px] font-black uppercase tracking-[0.15em] text-brand-dark/45">
+                        {language === 'he' ? 'יעד שבועי' : language === 'ar' ? 'الهدف الأسبوعي' : 'Weekly target'}
+                      </p>
+                      <p className="mt-2 text-2xl font-black text-brand-dark">
+                        {Number(weeklyGoal?.active_days_progress || 0)}/{Number(weeklyGoal?.active_days_target || 0)}
+                      </p>
+                    </div>
+                    <div className="rounded-[1.1rem] border-2 border-brand-dark bg-white p-3">
+                      <p className="text-[11px] font-black uppercase tracking-[0.15em] text-brand-dark/45">
+                        {language === 'he' ? 'פעילות אחרונה' : language === 'ar' ? 'آخر نشاط' : 'Latest activity'}
+                      </p>
+                      <p className="mt-2 text-2xl font-black text-brand-dark">{formatRelativeTime(engagement?.last_activity_at)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {[
                 { label: copy.accuracy, value: `${Math.round(Number(stats?.accuracy || 0))}%`, icon: Target },
@@ -437,6 +608,122 @@ export default function StudentPortal() {
                     {copy.noHistory}
                   </div>
                 )}
+              </div>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+              <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-dark p-6 text-white shadow-[8px_8px_0px_0px_#FF5A36]">
+                <div className="flex items-center gap-3 mb-4">
+                  <Award className="w-6 h-6 text-brand-yellow" />
+                  <h2 className="text-2xl font-black">
+                    {language === 'he' ? 'תגים והישגים' : language === 'ar' ? 'الأوسمة والإنجازات' : 'Badges & achievements'}
+                  </h2>
+                </div>
+                <div className="space-y-3">
+                  {badgeCards.map((badge) => (
+                    <div key={badge.id} className={`rounded-[1.3rem] border-2 p-4 ${badge.unlocked ? 'border-brand-yellow bg-white/10' : 'border-white/15 bg-white/5'}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="rounded-full border-2 border-white/20 bg-white/10 p-2">
+                            <badge.icon className="w-4 h-4 text-brand-yellow" />
+                          </div>
+                          <p className="font-black">{badge.label}</p>
+                        </div>
+                        <span className="rounded-full border border-white/20 px-3 py-1 text-[11px] font-black uppercase">
+                          {badge.unlocked ? 'Unlocked' : 'Locked'}
+                        </span>
+                      </div>
+                      <p className="mt-3 font-medium text-white/75">{badge.body}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                <div className="flex items-center gap-3 mb-4">
+                  <TrendingUp className="w-6 h-6 text-brand-orange" />
+                  <h2 className="text-2xl font-black">
+                    {language === 'he' ? 'השיא האישי שלך' : language === 'ar' ? 'أفضل إنجاز شخصي' : 'Your personal best'}
+                  </h2>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4">
+                    <p className="text-[11px] font-black uppercase tracking-[0.15em] text-brand-dark/45">Best accuracy</p>
+                    <p className="mt-3 text-3xl font-black text-brand-dark">{Math.round(personalBestAccuracy)}%</p>
+                  </div>
+                  <div className="rounded-[1.2rem] border-2 border-brand-dark bg-white p-4">
+                    <p className="text-[11px] font-black uppercase tracking-[0.15em] text-brand-dark/45">Best session</p>
+                    <p className="mt-3 text-lg font-black text-brand-dark">{personalBestSession?.pack_title || '--'}</p>
+                  </div>
+                  <div className="rounded-[1.2rem] border-2 border-brand-dark bg-brand-yellow p-4">
+                    <p className="text-[11px] font-black uppercase tracking-[0.15em] text-brand-dark/45">Live + practice</p>
+                    <p className="mt-3 text-lg font-black text-brand-dark">{Number(engagement?.live_answers_7d || 0) + Number(engagement?.practice_attempts_7d || 0)}</p>
+                  </div>
+                </div>
+                <p className="mt-4 font-medium text-brand-dark/70">
+                  {personalBestSession
+                    ? (language === 'he'
+                      ? `הביצוע החזק ביותר שלך היה ב-${personalBestSession.pack_title || 'הסשן האחרון'}.`
+                      : language === 'ar'
+                        ? `أقوى أداء لك كان في ${personalBestSession.pack_title || 'أحدث جلسة'}.`
+                        : `Your strongest run so far came in ${personalBestSession.pack_title || 'your latest session'}.`)
+                    : copy.noHistory}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+                <div className="flex items-center gap-3">
+                  <TrendingUp className="w-6 h-6 text-brand-orange" />
+                  <div>
+                    <h2 className="text-3xl font-black">
+                      {language === 'he' ? 'מפת שליטה לפי נושאים' : language === 'ar' ? 'خريطة الإتقان حسب الموضوع' : 'Topic Mastery Map'}
+                    </h2>
+                    <p className="text-sm font-bold text-brand-dark/60">
+                      {language === 'he' ? 'חזקות מול נושאים שעדיין צריכים חיזוק.' : language === 'ar' ? 'نقاط القوة مقابل المواضيع التي ما زالت تحتاج دعماً.' : 'See strengths beside the topics that still need support.'}
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black">
+                  {masteryRows.length} {language === 'he' ? 'נושאים' : language === 'ar' ? 'مواضيع' : 'topics'}
+                </div>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
+                  <div className="flex items-center gap-2 mb-4">
+                    <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                    <p className="text-lg font-black">
+                      {language === 'he' ? 'החזקות שלך' : language === 'ar' ? 'نقاط قوتك' : 'Your strengths'}
+                    </p>
+                  </div>
+                  <div className="space-y-3">
+                    {strongestTags.length > 0 ? strongestTags.map((tag: any) => (
+                      <div key={`strong-${tag.tag}`}>
+                        <MasteryRow label={String(tag.tag || '')} score={Number(tag.score || 0)} tone="emerald" />
+                      </div>
+                    )) : (
+                      <p className="font-medium text-brand-dark/65">{copy.noHistory}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Target className="w-5 h-5 text-brand-orange" />
+                    <p className="text-lg font-black">
+                      {language === 'he' ? 'איפה להתמקד עכשיו' : language === 'ar' ? 'أين تركز الآن' : 'Where to focus now'}
+                    </p>
+                  </div>
+                  <div className="space-y-3">
+                    {weakestTags.length > 0 ? weakestTags.map((tag: any) => (
+                      <div key={`weak-${tag.tag}`}>
+                        <MasteryRow label={String(tag.tag || '')} score={Number(tag.score || 0)} tone="orange" />
+                      </div>
+                    )) : (
+                      <p className="font-medium text-brand-dark/65">{copy.noHistory}</p>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -632,6 +919,36 @@ export default function StudentPortal() {
             </div>
           </div>
         </section>
+      </div>
+    </div>
+  );
+}
+
+function MasteryRow({
+  label,
+  score,
+  tone,
+}: {
+  label: string;
+  score: number;
+  tone: 'emerald' | 'orange';
+}) {
+  const clampedScore = Math.max(0, Math.min(100, Math.round(Number(score || 0))));
+  const barClass =
+    tone === 'emerald'
+      ? 'bg-[linear-gradient(90deg,#1F9D61_0%,#7DD3A4_100%)]'
+      : 'bg-[linear-gradient(90deg,#FF5A36_0%,#FFD13B_100%)]';
+
+  return (
+    <div className="rounded-[1.2rem] border-2 border-brand-dark bg-white p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-black text-brand-dark">{label}</p>
+        <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-3 py-1 text-xs font-black">
+          {clampedScore}%
+        </span>
+      </div>
+      <div className="mt-3 h-3 overflow-hidden rounded-full border-2 border-brand-dark bg-brand-bg">
+        <div className={`h-full rounded-full ${barClass}`} style={{ width: `${clampedScore}%` }} />
       </div>
     </div>
   );
