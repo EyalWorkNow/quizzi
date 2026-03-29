@@ -1093,47 +1093,75 @@ export default function StudentPlay() {
         )}
 
         {/* Centered Lobby Content */}
-        <div className="relative flex-1 min-h-0 flex flex-col items-center justify-center p-6 sm:p-8 lg:p-12 w-full max-w-3xl mx-auto">
+        <div className="relative flex-1 min-h-0 flex flex-col items-center justify-center p-4 sm:p-8 lg:p-12 w-full max-w-4xl mx-auto custom-scrollbar">
            <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 30 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
-              className="relative z-10 w-full rounded-[3.5rem] border-4 border-brand-dark bg-white p-8 text-center shadow-[16px_16px_0px_0px_#1A1A1A] sm:p-12"
+              className="relative z-10 w-full rounded-[2.5rem] sm:rounded-[3.5rem] border-4 border-brand-dark bg-white p-6 sm:p-12 text-center shadow-[12px_12px_0px_0px_#1A1A1A] sm:shadow-[16px_16px_0px_0px_#1A1A1A] overflow-hidden"
            >
-              <div className="absolute inset-0 z-0 pointer-events-none opacity-5">
-                 <div className="absolute top-10 left-10 h-24 w-24 rounded-full bg-brand-yellow blur-2xl" />
-                 <div className="absolute bottom-10 right-10 h-24 w-24 rounded-full bg-brand-purple blur-2xl" />
+              {/* Background ambient elements */}
+              <div className="absolute inset-0 z-0 pointer-events-none opacity-10">
+                 <div className="absolute -top-10 -left-10 h-32 w-32 rounded-full bg-brand-yellow blur-3xl animate-pulse" />
+                 <div className="absolute -bottom-10 -right-10 h-32 w-32 rounded-full bg-brand-purple blur-3xl animate-pulse [animation-delay:1s]" />
               </div>
 
               <div className="relative z-10 text-center">
-                 <div className="mx-auto mb-10 w-fit relative">
-                    <Avatar
-                      nickname={String(nickname || '')}
-                      className="mb-0"
-                      imgClassName="h-32 w-32 rounded-[2.5rem] border-4 border-brand-dark bg-brand-yellow shadow-[8px_8px_0px_0px_#1A1A1A] sm:h-40 sm:w-40"
-                      textClassName="hidden"
-                    />
-                    <div className="absolute -bottom-3 -right-3 h-12 w-12 rounded-2xl border-4 border-brand-dark bg-white flex items-center justify-center shadow-[4px_4px_0px_0px_#1A1A1A]">
-                       <CheckCircle className="h-6 w-6 text-emerald-500" />
-                    </div>
+                 <div className="mx-auto mb-6 sm:mb-10 w-fit relative group">
+                    <motion.div
+                      animate={{ 
+                        y: [0, -8, 0],
+                        rotate: [0, 2, -2, 0]
+                      }}
+                      transition={{ 
+                        duration: 6,
+                        repeat: Infinity,
+                        ease: "easeInOut"
+                      }}
+                      className="relative z-10"
+                    >
+                      <Avatar
+                        nickname={String(nickname || '')}
+                        className="mb-0"
+                        imgClassName="h-28 w-28 sm:h-40 sm:w-40 rounded-[2rem] sm:rounded-[2.5rem] border-4 border-brand-dark bg-brand-yellow shadow-[6px_6px_0px_0px_#1A1A1A] sm:shadow-[8px_8px_0px_0px_#1A1A1A]"
+                        textClassName="hidden"
+                      />
+                    </motion.div>
+                    
+                    {/* Status badge */}
+                    <motion.div 
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ delay: 0.5, type: 'spring' }}
+                      className="absolute -bottom-2 -right-2 z-20 h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-4 border-brand-dark bg-white flex items-center justify-center shadow-[4px_4px_0px_0px_#1A1A1A]"
+                    >
+                       <CheckCircle className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-500" />
+                    </motion.div>
+
+                    {/* Decorative glow */}
+                    <div className="absolute inset-0 -z-10 bg-brand-yellow/20 blur-2xl rounded-full scale-110 opacity-0 group-hover:opacity-100 transition-opacity" />
                  </div>
                  
-                 <h2 className="mb-4 text-5xl font-black tracking-tighter text-brand-dark sm:text-7xl">You're in!</h2>
-                 <p className="mb-10 text-xl font-bold leading-relaxed text-brand-dark/40 sm:text-3xl">Ready for the magic? The host starts soon.</p>
+                 <h2 className="mb-2 sm:mb-4 text-[clamp(2.5rem,10vw,4.5rem)] font-black tracking-tighter leading-none text-brand-dark">
+                    You're in!
+                 </h2>
+                 <p className="mb-8 sm:mb-10 text-base sm:text-2xl font-bold leading-tight text-brand-dark/50 max-w-[25ch] mx-auto">
+                    Ready for the magic? The host starts soon.
+                 </p>
 
-                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                 <div className="grid grid-cols-1 gap-3 sm:gap-4 sm:grid-cols-2">
                     <LobbyMetaCard label="Game Track" value={gameMode.label} />
                     <LobbyMetaCard label="Your Pod" value={teamName || (gameMode.teamBased ? 'Syncing team' : 'Solo Mastery')} />
                  </div>
 
-                 <div className="mt-10 rounded-[2.5rem] border-4 border-brand-dark/5 bg-brand-bg/30 p-6 flex flex-wrap items-center justify-center gap-6">
-                    <div className="flex items-center gap-3">
-                       <div className="h-3 w-3 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.5)]" />
-                       <span className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">Status:</span>
-                       <span className="text-sm font-black text-brand-dark/80">{connectionLabel}</span>
+                 <div className="mt-8 sm:mt-10 rounded-[2rem] sm:rounded-[2.5rem] border-4 border-brand-dark/5 bg-brand-bg/30 p-4 sm:p-6 flex flex-wrap items-center justify-center gap-4 sm:gap-8">
+                    <div className="flex items-center gap-2 sm:gap-3">
+                       <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                       <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/40">Status:</span>
+                       <span className="text-xs sm:text-sm font-black text-brand-dark/80">{connectionLabel}</span>
                     </div>
-                    <div className="flex items-center gap-3">
-                       <Wifi className="h-4 w-4 text-brand-purple/40" />
-                       <span className="text-sm font-black text-brand-dark/80 tracking-tight">Real-time Synced</span>
+                    <div className="flex items-center gap-2 sm:gap-3">
+                       <Wifi className="h-3.5 w-3.5 text-brand-purple/40" />
+                       <span className="text-xs sm:text-sm font-black text-brand-dark/80 tracking-tight">Real-time Synced</span>
                     </div>
                  </div>
               </div>
@@ -1887,9 +1915,9 @@ export default function StudentPlay() {
 
 function LobbyMetaCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4 text-left">
-      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{label}</p>
-      <p className="text-xl font-black capitalize break-words">{String(value || '').replace(/_/g, ' ')}</p>
+    <div className="rounded-[1.25rem] sm:rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-3 sm:p-4 text-left shadow-[4px_4px_0px_0px_#1A1A1A] sm:shadow-none">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-1 sm:mb-2">{label}</p>
+      <p className="text-lg sm:text-xl font-black capitalize break-words leading-tight">{String(value || '').replace(/_/g, ' ')}</p>
     </div>
   );
 }
