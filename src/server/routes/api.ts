@@ -8350,10 +8350,19 @@ router.get('/student/me/classes/:classId', requireStudentSession, async (req, re
         : classSummary.stats?.average_accuracy === null || classSummary.stats?.average_accuracy === undefined
           ? null
           : Math.round(Number(classSummary.stats.average_accuracy || 0));
-    const assignment = await buildStudentAssignmentView({
-      classRow: classSummary,
-      studentUserId,
-    });
+    let assignment = null;
+    try {
+      assignment = await buildStudentAssignmentView({
+        classRow: classSummary,
+        studentUserId,
+      });
+    } catch (assignmentError: any) {
+      console.error('[WARN] Student class assignment view fallback engaged:', {
+        classId,
+        studentUserId,
+        message: assignmentError?.message || 'Unknown assignment error',
+      });
+    }
 
     res.json({
       student: payload.student,

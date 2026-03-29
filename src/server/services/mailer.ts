@@ -216,10 +216,32 @@ export function getMailHealth(): MailHealth {
   };
 }
 
+export function logMailHealth(context = 'mailer') {
+  const health = getMailHealth();
+  console.log(
+    `[${context}] Mail health: ${JSON.stringify({
+      configured: health.configured,
+      mode: health.mode,
+      from_address: health.from_address,
+      missing: health.missing,
+      hint: health.hint,
+    })}`,
+  );
+  return health;
+}
+
 export async function sendMail(payload: MailPayload): Promise<MailDeliveryResult> {
   const transporter = getTransporter();
   const from = getFromAddress();
   if (!transporter || !from) {
+    console.warn(
+      `[mailer] Mail send skipped: ${JSON.stringify({
+        reason: 'not_configured',
+        to: payload.to,
+        subject: payload.subject,
+        mailHealth: getMailHealth(),
+      })}`,
+    );
     return {
       ok: false,
       deliveryStatus: 'not_configured',
@@ -246,6 +268,17 @@ export async function sendMail(payload: MailPayload): Promise<MailDeliveryResult
       messageId: result.messageId || null,
     };
   } catch (error: any) {
+    console.error(
+      `[mailer] Mail send failed: ${JSON.stringify({
+        to: payload.to,
+        subject: payload.subject,
+        message: error?.message || 'Failed to send email.',
+        code: error?.code || null,
+        command: error?.command || null,
+        response: error?.response || null,
+        responseCode: error?.responseCode || null,
+      })}`,
+    );
     return {
       ok: false,
       deliveryStatus: 'failed',
