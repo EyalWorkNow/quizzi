@@ -40,6 +40,24 @@ function parseNumber(value: unknown, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function readEnvValue(key: string) {
+  const raw = String(process.env[key] || '').trim();
+  if (!raw) return '';
+  if (
+    (raw.startsWith('"') && raw.endsWith('"')) ||
+    (raw.startsWith("'") && raw.endsWith("'"))
+  ) {
+    return raw.slice(1, -1).trim();
+  }
+  return raw;
+}
+
+function readSecretValue(key: string, { collapseWhitespace = false }: { collapseWhitespace?: boolean } = {}) {
+  const raw = readEnvValue(key);
+  if (!raw) return '';
+  return collapseWhitespace ? raw.replace(/\s+/g, '') : raw;
+}
+
 function extractEmailAddress(value: unknown) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -52,9 +70,9 @@ function extractEmailAddress(value: unknown) {
 
 function buildGmailTransportConfig() {
   const user = extractEmailAddress(
-    process.env.EMAIL_USER || process.env.SMTP_USER || process.env.EMAIL_FROM || process.env.SMTP_FROM || 'eyalatiyawork@gmail.com',
+    readEnvValue('EMAIL_USER') || readEnvValue('SMTP_USER') || readEnvValue('EMAIL_FROM') || readEnvValue('SMTP_FROM') || 'eyalatiyawork@gmail.com',
   );
-  const pass = String(process.env.EMAIL_PASS || '').trim();
+  const pass = readSecretValue('EMAIL_PASS', { collapseWhitespace: true });
   if (!user || !pass) return null;
   return {
     service: 'gmail',
@@ -66,16 +84,17 @@ function buildGmailTransportConfig() {
 }
 
 function buildSmtpTransportConfig() {
-  const host = String(process.env.SMTP_HOST || '').trim();
+  const host = readEnvValue('SMTP_HOST');
   if (!host) return null;
+  const smtpUser = readEnvValue('SMTP_USER');
   return {
     host,
-    port: parseNumber(process.env.SMTP_PORT, 587),
-    secure: parseBooleanFlag(process.env.SMTP_SECURE, false),
-    auth: process.env.SMTP_USER
+    port: parseNumber(readEnvValue('SMTP_PORT'), 587),
+    secure: parseBooleanFlag(readEnvValue('SMTP_SECURE'), false),
+    auth: smtpUser
       ? {
-          user: String(process.env.SMTP_USER || '').trim(),
-          pass: String(process.env.SMTP_PASS || '').trim(),
+          user: smtpUser,
+          pass: readSecretValue('SMTP_PASS'),
         }
       : undefined,
   } as const;
@@ -87,9 +106,9 @@ function getTransportConfig() {
 
 function getFromAddress() {
   return String(
-    process.env.SMTP_FROM ||
-      process.env.EMAIL_FROM ||
-      extractEmailAddress(process.env.EMAIL_USER || process.env.SMTP_USER) ||
+    readEnvValue('SMTP_FROM') ||
+      readEnvValue('EMAIL_FROM') ||
+      extractEmailAddress(readEnvValue('EMAIL_USER') || readEnvValue('SMTP_USER')) ||
       'eyalatiyawork@gmail.com',
   ).trim();
 }
@@ -159,17 +178,17 @@ export function isMailConfigured() {
 }
 
 export function getMailHealth(): MailHealth {
-  const smtpHost = String(process.env.SMTP_HOST || '').trim();
-  const smtpUser = String(process.env.SMTP_USER || '').trim();
-  const smtpPass = String(process.env.SMTP_PASS || '').trim();
+  const smtpHost = readEnvValue('SMTP_HOST');
+  const smtpUser = readEnvValue('SMTP_USER');
+  const smtpPass = readSecretValue('SMTP_PASS');
   const gmailUser = extractEmailAddress(
-    process.env.EMAIL_USER || process.env.SMTP_USER || process.env.EMAIL_FROM || process.env.SMTP_FROM || 'eyalatiyawork@gmail.com',
+    readEnvValue('EMAIL_USER') || readEnvValue('SMTP_USER') || readEnvValue('EMAIL_FROM') || readEnvValue('SMTP_FROM') || 'eyalatiyawork@gmail.com',
   );
-  const gmailPass = String(process.env.EMAIL_PASS || '').trim();
+  const gmailPass = readSecretValue('EMAIL_PASS', { collapseWhitespace: true });
 
   if (smtpHost) {
     const missing: string[] = [];
-    if (!String(process.env.SMTP_FROM || '').trim()) missing.push('SMTP_FROM');
+    if (!readEnvValue('SMTP_FROM')) missing.push('SMTP_FROM');
     if (smtpUser && !smtpPass) missing.push('SMTP_PASS');
     return {
       configured: missing.length === 0,
