@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   BookOpen,
   CheckCircle2,
@@ -12,10 +13,12 @@ import {
   Layers3,
   Plus,
   RefreshCw,
+  Sparkles,
   Trash2,
   Users,
+  X,
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import AppLoadingScreen from '../components/AppLoadingScreen.tsx';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
 import UiverseSearchField from '../components/UiverseSearchField.tsx';
@@ -103,8 +106,8 @@ export default function TeacherClasses() {
   const [searchQuery, setSearchQuery] = useState('');
   const [subjectFilter, setSubjectFilter] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const [createStep, setCreateStep] = useState(0);
   const [form, setForm] = useState<ClassFormState>(EMPTY_FORM);
-  const createPanelRef = useRef<HTMLDivElement | null>(null);
   const classNameInputRef = useRef<HTMLInputElement | null>(null);
 
   const copy = {
@@ -115,6 +118,28 @@ export default function TeacherClasses() {
       newClass: 'כיתה חדשה',
       quickCreate: 'יצירה מהירה',
       quickCreateBody: 'צור/י כיתה חדשה במהירות. כל הניהול המלא יתבצע מדף הכיתה עצמו אחרי השמירה.',
+      quickCreateLaunch: 'פתח יצירה מהירה',
+      createModalTitle: 'יצירה מהירה לכיתה חדשה',
+      createModalBody: 'שלושה צעדים קצרים, ואז הכיתה מוכנה לניהול מלא עם רוסטר, חבילות וסשנים.',
+      stepIdentity: 'זהות הכיתה',
+      stepSetup: 'התאמה מהירה',
+      stepReview: 'סיכום ושמירה',
+      stepIdentityBody: 'נגדיר את הפרטים הבסיסיים כדי ש־Quizzi ידע לארגן את הכיתה בצורה נכונה.',
+      stepSetupBody: 'נבחר vibe, צבע וחבילה התחלתית אם כבר יש אחת מוכנה.',
+      stepReviewBody: 'מוסיפים הקשר אחרון, רואים preview, ושומרים את סביבת העבודה החדשה.',
+      continue: 'המשך',
+      back: 'חזרה',
+      close: 'סגירה',
+      saveAndOpen: 'שמור ופתח את הכיתה',
+      classNamePlaceholder: 'למשל: ח׳2 מדעים',
+      subjectPlaceholder: 'למשל: מדעים',
+      gradePlaceholder: 'למשל: ח׳',
+      optional: 'אופציונלי',
+      previewTitle: 'תצוגה מקדימה חיה',
+      notesHelper: 'אפשר להשאיר הערה קצרה על הקצב, רמת הכיתה או מטרת העבודה.',
+      pickAColor: 'בחר/י צבע שמסמן את האופי של הכיתה',
+      pickStarterPack: 'אפשר לחבר חבילה כבר עכשיו, או להשאיר ריק ולהוסיף אחר כך.',
+      classReady: 'הכיתה הזו כמעט מוכנה ליציאה לדרך.',
       searchPlaceholder: 'חפש כיתה, מקצוע, שכבה או חבילה...',
       loading: 'טוען כיתות...',
       loadFailedTitle: 'הכיתות לא נטענו כראוי.',
@@ -171,6 +196,28 @@ export default function TeacherClasses() {
       newClass: 'صف جديد',
       quickCreate: 'إنشاء سريع',
       quickCreateBody: 'أنشئ صفًا جديدًا بسرعة. ستتم الإدارة الكاملة من صفحة الصف نفسها بعد الحفظ.',
+      quickCreateLaunch: 'افتح الإنشاء السريع',
+      createModalTitle: 'إنشاء سريع لصف جديد',
+      createModalBody: 'ثلاث خطوات قصيرة ثم تصبح مساحة الصف جاهزة للإدارة الكاملة.',
+      stepIdentity: 'هوية الصف',
+      stepSetup: 'إعداد سريع',
+      stepReview: 'مراجعة وحفظ',
+      stepIdentityBody: 'لنحدد التفاصيل الأساسية حتى ينظم Quizzi الصف بشكل صحيح.',
+      stepSetupBody: 'اختر الطابع واللون والحزمة الأولى إذا كانت جاهزة.',
+      stepReviewBody: 'أضف ملاحظة أخيرة، راجع المعاينة، ثم احفظ مساحة الصف الجديدة.',
+      continue: 'متابعة',
+      back: 'رجوع',
+      close: 'إغلاق',
+      saveAndOpen: 'احفظ وافتح الصف',
+      classNamePlaceholder: 'مثال: علوم 8-2',
+      subjectPlaceholder: 'مثال: علوم',
+      gradePlaceholder: 'مثال: الصف الثامن',
+      optional: 'اختياري',
+      previewTitle: 'معاينة مباشرة',
+      notesHelper: 'يمكنك إضافة ملاحظة قصيرة عن الإيقاع أو مستوى الصف أو هدف العمل.',
+      pickAColor: 'اختر لونًا يعبّر عن طابع الصف',
+      pickStarterPack: 'يمكن ربط حزمة من الآن أو تركها فارغة وإضافتها لاحقًا.',
+      classReady: 'هذا الصف أصبح قريبًا جدًا من الجاهزية.',
       searchPlaceholder: 'ابحث عن صف أو مادة أو مستوى أو حزمة...',
       loading: 'جارٍ تحميل الصفوف...',
       loadFailedTitle: 'لم يتم تحميل الصفوف بشكل سليم.',
@@ -227,6 +274,28 @@ export default function TeacherClasses() {
       newClass: 'New Class',
       quickCreate: 'Quick Create',
       quickCreateBody: 'Create a class quickly here. Full management now happens from the class page itself after save.',
+      quickCreateLaunch: 'Open Quick Create',
+      createModalTitle: 'Quick Create a New Class',
+      createModalBody: 'Three short stops, then the class is ready for full management with roster, packs, and sessions.',
+      stepIdentity: 'Class Identity',
+      stepSetup: 'Quick Setup',
+      stepReview: 'Review & Save',
+      stepIdentityBody: 'Set the core details so Quizzi can organize the class properly from day one.',
+      stepSetupBody: 'Choose the class vibe, its color, and an optional starter pack.',
+      stepReviewBody: 'Add final context, review the live preview, and save the new workspace.',
+      continue: 'Continue',
+      back: 'Back',
+      close: 'Close',
+      saveAndOpen: 'Save & Open Class',
+      classNamePlaceholder: 'For example: Grade 8 Science A',
+      subjectPlaceholder: 'For example: Science',
+      gradePlaceholder: 'For example: Grade 8',
+      optional: 'Optional',
+      previewTitle: 'Live Preview',
+      notesHelper: 'Add a short note about pacing, level, or how you plan to use this class.',
+      pickAColor: 'Pick a color that matches the class vibe',
+      pickStarterPack: 'Attach a pack now, or leave it empty and decide later from the class page.',
+      classReady: 'This class is almost ready to launch.',
       searchPlaceholder: 'Search classes, subjects, grades, or packs...',
       loading: 'Loading classes...',
       loadFailedTitle: 'Classes did not load cleanly.',
@@ -283,6 +352,28 @@ export default function TeacherClasses() {
     newClass: 'New Class',
     quickCreate: 'Quick Create',
     quickCreateBody: '',
+    quickCreateLaunch: 'Open Quick Create',
+    createModalTitle: 'Quick Create a New Class',
+    createModalBody: '',
+    stepIdentity: 'Class Identity',
+    stepSetup: 'Quick Setup',
+    stepReview: 'Review & Save',
+    stepIdentityBody: '',
+    stepSetupBody: '',
+    stepReviewBody: '',
+    continue: 'Continue',
+    back: 'Back',
+    close: 'Close',
+    saveAndOpen: 'Save & Open Class',
+    classNamePlaceholder: 'Class name',
+    subjectPlaceholder: 'Subject',
+    gradePlaceholder: 'Grade',
+    optional: 'Optional',
+    previewTitle: 'Live Preview',
+    notesHelper: '',
+    pickAColor: '',
+    pickStarterPack: '',
+    classReady: '',
     searchPlaceholder: 'Search classes...',
     loading: 'Loading classes...',
     loadFailedTitle: 'Classes did not load cleanly.',
@@ -342,6 +433,37 @@ export default function TeacherClasses() {
     const timeout = window.setTimeout(() => setFeedback(null), 4200);
     return () => window.clearTimeout(timeout);
   }, [feedback]);
+
+  useEffect(() => {
+    if (!createOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [createOpen]);
+
+  useEffect(() => {
+    if (!createOpen) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setCreateOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [createOpen]);
+
+  useEffect(() => {
+    if (!createOpen || createStep !== 0) return;
+
+    const timeout = window.setTimeout(() => classNameInputRef.current?.focus(), 160);
+    return () => window.clearTimeout(timeout);
+  }, [createOpen, createStep]);
 
   const bootstrapPage = async () => {
     try {
@@ -416,20 +538,16 @@ export default function TeacherClasses() {
   const resetForm = () => {
     setForm(EMPTY_FORM);
     setCreateOpen(false);
-  };
-
-  const scrollToCreatePanel = () => {
-    window.requestAnimationFrame(() => {
-      createPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      window.setTimeout(() => {
-        classNameInputRef.current?.focus();
-      }, 180);
-    });
+    setCreateStep(0);
   };
 
   const openCreatePanel = () => {
     setCreateOpen(true);
-    scrollToCreatePanel();
+    setCreateStep(0);
+  };
+
+  const closeCreatePanel = () => {
+    setCreateOpen(false);
   };
 
   const subjects = useMemo(
@@ -456,6 +574,35 @@ export default function TeacherClasses() {
       return matchesSearch && matchesSubject;
     });
   }, [classes, searchQuery, subjectFilter]);
+
+  const selectedPack = useMemo(
+    () => packs.find((pack) => String(pack.id) === form.packId) || null,
+    [packs, form.packId],
+  );
+
+  const quickCreateSteps = useMemo(
+    () => [
+      {
+        id: 'identity',
+        label: copy.stepIdentity,
+        body: copy.stepIdentityBody,
+        icon: <GraduationCap className="h-5 w-5" />,
+      },
+      {
+        id: 'setup',
+        label: copy.stepSetup,
+        body: copy.stepSetupBody,
+        icon: <Sparkles className="h-5 w-5" />,
+      },
+      {
+        id: 'review',
+        label: copy.stepReview,
+        body: copy.stepReviewBody,
+        icon: <CheckCircle2 className="h-5 w-5" />,
+      },
+    ],
+    [copy.stepIdentity, copy.stepIdentityBody, copy.stepReview, copy.stepReviewBody, copy.stepSetup, copy.stepSetupBody],
+  );
 
   const summaryStats = useMemo(() => {
     const totalStudents = classes.reduce((sum, classItem) => sum + Number(classItem.student_count || 0), 0);
@@ -552,6 +699,18 @@ export default function TeacherClasses() {
     } finally {
       setBusyKey(null);
     }
+  };
+
+  const handleCreateStepContinue = () => {
+    if (createStep === 0) {
+      const payload = normalizePayload(form);
+      if (!payload.name || !payload.subject || !payload.grade) {
+        setFeedback({ tone: 'error', message: copy.fillRequired });
+        return;
+      }
+    }
+
+    setCreateStep((current) => Math.min(current + 1, quickCreateSteps.length - 1));
   };
 
   const handleDeleteClass = async (classItem: TeacherClassCard) => {
@@ -771,10 +930,7 @@ export default function TeacherClasses() {
               )}
             </section>
 
-            <aside
-              ref={createPanelRef}
-              className="h-fit rounded-[2.4rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A] xl:sticky xl:top-6"
-            >
+            <aside className="h-fit rounded-[2.4rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A] xl:sticky xl:top-6">
               <div className="mb-5 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{copy.quickCreate}</p>
@@ -782,85 +938,32 @@ export default function TeacherClasses() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setCreateOpen((current) => !current)}
+                  onClick={openCreatePanel}
                   className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black"
                 >
-                  {createOpen ? copy.reset : copy.quickCreate}
+                  {copy.quickCreateLaunch}
                 </button>
               </div>
               <p className="mb-5 font-bold text-brand-dark/60">{copy.quickCreateBody}</p>
-
-              {createOpen ? (
-                <div className="space-y-4">
-                  <Field
-                    inputRef={classNameInputRef}
-                    label={copy.className}
-                    value={form.name}
-                    onChange={(value) => setForm((current) => ({ ...current, name: value }))}
-                  />
-                  <Field label={copy.subject} value={form.subject} onChange={(value) => setForm((current) => ({ ...current, subject: value }))} />
-                  <Field label={copy.grade} value={form.grade} onChange={(value) => setForm((current) => ({ ...current, grade: value }))} />
-
-                  <div>
-                    <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{copy.assignedPack}</label>
-                    <select
-                      value={form.packId}
-                      onChange={(event) => setForm((current) => ({ ...current, packId: event.target.value }))}
-                      className="w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
-                    >
-                      <option value="">{copy.noPack}</option>
-                      {packs.map((pack) => (
-                        <option key={pack.id} value={pack.id}>
-                          {pack.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{copy.color}</label>
-                    <div className="flex flex-wrap gap-2">
-                      {TEACHER_CLASS_COLOR_OPTIONS.map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          onClick={() => setForm((current) => ({ ...current, color }))}
-                          className={`h-10 w-10 rounded-xl border-2 border-brand-dark ${color} ${
-                            form.color === color ? 'ring-4 ring-brand-orange/30' : ''
-                          }`}
-                          aria-label={`Pick ${color}`}
-                        />
-                      ))}
+              <div className="space-y-4">
+                <div className="rounded-[1.8rem] border-2 border-brand-dark bg-[linear-gradient(135deg,#FFF4D0_0%,#FFE5CC_48%,#FFD4F0_100%)] p-5 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className={`flex h-12 w-12 items-center justify-center rounded-[1rem] border-2 border-brand-dark ${form.color}`}>
+                      <Sparkles className={`h-5 w-5 ${form.color === 'bg-brand-dark' ? 'text-white' : 'text-brand-dark'}`} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/55">{copy.previewTitle}</p>
+                      <p className="text-xl font-black text-brand-dark">{form.name.trim() || copy.newClass}</p>
                     </div>
                   </div>
-
-                  <div>
-                    <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{copy.notes}</label>
-                    <textarea
-                      value={form.notes}
-                      onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-                      className="min-h-28 w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
-                      placeholder={copy.notesPlaceholder}
-                    />
-                  </div>
-
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => void handleCreateClass()}
-                      disabled={busyKey === 'create-class'}
-                      className="flex-1 rounded-xl border-2 border-brand-dark bg-brand-orange py-3 font-black text-white shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-60"
-                    >
-                      {busyKey === 'create-class' ? copy.saving : copy.save}
-                    </button>
-                    <button
-                      onClick={resetForm}
-                      className="rounded-xl border-2 border-brand-dark bg-white px-4 font-black"
-                    >
-                      {copy.reset}
-                    </button>
-                  </div>
+                  <p className="font-bold text-brand-dark/70">
+                    {selectedPack?.title
+                      ? `${selectedPack.title} • ${form.subject || copy.subject} • ${form.grade || copy.grade}`
+                      : `${form.subject || copy.subject} • ${form.grade || copy.grade}`}
+                  </p>
+                  <p className="mt-3 text-sm font-bold text-brand-dark/65">{copy.classReady}</p>
                 </div>
-              ) : (
+
                 <div className="rounded-[1.8rem] border-2 border-brand-dark/10 bg-brand-bg p-5">
                   <p className="text-lg font-black text-brand-dark">
                     {language === 'he'
@@ -871,17 +974,258 @@ export default function TeacherClasses() {
                   </p>
                   <p className="mt-2 font-bold text-brand-dark/65">
                     {language === 'he'
-                      ? 'ניהול תלמידים, שליחת הזמנות, pack, סשנים, mail health וסטטיסטיקות נשארים בדף הכיתה המלא.'
+                      ? 'ניהול תלמידים, שליחת הזמנות, חבילות, סשנים וסטטיסטיקות נשארים בדף הכיתה המלא אחרי היצירה.'
                       : language === 'ar'
-                        ? 'إدارة الطلاب وإرسال الدعوات والحزمة والجلسات وصحة البريد والإحصاءات تبقى داخل صفحة الصف الكاملة.'
-                        : 'Student management, invites, pack assignment, sessions, mail health, and analytics now live in the full class page.'}
+                        ? 'إدارة الطلاب والدعوات والحزم والجلسات والإحصاءات تبقى داخل صفحة الصف الكاملة بعد الإنشاء.'
+                        : 'Student management, invites, packs, sessions, and analytics stay in the full class page right after creation.'}
                   </p>
                 </div>
-              )}
+              </div>
             </aside>
           </div>
         </div>
       </main>
+
+      <AnimatePresence>
+        {createOpen ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-brand-dark/55 backdrop-blur-sm p-4 sm:p-6"
+            onClick={closeCreatePanel}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 24, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 16, scale: 0.98 }}
+              transition={{ duration: 0.22 }}
+              className="relative w-full max-w-6xl overflow-hidden rounded-[2.4rem] border-4 border-brand-dark bg-white shadow-[12px_12px_0px_0px_#1A1A1A]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-[0.95fr_1.05fr]">
+                <div className="relative overflow-hidden border-b-4 border-brand-dark bg-[radial-gradient(circle_at_top_left,#FFF4D8_0%,#FFE5C8_42%,#FFD0BE_70%,#FFC3EA_100%)] p-6 sm:p-8 lg:border-b-0 lg:border-r-4">
+                  <div className="absolute right-[-60px] top-[-50px] h-40 w-40 rounded-full bg-white/45 blur-2xl" />
+                  <div className="absolute bottom-[-40px] left-[-20px] h-32 w-32 rounded-full bg-brand-yellow/35 blur-2xl" />
+
+                  <div className="relative z-10">
+                    <div className="mb-8 flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.22em] text-brand-dark/45">{copy.quickCreate}</p>
+                        <h2 className="mt-2 text-3xl sm:text-4xl font-black leading-[0.96] tracking-tight text-brand-dark">
+                          {copy.createModalTitle}
+                        </h2>
+                        <p className="mt-3 max-w-xl font-bold text-brand-dark/65">{copy.createModalBody}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={closeCreatePanel}
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-brand-dark bg-white text-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A]"
+                        aria-label={copy.close}
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+
+                    <div className="mb-8 flex gap-2">
+                      {quickCreateSteps.map((step, index) => (
+                        <div key={step.id} className="flex-1">
+                          <div className={`h-3 rounded-full border-2 border-brand-dark transition-all ${
+                            index <= createStep ? 'bg-brand-orange' : 'bg-white/60'
+                          }`} />
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="space-y-4">
+                      {quickCreateSteps.map((step, index) => (
+                        <div
+                          key={step.id}
+                          className={`rounded-[1.6rem] border-2 border-brand-dark p-4 transition-all ${
+                            index === createStep ? 'bg-white shadow-[4px_4px_0px_0px_#1A1A1A]' : 'bg-white/50 opacity-75'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-brand-dark ${
+                              index <= createStep ? 'bg-brand-yellow' : 'bg-white'
+                            }`}>
+                              {step.icon}
+                            </div>
+                            <div>
+                              <p className="text-sm font-black uppercase tracking-[0.2em] text-brand-dark/45">
+                                {index + 1}
+                              </p>
+                              <h3 className="text-xl font-black text-brand-dark">{step.label}</h3>
+                              <p className="mt-1 text-sm font-bold text-brand-dark/65">{step.body}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className={`mt-8 rounded-[1.8rem] border-2 border-brand-dark p-5 shadow-[4px_4px_0px_0px_#1A1A1A] ${form.color}`}>
+                      <p className={`text-xs font-black uppercase tracking-[0.18em] ${form.color === 'bg-brand-dark' ? 'text-white/70' : 'text-brand-dark/60'}`}>
+                        {copy.previewTitle}
+                      </p>
+                      <p className={`mt-2 text-3xl font-black ${form.color === 'bg-brand-dark' ? 'text-white' : 'text-brand-dark'}`}>
+                        {form.name.trim() || copy.newClass}
+                      </p>
+                      <div className={`mt-3 flex flex-wrap gap-2 text-sm font-black ${form.color === 'bg-brand-dark' ? 'text-white/85' : 'text-brand-dark/75'}`}>
+                        <span>{form.subject.trim() || copy.subject}</span>
+                        <span>•</span>
+                        <span>{form.grade.trim() || copy.grade}</span>
+                        <span>•</span>
+                        <span>{selectedPack?.title || copy.noPack}</span>
+                      </div>
+                      {form.notes.trim() ? (
+                        <p className={`mt-4 text-sm font-bold leading-relaxed ${form.color === 'bg-brand-dark' ? 'text-white/88' : 'text-brand-dark/72'}`}>
+                          {form.notes.trim()}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-6 sm:p-8">
+                  {createStep === 0 ? (
+                    <div className="space-y-5">
+                      <Field
+                        inputRef={classNameInputRef}
+                        label={copy.className}
+                        value={form.name}
+                        placeholder={copy.classNamePlaceholder}
+                        onChange={(value) => setForm((current) => ({ ...current, name: value }))}
+                      />
+                      <Field
+                        label={copy.subject}
+                        value={form.subject}
+                        placeholder={copy.subjectPlaceholder}
+                        onChange={(value) => setForm((current) => ({ ...current, subject: value }))}
+                      />
+                      <Field
+                        label={copy.grade}
+                        value={form.grade}
+                        placeholder={copy.gradePlaceholder}
+                        onChange={(value) => setForm((current) => ({ ...current, grade: value }))}
+                      />
+                    </div>
+                  ) : null}
+
+                  {createStep === 1 ? (
+                    <div className="space-y-6">
+                      <div>
+                        <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{copy.assignedPack}</label>
+                        <p className="mb-3 text-sm font-bold text-brand-dark/60">{copy.pickStarterPack}</p>
+                        <select
+                          value={form.packId}
+                          onChange={(event) => setForm((current) => ({ ...current, packId: event.target.value }))}
+                          className="w-full rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4 font-bold"
+                        >
+                          <option value="">{copy.noPack}</option>
+                          {packs.map((pack) => (
+                            <option key={pack.id} value={pack.id}>
+                              {pack.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{copy.color}</label>
+                        <p className="mb-3 text-sm font-bold text-brand-dark/60">{copy.pickAColor}</p>
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                          {TEACHER_CLASS_COLOR_OPTIONS.map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => setForm((current) => ({ ...current, color }))}
+                              className={`rounded-[1.3rem] border-2 border-brand-dark p-3 text-left shadow-[3px_3px_0px_0px_#1A1A1A] transition ${
+                                form.color === color ? 'translate-x-[2px] translate-y-[2px] shadow-none ring-4 ring-brand-orange/25' : ''
+                              } ${color}`}
+                            >
+                              <div className={`h-12 rounded-[0.9rem] border-2 border-brand-dark/20 ${color === 'bg-white' ? 'bg-white' : color}`} />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {createStep === 2 ? (
+                    <div className="space-y-6">
+                      <div>
+                        <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">
+                          {copy.notes} · {copy.optional}
+                        </label>
+                        <p className="mb-3 text-sm font-bold text-brand-dark/60">{copy.notesHelper}</p>
+                        <textarea
+                          value={form.notes}
+                          onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+                          className="min-h-36 w-full rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4 font-bold"
+                          placeholder={copy.notesPlaceholder}
+                        />
+                      </div>
+
+                      <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45">{copy.previewTitle}</p>
+                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <PreviewStat label={copy.className} value={form.name || '—'} />
+                          <PreviewStat label={copy.subject} value={form.subject || '—'} />
+                          <PreviewStat label={copy.grade} value={form.grade || '—'} />
+                          <PreviewStat label={copy.assignedPack} value={selectedPack?.title || copy.noPack} />
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-8 flex flex-col gap-3 border-t-2 border-brand-dark/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setCreateStep((current) => Math.max(current - 1, 0))}
+                        disabled={createStep === 0 || busyKey === 'create-class'}
+                        className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-5 py-3 font-black disabled:opacity-40"
+                      >
+                        <ArrowLeft className={`h-4 w-4 ${language === 'he' || language === 'ar' ? 'rotate-180' : ''}`} />
+                        {copy.back}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={resetForm}
+                        disabled={busyKey === 'create-class'}
+                        className="rounded-full border-2 border-brand-dark bg-brand-bg px-5 py-3 font-black disabled:opacity-40"
+                      >
+                        {copy.reset}
+                      </button>
+                    </div>
+
+                    {createStep < quickCreateSteps.length - 1 ? (
+                      <button
+                        type="button"
+                        onClick={handleCreateStepContinue}
+                        className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-6 py-3 font-black shadow-[3px_3px_0px_0px_#1A1A1A]"
+                      >
+                        {copy.continue}
+                        <ArrowRight className={`h-5 w-5 ${language === 'he' || language === 'ar' ? 'rotate-180' : ''}`} />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleCreateClass()}
+                        disabled={busyKey === 'create-class'}
+                        className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-brand-orange px-6 py-3 font-black text-white shadow-[3px_3px_0px_0px_#1A1A1A] disabled:opacity-60"
+                      >
+                        {busyKey === 'create-class' ? copy.saving : copy.saveAndOpen}
+                        <CheckCircle2 className="h-5 w-5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
@@ -891,11 +1235,13 @@ function Field({
   value,
   onChange,
   inputRef,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   inputRef?: React.RefObject<HTMLInputElement | null>;
+  placeholder?: string;
 }) {
   return (
     <div>
@@ -904,8 +1250,18 @@ function Field({
         ref={inputRef}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
+        placeholder={placeholder}
+        className="w-full rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4 font-bold placeholder:text-brand-dark/28"
       />
+    </div>
+  );
+}
+
+function PreviewStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[1.1rem] border-2 border-brand-dark/10 bg-white px-4 py-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{label}</p>
+      <p className="mt-1 text-base font-black text-brand-dark">{value}</p>
     </div>
   );
 }
