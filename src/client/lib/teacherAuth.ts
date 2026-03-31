@@ -366,6 +366,43 @@ export async function handleTeacherAuthRedirect() {
   return payload;
 }
 
+export async function restoreTeacherSessionFromProvider() {
+  const cachedSession = loadTeacherAuth();
+  if (!cachedSession || cachedSession.provider !== 'google') {
+    return null;
+  }
+
+  const auth = await ensureFirebaseAuthReady().catch(() => null);
+  const currentUser = auth?.currentUser;
+  if (!currentUser) {
+    return null;
+  }
+
+  const idToken = await currentUser.getIdToken(true);
+  const response = await fetchWithTimeout('/api/auth/social', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      provider: 'google',
+      idToken,
+    }),
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = ensureTeacherSessionPayload(await readJsonOrThrow(response));
+  writeAuth(payload);
+  try {
+    syncTeacherProfile(payload.email, currentUser.displayName || undefined);
+  } catch (error) {
+    console.warn('[teacherAuth] Failed to sync teacher profile after provider restore:', error);
+  }
+  return payload;
+}
+
 
 export async function signOutTeacher() {
   clearTeacherAuthCache();

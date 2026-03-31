@@ -110,7 +110,11 @@ function shouldRetryTeacherAuth(url: string, headers: Headers, response: Respons
 
 async function refreshTeacherSessionForRetry() {
   const teacherAuth = await import('./teacherAuth.ts');
-  return teacherAuth.refreshTeacherSession().catch(() => null);
+  const refreshedSession = await teacherAuth.refreshTeacherSession().catch(() => null);
+  if (refreshedSession?.token) {
+    return refreshedSession;
+  }
+  return teacherAuth.restoreTeacherSessionFromProvider().catch(() => null);
 }
 
 async function refreshStudentSessionForRetry() {
