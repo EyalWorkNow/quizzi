@@ -682,10 +682,9 @@ export default function Auth() {
           </div>
 
           <div className="grid grid-cols-1 gap-4">
-            <SocialAccessButton
-              brand="google"
-              title="Google"
-              body={t('auth.googleFastAccess')}
+            <GoogleAccessButton
+              label={`${mode === 'login' ? t('auth.signIn') : t('auth.createAccount')} with Google`}
+              helperText={t('auth.googleFastAccess')}
               loading={pendingAction === 'google'}
               disabled={pendingAction !== null}
               onClick={() => handleSocialAccess('google')}
@@ -760,41 +759,61 @@ function CredentialCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SocialAccessButton({
-  brand,
-  title,
-  body,
+function GoogleAccessButton({
+  label,
+  helperText,
   loading,
   disabled,
   onClick,
 }: {
-  brand: 'google' | 'facebook';
-  title: string;
-  body: string;
+  label: string;
+  helperText: string;
   loading?: boolean;
   disabled?: boolean;
   onClick: () => void;
 }) {
-  const badgeClass = brand === 'google' ? 'bg-white text-[#DB4437]' : 'bg-[#1877F2] text-white';
-  const borderClass = brand === 'google' ? 'bg-brand-bg' : 'bg-[#e8f1ff]';
-
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`text-left rounded-[1.75rem] border-2 border-brand-dark ${borderClass} p-5 shadow-[4px_4px_0px_0px_#1A1A1A] disabled:opacity-60`}
-    >
-      <div className="flex items-center gap-4 mb-4">
-        <div className={`w-12 h-12 rounded-full border-2 border-brand-dark flex items-center justify-center font-black text-xl ${badgeClass}`}>
-          {loading ? <LoaderCircle className="w-5 h-5 animate-spin" /> : brand === 'google' ? 'G' : 'f'}
+    <div className="space-y-3">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        className="group inline-flex w-full overflow-visible rounded-full bg-[linear-gradient(#e9e9e9,#e9e9e9_50%,#fff)] p-1 text-left transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <div className="w-full overflow-hidden rounded-full bg-[linear-gradient(to_top,#ececec,#fff)] p-1 shadow-[0_0_1px_rgba(0,0,0,0.07),0_0_1px_rgba(0,0,0,0.05),0_3px_3px_rgba(0,0,0,0.25),0_1px_3px_rgba(0,0,0,0.12)] transition-shadow duration-300 group-hover:shadow-none">
+          <div className="inline-flex min-h-[4rem] w-full items-center justify-center gap-3 overflow-hidden rounded-full bg-[linear-gradient(#f4f4f4,#fefefe)] px-4 py-3 text-[18px] font-medium text-[#101010] transition-all duration-200 group-hover:bg-[linear-gradient(#e2e2e2,#fefefe)] group-hover:text-blue-600 sm:px-5">
+            {loading ? (
+              <LoaderCircle className="h-6 w-6 shrink-0 animate-spin" />
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="24" height="32" className="shrink-0">
+                <g fill="none" fillRule="evenodd">
+                  <g fillRule="nonzero" transform="translate(3 2)">
+                    <path
+                      fill="#4285F4"
+                      d="M57.812 30.152c0-2.426-.197-4.195-.623-6.03H29.496v10.945h16.256c-.328 2.72-2.097 6.817-6.03 9.57l-.056.366 8.757 6.783.607.061c5.57-5.145 8.782-12.716 8.782-21.695"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M29.496 58.992c7.964 0 14.65-2.622 19.533-7.144l-9.307-7.21c-2.491 1.736-5.834 2.949-10.226 2.949-7.8 0-14.42-5.145-16.78-12.257l-.346.03-9.105 7.046-.119.331c4.85 9.635 14.814 16.255 26.35 16.255"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M12.716 35.33a17.846 17.846 0 0 1-.983-5.834c0-2.032.36-3.998.95-5.834l-.017-.39-9.219-7.16-.301.143A29.725 29.725 0 0 0 0 29.496c0 4.752 1.147 9.242 3.146 13.24z"
+                    />
+                    <path
+                      fill="#EB4335"
+                      d="M29.496 11.405c5.539 0 9.275 2.393 11.405 4.392l8.324-8.128C44.113 2.917 37.46 0 29.496 0 17.96 0 7.997 6.62 3.146 16.255l9.537 7.407c2.393-7.112 9.013-12.257 16.813-12.257"
+                    />
+                  </g>
+                </g>
+              </svg>
+            )}
+            <span className="min-w-0 text-center font-medium leading-tight">{label}</span>
+          </div>
         </div>
-        <div>
-          <p className="text-xl font-black">{title}</p>
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/40">{brand}</p>
-        </div>
-      </div>
-      <p className="font-medium text-brand-dark/70">{body}</p>
-    </button>
+      </button>
+      <p className="px-2 text-sm font-bold text-brand-dark/55">{helperText}</p>
+    </div>
   );
 }

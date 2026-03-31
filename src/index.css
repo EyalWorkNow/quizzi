@@ -67,9 +67,14 @@
   td,
   th,
   label,
-  button,
   a {
     overflow-wrap: anywhere;
+  }
+
+  button {
+    overflow-wrap: break-word;
+    word-break: normal;
+    white-space: normal;
   }
 
   input,
