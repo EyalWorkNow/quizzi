@@ -1976,10 +1976,10 @@ export default function TeacherHost() {
             }`}>
               <div className={`w-full max-w-5xl ${
                 currentQuestion?.image_url
-                  ? 'rounded-[2rem] bg-white/92 p-4 backdrop-blur-md sm:rounded-[2.6rem] sm:p-6'
+                  ? 'rounded-[2rem] border border-white/16 bg-brand-dark/52 p-4 text-white shadow-[0_12px_30px_rgba(0,0,0,0.32)] backdrop-blur-md sm:rounded-[2.6rem] sm:p-6'
                   : ''
               }`}>
-                <h2 className={`${activePromptClassName} text-balance text-center font-black leading-[1.05] tracking-tight text-brand-dark`}>
+                <h2 className={`${activePromptClassName} text-balance text-center font-black leading-[1.05] tracking-tight ${currentQuestion?.image_url ? 'text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.55)]' : 'text-brand-dark'}`}>
                   {currentPrompt}
                 </h2>
               </div>
@@ -2178,10 +2178,12 @@ export default function TeacherHost() {
             }`}>
               <div className={`w-full max-w-5xl ${
                 currentQuestion?.image_url
-                  ? 'rounded-[2rem] bg-white/92 p-4 backdrop-blur-md sm:rounded-[2.6rem] sm:p-6'
+                  ? 'rounded-[2rem] border border-white/16 bg-brand-dark/52 p-4 text-white shadow-[0_12px_30px_rgba(0,0,0,0.32)] backdrop-blur-md sm:rounded-[2.6rem] sm:p-6'
                   : ''
               }`}>
-                <p className={`text-balance text-center font-black leading-[1.08] tracking-tight text-brand-dark ${
+                <p className={`text-balance text-center font-black leading-[1.08] tracking-tight ${
+                  currentQuestion?.image_url ? 'text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.55)]' : 'text-brand-dark'
+                } ${
                   liveQuestionDensity.isUltraDense ? 'text-[clamp(1.2rem,1.8vw,2rem)]' : 'text-[clamp(1.5rem,2.4vw,3rem)]'
                 }`}>
                   {currentQuestion?.explanation || currentAnswers[correctIndex]}

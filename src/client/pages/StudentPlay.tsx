@@ -2163,12 +2163,12 @@ export default function StudentPlay() {
                       <div className="absolute inset-0 bg-gradient-to-t from-brand-dark/90 via-brand-dark/28 to-transparent" />
                     </div>
                     <div className="relative z-10 flex h-full w-full items-center justify-center">
-                      <div className="w-full max-w-5xl rounded-[1.5rem] border-4 border-brand-dark bg-white/94 p-4 text-center shadow-[4px_4px_0px_0px_#1A1A1A] backdrop-blur-md sm:rounded-[2.6rem] sm:p-8 sm:shadow-[6px_6px_0px_0px_#1A1A1A]">
+                      <div className="w-full max-w-5xl rounded-[1.5rem] border-4 border-white/20 bg-brand-dark/52 p-4 text-center text-white shadow-[0_12px_28px_rgba(0,0,0,0.3)] backdrop-blur-md sm:rounded-[2.6rem] sm:p-8">
                         <div
                           onScroll={handlePromptReread}
                           className={`mx-auto ${questionPromptScrollerClass} overflow-y-auto px-1 custom-scrollbar`}
                         >
-                          <h2 className={`${studentPromptClassName} font-black leading-[1.1] tracking-tight text-brand-dark text-balance`}>
+                          <h2 className={`${studentPromptClassName} font-black leading-[1.1] tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.55)] text-balance`}>
                             {question?.prompt}
                           </h2>
                         </div>

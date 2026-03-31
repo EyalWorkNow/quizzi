@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Layout, Rocket, Play, PlusCircle, ChevronDown, ChevronUp, Monitor, Brain, MessageSquare, Globe } from 'lucide-react';
+import { ArrowLeft, Wand2, Plus, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Layout, Rocket, Play, PlusCircle, ChevronDown, ChevronUp, Monitor, Brain, MessageSquare, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { listTeacherClasses, addPackToClass, type TeacherClassCard } from '../lib/teacherClasses.ts';
@@ -14,6 +14,7 @@ import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
 import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
 import AppLoadingScreen from '../components/AppLoadingScreen.tsx';
 import GenerateMagicButton from '../components/GenerateMagicButton.tsx';
+import DeleteActionButton from '../components/DeleteActionButton.tsx';
 import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from '../../shared/sessionSoundtracks.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 
@@ -1190,7 +1191,7 @@ export default function TeacherCreatePack() {
                       className="premium-card p-10 relative overflow-hidden group"
                     >
                       <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-all">
-                        <button onClick={() => removeQuestion(qIndex)} className="text-brand-orange hover:scale-110 transition-transform"><Trash2 className="w-8 h-8" /></button>
+                        <DeleteActionButton onClick={() => removeQuestion(qIndex)} label="Delete" />
                       </div>
                       
                       <div className="flex items-center gap-4 mb-8">
@@ -1268,13 +1269,12 @@ export default function TeacherCreatePack() {
                               className="flex-1 bg-transparent border-none font-bold text-lg focus:ring-0"
                             />
                             {q.answers.length > 2 && (
-                              <button
-                                type="button"
+                              <DeleteActionButton
                                 onClick={() => removeAnswer(qIndex, aIndex)}
-                                className="w-10 h-10 rounded-full border-2 border-brand-dark bg-white flex items-center justify-center shrink-0"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                                label="Delete"
+                                compact
+                                className="shrink-0"
+                              />
                             )}
                           </div>
                         ))}
