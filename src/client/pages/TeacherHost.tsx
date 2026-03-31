@@ -1681,33 +1681,33 @@ export default function TeacherHost() {
                     </p>
                   </div>
 
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_230px]">
-                    <div className="rounded-[2.2rem] border-4 border-brand-dark bg-brand-purple p-4 shadow-[10px_10px_0px_0px_#1A1A1A] sm:p-5">
-                      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="text-left text-white">
-                          <p className="text-xs font-black uppercase tracking-[0.2em] text-white/80">Room PIN</p>
-                          <p className="mt-1 text-sm font-bold text-white/80 sm:text-base">
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_210px]">
+                    <div className="rounded-[1.9rem] border-4 border-brand-dark bg-brand-purple p-3.5 shadow-[9px_9px_0px_0px_#1A1A1A] sm:p-4">
+                      <div className="mb-3 flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 text-left text-white">
+                          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-white/80">Room PIN</p>
+                          <p className="mt-1 max-w-[26ch] text-xs font-bold leading-snug text-white/80 sm:text-sm">
                             Keep this code visible so students can join.
                           </p>
                         </div>
                         <button
                           type="button"
                           onClick={copyPin}
-                          className="game-action-button game-action-button--yellow w-full px-4 py-2 sm:w-auto"
+                          className="game-action-button game-action-button--yellow w-full shrink-0 px-3 py-2 text-sm sm:w-auto"
                         >
                           {isPinCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                           {isPinCopied ? 'Copied' : 'Copy PIN'}
                         </button>
                       </div>
 
-                      <div className="mx-auto grid max-w-[700px] grid-cols-3 gap-2 sm:grid-cols-6 sm:gap-3">
+                      <div className="mx-auto grid max-w-[620px] grid-cols-3 gap-2 sm:grid-cols-6 sm:gap-2.5">
                         {String(pin || '').split('').map((digit, index) => (
                           <motion.div
                             key={`${digit}-${index}`}
                             initial={{ y: 20, opacity: 0 }}
                             animate={{ y: 0, opacity: 1 }}
                             transition={{ delay: index * 0.08 }}
-                            className="flex aspect-square min-h-[58px] items-center justify-center rounded-[1rem] border-4 border-brand-dark bg-white text-[clamp(1.8rem,2.8vw,3.5rem)] font-black leading-none shadow-[4px_4px_0px_0px_#1A1A1A] sm:min-h-[72px]"
+                            className="flex aspect-square min-h-[54px] items-center justify-center rounded-[0.95rem] border-4 border-brand-dark bg-white text-[clamp(1.65rem,2.35vw,3rem)] font-black leading-none shadow-[4px_4px_0px_0px_#1A1A1A] sm:min-h-[64px]"
                           >
                             {digit}
                           </motion.div>
@@ -1716,11 +1716,11 @@ export default function TeacherHost() {
                     </div>
 
                     <div className="grid gap-4">
-                      <div className="rounded-[1.8rem] border-4 border-brand-dark bg-brand-yellow p-4 shadow-[8px_8px_0px_0px_#1A1A1A]">
-                        <div className="mx-auto flex aspect-square w-full max-w-[160px] items-center justify-center rounded-[1.4rem] border-2 border-brand-dark bg-white p-3">
-                          <QRCodeSVG value={joinUrl || String(pin || '')} size={160} level="M" includeMargin />
+                      <div className="rounded-[1.65rem] border-4 border-brand-dark bg-brand-yellow p-3.5 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                        <div className="mx-auto flex aspect-square w-full max-w-[148px] items-center justify-center rounded-[1.25rem] border-2 border-brand-dark bg-white p-2.5">
+                          <QRCodeSVG value={joinUrl || String(pin || '')} size={144} level="M" includeMargin />
                         </div>
-                        <p className="mt-3 text-center text-sm font-black">Scan to join instantly</p>
+                        <p className="mt-2.5 text-center text-xs font-black sm:text-sm">Scan to join instantly</p>
                       </div>
                     </div>
                   </div>

@@ -127,7 +127,7 @@ def parse_json_object(value: Any) -> dict[str, Any]:
     return {}
 
 
-ANALYTICS_VERSION = "quizzi_analytics_trust_v2"
+ANALYTICS_VERSION = "quizzi_analytics_v3"
 ACTION_LABELS = {
     "reteach_now": "Reteach now",
     "fragile_but_correct": "Fragile but correct",
@@ -301,6 +301,15 @@ def normalize_question(question: dict[str, Any]) -> dict[str, Any]:
     normalized["correct_index"] = as_int(question.get("correct_index"))
     normalized["time_limit_seconds"] = max(5, as_int(question.get("time_limit_seconds"), 20))
     normalized["tags"] = parse_string_list(question.get("tags") or question.get("tags_json"))
+    normalized["learning_objective"] = str(question.get("learning_objective", "")).strip()
+    normalized["bloom_level"] = str(question.get("bloom_level", "")).strip()
+    normalized["concept_id"] = str(question.get("concept_id") or normalized["learning_objective"] or "").strip()
+    normalized["stem_length_chars"] = max(0, as_int(question.get("stem_length_chars"), len(normalized["prompt"])))
+    normalized["prompt_complexity_score"] = max(0, min(100, as_int(question.get("prompt_complexity_score"))))
+    normalized["reading_difficulty"] = str(question.get("reading_difficulty", "")).strip() or "basic"
+    normalized["media_type"] = str(question.get("media_type", "")).strip() or ("image" if str(question.get("image_url", "")).strip() else "text")
+    normalized["distractor_profile_json"] = str(question.get("distractor_profile_json") or "{}")
+    normalized["question_position_policy"] = str(question.get("question_position_policy", "")).strip() or "fixed_pack_order"
 
     answers = question.get("answers")
     if not answers:
@@ -343,11 +352,18 @@ def normalize_log(log: dict[str, Any]) -> dict[str, Any]:
     normalized["submission_retry_count"] = max(0, as_int(log.get("submission_retry_count")))
     normalized["reconnect_count"] = max(0, as_int(log.get("reconnect_count")))
     normalized["visibility_interruptions"] = max(0, as_int(log.get("visibility_interruptions")))
+    normalized["outside_answer_pointer_moves"] = max(0, as_int(log.get("outside_answer_pointer_moves")))
+    normalized["rapid_pointer_jumps"] = max(0, as_int(log.get("rapid_pointer_jumps")))
     normalized["network_degraded"] = as_bool(log.get("network_degraded"))
     normalized["device_profile"] = str(log.get("device_profile") or "").strip().lower()
+    normalized["analytics_version"] = str(log.get("analytics_version") or ANALYTICS_VERSION).strip()
     normalized["option_dwell"] = {
         str(key): max(0.0, as_float(value))
         for key, value in parse_json_object(log.get("option_dwell") or log.get("option_dwell_json")).items()
+    }
+    normalized["option_hover_counts"] = {
+        str(key): max(0, as_int(value))
+        for key, value in parse_json_object(log.get("option_hover_counts") or log.get("option_hover_counts_json")).items()
     }
     normalized["hovered_options_count"] = sum(
         1 for value in normalized["option_dwell"].values() if as_float(value) > 0
@@ -357,6 +373,26 @@ def normalize_log(log: dict[str, Any]) -> dict[str, Any]:
         3,
     )
     normalized["answer_path"] = parse_answer_path(log.get("answer_path") or log.get("answer_path_json"))
+    return normalized
+
+
+def normalize_behavior_event(event: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(event)
+    normalized["id"] = as_int(event.get("id"))
+    normalized["session_id"] = as_int(event.get("session_id"))
+    normalized["question_id"] = as_int(event.get("question_id"))
+    normalized["participant_id"] = as_int(event.get("participant_id"))
+    normalized["event_type"] = str(event.get("event_type") or "").strip().lower()
+    normalized["event_ts_ms"] = max(0, as_int(event.get("event_ts_ms")))
+    normalized["event_seq"] = max(0, as_int(event.get("event_seq")))
+    option_index = as_int(event.get("option_index"), -1)
+    normalized["option_index"] = option_index if option_index >= 0 else None
+    normalized["payload_json"] = str(event.get("payload_json") or "").strip()
+    normalized["payload"] = parse_json_object(event.get("payload_json"))
+    normalized["network_latency_ms"] = max(0, as_int(event.get("network_latency_ms")))
+    normalized["client_render_delay_ms"] = max(0, as_int(event.get("client_render_delay_ms")))
+    normalized["device_profile"] = str(event.get("device_profile") or "").strip().lower()
+    normalized["analytics_version"] = str(event.get("analytics_version") or ANALYTICS_VERSION).strip()
     return normalized
 
 
@@ -413,6 +449,103 @@ def normalize_answer_path_timestamps(path: list[dict[str, int]], response_ms: in
         )
     normalized.sort(key=lambda item: item["timestamp"])
     return normalized
+
+
+def build_behavior_event_lookup(events: list[dict[str, Any]]) -> dict[tuple[int, int], list[dict[str, Any]]]:
+    events_by_pair: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
+    for event in events:
+        participant_id = as_int(event.get("participant_id"))
+        question_id = as_int(event.get("question_id"))
+        if participant_id <= 0 or question_id <= 0:
+            continue
+        events_by_pair[(participant_id, question_id)].append(event)
+
+    for key, rows in events_by_pair.items():
+        rows.sort(key=lambda row: (as_int(row.get("event_seq")), as_int(row.get("event_ts_ms")), as_int(row.get("id"))))
+        events_by_pair[key] = rows
+    return events_by_pair
+
+
+def build_event_sequence_overlay(
+    events: list[dict[str, Any]],
+    response_ms: int,
+) -> dict[str, Any]:
+    if not events:
+        return {
+            "event_count": 0,
+            "path": [],
+            "states": [],
+            "distinct_options": 0,
+            "total_swaps": 0,
+            "deadline_buffer_ms": max(0, response_ms),
+            "commit_window_ms": 0,
+            "prompt_reread_count": 0,
+            "media_open_count": 0,
+            "ui_freeze_count": 0,
+            "network_change_count": 0,
+        }
+
+    ordered_events = sorted(
+        events,
+        key=lambda row: (as_int(row.get("event_seq")), as_int(row.get("event_ts_ms")), as_int(row.get("id"))),
+    )
+    selection_path = [
+        {
+            "index": as_int(event.get("option_index")),
+            "timestamp": max(0, as_int(event.get("event_ts_ms"))),
+        }
+        for event in ordered_events
+        if str(event.get("event_type")) == "option_selected" and event.get("option_index") is not None
+    ]
+    normalized_path = normalize_answer_path_timestamps(selection_path, response_ms)
+    submit_ts = max(
+        [as_int(event.get("event_ts_ms")) for event in ordered_events if str(event.get("event_type")) == "submit_clicked"] or [response_ms]
+    )
+    first_selection_ts = normalized_path[0]["timestamp"] if normalized_path else response_ms
+    last_selection_ts = normalized_path[-1]["timestamp"] if normalized_path else 0
+    distinct_options = len({item["index"] for item in normalized_path})
+    total_swaps = sum(
+        1
+        for index in range(1, len(normalized_path))
+        if normalized_path[index - 1]["index"] != normalized_path[index]["index"]
+    )
+    deadline_buffer_ms = max(0, submit_ts - last_selection_ts) if normalized_path else max(0, response_ms)
+    commit_window_ms = max(0, submit_ts - first_selection_ts) if normalized_path else 0
+    prompt_reread_count = sum(1 for event in ordered_events if str(event.get("event_type")) == "prompt_reread")
+    media_open_count = sum(1 for event in ordered_events if str(event.get("event_type")) == "media_opened")
+    ui_freeze_count = sum(1 for event in ordered_events if str(event.get("event_type")) == "ui_freeze_detected")
+    network_change_count = sum(1 for event in ordered_events if str(event.get("event_type")) == "network_state_changed")
+    hover_count = sum(1 for event in ordered_events if str(event.get("event_type")) == "option_hover_start")
+
+    states: list[str] = []
+    if not normalized_path:
+        states.append("read_only")
+    elif first_selection_ts > 1200 or prompt_reread_count > 0:
+        states.append("read_only")
+    if normalized_path:
+        states.append("first_pick")
+    if distinct_options > 1 or hover_count > 0 or prompt_reread_count > 0:
+        states.append("option_scan")
+    if total_swaps >= 2 or distinct_options >= 3:
+        states.append("oscillation")
+    if deadline_buffer_ms <= 1000 or ui_freeze_count > 0:
+        states.append("deadline_panic")
+    if normalized_path and submit_ts >= 0:
+        states.append("final_commit")
+
+    return {
+        "event_count": len(ordered_events),
+        "path": normalized_path,
+        "states": list(dict.fromkeys(states)),
+        "distinct_options": distinct_options,
+        "total_swaps": total_swaps,
+        "deadline_buffer_ms": deadline_buffer_ms,
+        "commit_window_ms": commit_window_ms,
+        "prompt_reread_count": prompt_reread_count,
+        "media_open_count": media_open_count,
+        "ui_freeze_count": ui_freeze_count,
+        "network_change_count": network_change_count,
+    }
 
 
 def classify_pace(response_ms: int, time_limit_seconds: int) -> str:
@@ -922,8 +1055,55 @@ def build_question_recommendation(question_row: dict[str, Any]) -> str:
     return "This item behaved normally and can stay in the rotation."
 
 
-def compute_focus_score(total_focus_loss: float, avg_idle_time_ms: float) -> int:
-    return round(clamp(100.0 - (total_focus_loss * 10.0) - (avg_idle_time_ms / 1500.0), 0.0, 100.0))
+def compute_focus_score(
+    total_focus_loss: float,
+    avg_idle_time_ms: float,
+    avg_blur_time_ms: float = 0.0,
+) -> int:
+    return round(
+        clamp(
+            100.0
+            - (total_focus_loss * 10.0)
+            - (avg_idle_time_ms / 1500.0)
+            - (avg_blur_time_ms / 260.0),
+            0.0,
+            100.0,
+        )
+    )
+
+
+def build_confidence_contributors(
+    accuracy: float,
+    avg_tfi_ms: float,
+    avg_swaps: float,
+    total_panic_swaps: float,
+    total_focus_loss: float = 0.0,
+    avg_blur_time_ms: float = 0.0,
+) -> list[dict[str, Any]]:
+    contributors = [
+        {"id": "accuracy", "impact": round(accuracy * 0.55, 1), "value": round(accuracy, 1)},
+        {"id": "swaps", "impact": round(-min(avg_swaps * 8.0, 18.0), 1), "value": round(avg_swaps, 2)},
+        {
+            "id": "panic_swaps",
+            "impact": round(-min(total_panic_swaps * 6.0, 18.0), 1),
+            "value": round(total_panic_swaps, 1),
+        },
+        {
+            "id": "focus_loss",
+            "impact": round(-min(total_focus_loss * 4.0, 16.0), 1),
+            "value": round(total_focus_loss, 1),
+        },
+        {
+            "id": "blur_time_ms",
+            "impact": round(-min(avg_blur_time_ms / 550.0, 12.0), 1),
+            "value": round(avg_blur_time_ms, 1),
+        },
+    ]
+    if avg_tfi_ms > 10000:
+        contributors.append({"id": "slow_tfi", "impact": -8.0, "value": round(avg_tfi_ms, 1)})
+    elif avg_tfi_ms < 1800 and accuracy < 55:
+        contributors.append({"id": "fast_guessing", "impact": -10.0, "value": round(avg_tfi_ms, 1)})
+    return contributors
 
 
 def compute_confidence_score(
@@ -931,15 +1111,104 @@ def compute_confidence_score(
     avg_tfi_ms: float,
     avg_swaps: float,
     total_panic_swaps: float,
+    total_focus_loss: float = 0.0,
+    avg_blur_time_ms: float = 0.0,
 ) -> int:
     confidence = 45.0 + (accuracy * 0.55)
     confidence -= min(avg_swaps * 8.0, 18.0)
     confidence -= min(total_panic_swaps * 6.0, 18.0)
+    confidence -= min(total_focus_loss * 4.0, 16.0)
+    confidence -= min(avg_blur_time_ms / 550.0, 12.0)
     if avg_tfi_ms > 10000:
         confidence -= 8.0
     elif avg_tfi_ms < 1800 and accuracy < 55:
         confidence -= 10.0
     return round(clamp(confidence, 0.0, 100.0))
+
+
+def compute_engagement_score(
+    focus_loss_count: float,
+    idle_time_ms: float,
+    blur_time_ms: float,
+    visibility_interruptions: float = 0.0,
+    retry_count: float = 0.0,
+    reconnect_count: float = 0.0,
+    network_degraded: bool = False,
+) -> float:
+    score = (
+        100.0
+        - (focus_loss_count * 12.0)
+        - (idle_time_ms / 1600.0)
+        - (blur_time_ms / 260.0)
+        - (visibility_interruptions * 4.0)
+        - (retry_count * 6.0)
+        - (reconnect_count * 5.0)
+        - (8.0 if network_degraded else 0.0)
+    )
+    return round(clamp(score, 0.0, 100.0), 1)
+
+
+def classify_engagement_state(engagement_score: float) -> str:
+    if engagement_score >= 75:
+        return "engaged"
+    if engagement_score >= 45:
+        return "unstable"
+    return "disengaged"
+
+
+def build_path_states(
+    *,
+    path: list[dict[str, int]],
+    total_swaps: int,
+    flip_flops: int,
+    revisit_count: int,
+    focus_loss_count: int,
+    deadline_buffer_ms: int,
+    panic_swaps: int,
+) -> list[str]:
+    states: list[str] = []
+    if not path:
+        states.append("read_only")
+    elif path[0]["timestamp"] > 1200:
+        states.append("read_only")
+    if path:
+        states.append("first_pick")
+    if len({item["index"] for item in path}) > 1:
+        states.append("option_scan")
+    if total_swaps >= 2 or flip_flops > 0 or revisit_count >= 2:
+        states.append("oscillation")
+    if focus_loss_count > 0 and "option_scan" not in states:
+        states.append("option_scan")
+    if deadline_buffer_ms <= 1000 or panic_swaps > 0:
+        states.append("deadline_panic")
+    if path:
+        states.append("final_commit")
+    return list(dict.fromkeys(states))
+
+
+def classify_path_type(
+    *,
+    is_correct: bool,
+    verification_behavior: bool,
+    total_swaps: int,
+    flip_flops: int,
+    revisit_count: int,
+    distinct_options: int,
+    deadline_buffer_ms: int,
+    panic_swaps: int,
+    focus_loss_count: int,
+    engagement_score: float,
+    commit_window_ms: int,
+) -> str:
+    if engagement_score < 40 and (focus_loss_count > 0 or distinct_options == 0):
+        return "disengaged_path"
+    if (deadline_buffer_ms <= 1000 or panic_swaps > 0) and not is_correct:
+        return "last_second_collapse"
+    if total_swaps >= 3 or flip_flops > 0 or revisit_count >= 2:
+        return "oscillation_loop"
+    if verification_behavior or commit_window_ms >= 2000 or distinct_options >= 2:
+        return "calm_verification"
+    return "early_lock"
 
 
 def compute_risk_score(
@@ -1845,8 +2114,10 @@ def build_question_review_rows(
     question_map: dict[int, dict[str, Any]],
     question_order: dict[int, int],
     log_by_pair: dict[tuple[int, int], dict[str, Any]],
+    events_by_pair: dict[tuple[int, int], list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    events_by_pair = events_by_pair or {}
     for answer in sorted(
         answers,
         key=lambda row: (row["session_id"], question_order.get(row["question_id"], 0), row["id"]),
@@ -1855,11 +2126,13 @@ def build_question_review_rows(
         if not question:
             continue
         participant_log = log_by_pair.get((answer["participant_id"], answer["question_id"]))
+        participant_events = events_by_pair.get((answer["participant_id"], answer["question_id"]), [])
         decision_path = summarize_decision_path(
             response_ms=answer["response_ms"],
             time_limit_seconds=question["time_limit_seconds"],
             log=participant_log,
         )
+        event_overlay = build_event_sequence_overlay(participant_events, answer["response_ms"])
         choice_journey = analyze_choice_journey(answer, question, participant_log)
         stress_index = compute_stress_index(
             avg_tfi_ms=as_float(participant_log.get("tfi_ms")) if participant_log else 0.0,
@@ -1868,6 +2141,83 @@ def build_question_review_rows(
             avg_focus_loss=as_float(participant_log.get("focus_loss_count")) if participant_log else 0.0,
             answers_count=1,
         )
+        engagement_score = compute_engagement_score(
+            focus_loss_count=as_float(participant_log.get("focus_loss_count")) if participant_log else 0.0,
+            idle_time_ms=as_float(participant_log.get("idle_time_ms")) if participant_log else 0.0,
+            blur_time_ms=as_float(participant_log.get("blur_time_ms")) if participant_log else 0.0,
+            visibility_interruptions=as_float(participant_log.get("visibility_interruptions")) if participant_log else 0.0,
+            retry_count=as_float(participant_log.get("submission_retry_count")) if participant_log else 0.0,
+            reconnect_count=as_float(participant_log.get("reconnect_count")) if participant_log else 0.0,
+            network_degraded=as_bool(participant_log.get("network_degraded")) if participant_log else False,
+        )
+        path_states = build_path_states(
+            path=event_overlay["path"] or decision_path["path"],
+            total_swaps=max(
+                as_int(participant_log.get("total_swaps")) if participant_log else 0,
+                as_int(event_overlay.get("total_swaps")),
+            ),
+            flip_flops=decision_path["flip_flops"],
+            revisit_count=decision_path["revisit_count"],
+            focus_loss_count=as_int(participant_log.get("focus_loss_count")) if participant_log else 0,
+            deadline_buffer_ms=min(
+                decision_path["deadline_buffer_ms"],
+                as_int(event_overlay.get("deadline_buffer_ms"), decision_path["deadline_buffer_ms"]),
+            ),
+            panic_swaps=as_int(participant_log.get("panic_swaps")) if participant_log else 0,
+        )
+        path_states = list(dict.fromkeys(path_states + [str(state) for state in event_overlay.get("states", [])]))
+        path_type = classify_path_type(
+            is_correct=answer["is_correct"],
+            verification_behavior=(
+                choice_journey["verification_behavior"]
+                or as_int(event_overlay.get("prompt_reread_count")) > 0
+                or as_int(event_overlay.get("media_open_count")) > 0
+            ),
+            total_swaps=max(
+                as_int(participant_log.get("total_swaps")) if participant_log else 0,
+                as_int(event_overlay.get("total_swaps")),
+            ),
+            flip_flops=decision_path["flip_flops"],
+            revisit_count=decision_path["revisit_count"],
+            distinct_options=max(decision_path["distinct_options"], as_int(event_overlay.get("distinct_options"))),
+            deadline_buffer_ms=min(
+                decision_path["deadline_buffer_ms"],
+                as_int(event_overlay.get("deadline_buffer_ms"), decision_path["deadline_buffer_ms"]),
+            ),
+            panic_swaps=as_int(participant_log.get("panic_swaps")) if participant_log else 0,
+            focus_loss_count=as_int(participant_log.get("focus_loss_count")) if participant_log else 0,
+            engagement_score=engagement_score,
+            commit_window_ms=max(decision_path["commit_window_ms"], as_int(event_overlay.get("commit_window_ms"))),
+        )
+        if (
+            answer["is_correct"]
+            and path_type == "early_lock"
+            and (as_int(event_overlay.get("prompt_reread_count")) > 0 or as_int(event_overlay.get("media_open_count")) > 0)
+        ):
+            path_type = "calm_verification"
+        if (
+            not answer["is_correct"]
+            and path_type != "last_second_collapse"
+            and as_int(event_overlay.get("ui_freeze_count")) > 0
+            and min(
+                decision_path["deadline_buffer_ms"],
+                as_int(event_overlay.get("deadline_buffer_ms"), decision_path["deadline_buffer_ms"]),
+            ) <= 1500
+        ):
+            path_type = "last_second_collapse"
+        top_contributors = []
+        if stress_index >= 55:
+            top_contributors.append("stress")
+        if engagement_score < 55:
+            top_contributors.append("engagement")
+        if decision_path["decision_volatility"] >= 45:
+            top_contributors.append("volatility")
+        if choice_journey["under_time_pressure"]:
+            top_contributors.append("deadline_pressure")
+        if participant_log and as_int(participant_log.get("focus_loss_count")) > 0:
+            top_contributors.append("focus_loss")
+        if as_int(event_overlay.get("event_count")) >= 4 and path_type in {"oscillation_loop", "last_second_collapse"}:
+            top_contributors.append("event_sequence")
 
         if not answer["is_correct"]:
             status = "missed"
@@ -1885,6 +2235,14 @@ def build_question_review_rows(
                 "question_index": question_order.get(question["id"], 0),
                 "prompt": question["prompt"],
                 "tags": question["tags"],
+                "concept_id": question.get("concept_id") or (question["tags"][0] if question["tags"] else ""),
+                "learning_objective": question.get("learning_objective", ""),
+                "bloom_level": question.get("bloom_level", ""),
+                "stem_length_chars": as_int(question.get("stem_length_chars"), len(question["prompt"])),
+                "prompt_complexity_score": as_int(question.get("prompt_complexity_score")),
+                "reading_difficulty": question.get("reading_difficulty", ""),
+                "media_type": question.get("media_type", "text"),
+                "question_position_policy": question.get("question_position_policy", "fixed_pack_order"),
                 "is_correct": answer["is_correct"],
                 "chosen_index": answer["chosen_index"],
                 "correct_index": question["correct_index"],
@@ -1914,6 +2272,10 @@ def build_question_review_rows(
                 "touch_activity_count": as_int(participant_log.get("touch_activity_count")) if participant_log else 0,
                 "same_answer_reclicks": as_int(participant_log.get("same_answer_reclicks")) if participant_log else 0,
                 "hover_entropy": round(as_float(participant_log.get("hover_entropy")), 3) if participant_log else 0.0,
+                "outside_answer_pointer_moves": as_int(participant_log.get("outside_answer_pointer_moves")) if participant_log else 0,
+                "rapid_pointer_jumps": as_int(participant_log.get("rapid_pointer_jumps")) if participant_log else 0,
+                "engagement_score": engagement_score,
+                "engagement_state": classify_engagement_state(engagement_score),
                 "attention_drag_index": compute_attention_drag(
                     focus_loss_count=as_float(participant_log.get("focus_loss_count")) if participant_log else 0.0,
                     idle_time_ms=as_float(participant_log.get("idle_time_ms")) if participant_log else 0.0,
@@ -1931,19 +2293,63 @@ def build_question_review_rows(
                 "decision_volatility": decision_path["decision_volatility"],
                 "pace_label": decision_path["pace_label"],
                 "commit_style": decision_path["commit_style"],
-                "answer_path": decision_path["path"],
+                "path_states": path_states,
+                "path_type": path_type,
+                "event_count": as_int(event_overlay.get("event_count")),
+                "event_path_states": event_overlay.get("states", []),
+                "prompt_reread_count": as_int(event_overlay.get("prompt_reread_count")),
+                "media_open_count": as_int(event_overlay.get("media_open_count")),
+                "ui_freeze_count": as_int(event_overlay.get("ui_freeze_count")),
+                "top_contributors": top_contributors[:4],
+                "answer_path": event_overlay["path"] or decision_path["path"],
             }
         )
     return rows
+
+
+def build_normalized_feature(value: float, population: list[float]) -> dict[str, float]:
+    if not population:
+        return {"raw": round(value, 3), "percentile": 0.0, "z_score": 0.0}
+    mean = avg(population)
+    deviation = stddev(population)
+    percentile_rank = pct(sum(1 for item in population if item <= value), len(population))
+    z_score = 0.0 if deviation == 0 else (value - mean) / deviation
+    return {
+        "raw": round(value, 3),
+        "percentile": round(percentile_rank, 1),
+        "z_score": round(z_score, 3),
+    }
+
+
+def attach_normalized_features(question_review: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not question_review:
+        return question_review
+
+    feature_sets = {
+        "response_ms": [as_float(row.get("response_ms")) for row in question_review],
+        "tfi_ms": [as_float(row.get("tfi_ms")) for row in question_review],
+        "total_swaps": [as_float(row.get("total_swaps")) for row in question_review],
+        "stress_index": [as_float(row.get("stress_index")) for row in question_review],
+        "engagement_score": [as_float(row.get("engagement_score")) for row in question_review],
+    }
+
+    for row in question_review:
+        row["normalized_features"] = {
+            feature_id: build_normalized_feature(as_float(row.get(feature_id)), values)
+            for feature_id, values in feature_sets.items()
+        }
+    return question_review
 
 
 def build_behavior_signals(
     answers: list[dict[str, Any]],
     question_review: list[dict[str, Any]],
     focus_score: float,
+    evidence_count: int | None = None,
 ) -> list[dict[str, Any]]:
     if not answers:
         return []
+    evidence_count = evidence_count if evidence_count is not None else len(question_review)
 
     response_ratios = [
         row["response_ms"] / max(1000, as_int(row["deadline_buffer_ms"]) + row["response_ms"])
@@ -2008,6 +2414,7 @@ def build_behavior_signals(
         clamp(100.0 - avg([row["attention_drag_index"] for row in question_review]), 0.0, 100.0),
         1,
     )
+    engagement_index = round(avg([as_float(row.get("engagement_score")) for row in question_review]), 1)
     exploration_control = round(
         clamp(
             100.0
@@ -2019,7 +2426,13 @@ def build_behavior_signals(
         1,
     )
 
-    return [
+    sensitive_thresholds = {
+        "recovery_index": 5,
+        "confidence_alignment": 5,
+        "consistency": 5,
+    }
+
+    signals = [
         {
             "id": "decisiveness",
             "label": "Decisiveness",
@@ -2037,6 +2450,12 @@ def build_behavior_signals(
             "label": "Pressure Handling",
             "score": under_pressure_accuracy,
             "caption": "Accuracy when the answer landed near the deadline or with panic changes.",
+        },
+        {
+            "id": "engagement_score",
+            "label": "Engagement",
+            "score": engagement_index,
+            "caption": "How consistently the learner stayed on-task and interaction-ready during the session.",
         },
         {
             "id": "recovery_index",
@@ -2069,6 +2488,17 @@ def build_behavior_signals(
             "caption": "How controlled the option-scanning pattern stayed before the final lock-in.",
         },
     ]
+    for signal in signals:
+        minimum_evidence = sensitive_thresholds.get(signal["id"], 0)
+        suppressed = evidence_count < minimum_evidence
+        signal["minimum_evidence"] = minimum_evidence
+        signal["suppressed"] = suppressed
+        signal["suppressed_reason"] = (
+            f"Needs at least {minimum_evidence} answered questions to avoid a noisy read."
+            if suppressed and minimum_evidence > 0
+            else None
+        )
+    return signals
 
 
 def build_momentum_summary(question_review: list[dict[str, Any]]) -> dict[str, Any]:
@@ -2104,6 +2534,143 @@ def build_momentum_summary(question_review: list[dict[str, Any]]) -> dict[str, A
         "headline": "The student's pace stayed relatively stable.",
         "body": "No strong fatigue or recovery trend appeared across the session.",
     }
+
+
+def build_mastery_snapshot(
+    question_review: list[dict[str, Any]],
+    mastery_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not question_review and not mastery_rows:
+        return []
+
+    mastery_lookup = {
+        str(row.get("tag", "")).strip().lower(): as_float(row.get("score"))
+        for row in mastery_rows
+        if str(row.get("tag", "")).strip()
+    }
+    grouped_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in question_review:
+        concept_id = str(row.get("concept_id") or "").strip().lower() or "general"
+        grouped_rows[concept_id].append(row)
+
+    snapshot: list[dict[str, Any]] = []
+    for concept_id, rows in grouped_rows.items():
+        accuracy = round(pct(sum(1 for row in rows if as_bool(row.get("is_correct"))), len(rows)), 1)
+        avg_stress = round(avg([as_float(row.get("stress_index")) for row in rows]), 1)
+        avg_engagement = round(avg([as_float(row.get("engagement_score")) for row in rows]), 1)
+        prior_mastery = mastery_lookup.get(concept_id, mastery_lookup.get(str(rows[0].get("learning_objective", "")).strip().lower(), 0.0))
+        mastery_score = round(
+            clamp((prior_mastery * 0.55) + (accuracy * 0.45) - max(0.0, avg_stress - 55.0) * 0.2, 0.0, 100.0),
+            1,
+        )
+        if mastery_score >= 78 and accuracy >= 75:
+            state = "secure"
+        elif mastery_score >= 55:
+            state = "growing"
+        else:
+            state = "fragile"
+        snapshot.append(
+            {
+                "concept_id": concept_id,
+                "learning_objective": str(rows[0].get("learning_objective", "")).strip(),
+                "attempts": len(rows),
+                "accuracy": accuracy,
+                "avg_stress": avg_stress,
+                "avg_engagement": avg_engagement,
+                "prior_mastery": round(prior_mastery, 1),
+                "mastery_score": mastery_score,
+                "mastery_state": state,
+            }
+        )
+
+    snapshot.sort(key=lambda row: (row["mastery_score"], row["concept_id"]))
+    return snapshot
+
+
+def build_model_predictions(
+    *,
+    accuracy: float,
+    stress_index: float,
+    focus_score: float,
+    question_review: list[dict[str, Any]],
+    mastery_snapshot: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    fragile_concepts = [row for row in mastery_snapshot if row["mastery_state"] == "fragile"]
+    distractor_rate = pct(
+        sum(1 for row in question_review if row.get("path_type") == "last_second_collapse" or row.get("revision_outcome") == "correct_to_incorrect"),
+        len(question_review),
+    )
+    pressure_breakdown = round(
+        clamp(
+            (stress_index * 0.55)
+            + max(0.0, 70.0 - accuracy) * 0.8
+            + max(0.0, 62.0 - focus_score) * 0.45,
+            0.0,
+            100.0,
+        ),
+        1,
+    )
+    future_wrong_next = round(
+        clamp(
+            max(0.0, 72.0 - accuracy) * 0.55
+            + max(0.0, stress_index - 35.0) * 0.5
+            + pct(sum(1 for row in question_review if row.get("status") == "shaky"), len(question_review)) * 0.35,
+            0.0,
+            100.0,
+        ),
+        1,
+    )
+    needs_reteach = round(
+        clamp(
+            max(0.0, 68.0 - accuracy) * 0.75
+            + len(fragile_concepts) * 8.0
+            + max(0.0, stress_index - 45.0) * 0.25,
+            0.0,
+            100.0,
+        ),
+        1,
+    )
+    likely_distractor_issue = round(clamp(distractor_rate * 1.2, 0.0, 100.0), 1)
+
+    if needs_reteach >= 65:
+        recommended_action = "reteach"
+    elif pressure_breakdown >= 60:
+        recommended_action = "slow_down"
+    elif likely_distractor_issue >= 45:
+        recommended_action = "reduce_distractors"
+    else:
+        recommended_action = "keep_momentum"
+
+    return [
+        {
+            "id": "future_wrong_next",
+            "score": future_wrong_next,
+            "state": "high" if future_wrong_next >= 70 else "medium" if future_wrong_next >= 45 else "low",
+            "recommended_action": recommended_action,
+            "top_contributors": ["accuracy", "stress", "shaky_correct"][:3],
+        },
+        {
+            "id": "needs_reteach",
+            "score": needs_reteach,
+            "state": "high" if needs_reteach >= 70 else "medium" if needs_reteach >= 45 else "low",
+            "recommended_action": "reteach" if needs_reteach >= 55 else recommended_action,
+            "top_contributors": ["fragile_concepts", "accuracy", "stress"][:3],
+        },
+        {
+            "id": "likely_distractor_issue",
+            "score": likely_distractor_issue,
+            "state": "high" if likely_distractor_issue >= 60 else "medium" if likely_distractor_issue >= 35 else "low",
+            "recommended_action": "reduce_distractors" if likely_distractor_issue >= 35 else recommended_action,
+            "top_contributors": ["revision_outcomes", "path_type", "volatility"][:3],
+        },
+        {
+            "id": "performance_breakdown_under_pressure",
+            "score": pressure_breakdown,
+            "state": "high" if pressure_breakdown >= 65 else "medium" if pressure_breakdown >= 40 else "low",
+            "recommended_action": "slow_down" if pressure_breakdown >= 40 else recommended_action,
+            "top_contributors": ["stress", "focus", "deadline_pressure"][:3],
+        },
+    ]
 
 
 def build_session_segments(question_review: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2191,12 +2758,14 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
     questions = [normalize_question(question) for question in payload.get("questions", [])]
     answers = [normalize_answer(answer) for answer in payload.get("answers", [])]
     logs = [normalize_log(log) for log in payload.get("behavior_logs", [])]
+    behavior_events = [normalize_behavior_event(event) for event in payload.get("behavior_events", [])]
 
     question_map = {question["id"]: question for question in questions}
     question_order = {question["id"]: index + 1 for index, question in enumerate(questions)}
     answers_by_participant: dict[int, list[dict[str, Any]]] = defaultdict(list)
     answers_by_question: dict[int, list[dict[str, Any]]] = defaultdict(list)
     logs_by_pair: dict[tuple[int, int], dict[str, Any]] = {}
+    events_by_pair = build_behavior_event_lookup(behavior_events)
 
     for answer in answers:
         answers_by_participant[answer["participant_id"]].append(answer)
@@ -2279,6 +2848,7 @@ def build_class_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
             question_map=question_map,
             question_order=question_order,
             log_by_pair=logs_by_pair,
+            events_by_pair=events_by_pair,
         )
         profile = build_student_profile(
             answers=participant_answers,
@@ -3038,29 +3608,32 @@ def build_student_profile(
     avg_idle_time_ms = avg([log["idle_time_ms"] for log in logs])
     avg_blur_time_ms = avg([log["blur_time_ms"] for log in logs])
     accuracy = pct(sum(1 for answer in answers if answer["is_correct"]), len(answers))
-
-    confidence = 100.0
-    confidence -= min(total_swaps * 3.0, 18.0)
-    confidence -= min(total_panic_swaps * 7.0, 21.0)
-    confidence -= min(total_focus_loss * 5.0, 20.0)
-    confidence -= min(avg_blur_time_ms / 550.0, 12.0)
-    if avg_tfi_ms > 10000:
-        confidence -= 10.0
-    if avg_tfi_ms < 1500 and accuracy < 55:
-        confidence -= 15.0
+    avg_swaps = round(total_swaps / max(1, len(answers)), 2)
+    avg_panic_swaps = round(total_panic_swaps / max(1, len(answers)), 2)
+    avg_focus_loss = round(total_focus_loss / max(1, len(answers)), 2)
+    confidence = compute_confidence_score(
+        accuracy=accuracy,
+        avg_tfi_ms=avg_tfi_ms,
+        avg_swaps=avg_swaps,
+        total_panic_swaps=avg_panic_swaps,
+        total_focus_loss=avg_focus_loss,
+        avg_blur_time_ms=avg_blur_time_ms,
+    )
     if accuracy > 80 and total_swaps <= len(answers):
-        confidence += 5.0
-    confidence = round(clamp(confidence, 0.0, 100.0))
+        confidence = round(clamp(confidence + 5.0, 0.0, 100.0))
 
-    focus_score = round(
-        clamp(
-            100.0
-            - (total_focus_loss * 10.0)
-            - (avg_idle_time_ms / 1500.0)
-            - (avg_blur_time_ms / 260.0),
-            0.0,
-            100.0,
-        )
+    focus_score = compute_focus_score(
+        total_focus_loss=total_focus_loss,
+        avg_idle_time_ms=avg_idle_time_ms,
+        avg_blur_time_ms=avg_blur_time_ms,
+    )
+    confidence_contributors = build_confidence_contributors(
+        accuracy=accuracy,
+        avg_tfi_ms=avg_tfi_ms,
+        avg_swaps=avg_swaps,
+        total_panic_swaps=avg_panic_swaps,
+        total_focus_loss=avg_focus_loss,
+        avg_blur_time_ms=avg_blur_time_ms,
     )
 
     if avg_tfi_ms > 9000 and total_swaps > max(2, len(answers)):
@@ -3089,6 +3662,10 @@ def build_student_profile(
         "decision_style": decision_style,
         "headline": headline,
         "body": body,
+        "confidence_metadata": {
+            "contributors": confidence_contributors,
+            "analytics_version": ANALYTICS_VERSION,
+        },
         "weak_tags": [row["tag"] for row in weak_tags],
         "strong_tags": [row["tag"] for row in strong_tags],
     }
@@ -3104,6 +3681,7 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
     answers = [normalize_answer(answer) for answer in payload.get("answers", [])]
     questions = [normalize_question(question) for question in payload.get("questions", [])]
     logs = [normalize_log(log) for log in payload.get("behavior_logs", [])]
+    behavior_events = [normalize_behavior_event(event) for event in payload.get("behavior_events", [])]
     sessions = {as_int(session.get("id")): dict(session) for session in payload.get("sessions", [])}
     packs = {as_int(pack.get("id")): dict(pack) for pack in payload.get("packs", [])}
     practice_attempts = [
@@ -3114,16 +3692,22 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
         }
         for attempt in payload.get("practice_attempts", [])
     ]
+    concept_attempt_history = [dict(entry) for entry in payload.get("concept_attempt_history", []) if isinstance(entry, dict)]
+    analytics_labels = [dict(entry) for entry in payload.get("analytics_labels", []) if isinstance(entry, dict)]
 
     question_map = {question["id"]: question for question in questions}
     question_order = {question["id"]: index + 1 for index, question in enumerate(questions)}
     log_by_pair = {(log["participant_id"], log["question_id"]): log for log in logs}
+    events_by_pair = build_behavior_event_lookup(behavior_events)
     logs_by_session: dict[int, list[dict[str, Any]]] = defaultdict(list)
     answers_by_session: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    events_by_session: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for answer in answers:
         answers_by_session[answer["session_id"]].append(answer)
     for log in logs:
         logs_by_session[log["session_id"]].append(log)
+    for event in behavior_events:
+        events_by_session[as_int(event.get("session_id"))].append(event)
 
     stats = {
         "nickname": nickname,
@@ -3178,17 +3762,22 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
     )
     risk_level = classify_risk(risk_score)
 
-    question_review = build_question_review_rows(
+    question_review = attach_normalized_features(build_question_review_rows(
         answers=answers,
         question_map=question_map,
         question_order=question_order,
         log_by_pair=log_by_pair,
-    )
+        events_by_pair=events_by_pair,
+    ))
     behavior_signals = build_behavior_signals(
         answers=answers,
         question_review=question_review,
         focus_score=profile["focus_score"],
+        evidence_count=stats["total_answers"],
     )
+    signal_suppressed_metrics = [signal["id"] for signal in behavior_signals if signal.get("suppressed")]
+    avg_engagement_score = round(avg([as_float(row.get("engagement_score")) for row in question_review]), 1)
+    engagement_state = classify_engagement_state(avg_engagement_score)
     momentum = build_momentum_summary(question_review)
     session_segments = build_session_segments(question_review)
     revision_summary = build_revision_summary(question_review)
@@ -3196,6 +3785,15 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
     recovery_profile = build_recovery_profile(question_review)
     fatigue_drift = build_fatigue_drift(question_review)
     misconception_patterns = build_misconception_patterns(question_review)
+    mastery_snapshot = build_mastery_snapshot(question_review, mastery_rows)
+    model_predictions = build_model_predictions(
+        accuracy=stats["accuracy"],
+        stress_index=session_stress,
+        focus_score=profile["focus_score"],
+        question_review=question_review,
+        mastery_snapshot=mastery_snapshot,
+    )
+    intervention_model = max(model_predictions, key=lambda row: as_float(row.get("score")), default=None)
     stability_score = extract_signal_score(behavior_signals, "consistency")
 
     aggregates.update(
@@ -3239,7 +3837,7 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
                 "body": "At least one question began correctly and ended wrong. This is a confidence-and-commitment issue, not pure content weakness.",
             }
         )
-    if fatigue_drift["direction"] == "fatigue":
+    if fatigue_drift["direction"] == "fatigue" and stats["total_answers"] >= 5:
         highlights.append(
             {
                 "title": "Fatigue drift",
@@ -3281,7 +3879,7 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
                 "body": "A large share of decisions landed in the final second. Re-run the same concepts with calmer pacing or explicit commitment prompts.",
             }
         )
-    if recovery_profile["total_followups"] > 0 and recovery_profile["recovery_rate"] < 50:
+    if stats["total_answers"] >= 5 and recovery_profile["total_followups"] > 0 and recovery_profile["recovery_rate"] < 50:
         recommendations.append(
             {
                 "title": "Coach recovery after misses",
@@ -3314,11 +3912,14 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
     for session_id, session_answers in answers_by_session.items():
         session_logs = logs_by_session.get(session_id, [])
         session_log_by_pair = {(log["participant_id"], log["question_id"]): log for log in session_logs}
+        session_events = events_by_session.get(session_id, [])
+        session_events_by_pair = build_behavior_event_lookup(session_events)
         session_review = build_question_review_rows(
             answers=session_answers,
             question_map=question_map,
             question_order=question_order,
             log_by_pair=session_log_by_pair,
+            events_by_pair=session_events_by_pair,
         )
         session_revision_summary = build_revision_summary(session_review)
         session_deadline_profile = build_deadline_profile(session_review)
@@ -3401,11 +4002,58 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
             build_metric("Stress index", session_stress, "%"),
             build_metric("Focus score", profile["focus_score"]),
             build_metric("Confidence score", profile["confidence_score"]),
+            build_metric("Engagement score", avg([as_float(row.get("engagement_score")) for row in question_review]), "%"),
             build_metric("Panic swaps", aggregates["total_panic_swaps"]),
             build_metric("Deadline dependency", deadline_profile["last_second_rate"], "%"),
         ],
         data_quality=student_data_quality,
     )
+    sensitive_signal_enabled = stats["total_answers"] >= 5 and student_trust_bundle["confidence_band"] != "low"
+    if not sensitive_signal_enabled:
+        suppression_reason = student_trust_bundle["suppressed_reason"] or "More clean observations are needed before recovery and drift calls are safe."
+        recovery_profile = {
+            **recovery_profile,
+            "suppressed": True,
+            "suppressed_reason": suppression_reason,
+        }
+        fatigue_drift = {
+            **fatigue_drift,
+            "suppressed": True,
+            "suppressed_reason": suppression_reason,
+        }
+        recommendations = [
+            item for item in recommendations
+            if item["title"] not in {"Coach recovery after misses"}
+        ]
+        highlights = [
+            item for item in highlights
+            if item["title"] not in {"Fatigue drift"}
+        ]
+    behavior_signals = [
+        {
+            **signal,
+            "suppressed": (
+                signal.get("suppressed")
+                or (
+                    not sensitive_signal_enabled
+                    and signal["id"] in {"recovery_index", "confidence_alignment", "consistency"}
+                )
+            ),
+            "suppressed_reason": (
+                signal.get("suppressed_reason")
+                or (
+                    student_trust_bundle["suppressed_reason"]
+                    if (
+                        not sensitive_signal_enabled
+                        and signal["id"] in {"recovery_index", "confidence_alignment", "consistency"}
+                    )
+                    else None
+                )
+            ),
+        }
+        for signal in behavior_signals
+    ]
+    signal_suppressed_metrics = [signal["id"] for signal in behavior_signals if signal.get("suppressed")]
     overall_story = {
         **overall_story,
         **student_trust_bundle,
@@ -3424,8 +4072,13 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
         "behaviorSignalMetrics": student_trust_bundle["behavior_signal_metrics"],
         "stats": stats,
         "mastery": mastery_rows,
+        "masteryState": mastery_snapshot,
         "aggregates": aggregates,
         "profile": profile,
+        "engagementModel": {
+            "score": avg_engagement_score,
+            "state": engagement_state,
+        },
         "risk": {
             "score": risk_score,
             "level": risk_level,
@@ -3440,6 +4093,11 @@ def build_student_dashboard(payload: dict[str, Any]) -> dict[str, Any]:
         "tagPerformance": tag_performance,
         "questionReview": question_review,
         "behaviorSignals": behavior_signals,
+        "signalSuppressedMetrics": signal_suppressed_metrics,
+        "modelPredictions": model_predictions,
+        "interventionModel": intervention_model,
+        "labels": analytics_labels[:24],
+        "conceptAttemptHistory": concept_attempt_history[:50],
         "stabilityScore": stability_score,
         "revisionInsights": revision_summary,
         "deadlineProfile": deadline_profile,
@@ -3573,10 +4231,12 @@ def build_teacher_overview(payload: dict[str, Any]) -> dict[str, Any]:
     answers = [normalize_answer(answer) for answer in payload.get("answers", [])]
     questions = [normalize_question(question) for question in payload.get("questions", [])]
     logs = [normalize_log(log) for log in payload.get("behavior_logs", [])]
+    behavior_events = [normalize_behavior_event(event) for event in payload.get("behavior_events", [])]
 
     participants_by_session: dict[int, list[dict[str, Any]]] = defaultdict(list)
     answers_by_session: dict[int, list[dict[str, Any]]] = defaultdict(list)
     logs_by_session: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    events_by_session: dict[int, list[dict[str, Any]]] = defaultdict(list)
     questions_by_pack: dict[int, list[dict[str, Any]]] = defaultdict(list)
 
     for participant in participants:
@@ -3585,6 +4245,8 @@ def build_teacher_overview(payload: dict[str, Any]) -> dict[str, Any]:
         answers_by_session[answer["session_id"]].append(answer)
     for log in logs:
         logs_by_session[log["session_id"]].append(log)
+    for event in behavior_events:
+        events_by_session[as_int(event.get("session_id"))].append(event)
     for question in questions:
         questions_by_pack[as_int(question.get("quiz_pack_id"))].append(question)
 
@@ -3599,6 +4261,7 @@ def build_teacher_overview(payload: dict[str, Any]) -> dict[str, Any]:
                 "questions": questions_by_pack.get(quiz_pack_id, []),
                 "answers": answers_by_session.get(session_id, []),
                 "behavior_logs": logs_by_session.get(session_id, []),
+                "behavior_events": events_by_session.get(session_id, []),
             }
         )
         summary = dashboard["summary"]

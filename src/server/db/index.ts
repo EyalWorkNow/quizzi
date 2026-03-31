@@ -290,7 +290,14 @@ export async function initDb() {
       difficulty INTEGER DEFAULT 3,
       time_limit_seconds INTEGER DEFAULT 20,
       learning_objective TEXT DEFAULT '',
-      bloom_level TEXT DEFAULT ''
+      bloom_level TEXT DEFAULT '',
+      concept_id TEXT DEFAULT '',
+      stem_length_chars INTEGER DEFAULT 0,
+      prompt_complexity_score INTEGER DEFAULT 0,
+      reading_difficulty TEXT DEFAULT '',
+      media_type TEXT DEFAULT 'text',
+      distractor_profile_json TEXT DEFAULT '{}',
+      question_position_policy TEXT DEFAULT 'fixed_pack_order'
     );
 
     CREATE TABLE IF NOT EXISTS quiz_pack_versions (
@@ -434,11 +441,68 @@ export async function initDb() {
       touch_activity_count INTEGER DEFAULT 0,
       same_answer_reclicks INTEGER DEFAULT 0,
       option_dwell_json TEXT DEFAULT '{}',
+      option_hover_counts_json TEXT DEFAULT '{}',
+      outside_answer_pointer_moves INTEGER DEFAULT 0,
+      rapid_pointer_jumps INTEGER DEFAULT 0,
       submission_retry_count INTEGER DEFAULT 0,
       reconnect_count INTEGER DEFAULT 0,
       visibility_interruptions INTEGER DEFAULT 0,
       network_degraded INTEGER DEFAULT 0,
       device_profile TEXT DEFAULT '',
+      analytics_version TEXT DEFAULT 'telemetry_v2',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS student_behavior_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER,
+      question_id INTEGER,
+      participant_id INTEGER,
+      event_type TEXT NOT NULL,
+      event_ts_ms INTEGER DEFAULT 0,
+      event_seq INTEGER DEFAULT 0,
+      option_index INTEGER,
+      payload_json TEXT DEFAULT '{}',
+      network_latency_ms INTEGER DEFAULT 0,
+      client_render_delay_ms INTEGER DEFAULT 0,
+      device_profile TEXT DEFAULT '',
+      analytics_version TEXT DEFAULT 'telemetry_v2',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS concept_attempt_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      identity_key TEXT NOT NULL,
+      concept_id TEXT NOT NULL,
+      session_id INTEGER,
+      question_id INTEGER,
+      is_correct INTEGER DEFAULT 0,
+      response_ms INTEGER DEFAULT 0,
+      stress_index REAL DEFAULT 0,
+      engagement_score REAL DEFAULT 0,
+      prior_mastery REAL DEFAULT 0,
+      attempt_number INTEGER DEFAULT 1,
+      days_since_last_seen REAL DEFAULT 0,
+      rolling_accuracy_5 REAL DEFAULT 0,
+      rolling_stress_5 REAL DEFAULT 0,
+      rolling_engagement_5 REAL DEFAULT 0,
+      retention_24h REAL DEFAULT 0,
+      retention_7d REAL DEFAULT 0,
+      analytics_version TEXT DEFAULT 'telemetry_v2',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS analytics_labels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER,
+      question_id INTEGER,
+      participant_id INTEGER,
+      identity_key TEXT,
+      label_type TEXT NOT NULL,
+      label_value TEXT NOT NULL,
+      source TEXT DEFAULT 'system',
+      metadata_json TEXT DEFAULT '{}',
+      labeled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -501,10 +565,14 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_questions_pack_order ON questions(quiz_pack_id, id);
     CREATE INDEX IF NOT EXISTS idx_behavior_participant_session ON student_behavior_logs(participant_id, session_id);
     CREATE INDEX IF NOT EXISTS idx_behavior_session_question_participant ON student_behavior_logs(session_id, question_id, participant_id);
+    CREATE INDEX IF NOT EXISTS idx_behavior_events_participant_session ON student_behavior_events(participant_id, session_id, question_id);
+    CREATE INDEX IF NOT EXISTS idx_behavior_events_type_session ON student_behavior_events(event_type, session_id);
     CREATE INDEX IF NOT EXISTS idx_mastery_nickname ON mastery(nickname);
     CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_question ON practice_attempts(nickname, question_id);
     CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_created ON practice_attempts(nickname, created_at);
     CREATE INDEX IF NOT EXISTS idx_student_memory_identity_key ON student_memory_snapshots(identity_key);
+    CREATE INDEX IF NOT EXISTS idx_concept_attempt_history_identity_concept ON concept_attempt_history(identity_key, concept_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_analytics_labels_lookup ON analytics_labels(identity_key, label_type, labeled_at);
     CREATE INDEX IF NOT EXISTS idx_material_profiles_hash ON material_profiles(source_hash);
     CREATE INDEX IF NOT EXISTS idx_generation_cache_lookup ON question_generation_cache(material_profile_id, difficulty, output_language, question_count);
     CREATE INDEX IF NOT EXISTS idx_teacher_classes_teacher_archived ON teacher_classes(teacher_id, archived);
@@ -591,6 +659,13 @@ export async function initDb() {
   (await ensureColumn('questions', 'learning_objective', "TEXT DEFAULT ''"));
   (await ensureColumn('questions', 'bloom_level', "TEXT DEFAULT ''"));
   (await ensureColumn('questions', 'image_url', "TEXT DEFAULT ''"));
+  (await ensureColumn('questions', 'concept_id', "TEXT DEFAULT ''"));
+  (await ensureColumn('questions', 'stem_length_chars', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('questions', 'prompt_complexity_score', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('questions', 'reading_difficulty', "TEXT DEFAULT ''"));
+  (await ensureColumn('questions', 'media_type', "TEXT DEFAULT 'text'"));
+  (await ensureColumn('questions', 'distractor_profile_json', "TEXT DEFAULT '{}'"));
+  (await ensureColumn('questions', 'question_position_policy', "TEXT DEFAULT 'fixed_pack_order'"));
   (await ensureColumn('sessions', 'teacher_class_id', 'INTEGER'));
   (await ensureColumn('sessions', 'game_type', "TEXT DEFAULT 'classic_quiz'"));
   (await ensureColumn('sessions', 'team_count', 'INTEGER DEFAULT 0'));
@@ -619,13 +694,70 @@ export async function initDb() {
   (await ensureColumn('student_behavior_logs', 'touch_activity_count', 'INTEGER DEFAULT 0'));
   (await ensureColumn('student_behavior_logs', 'same_answer_reclicks', 'INTEGER DEFAULT 0'));
   (await ensureColumn('student_behavior_logs', 'option_dwell_json', "TEXT DEFAULT '{}'"));
+  (await ensureColumn('student_behavior_logs', 'option_hover_counts_json', "TEXT DEFAULT '{}'"));
+  (await ensureColumn('student_behavior_logs', 'outside_answer_pointer_moves', 'INTEGER DEFAULT 0'));
+  (await ensureColumn('student_behavior_logs', 'rapid_pointer_jumps', 'INTEGER DEFAULT 0'));
   (await ensureColumn('student_behavior_logs', 'submission_retry_count', 'INTEGER DEFAULT 0'));
   (await ensureColumn('student_behavior_logs', 'reconnect_count', 'INTEGER DEFAULT 0'));
   (await ensureColumn('student_behavior_logs', 'visibility_interruptions', 'INTEGER DEFAULT 0'));
   (await ensureColumn('student_behavior_logs', 'network_degraded', 'INTEGER DEFAULT 0'));
   (await ensureColumn('student_behavior_logs', 'device_profile', "TEXT DEFAULT ''"));
+  (await ensureColumn('student_behavior_logs', 'analytics_version', "TEXT DEFAULT 'telemetry_v2'"));
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS student_behavior_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER,
+      question_id INTEGER,
+      participant_id INTEGER,
+      event_type TEXT NOT NULL,
+      event_ts_ms INTEGER DEFAULT 0,
+      event_seq INTEGER DEFAULT 0,
+      option_index INTEGER,
+      payload_json TEXT DEFAULT '{}',
+      network_latency_ms INTEGER DEFAULT 0,
+      client_render_delay_ms INTEGER DEFAULT 0,
+      device_profile TEXT DEFAULT '',
+      analytics_version TEXT DEFAULT 'telemetry_v2',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS concept_attempt_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      identity_key TEXT NOT NULL,
+      concept_id TEXT NOT NULL,
+      session_id INTEGER,
+      question_id INTEGER,
+      is_correct INTEGER DEFAULT 0,
+      response_ms INTEGER DEFAULT 0,
+      stress_index REAL DEFAULT 0,
+      engagement_score REAL DEFAULT 0,
+      prior_mastery REAL DEFAULT 0,
+      attempt_number INTEGER DEFAULT 1,
+      days_since_last_seen REAL DEFAULT 0,
+      rolling_accuracy_5 REAL DEFAULT 0,
+      rolling_stress_5 REAL DEFAULT 0,
+      rolling_engagement_5 REAL DEFAULT 0,
+      retention_24h REAL DEFAULT 0,
+      retention_7d REAL DEFAULT 0,
+      analytics_version TEXT DEFAULT 'telemetry_v2',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS analytics_labels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER,
+      question_id INTEGER,
+      participant_id INTEGER,
+      identity_key TEXT,
+      label_type TEXT NOT NULL,
+      label_value TEXT NOT NULL,
+      source TEXT DEFAULT 'system',
+      metadata_json TEXT DEFAULT '{}',
+      labeled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     DELETE FROM answers
     WHERE id NOT IN (
       SELECT MIN(id)
@@ -644,6 +776,7 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_student_password_reset_email ON student_password_reset_codes(email, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_questions_pack_question_order ON questions(quiz_pack_id, question_order, id);
     CREATE INDEX IF NOT EXISTS idx_questions_learning_objective ON questions(learning_objective);
+    CREATE INDEX IF NOT EXISTS idx_questions_concept_id ON questions(concept_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_game_type ON sessions(game_type);
     CREATE INDEX IF NOT EXISTS idx_teacher_classes_teacher_archived ON teacher_classes(teacher_id, archived);
     CREATE INDEX IF NOT EXISTS idx_teacher_classes_pack ON teacher_classes(pack_id);
@@ -658,6 +791,10 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_mastery_identity_key ON mastery(identity_key);
     CREATE INDEX IF NOT EXISTS idx_practice_attempts_identity_created ON practice_attempts(identity_key, created_at);
     CREATE INDEX IF NOT EXISTS idx_student_memory_identity_key ON student_memory_snapshots(identity_key);
+    CREATE INDEX IF NOT EXISTS idx_behavior_events_participant_session ON student_behavior_events(participant_id, session_id, question_id, event_seq);
+    CREATE INDEX IF NOT EXISTS idx_behavior_events_type_session ON student_behavior_events(event_type, session_id);
+    CREATE INDEX IF NOT EXISTS idx_concept_attempt_history_identity_concept ON concept_attempt_history(identity_key, concept_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_analytics_labels_lookup ON analytics_labels(identity_key, label_type, labeled_at);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_participants_session_nickname_unique ON participants(session_id, nickname COLLATE NOCASE);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_answers_unique_submission ON answers(session_id, question_id, participant_id);
     CREATE INDEX IF NOT EXISTS idx_pack_versions_pack ON quiz_pack_versions(pack_id, version_number DESC);
@@ -696,6 +833,50 @@ export async function initDb() {
     UPDATE questions
     SET question_order = id
     WHERE question_order IS NULL OR question_order = 0;
+
+    UPDATE questions
+    SET concept_id = LOWER(REPLACE(REPLACE(COALESCE(NULLIF(learning_objective, ''), json_extract(tags_json, '$[0]'), 'q-' || id), ' ', '-'), '--', '-'))
+    WHERE COALESCE(concept_id, '') = '';
+
+    UPDATE questions
+    SET stem_length_chars = LENGTH(COALESCE(prompt, ''))
+    WHERE COALESCE(stem_length_chars, 0) = 0;
+
+    UPDATE questions
+    SET media_type = CASE WHEN COALESCE(image_url, '') <> '' THEN 'image' ELSE 'text' END
+    WHERE COALESCE(media_type, '') = '';
+
+    UPDATE questions
+    SET reading_difficulty = CASE
+      WHEN LENGTH(COALESCE(prompt, '')) >= 220 THEN 'advanced'
+      WHEN LENGTH(COALESCE(prompt, '')) >= 120 THEN 'moderate'
+      ELSE 'basic'
+    END
+    WHERE COALESCE(reading_difficulty, '') = '';
+
+    UPDATE questions
+    SET prompt_complexity_score = MIN(
+      100,
+      MAX(
+        0,
+        CAST((LENGTH(COALESCE(prompt, '')) / 3) AS INTEGER)
+        + (CASE WHEN COALESCE(image_url, '') <> '' THEN 10 ELSE 0 END)
+        + (CASE WHEN COALESCE(bloom_level, '') <> '' THEN 8 ELSE 0 END)
+      )
+    )
+    WHERE COALESCE(prompt_complexity_score, 0) = 0;
+
+    UPDATE questions
+    SET distractor_profile_json = json_object(
+      'answer_count', json_array_length(COALESCE(answers_json, '[]')),
+      'tag_count', json_array_length(COALESCE(tags_json, '[]')),
+      'has_image', CASE WHEN COALESCE(image_url, '') <> '' THEN 1 ELSE 0 END
+    )
+    WHERE COALESCE(distractor_profile_json, '') = '';
+
+    UPDATE questions
+    SET question_position_policy = 'fixed_pack_order'
+    WHERE COALESCE(question_position_policy, '') = '';
 
     UPDATE quiz_packs
     SET source_excerpt = SUBSTR(COALESCE(source_text, ''), 1, 320)

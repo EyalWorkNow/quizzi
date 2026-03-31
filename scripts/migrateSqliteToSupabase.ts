@@ -10,6 +10,8 @@ import {
 
 const BOOLEAN_COLUMNS = new Map<string, Set<string>>([
   ['answers', new Set(['is_correct'])],
+  ['student_behavior_logs', new Set(['network_degraded'])],
+  ['concept_attempt_history', new Set(['is_correct'])],
   ['practice_attempts', new Set(['is_correct'])],
 ]);
 

@@ -41,6 +41,7 @@ export type TeacherClassSessionSummary = {
   accuracy_rate: number | null;
   started_at: string | null;
   ended_at: string | null;
+  resume_available?: boolean;
 };
 
 export type TeacherClassRetentionStudent = {
@@ -531,6 +532,7 @@ function mapSessionSummary(row: any): TeacherClassSessionSummary {
     accuracy_rate: row.accuracy_rate === null || row.accuracy_rate === undefined ? null : Number(row.accuracy_rate),
     started_at: row.started_at || null,
     ended_at: row.ended_at || null,
+    resume_available: Boolean(row.resume_available),
   };
 }
 
@@ -967,13 +969,37 @@ export async function listStudentClassWorkspaces(studentUserId: number, studentE
         `)
         .all(...packIds)) as any[])
     : [];
+  const sessionIds = uniqueNumbers(sessionRows.map((row: any) => row.id));
+  const rosterStudentIds = uniqueNumbers(classRows.map((row: any) => row.id));
+  const participantResumeRows =
+    sessionIds.length && (studentId || rosterStudentIds.length)
+      ? ((await db
+          .prepare(`
+            SELECT DISTINCT session_id
+            FROM participants
+            WHERE session_id IN (${buildSqlPlaceholders(sessionIds.length)})
+              AND (
+                student_user_id = ?
+                ${rosterStudentIds.length ? `OR class_student_id IN (${buildSqlPlaceholders(rosterStudentIds.length)})` : ''}
+              )
+          `)
+          .all(...sessionIds, studentId, ...rosterStudentIds)) as any[])
+      : [];
+  const resumableSessionIds = new Set(
+    participantResumeRows.map((row: any) => Number(row.session_id || 0)).filter((value: number) => value > 0),
+  );
 
   const sessionsByClassId = new Map<number, TeacherClassSessionSummary[]>();
   sessionRows.forEach((row: any) => {
     const classId = Number(row.teacher_class_id || 0);
     if (!classId) return;
     const current = sessionsByClassId.get(classId) || [];
-    current.push(mapSessionSummary(row));
+    current.push(
+      mapSessionSummary({
+        ...row,
+        resume_available: resumableSessionIds.has(Number(row.id || 0)),
+      }),
+    );
     sessionsByClassId.set(classId, current);
   });
 

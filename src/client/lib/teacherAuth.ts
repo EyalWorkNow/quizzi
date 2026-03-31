@@ -244,6 +244,29 @@ export async function registerTeacherWithPassword({
   return payload;
 }
 
+export async function changeTeacherPassword({
+  currentPassword,
+  newPassword,
+}: {
+  currentPassword: string;
+  newPassword: string;
+}) {
+  const response = await fetchWithTimeout('/api/auth/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      currentPassword,
+      newPassword,
+    }),
+  });
+  const payload = await readJsonOrThrow(response);
+  if (payload?.email && payload?.provider) {
+    writeAuth(ensureTeacherSessionPayload(payload));
+  }
+  return payload;
+}
+
 export async function signInTeacherWithProvider({
   provider,
 }: {

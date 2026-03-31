@@ -2692,8 +2692,8 @@ export default function TeacherAnalytics() {
                       <p className="font-black text-lg mb-1">{t(item.title)}</p>
                       <p className="font-medium text-brand-dark/70 mb-3">{t(item.body)}</p>
                       <div className="flex flex-wrap gap-2 mb-3">
-                        {(item.focus_tags || []).map((tag: string) => (
-                          <span key={`${item.id}-${tag}`} className="px-3 py-2 rounded-full border-2 border-brand-dark bg-brand-bg text-xs font-black">
+                        {normalizeTagList(item.focus_tags || []).map((tag: string, index: number) => (
+                          <span key={`${item.id}-${tag}-${index}`} className="px-3 py-2 rounded-full border-2 border-brand-dark bg-brand-bg text-xs font-black">
                             {tag}
                           </span>
                         ))}
@@ -3107,8 +3107,8 @@ export default function TeacherAnalytics() {
                         <div className="mb-4">
                           <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">{t('Focus Tags')}</p>
                           <div className="flex flex-wrap gap-2">
-                            {plan.focus_tags.map((tag: string) => (
-                              <span key={`${plan.id}-${tag}`} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-xs font-black capitalize">
+                            {normalizeTagList(plan.focus_tags || []).map((tag: string, index: number) => (
+                              <span key={`${plan.id}-${tag}-${index}`} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-xs font-black capitalize">
                                 {tag}
                               </span>
                             ))}

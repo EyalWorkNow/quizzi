@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Library, Layout, Rocket, Play, PlusCircle, ChevronDown, ChevronUp, Monitor, Brain, MessageSquare, Globe } from 'lucide-react';
+import { ArrowLeft, Wand2, Plus, Trash2, Save, Sparkles, BookOpen, Upload, Settings2, Languages, Hash, FileText, UploadCloud, X, Layout, Rocket, Play, PlusCircle, ChevronDown, ChevronUp, Monitor, Brain, MessageSquare, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import { listTeacherClasses, addPackToClass, type TeacherClassCard } from '../lib/teacherClasses.ts';
@@ -14,7 +14,6 @@ import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
 import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
 import AppLoadingScreen from '../components/AppLoadingScreen.tsx';
 import GenerateMagicButton from '../components/GenerateMagicButton.tsx';
-import UiverseSearchField from '../components/UiverseSearchField.tsx';
 import { DEFAULT_SESSION_SOUNDTRACKS, type SessionSoundtrackChoice } from '../../shared/sessionSoundtracks.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 
@@ -107,51 +106,6 @@ function readFileAsDataUrl(file: File) {
   });
 }
 
-function formatQuestionBankAccuracy(value: unknown) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) return 'No outcome data yet';
-  return `${Math.round(numeric * 100)}% correct`;
-}
-
-function getQuestionReuseSignal(item: any) {
-  const usageCount = Number(item?.usage_count || 0);
-  const accuracy = Number(item?.accuracy || 0);
-
-  if (usageCount >= 4 && accuracy >= 0.72) {
-    return {
-      label: 'Proven reuse',
-      detail: 'Students are handling this well. Safe to reuse as-is.',
-      badgeClassName: 'bg-emerald-100 text-emerald-900 border-emerald-300',
-      cardClassName: 'border-emerald-300 bg-emerald-50/70',
-    };
-  }
-
-  if (usageCount >= 3 && accuracy > 0 && accuracy <= 0.55) {
-    return {
-      label: 'Reteach / revise',
-      detail: 'This has been used repeatedly but still produces weak outcomes.',
-      badgeClassName: 'bg-brand-orange/15 text-brand-dark border-brand-orange',
-      cardClassName: 'border-brand-orange/60 bg-brand-orange/5',
-    };
-  }
-
-  if (usageCount >= 1) {
-    return {
-      label: 'Watch closely',
-      detail: 'Usable, but keep an eye on accuracy and distractors.',
-      badgeClassName: 'bg-brand-yellow/40 text-brand-dark border-brand-dark',
-      cardClassName: 'border-brand-yellow/80 bg-brand-yellow/10',
-    };
-  }
-
-  return {
-    label: 'Fresh question',
-    detail: 'No classroom signal yet. Good candidate when you want something new.',
-    badgeClassName: 'bg-brand-purple/15 text-brand-dark border-brand-purple',
-    cardClassName: 'border-brand-purple/50 bg-brand-purple/5',
-  };
-}
-
 export default function TeacherCreatePack() {
   const { language: appLanguage } = useAppLanguage();
   const navigate = useNavigate();
@@ -182,9 +136,6 @@ export default function TeacherCreatePack() {
     bloom_levels: [] as string[],
     pack_notes: '',
   });
-  const [questionBankQuery, setQuestionBankQuery] = useState('');
-  const [questionBankItems, setQuestionBankItems] = useState<any[]>([]);
-  const [isQuestionBankLoading, setIsQuestionBankLoading] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
   const [isLoadingPack, setIsLoadingPack] = useState(isEditMode);
   const [packLoadError, setPackLoadError] = useState('');
@@ -299,21 +250,6 @@ export default function TeacherCreatePack() {
     () => recommendModesForDraft(questions.length || questionCount, materialProfile?.topic_fingerprint?.length || 0),
     [materialProfile?.topic_fingerprint?.length, questionCount, questions.length],
   );
-  const questionBankSummary = useMemo(() => {
-    return questionBankItems.reduce(
-      (summary, item) => {
-        const signal = getQuestionReuseSignal(item);
-        summary.total += 1;
-        if (signal.label === 'Proven reuse') summary.proven += 1;
-        else if (signal.label === 'Reteach / revise') summary.revise += 1;
-        else if (signal.label === 'Watch closely') summary.watch += 1;
-        else summary.fresh += 1;
-        return summary;
-      },
-      { total: 0, proven: 0, revise: 0, watch: 0, fresh: 0 },
-    );
-  }, [questionBankItems]);
-
   useEffect(() => {
     if (!isEditMode) {
       setIsLoadingPack(false);
@@ -415,24 +351,6 @@ export default function TeacherCreatePack() {
       message: `${savedPack?.title || title || 'Your pack'} was ${isEditMode ? 'updated' : 'saved'} successfully.`,
     };
   };
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setIsQuestionBankLoading(true);
-      apiFetchJson(`/api/teacher/question-bank?q=${encodeURIComponent(questionBankQuery)}&limit=8`)
-        .then((rows) => {
-          setQuestionBankItems(Array.isArray(rows) ? rows : []);
-        })
-        .catch(() => {
-          setQuestionBankItems([]);
-        })
-        .finally(() => {
-          setIsQuestionBankLoading(false);
-        });
-    }, 180);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [questionBankQuery]);
 
   const processFile = async (file: File) => {
     setIsExtracting(true);
@@ -810,24 +728,6 @@ export default function TeacherCreatePack() {
       const input = questionImageInputRefs.current[qIndex];
       if (input) input.value = '';
     }
-  };
-
-  const importQuestionFromBank = (item: any) => {
-    setSaveError('');
-    setQuestions((current) => [
-      ...current,
-      {
-        prompt: item.prompt || '',
-        image_url: item.image_url || '',
-        answers: Array.isArray(item.answers) ? item.answers.slice(0, MAX_QUESTION_ANSWERS) : ['', '', '', ''],
-        correct_index: Number(item.correct_index || 0),
-        explanation: item.explanation || '',
-        tags: Array.isArray(item.tags) && item.tags.length > 0 ? item.tags : ['general'],
-        time_limit_seconds: Number(item.time_limit_seconds || 20),
-        learning_objective: item.learning_objective || '',
-        bloom_level: item.bloom_level || '',
-      },
-    ]);
   };
 
   if (isLoadingPack) {
@@ -1514,112 +1414,6 @@ export default function TeacherCreatePack() {
                    </div>
                 </div>
 
-                <div className="premium-card p-8">
-                  <div className="flex items-start gap-3 mb-6">
-                    <div className="w-12 h-12 rounded-2xl border-2 border-brand-dark bg-brand-purple/15 flex items-center justify-center shadow-[3px_3px_0px_0px_#1A1A1A] shrink-0">
-                      <Library className="w-5 h-5 text-brand-dark" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-1">Reuse Intelligence</p>
-                      <h3 className="text-2xl font-black text-brand-dark leading-tight">Import strong questions from your library</h3>
-                      <p className="text-sm font-medium text-brand-dark/62 mt-2">
-                        Pull in proven questions fast, and flag the ones that probably need rewriting before reuse.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4 mb-5">
-                    <UiverseSearchField
-                      id="question-bank-search"
-                      label="Search your question bank"
-                      value={questionBankQuery}
-                      onChange={(event) => setQuestionBankQuery(event.target.value)}
-                      placeholder="Search by topic, prompt, or concept..."
-                      accent="purple"
-                      dir={appLanguage === 'he' ? 'rtl' : 'ltr'}
-                      onClear={() => setQuestionBankQuery('')}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
-                    <IntelPill label="Proven" value={questionBankSummary.proven} />
-                    <IntelPill label="Needs revision" value={questionBankSummary.revise} />
-                    <IntelPill label="Watchlist" value={questionBankSummary.watch} />
-                    <IntelPill label="Fresh" value={questionBankSummary.fresh} />
-                  </div>
-
-                  <div className="space-y-3 max-h-[540px] overflow-y-auto pr-1">
-                    {isQuestionBankLoading ? (
-                      <AppLoadingScreen
-                        fullScreen={false}
-                        size={86}
-                        label="Scanning your library..."
-                        caption="Checking for reusable questions with strong classroom signal."
-                        panelClassName="max-w-none rounded-[1.5rem] border-2 px-4 py-5 shadow-[4px_4px_0px_0px_#1A1A1A]"
-                      />
-                    ) : questionBankItems.length === 0 ? (
-                      <div className="rounded-[1.5rem] border-2 border-dashed border-brand-dark/30 bg-brand-bg/50 p-6 text-center">
-                        <p className="font-black text-brand-dark mb-2">No library matches yet.</p>
-                        <p className="text-sm font-medium text-brand-dark/55">
-                          Try a topic keyword, course code, or a core concept from this pack.
-                        </p>
-                      </div>
-                    ) : (
-                      questionBankItems.map((item, itemIndex) => {
-                        const signal = getQuestionReuseSignal(item);
-                        return (
-                          <div
-                            key={`question-bank-${item.id || itemIndex}`}
-                            className={`rounded-[1.5rem] border-2 p-4 ${signal.cardClassName}`}
-                          >
-                            <div className="flex items-start justify-between gap-3 mb-3">
-                              <div className="min-w-0">
-                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-1">
-                                  {item.pack_title || 'Library question'}
-                                </p>
-                                <p className="font-black text-brand-dark leading-snug line-clamp-3">
-                                  {item.prompt || 'Untitled question'}
-                                </p>
-                              </div>
-                              <span
-                                className={`shrink-0 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] ${signal.badgeClassName}`}
-                              >
-                                {signal.label}
-                              </span>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-                              <IntelPill label="Usage" value={Number(item?.usage_count || 0)} />
-                              <IntelPill label="Accuracy" value={formatQuestionBankAccuracy(item?.accuracy)} />
-                            </div>
-
-                            <p className="text-sm font-medium text-brand-dark/70 leading-snug mb-4">
-                              {signal.detail}
-                            </p>
-
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-xs font-black text-brand-dark/55 uppercase tracking-[0.18em] mb-1">
-                                  Tags
-                                </p>
-                                <p className="text-sm font-bold text-brand-dark/70 truncate">
-                                  {Array.isArray(item?.tags) && item.tags.length > 0 ? item.tags.join(', ') : 'general'}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => importQuestionFromBank(item)}
-                                className="shrink-0 rounded-full border-2 border-brand-dark bg-white px-4 py-2 font-black shadow-[2px_2px_0px_0px_#1A1A1A] transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none"
-                              >
-                                Import
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
               </div>
             </motion.div>
           )}

@@ -6,6 +6,7 @@ import {
   Shield,
   Paintbrush,
   CheckCircle2,
+  LoaderCircle,
 } from 'lucide-react';
 import {
   loadTeacherSettings,
@@ -14,20 +15,24 @@ import {
 } from '../lib/localData.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { useTeacherLanguage } from '../lib/teacherLanguage.ts';
+import { changeTeacherPassword, loadTeacherAuth } from '../lib/teacherAuth.ts';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
 
 const AVATARS = ['👩🏻‍🏫', '🧑🏽‍🏫', '👨🏼‍🏫', '🦉', '🚀'];
-type FeedbackKey = 'profileIncomplete' | 'fillSecurity' | 'passwordsMismatch' | 'saved';
+type FeedbackTone = 'success' | 'error';
 
 export default function TeacherSettings() {
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'security' | 'appearance'>('profile');
   const [settingsState, setSettingsState] = useState<TeacherSettingsState>(() => loadTeacherSettings());
   const [securityForm, setSecurityForm] = useState({ current: '', next: '', confirm: '' });
-  const [feedbackKey, setFeedbackKey] = useState<FeedbackKey | ''>('');
+  const [feedback, setFeedback] = useState<{ tone: FeedbackTone; message: string } | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const { setLanguage } = useAppLanguage();
   const currentLanguage = settingsState.appearance.language;
   const { copy, direction } = useTeacherLanguage();
   const settingsCopy = copy.settings;
+  const teacherSession = loadTeacherAuth();
+  const passwordChangeAvailable = teacherSession?.provider !== 'google' && teacherSession?.provider !== 'facebook';
 
   useEffect(() => {
     setSettingsState(loadTeacherSettings());
@@ -59,25 +64,53 @@ export default function TeacherSettings() {
     }));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (isSaving) return;
+    setFeedback(null);
+
     if (!settingsState.profile.firstName.trim() || !settingsState.profile.lastName.trim() || !settingsState.profile.email.trim()) {
-      setFeedbackKey('profileIncomplete');
+      setFeedback({ tone: 'error', message: settingsCopy.feedback.profileIncomplete });
       return;
     }
-    if (securityForm.next || securityForm.confirm || securityForm.current) {
+    const shouldChangePassword = Boolean(securityForm.current || securityForm.next || securityForm.confirm);
+    if (shouldChangePassword) {
+      if (!passwordChangeAvailable) {
+        setFeedback({ tone: 'error', message: settingsCopy.security.providerManaged });
+        return;
+      }
       if (!securityForm.current || !securityForm.next || !securityForm.confirm) {
-        setFeedbackKey('fillSecurity');
+        setFeedback({ tone: 'error', message: settingsCopy.feedback.fillSecurity });
         return;
       }
       if (securityForm.next !== securityForm.confirm) {
-        setFeedbackKey('passwordsMismatch');
+        setFeedback({ tone: 'error', message: settingsCopy.feedback.passwordsMismatch });
         return;
       }
     }
 
-    saveTeacherSettings(settingsState);
-    setSecurityForm({ current: '', next: '', confirm: '' });
-    setFeedbackKey('saved');
+    setIsSaving(true);
+    try {
+      if (shouldChangePassword) {
+        await changeTeacherPassword({
+          currentPassword: securityForm.current,
+          newPassword: securityForm.next,
+        });
+      }
+
+      saveTeacherSettings(settingsState);
+      setSecurityForm({ current: '', next: '', confirm: '' });
+      setFeedback({
+        tone: 'success',
+        message: shouldChangePassword ? settingsCopy.feedback.passwordUpdated : settingsCopy.feedback.saved,
+      });
+    } catch (error: any) {
+      setFeedback({
+        tone: 'error',
+        message: String(error?.message || settingsCopy.feedback.saveFailed),
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const cycleAvatar = () => {
@@ -98,18 +131,19 @@ export default function TeacherSettings() {
               <p className="text-brand-dark/60 font-bold mt-2">{settingsCopy.subtitle}</p>
             </div>
             <button
-              onClick={handleSave}
-              className="px-6 py-3 bg-brand-purple text-white border-2 border-brand-dark rounded-full flex items-center gap-2 hover:bg-purple-500 transition-colors font-black text-base shadow-[2px_2px_0px_0px_#1A1A1A] hover:translate-y-[1px] hover:translate-x-[1px] hover:shadow-[1px_1px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[2px] active:translate-x-[2px] w-fit"
+              onClick={() => void handleSave()}
+              disabled={isSaving}
+              className="px-6 py-3 bg-brand-purple text-white border-2 border-brand-dark rounded-full flex items-center gap-2 hover:bg-purple-500 transition-colors font-black text-base shadow-[2px_2px_0px_0px_#1A1A1A] hover:translate-y-[1px] hover:translate-x-[1px] hover:shadow-[1px_1px_0px_0px_#1A1A1A] active:shadow-none active:translate-y-[2px] active:translate-x-[2px] w-fit disabled:opacity-60"
             >
-              <Save className="w-5 h-5" />
+              {isSaving ? <LoaderCircle className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
               {settingsCopy.saveChanges}
             </button>
           </div>
 
-          {feedbackKey && (
-            <div className="mb-6 bg-white border-2 border-brand-dark rounded-2xl p-4 shadow-[2px_2px_0px_0px_#1A1A1A] flex items-center gap-3">
-              <CheckCircle2 className={`w-5 h-5 ${feedbackKey === 'saved' ? 'text-emerald-500' : 'text-brand-orange'}`} />
-              <span className="font-bold">{settingsCopy.feedback[feedbackKey]}</span>
+          {feedback && (
+            <div className={`mb-6 border-2 border-brand-dark rounded-2xl p-4 shadow-[2px_2px_0px_0px_#1A1A1A] flex items-center gap-3 ${feedback.tone === 'success' ? 'bg-white' : 'bg-[#fff1ef]'}`}>
+              <CheckCircle2 className={`w-5 h-5 ${feedback.tone === 'success' ? 'text-emerald-500' : 'text-brand-orange'}`} />
+              <span className="font-bold">{feedback.message}</span>
             </div>
           )}
 
@@ -159,10 +193,18 @@ export default function TeacherSettings() {
               {activeTab === 'security' && (
                 <div className="space-y-6">
                   <h2 className="text-2xl font-black">{settingsCopy.security.title}</h2>
-                  <p className="text-brand-dark/60 font-bold">{settingsCopy.security.description}</p>
-                  <Field label={settingsCopy.security.currentPassword} type="password" value={securityForm.current} onChange={(value) => setSecurityForm((current) => ({ ...current, current: value }))} />
-                  <Field label={settingsCopy.security.newPassword} type="password" value={securityForm.next} onChange={(value) => setSecurityForm((current) => ({ ...current, next: value }))} />
-                  <Field label={settingsCopy.security.confirmPassword} type="password" value={securityForm.confirm} onChange={(value) => setSecurityForm((current) => ({ ...current, confirm: value }))} />
+                  {passwordChangeAvailable ? (
+                    <>
+                      <p className="text-brand-dark/60 font-bold">{settingsCopy.security.description}</p>
+                      <Field label={settingsCopy.security.currentPassword} type="password" value={securityForm.current} onChange={(value) => setSecurityForm((current) => ({ ...current, current: value }))} />
+                      <Field label={settingsCopy.security.newPassword} type="password" value={securityForm.next} onChange={(value) => setSecurityForm((current) => ({ ...current, next: value }))} />
+                      <Field label={settingsCopy.security.confirmPassword} type="password" value={securityForm.confirm} onChange={(value) => setSecurityForm((current) => ({ ...current, confirm: value }))} />
+                    </>
+                  ) : (
+                    <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
+                      <p className="font-bold text-brand-dark/75">{settingsCopy.security.providerManaged}</p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -171,22 +213,6 @@ export default function TeacherSettings() {
                   <div>
                     <h2 className="text-2xl font-black">{settingsCopy.appearance.title}</h2>
                     <p className="text-brand-dark/60 font-bold mt-2">{settingsCopy.appearance.description}</p>
-                  </div>
-
-                  <div>
-                    <h3 className="text-xl font-black">{settingsCopy.appearance.themeTitle}</h3>
-                    <p className="text-brand-dark/60 font-bold mt-2 mb-4">{settingsCopy.appearance.themeDescription}</p>
-                    <div className="flex gap-4 flex-wrap">
-                      {(['light', 'dark'] as const).map((theme) => (
-                        <button
-                          key={theme}
-                          onClick={() => updateAppearance('theme', theme)}
-                          className={`w-28 h-28 rounded-2xl border-4 border-brand-dark flex items-center justify-center shadow-[4px_4px_0px_0px_#1A1A1A] ${settingsState.appearance.theme === theme ? 'bg-brand-orange text-white' : theme === 'light' ? 'bg-brand-bg text-brand-dark' : 'bg-brand-dark text-white'}`}
-                        >
-                          <span className="font-black text-lg">{theme === 'light' ? settingsCopy.appearance.light : settingsCopy.appearance.dark}</span>
-                        </button>
-                      ))}
-                    </div>
                   </div>
 
                   <div>

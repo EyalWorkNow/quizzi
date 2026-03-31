@@ -1,4 +1,8 @@
-import { useAppLanguage } from './appLanguage.tsx';
+import {
+  readPreferredAppLanguage,
+  resolveAppLanguageDirection,
+  useOptionalAppLanguage,
+} from './appLanguage.tsx';
 
 const TEACHER_LANGUAGE_COPY = {
   en: {
@@ -20,13 +24,15 @@ const TEACHER_LANGUAGE_COPY = {
         profile: 'Profile',
         notifications: 'Notifications',
         security: 'Security',
-        appearance: 'Appearance',
+        appearance: 'Language',
       },
       feedback: {
         profileIncomplete: 'Profile details are incomplete.',
-        fillSecurity: 'Fill all security fields to update the password preference.',
+        fillSecurity: 'Fill all password fields before saving.',
         passwordsMismatch: 'New password and confirmation do not match.',
-        saved: 'Settings saved locally.',
+        saved: 'Settings saved.',
+        passwordUpdated: 'Settings saved and password updated.',
+        saveFailed: 'We could not save your changes right now.',
       },
       profile: {
         title: 'Profile Information',
@@ -45,16 +51,17 @@ const TEACHER_LANGUAGE_COPY = {
       },
       security: {
         title: 'Security Settings',
-        description: 'This demo saves the preference locally. Connect a real auth backend to enforce password changes.',
+        description: 'Update the password used for email and password sign-in.',
         currentPassword: 'Current Password',
         newPassword: 'New Password',
         confirmPassword: 'Confirm New Password',
+        providerManaged: 'This account signs in with Google, so password changes are managed by your identity provider.',
       },
       appearance: {
-        title: 'Appearance',
-        description: 'Theme and interface language are stored locally for your teacher workspace.',
+        title: 'Interface Language',
+        description: 'Choose the language used in the teacher workspace.',
         themeTitle: 'Theme',
-        themeDescription: 'Theme preference is stored and can be wired into a global theme switch later.',
+        themeDescription: '',
         light: 'Light',
         dark: 'Dark',
         languageTitle: 'Interface Language',
@@ -84,13 +91,15 @@ const TEACHER_LANGUAGE_COPY = {
         profile: 'פרופיל',
         notifications: 'התראות',
         security: 'אבטחה',
-        appearance: 'מראה',
+        appearance: 'שפה',
       },
       feedback: {
         profileIncomplete: 'פרטי הפרופיל אינם מלאים.',
-        fillSecurity: 'יש למלא את כל שדות האבטחה כדי לעדכן את העדפת הסיסמה.',
+        fillSecurity: 'יש למלא את כל שדות הסיסמה לפני השמירה.',
         passwordsMismatch: 'הסיסמה החדשה ושדה האימות אינם תואמים.',
-        saved: 'ההגדרות נשמרו מקומית.',
+        saved: 'ההגדרות נשמרו.',
+        passwordUpdated: 'ההגדרות נשמרו והסיסמה עודכנה.',
+        saveFailed: 'לא הצלחנו לשמור את השינויים כרגע.',
       },
       profile: {
         title: 'פרטי פרופיל',
@@ -109,16 +118,17 @@ const TEACHER_LANGUAGE_COPY = {
       },
       security: {
         title: 'הגדרות אבטחה',
-        description: 'בגרסת הדמו הזו ההעדפה נשמרת מקומית. כדי לאכוף שינויי סיסמה צריך לחבר מנגנון הזדהות אמיתי.',
+        description: 'עדכן את הסיסמה שמשמשת להזדהות עם אימייל וסיסמה.',
         currentPassword: 'סיסמה נוכחית',
         newPassword: 'סיסמה חדשה',
         confirmPassword: 'אימות סיסמה חדשה',
+        providerManaged: 'החשבון הזה נכנס עם Google, לכן שינוי הסיסמה מתבצע אצל ספק ההזדהות שלך.',
       },
       appearance: {
-        title: 'מראה ושפה',
-        description: 'ערכת העיצוב ושפת הממשק נשמרות מקומית עבור סביבת המורה שלך.',
+        title: 'שפת ממשק',
+        description: 'בחר את שפת הממשק של סביבת המורה.',
         themeTitle: 'ערכת עיצוב',
-        themeDescription: 'העדפת ערכת העיצוב נשמרת, וניתן לחבר אותה בהמשך למתג גלובלי.',
+        themeDescription: '',
         light: 'בהיר',
         dark: 'כהה',
         languageTitle: 'שפת ממשק',
@@ -148,13 +158,15 @@ const TEACHER_LANGUAGE_COPY = {
         profile: 'الملف الشخصي',
         notifications: 'الإشعارات',
         security: 'الأمان',
-        appearance: 'المظهر',
+        appearance: 'اللغة',
       },
       feedback: {
         profileIncomplete: 'بيانات الملف الشخصي غير مكتملة.',
-        fillSecurity: 'املأ جميع حقول الأمان لتحديث تفضيل كلمة المرور.',
+        fillSecurity: 'املأ جميع حقول كلمة المرور قبل الحفظ.',
         passwordsMismatch: 'كلمة المرور الجديدة وتأكيدها غير متطابقين.',
-        saved: 'تم حفظ الإعدادات محليًا.',
+        saved: 'تم حفظ الإعدادات.',
+        passwordUpdated: 'تم حفظ الإعدادات وتحديث كلمة المرور.',
+        saveFailed: 'تعذر حفظ التغييرات الآن.',
       },
       profile: {
         title: 'معلومات الملف الشخصي',
@@ -173,16 +185,17 @@ const TEACHER_LANGUAGE_COPY = {
       },
       security: {
         title: 'إعدادات الأمان',
-        description: 'في هذه النسخة التجريبية يتم حفظ التفضيل محليًا. لفرض تغيير كلمات المرور يجب ربط نظام مصادقة حقيقي.',
+        description: 'حدّث كلمة المرور المستخدمة لتسجيل الدخول بالبريد الإلكتروني وكلمة المرور.',
         currentPassword: 'كلمة المرور الحالية',
         newPassword: 'كلمة المرور الجديدة',
         confirmPassword: 'تأكيد كلمة المرور الجديدة',
+        providerManaged: 'هذا الحساب يستخدم Google لتسجيل الدخول، لذلك تتم إدارة كلمة المرور لدى موفر الهوية.',
       },
       appearance: {
-        title: 'المظهر واللغة',
-        description: 'يتم حفظ نسق الواجهة ولغتها محليًا في مساحة عمل المعلّم.',
+        title: 'لغة الواجهة',
+        description: 'اختر اللغة المستخدمة في مساحة عمل المعلّم.',
         themeTitle: 'النسق',
-        themeDescription: 'يتم حفظ تفضيل النسق ويمكن ربطه لاحقًا بمفتاح عام.',
+        themeDescription: '',
         light: 'فاتح',
         dark: 'داكن',
         languageTitle: 'لغة الواجهة',
@@ -196,7 +209,9 @@ const TEACHER_LANGUAGE_COPY = {
 } as const;
 
 export function useTeacherLanguage() {
-  const { language, direction } = useAppLanguage();
+  const context = useOptionalAppLanguage();
+  const language = context?.language || readPreferredAppLanguage();
+  const direction = context?.direction || resolveAppLanguageDirection(language);
   return {
     language,
     direction,

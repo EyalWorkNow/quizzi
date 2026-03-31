@@ -1,5 +1,10 @@
 import { useMemo } from 'react';
-import { useAppLanguage, type AppLanguage } from './appLanguage.tsx';
+import {
+  readPreferredAppLanguage,
+  resolveAppLanguageDirection,
+  useOptionalAppLanguage,
+  type AppLanguage,
+} from './appLanguage.tsx';
 
 const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Loading class command center...': 'טוען את מרכז הפיקוד של הכיתה...',
@@ -1652,7 +1657,9 @@ export function translateTeacherAnalyticsText(text: string, language: AppLanguag
 }
 
 export function useTeacherAnalyticsLanguage() {
-  const { language, direction } = useAppLanguage();
+  const context = useOptionalAppLanguage();
+  const language = context?.language || readPreferredAppLanguage();
+  const direction = context?.direction || resolveAppLanguageDirection(language);
 
   const t = useMemo(() => {
     return (text: string) => translateTeacherAnalyticsText(text, language);

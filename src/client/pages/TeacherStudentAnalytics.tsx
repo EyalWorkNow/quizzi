@@ -97,6 +97,48 @@ function formatPercent(value: number, digits = 0) {
   return `${Number(value || 0).toFixed(digits)}%`;
 }
 
+function humanizeAnalyticsToken(value?: string) {
+  const normalized = String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .trim();
+  if (!normalized) return 'Unknown';
+  return normalized.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function actionLabel(action?: string) {
+  switch (String(action || '').trim()) {
+    case 'reteach':
+      return 'Reteach';
+    case 'slow_down':
+      return 'Slow Down';
+    case 'reduce_distractors':
+      return 'Reduce Distractors';
+    case 'keep_momentum':
+      return 'Keep Momentum';
+    default:
+      return humanizeAnalyticsToken(action);
+  }
+}
+
+function modelTone(state?: string) {
+  if (state === 'high') return 'bg-brand-orange/10';
+  if (state === 'medium') return 'bg-brand-yellow/35';
+  return 'bg-emerald-50';
+}
+
+function labelSourceLabel(source?: string) {
+  switch (String(source || '').trim()) {
+    case 'teacher_review':
+      return 'Teacher Review';
+    case 'student_self_report':
+      return 'Student Self-Report';
+    case 'auto_outcome':
+      return 'Automatic Outcome';
+    default:
+      return humanizeAnalyticsToken(source);
+  }
+}
+
 export default function TeacherStudentAnalytics() {
   const { language } = useAppLanguage();
   const { t } = useTeacherAnalyticsLanguage();
@@ -227,6 +269,18 @@ export default function TeacherStudentAnalytics() {
   const fatigueDrift = analytics?.fatigueDrift || {};
   const misconceptionPatterns = analytics?.misconceptionPatterns || [];
   const tagBehaviorProfiles = analytics?.tagPerformance || [];
+  const engagementModel = analytics?.engagementModel || {};
+  const masteryState = Array.isArray(analytics?.masteryState) ? analytics.masteryState : [];
+  const masterySnapshotRows = masteryState.map((row: any) => ({
+    tag: row.learning_objective || humanizeAnalyticsToken(row.concept_id),
+    score: Number(row.mastery_score || 0),
+    accuracy: Number(row.accuracy || 0),
+  }));
+  const modelPredictions = Array.isArray(analytics?.modelPredictions) ? analytics.modelPredictions : [];
+  const signalSuppressedMetrics = Array.isArray(analytics?.signalSuppressedMetrics) ? analytics.signalSuppressedMetrics : [];
+  const conceptAttemptHistory = Array.isArray(analytics?.conceptAttemptHistory) ? analytics.conceptAttemptHistory : [];
+  const recentAnalyticsLabels = Array.isArray(analytics?.labels) ? analytics.labels : [];
+  const interventionModel = analytics?.interventionModel || null;
   const stabilityScore = Number(analytics?.stabilityScore || analytics?.aggregates?.stability_score || 0);
   const summaryCopy = {
     he: {
@@ -1038,6 +1092,127 @@ export default function TeacherStudentAnalytics() {
           </InfoPanel>
         </section>
 
+        <section className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-8 mb-8">
+          <TeacherSurface
+            title="Analytics V2 Overlay"
+            subtitle="Validated modeling, trust suppression, and the recommended intervention path from the new engine."
+            icon={<BrainCircuit className="w-6 h-6 text-brand-purple" />}
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
+              <CompactMetric label="Engagement State" value={`${humanizeAnalyticsToken(engagementModel?.state)} · ${Number(engagementModel?.score || 0).toFixed(0)}`} />
+              <CompactMetric label="Intervention Call" value={actionLabel(interventionModel?.recommended_action || trustTeacherAction || analytics?.practicePlan?.teacher_action)} />
+              <CompactMetric label="Suppressed Metrics" value={signalSuppressedMetrics.length} />
+              <CompactMetric label="Observed Labels" value={recentAnalyticsLabels.length} />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+              {modelPredictions.length > 0 ? (
+                modelPredictions.map((prediction: any) => (
+                  <div key={prediction.id} className={`rounded-[1.5rem] border-2 border-brand-dark p-5 ${modelTone(prediction.state)}`}>
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{humanizeAnalyticsToken(prediction.id)}</p>
+                        <p className="text-3xl font-black">{Number(prediction.score || 0).toFixed(0)}%</p>
+                      </div>
+                      <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-xs font-black shrink-0">
+                        {humanizeAnalyticsToken(prediction.state)}
+                      </span>
+                    </div>
+                    <p className="font-medium text-brand-dark/72 mb-3">Recommended move: {actionLabel(prediction.recommended_action)}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(prediction.top_contributors || []).map((contributor: string) => (
+                        <span key={`${prediction.id}-${contributor}`} className="px-3 py-2 rounded-full border-2 border-brand-dark bg-white text-[11px] font-black">
+                          {humanizeAnalyticsToken(contributor)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState
+                  icon={<BrainCircuit className="w-8 h-8" />}
+                  title="No modeled intervention yet"
+                  body="The engine needs a little more evidence before promoting a modeled recommendation."
+                />
+              )}
+            </div>
+
+            <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Trust gating</p>
+              {signalSuppressedMetrics.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {signalSuppressedMetrics.map((metric: string) => (
+                    <span key={metric} className="px-3 py-2 rounded-full border-2 border-brand-dark bg-white text-xs font-black">
+                      {humanizeAnalyticsToken(metric)}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="font-medium text-brand-dark/70">No sensitive metrics are currently suppressed for this student.</p>
+              )}
+            </div>
+          </TeacherSurface>
+
+          <TeacherSurface
+            title="Concept Trace"
+            subtitle="How the new concept-level memory and validation layers explain this session."
+            icon={<Layers3 className="w-6 h-6 text-brand-orange" />}
+          >
+            <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5 mb-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Concept mastery snapshot</p>
+              <MasteryBarChart rows={masterySnapshotRows} limit={5} />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+              {conceptAttemptHistory.length > 0 ? (
+                conceptAttemptHistory.slice(0, 4).map((entry: any, index: number) => (
+                  <div key={`${entry.concept_id || 'concept'}-${entry.attempt_number || index}`} className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">
+                      {humanizeAnalyticsToken(entry.concept_id)}
+                    </p>
+                    <p className="text-xl font-black mb-3">Attempt {Number(entry.attempt_number || 0)}</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <CompactMetric label="Prior Mastery" value={`${Number(entry.prior_mastery || 0).toFixed(0)}%`} />
+                      <CompactMetric label="Rolling Accuracy" value={`${Number(entry.rolling_accuracy_5 || 0).toFixed(0)}%`} />
+                      <CompactMetric label="Rolling Stress" value={`${Number(entry.rolling_stress_5 || 0).toFixed(0)}%`} />
+                      <CompactMetric label="Rolling Engagement" value={`${Number(entry.rolling_engagement_5 || 0).toFixed(0)}%`} />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState
+                  icon={<Layers3 className="w-8 h-8" />}
+                  title="No concept history yet"
+                  body="As this learner revisits the same concepts, this panel will show retention and rolling mastery context."
+                />
+              )}
+            </div>
+
+            <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Recent validation labels</p>
+              {recentAnalyticsLabels.length > 0 ? (
+                <div className="space-y-3">
+                  {recentAnalyticsLabels.slice(0, 5).map((label: any, index: number) => (
+                    <div key={`${label.label_type || 'label'}-${label.labeled_at || index}`} className="rounded-[1.2rem] border-2 border-brand-dark bg-white p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+                        <p className="font-black">{humanizeAnalyticsToken(label.label_type)}</p>
+                        <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-3 py-1 text-[11px] font-black">
+                          {labelSourceLabel(label.source)}
+                        </span>
+                      </div>
+                      <p className="font-medium text-brand-dark/70">
+                        Value: <span className="font-black text-brand-dark">{humanizeAnalyticsToken(String(label.label_value || ''))}</span>
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="font-medium text-brand-dark/70">No teacher, self-report, or automatic validation labels are attached to this run yet.</p>
+              )}
+            </div>
+          </TeacherSurface>
+        </section>
+
         <section className="grid grid-cols-1 xl:grid-cols-[1.08fr_0.92fr] gap-8 mb-8">
           <TeacherSurface
             title="Decision Intelligence"
@@ -1496,13 +1671,51 @@ export default function TeacherStudentAnalytics() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <CompactMetric label="Commit Latency" value={formatMs(Number(question.commitment_latency_ms || 0))} />
                       <CompactMetric label="1st Choice" value={question.first_choice_correct ? 'Right' : 'Wrong'} />
                       <CompactMetric label="Deadline Dep." value={question.deadline_dependent ? 'Yes' : 'No'} />
                       <CompactMetric label="Pressure" value={question.under_time_pressure ? 'High' : 'Normal'} />
                     </div>
                   </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <CompactMetric label="Path Type" value={humanizeAnalyticsToken(question.path_type)} />
+                    <CompactMetric label="Engagement" value={humanizeAnalyticsToken(question.engagement_state)} />
+                    <CompactMetric label="Event Count" value={question.event_count || 0} />
+                    <CompactMetric label="Rereads" value={question.prompt_reread_count || 0} />
+                  </div>
+
+                  {(Array.isArray(question.event_path_states) && question.event_path_states.length > 0) ||
+                  (Array.isArray(question.top_contributors) && question.top_contributors.length > 0) ||
+                  Number(question.ui_freeze_count || 0) > 0 ||
+                  Number(question.media_open_count || 0) > 0 ? (
+                    <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4 mb-4">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">{t('Observed path evidence')}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {(question.event_path_states || []).map((state: string) => (
+                          <span key={`${question.question_id}-${state}`} className="px-3 py-2 rounded-full border-2 border-brand-dark bg-brand-bg text-xs font-black">
+                            {humanizeAnalyticsToken(state)}
+                          </span>
+                        ))}
+                        {(question.top_contributors || []).map((item: string) => (
+                          <span key={`${question.question_id}-contributor-${item}`} className="px-3 py-2 rounded-full border-2 border-brand-dark bg-emerald-50 text-xs font-black">
+                            {humanizeAnalyticsToken(item)}
+                          </span>
+                        ))}
+                        {Number(question.media_open_count || 0) > 0 && (
+                          <span className="px-3 py-2 rounded-full border-2 border-brand-dark bg-brand-yellow/25 text-xs font-black">
+                            Media Opened {question.media_open_count}x
+                          </span>
+                        )}
+                        {Number(question.ui_freeze_count || 0) > 0 && (
+                          <span className="px-3 py-2 rounded-full border-2 border-brand-dark bg-brand-orange/10 text-xs font-black">
+                            UI Freeze {question.ui_freeze_count}x
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
                     <p className="font-medium text-brand-dark/70">{t(question.recommendation)}</p>

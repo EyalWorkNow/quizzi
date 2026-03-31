@@ -1,20 +1,72 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type CSSProperties } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, CheckCircle, XCircle, ArrowRight, BrainCircuit, RotateCcw, Sparkles, Target } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
 import QuestionImageCard from '../components/QuestionImageCard.tsx';
-import { useAppLanguage } from '../lib/appLanguage.tsx';
+import { formatAnswerSlotLabel } from '../../shared/liveQuestionDensity.ts';
+import {
+  readPreferredAppLanguage,
+  resolveAppLanguageDirection,
+  useOptionalAppLanguage,
+} from '../lib/appLanguage.tsx';
 
-const COLORS = [
-  { bg: 'bg-rose-500', shadow: 'shadow-[0_8px_0_0_#be123c]' },
-  { bg: 'bg-blue-500', shadow: 'shadow-[0_8px_0_0_#1d4ed8]' },
-  { bg: 'bg-amber-500', shadow: 'shadow-[0_8px_0_0_#b45309]' },
-  { bg: 'bg-emerald-500', shadow: 'shadow-[0_8px_0_0_#047857]' }
-];
+const PRACTICE_ANSWER_TONES = [
+  {
+    bg: '#B488FF',
+    text: '#ffffff',
+    hover: '#9E70F6',
+    hoverText: '#ffffff',
+    sweep: '#FFD13B',
+    shadow: '#1A1A1A',
+    hoverShadow: '#6D49C6',
+  },
+  {
+    bg: '#FFD13B',
+    text: '#1A1A1A',
+    hover: '#FFB703',
+    hoverText: '#1A1A1A',
+    sweep: '#FF5A36',
+    shadow: '#1A1A1A',
+    hoverShadow: '#B76F00',
+  },
+  {
+    bg: '#FF8A5B',
+    text: '#ffffff',
+    hover: '#FF6E45',
+    hoverText: '#ffffff',
+    sweep: '#FFD13B',
+    shadow: '#1A1A1A',
+    hoverShadow: '#C44120',
+  },
+  {
+    bg: '#FFF8EA',
+    text: '#1A1A1A',
+    hover: '#B488FF',
+    hoverText: '#ffffff',
+    sweep: '#FFD13B',
+    shadow: '#1A1A1A',
+    hoverShadow: '#6D49C6',
+  },
+] as const;
+
+function buildPracticeAnswerToneStyle(index: number): CSSProperties {
+  const tone = PRACTICE_ANSWER_TONES[index % PRACTICE_ANSWER_TONES.length];
+  return {
+    ['--student-answer-bg' as string]: tone.bg,
+    ['--student-answer-text' as string]: tone.text,
+    ['--student-answer-hover-bg' as string]: tone.hover,
+    ['--student-answer-hover-text' as string]: tone.hoverText,
+    ['--student-answer-sweep' as string]: tone.sweep,
+    ['--student-answer-shadow' as string]: tone.shadow,
+    ['--student-answer-hover-shadow' as string]: tone.hoverShadow,
+  };
+}
 
 export default function StudentPractice() {
-  const { language } = useAppLanguage();
+  const appLanguage = useOptionalAppLanguage();
+  const language = appLanguage?.language || readPreferredAppLanguage();
+  const direction = appLanguage?.direction || resolveAppLanguageDirection(language);
   const { nickname } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -203,18 +255,30 @@ export default function StudentPractice() {
 
   if (status === 'LOADING') {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-500">
-        <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }}>
-          <BrainCircuit className="w-16 h-16 text-indigo-300 mb-6" />
-        </motion.div>
-        <h2 className="text-2xl font-bold text-slate-700">{`${copy.loadingPrefix} ${missionTitle.toLowerCase()}${copy.loadingSuffix}`}</h2>
+      <div dir={direction} className="min-h-screen bg-[radial-gradient(circle_at_top,_#fff1bf,_#fff_45%,_#fff7e8_100%)] px-4 py-8 md:px-8">
+        <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-4xl items-center justify-center">
+          <div className="w-full max-w-2xl rounded-[3rem] border-4 border-brand-dark bg-white p-8 shadow-[12px_12px_0px_0px_#1A1A1A] md:p-12">
+            <div className="mb-8 flex items-center justify-between gap-4">
+              <div className="rounded-[2rem] border-4 border-brand-dark bg-brand-yellow px-5 py-3 text-sm font-black uppercase tracking-[0.24em] text-brand-dark">
+                Adaptive Practice
+              </div>
+              <motion.div animate={{ rotate: 360 }} transition={{ duration: 2.2, repeat: Infinity, ease: 'linear' }}>
+                <div className="flex h-20 w-20 items-center justify-center rounded-[2rem] border-4 border-brand-dark bg-brand-orange shadow-[6px_6px_0px_0px_#1A1A1A]">
+                  <BrainCircuit className="h-10 w-10 text-white" />
+                </div>
+              </motion.div>
+            </div>
+            <h2 className="mb-4 text-4xl font-black text-brand-dark md:text-5xl">{`${copy.loadingPrefix} ${missionTitle}${copy.loadingSuffix}`}</h2>
+            <p className="text-lg font-bold leading-8 text-slate-600">{missionBody}</p>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (status === 'ERROR') {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div dir={direction} className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <div className="w-full max-w-xl rounded-[2.6rem] border-4 border-brand-dark bg-white p-8 text-center shadow-[10px_10px_0px_0px_#1A1A1A]">
           <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-[2rem] border-4 border-brand-dark bg-brand-yellow">
             <AlertTriangle className="w-10 h-10 text-brand-dark" />
@@ -244,47 +308,54 @@ export default function StudentPractice() {
   if (status === 'DONE') {
     const accuracy = practiceStats.answered > 0 ? Math.round((practiceStats.correct / practiceStats.answered) * 100) : 0;
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-600 to-purple-700 flex flex-col items-center justify-center p-8 text-center text-white overflow-hidden relative">
-        <motion.div 
-          animate={{ rotate: 360 }}
-          transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-          className="absolute -top-32 -right-32 w-96 h-96 bg-white/10 rounded-full blur-3xl"
-        />
-        <motion.div 
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ type: 'spring', bounce: 0.5 }}
-          className="relative z-10 bg-white/10 p-12 rounded-[3rem] backdrop-blur-md border border-white/20 shadow-2xl max-w-lg w-full"
-        >
-          <div className="inline-flex items-center justify-center w-24 h-24 bg-white/20 rounded-3xl mb-8">
-            <Sparkles className="w-12 h-12 text-yellow-300" />
-          </div>
-          <h2 className="text-5xl font-black mb-4 tracking-tight">{`${missionTitle} ${copy.completeSuffix}`}</h2>
-          <p className="text-xl text-indigo-100 font-medium mb-8">{copy.updated}</p>
-          <div className="grid grid-cols-3 gap-3 mb-10">
-            <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60 mb-2">{copy.correct}</p>
-              <p className="text-3xl font-black">{practiceStats.correct}</p>
-            </div>
-            <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60 mb-2">{copy.answered}</p>
-              <p className="text-3xl font-black">{practiceStats.answered}</p>
-            </div>
-            <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-white/60 mb-2">{copy.accuracy}</p>
-              <p className="text-3xl font-black">{accuracy}%</p>
-            </div>
-          </div>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => navigate(dashboardPath)}
-            className="w-full bg-white text-indigo-600 px-8 py-5 rounded-2xl font-black text-2xl transition-all shadow-[0_8px_0_0_rgba(255,255,255,0.5)] hover:shadow-[0_4px_0_0_rgba(255,255,255,0.5)] hover:translate-y-1 active:shadow-none active:translate-y-2 flex items-center justify-center gap-3"
+      <div dir={direction} className="min-h-screen bg-[radial-gradient(circle_at_top,_#fff0c7,_#ffffff_45%,_#ffe8f1_100%)] px-4 py-8 md:px-8">
+        <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-4xl items-center justify-center">
+          <motion.div
+            initial={{ scale: 0.92, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', bounce: 0.32 }}
+            className="w-full max-w-3xl rounded-[3rem] border-4 border-brand-dark bg-white p-8 shadow-[14px_14px_0px_0px_#1A1A1A] md:p-12"
           >
-            {copy.backToDashboard}
-            <ArrowRight className="w-6 h-6" />
-          </motion.button>
-        </motion.div>
+            <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div className="mb-4 inline-flex items-center gap-3 rounded-full border-4 border-brand-dark bg-brand-yellow px-5 py-3 text-sm font-black uppercase tracking-[0.22em] text-brand-dark">
+                  <Sparkles className="h-5 w-5" />
+                  Practice Complete
+                </div>
+                <h2 className="mb-3 text-4xl font-black leading-tight text-brand-dark md:text-6xl">{`${missionTitle} ${copy.completeSuffix}`}</h2>
+                <p className="max-w-2xl text-lg font-bold leading-8 text-slate-600">{copy.updated}</p>
+              </div>
+              <div className="flex h-24 w-24 items-center justify-center rounded-[2rem] border-4 border-brand-dark bg-brand-mint shadow-[6px_6px_0px_0px_#1A1A1A]">
+                <CheckCircle className="h-12 w-12 text-brand-dark" />
+              </div>
+            </div>
+
+            <div className="mb-10 grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="rounded-[2rem] border-4 border-brand-dark bg-[#fff8df] p-5 shadow-[6px_6px_0px_0px_#1A1A1A]">
+                <p className="mb-2 text-xs font-black uppercase tracking-[0.22em] text-slate-500">{copy.correct}</p>
+                <p className="text-4xl font-black text-brand-dark">{practiceStats.correct}</p>
+              </div>
+              <div className="rounded-[2rem] border-4 border-brand-dark bg-[#eef7ff] p-5 shadow-[6px_6px_0px_0px_#1A1A1A]">
+                <p className="mb-2 text-xs font-black uppercase tracking-[0.22em] text-slate-500">{copy.answered}</p>
+                <p className="text-4xl font-black text-brand-dark">{practiceStats.answered}</p>
+              </div>
+              <div className="rounded-[2rem] border-4 border-brand-dark bg-[#f8edff] p-5 shadow-[6px_6px_0px_0px_#1A1A1A]">
+                <p className="mb-2 text-xs font-black uppercase tracking-[0.22em] text-slate-500">{copy.accuracy}</p>
+                <p className="text-4xl font-black text-brand-dark">{accuracy}%</p>
+              </div>
+            </div>
+
+            <motion.button
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => navigate(dashboardPath)}
+              className="flex w-full items-center justify-center gap-3 rounded-[2rem] border-4 border-brand-dark bg-brand-dark px-8 py-5 text-2xl font-black text-white shadow-[8px_8px_0px_0px_#FF5A36] transition-all hover:translate-y-[2px] hover:shadow-[6px_6px_0px_0px_#FF5A36]"
+            >
+              {copy.backToDashboard}
+              <ArrowRight className="h-6 w-6" />
+            </motion.button>
+          </motion.div>
+        </div>
       </div>
     );
   }
@@ -300,9 +371,9 @@ export default function StudentPractice() {
   })();
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col p-4 md:p-8">
-      <div className="max-w-4xl mx-auto w-full flex-1 flex flex-col">
-        <div className="bg-white rounded-[2rem] p-6 shadow-sm mb-6 flex justify-between items-center border border-slate-200">
+    <div dir={direction} className="min-h-screen bg-[radial-gradient(circle_at_top,_#fff1bf,_#fff_38%,_#fff8ef_100%)] p-4 md:p-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col">
+        <div className="mb-6 flex flex-col gap-4 rounded-[2.5rem] border-4 border-brand-dark bg-white p-5 shadow-[10px_10px_0px_0px_#1A1A1A] md:flex-row md:items-center md:justify-between md:p-6">
           <div className="flex items-center gap-4">
             <button 
               onClick={() => {
@@ -310,39 +381,49 @@ export default function StudentPractice() {
                   navigate(dashboardPath);
                 }
               }}
-              className="p-2 hover:bg-rose-50 text-slate-400 hover:text-rose-500 rounded-full transition-colors"
+              className="rounded-full border-4 border-brand-dark bg-white p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
               title="Exit Practice"
             >
               <XCircle className="w-6 h-6" />
             </button>
-            <div className="flex items-center gap-3 text-indigo-600 font-black text-xl">
-              <div className="p-2 bg-indigo-100 rounded-xl">
-                <BrainCircuit className="w-6 h-6" />
+            <div className="flex items-center gap-3 text-xl font-black text-brand-dark md:text-2xl">
+              <div className="rounded-[1.35rem] border-4 border-brand-dark bg-brand-yellow p-2.5 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <BrainCircuit className="h-6 w-6" />
               </div>
               {missionTitle}
             </div>
           </div>
-          <div className="text-slate-500 font-bold bg-slate-100 px-4 py-2 rounded-xl">
+          <div className="inline-flex items-center rounded-full border-4 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black uppercase tracking-[0.18em] text-brand-dark/70 md:text-base">
             Question {currentIndex + 1} of {questions.length}
           </div>
         </div>
 
-        <div className="w-full h-3 rounded-full bg-white border-2 border-slate-200 overflow-hidden p-[2px] mb-6">
-          <div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
+        <div className="mb-6 rounded-[2rem] border-4 border-brand-dark bg-white p-4 shadow-[8px_8px_0px_0px_#1A1A1A]">
+          <div className="mb-3 flex items-center justify-between gap-4">
+            <span className="text-xs font-black uppercase tracking-[0.24em] text-slate-500">Progress Signal</span>
+            <span className="text-lg font-black text-brand-dark">{Math.round(progressPct)}%</span>
+          </div>
+          <div className="h-6 overflow-hidden rounded-full border-4 border-brand-dark bg-[#fff7de] p-1">
+            <div
+              className="h-full rounded-full bg-[linear-gradient(90deg,#FFCF33_0%,#FF8A00_45%,#FF5A36_100%)] transition-all"
+              style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }}
+            />
+          </div>
         </div>
 
-        <div className="bg-white rounded-[2rem] border border-slate-200 p-6 mb-6">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500 mb-2">Mission Context</p>
-          <h3 className="text-2xl font-black text-slate-900 mb-2">{missionTitle}</h3>
-          <p className="text-slate-600 font-medium mb-4">{missionBody}</p>
+        <div className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-[1.35fr_0.95fr]">
+          <div className="rounded-[2.5rem] border-4 border-brand-dark bg-white p-6 shadow-[10px_10px_0px_0px_#1A1A1A]">
+            <p className="mb-2 text-xs font-black uppercase tracking-[0.24em] text-brand-orange">Mission Context</p>
+            <h3 className="mb-3 text-3xl font-black text-brand-dark">{missionTitle}</h3>
+            <p className="mb-5 text-lg font-bold leading-8 text-slate-600">{missionBody}</p>
           {(memoryReason || memoryReasons.length > 0 || memoryConfidence) && (
-            <div className="rounded-[1.5rem] border border-indigo-100 bg-indigo-50/80 p-4 mb-4">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500 mb-2">Why this set</p>
+            <div className="mb-4 rounded-[2rem] border-4 border-brand-dark bg-[#f5edff] p-4 shadow-[6px_6px_0px_0px_#1A1A1A]">
+              <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-brand-purple">Why this set</p>
               {memoryReason && <p className="text-slate-700 font-semibold mb-3">{memoryReason}</p>}
               {memoryReasons.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-3">
                   {memoryReasons.map((reason: string) => (
-                    <span key={reason} className="px-3 py-2 rounded-xl border border-indigo-200 bg-white text-sm font-bold text-slate-600">
+                    <span key={reason} className="rounded-xl border-2 border-brand-dark bg-white px-3 py-2 text-sm font-bold text-slate-600">
                       {reason}
                     </span>
                   ))}
@@ -358,49 +439,48 @@ export default function StudentPractice() {
           {missionFocusTags.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {missionFocusTags.map((tag: string) => (
-                <span key={`mission-${tag}`} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold capitalize border border-slate-200">
+                <span key={`mission-${tag}`} className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black capitalize text-brand-dark/75">
                   {tag}
                 </span>
               ))}
             </div>
           )}
-        </div>
-
-        {strategy && (
-          <div className="bg-indigo-50 border border-indigo-100 rounded-[2rem] p-6 mb-6">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500 mb-2">Practice Strategy</p>
-            <h3 className="text-2xl font-black text-slate-900 mb-2">{strategy.headline}</h3>
-            <p className="text-slate-600 font-medium">{strategy.body}</p>
           </div>
-        )}
 
-        {(coaching || memorySummary) && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-1 gap-4">
+            {strategy && (
+              <div className="rounded-[2.3rem] border-4 border-brand-dark bg-[#eef7ff] p-5 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-[#2f67ff]">Practice Strategy</p>
+                <h3 className="mb-2 text-2xl font-black text-brand-dark">{strategy.headline}</h3>
+                <p className="text-base font-bold leading-7 text-slate-600">{strategy.body}</p>
+              </div>
+            )}
+
             {coaching && (
-              <div className="rounded-[2rem] border border-emerald-200 bg-emerald-50 p-5">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-600 mb-2">Coach Note</p>
-                <p className="text-xl font-black text-slate-900 mb-2">{coaching.student_message}</p>
-                <p className="text-sm font-bold text-slate-600">{coaching.celebration}</p>
+              <div className="rounded-[2.3rem] border-4 border-brand-dark bg-[#e8fff4] p-5 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-emerald-600">Coach Note</p>
+                <p className="mb-2 text-xl font-black text-brand-dark">{coaching.student_message}</p>
+                <p className="text-sm font-bold leading-6 text-slate-600">{coaching.celebration}</p>
               </div>
             )}
             {memorySummary && (
-              <div className="rounded-[2rem] border border-slate-200 bg-white p-5">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500 mb-2">Memory snapshot</p>
-                <p className="text-xl font-black text-slate-900 mb-2">{memorySummary.headline}</p>
-                <p className="text-sm font-medium text-slate-600">{memorySummary.body}</p>
+              <div className="rounded-[2.3rem] border-4 border-brand-dark bg-[#fff8df] p-5 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-slate-500">Memory Snapshot</p>
+                <p className="mb-2 text-xl font-black text-brand-dark">{memorySummary.headline}</p>
+                <p className="text-sm font-bold leading-6 text-slate-600">{memorySummary.body}</p>
               </div>
             )}
           </div>
-        )}
+        </div>
 
         <motion.div 
           key={`q-${currentIndex}`}
           initial={{ x: 50, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
-          className="bg-white rounded-[3rem] p-10 shadow-sm mb-8 text-center flex-1 flex flex-col justify-center border border-slate-200 relative overflow-hidden"
+          className="relative mb-8 flex flex-1 flex-col justify-center overflow-hidden rounded-[3rem] border-4 border-brand-dark bg-white p-8 text-center shadow-[12px_12px_0px_0px_#1A1A1A] md:p-10"
         >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-bl-full -z-10"></div>
-          <div className="mx-auto mb-5 inline-flex items-center gap-3 rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2">
+          <div className="absolute right-0 top-0 -z-10 h-40 w-40 rounded-bl-full bg-[#fff1bf]"></div>
+          <div className="mx-auto mb-5 inline-flex items-center gap-3 rounded-full border-4 border-brand-dark bg-brand-bg px-4 py-2 shadow-[4px_4px_0px_0px_#1A1A1A]">
             <Target className="w-4 h-4 text-brand-orange" />
             <span className="text-sm font-black uppercase tracking-[0.16em] text-brand-dark/70">Adaptive target</span>
           </div>
@@ -410,11 +490,11 @@ export default function StudentPractice() {
             className="w-full max-w-2xl mx-auto mb-6"
             imgClassName="max-h-[260px]"
           />
-          <h2 className="text-4xl md:text-5xl font-black text-slate-900 mb-6 leading-tight">{question?.prompt}</h2>
+          <h2 className="mb-6 text-4xl font-black leading-tight text-brand-dark md:text-5xl">{question?.prompt}</h2>
           {safeTags.length > 0 && (
-            <div className="flex justify-center gap-2 mt-4">
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
               {safeTags.map((tag: string, i: number) => (
-                <span key={i} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold capitalize border border-slate-200">
+                <span key={i} className="rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black capitalize text-slate-600">
                   {tag}
                 </span>
               ))}
@@ -433,9 +513,15 @@ export default function StudentPractice() {
                 whileTap={{ scale: 0.95 }}
                 key={i}
                 onClick={() => handleAnswer(i)}
-                className={`student-answer-button ${COLORS[i % 4].bg} ${COLORS[i % 4].shadow} rounded-[2rem] flex items-center justify-center p-8 text-white text-3xl font-black hover:translate-y-1 hover:shadow-[0_4px_0_0_rgba(0,0,0,0.2)] active:translate-y-2 active:shadow-none transition-all min-h-[140px]`}
+                style={buildPracticeAnswerToneStyle(i)}
+                className="student-answer-button student-play-answer-tile group relative flex min-h-[140px] items-center px-6 py-5 text-left sm:px-8"
               >
-                {ans}
+                <div className="mr-5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 border-brand-dark/10 bg-white/40 text-lg font-black text-brand-dark/30 transition-colors">
+                  {formatAnswerSlotLabel(i)}
+                </div>
+                <span className="block flex-1 break-words text-2xl font-black leading-tight sm:text-3xl">
+                  {ans}
+                </span>
               </motion.button>
             ))}
           </div>
@@ -443,7 +529,7 @@ export default function StudentPractice() {
           <motion.div 
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className="bg-white rounded-[3rem] p-10 shadow-xl border border-slate-200"
+            className="rounded-[3rem] border-4 border-brand-dark bg-white p-8 shadow-[12px_12px_0px_0px_#1A1A1A] md:p-10"
           >
             <div className={`flex items-center gap-4 mb-8 ${feedback?.is_correct ? 'text-emerald-500' : 'text-rose-500'}`}>
               {feedback?.is_correct ? <CheckCircle className="w-12 h-12" /> : <XCircle className="w-12 h-12" />}
@@ -467,7 +553,7 @@ export default function StudentPractice() {
                 else if (isChosen && !isCorrect) borderClass = 'border-rose-500 bg-rose-50 text-rose-800 font-bold';
                 
                 return (
-                  <div key={i} className={`p-5 rounded-2xl border-2 flex items-center justify-between text-xl ${borderClass}`}>
+                  <div key={i} className={`rounded-[1.6rem] border-4 p-5 text-xl flex items-center justify-between ${borderClass}`}>
                     <span>{ans}</span>
                     {isCorrect && <CheckCircle className="w-8 h-8 text-emerald-500" />}
                     {isChosen && !isCorrect && <XCircle className="w-8 h-8 text-rose-500" />}
@@ -476,20 +562,20 @@ export default function StudentPractice() {
               })}
             </div>
 
-            <div className="bg-indigo-50 rounded-[2rem] p-8 mb-10 border border-indigo-100 relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-2 h-full bg-indigo-500"></div>
-              <h4 className="font-black text-indigo-900 mb-3 flex items-center gap-2 text-xl">
-                <Sparkles className="w-5 h-5 text-indigo-500" />
+            <div className="relative mb-10 overflow-hidden rounded-[2.3rem] border-4 border-brand-dark bg-[#eef7ff] p-8 shadow-[6px_6px_0px_0px_#1A1A1A]">
+              <div className="absolute left-0 top-0 h-full w-3 bg-[#2f67ff]"></div>
+              <h4 className="mb-3 flex items-center gap-2 text-xl font-black text-[#1d3d9e]">
+                <Sparkles className="h-5 w-5 text-[#2f67ff]" />
                 Explanation
               </h4>
-              <p className="text-indigo-800/80 text-lg font-medium leading-relaxed">{feedback?.explanation}</p>
+              <p className="text-lg font-bold leading-relaxed text-slate-700">{feedback?.explanation}</p>
             </div>
 
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={handleNext}
-              className="w-full bg-slate-900 text-white px-8 py-5 rounded-[2rem] font-black text-2xl hover:bg-slate-800 transition-all shadow-[0_8px_0_0_rgba(15,23,42,1)] hover:shadow-[0_4px_0_0_rgba(15,23,42,1)] hover:translate-y-1 active:shadow-none active:translate-y-2 flex items-center justify-center gap-3"
+              className="flex w-full items-center justify-center gap-3 rounded-[2rem] border-4 border-brand-dark bg-brand-dark px-8 py-5 text-2xl font-black text-white shadow-[8px_8px_0px_0px_#FF5A36] transition-all hover:translate-y-[2px] hover:shadow-[6px_6px_0px_0px_#FF5A36] active:translate-y-1"
             >
               {currentIndex < questions.length - 1 ? 'Next Question' : 'Finish Practice'}
               <ArrowRight className="w-6 h-6" />

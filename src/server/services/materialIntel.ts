@@ -370,6 +370,13 @@ export function normalizeGeneratedQuestions(questions: any[], fallbackTags: stri
         question_order: index + 1,
         learning_objective: String(question?.learning_objective || '').trim(),
         bloom_level: String(question?.bloom_level || '').trim(),
+        concept_id: String(question?.concept_id || '').trim(),
+        stem_length_chars: Number(question?.stem_length_chars || 0),
+        prompt_complexity_score: Number(question?.prompt_complexity_score || 0),
+        reading_difficulty: String(question?.reading_difficulty || '').trim(),
+        media_type: String(question?.media_type || '').trim(),
+        distractor_profile_json: String(question?.distractor_profile_json || '').trim(),
+        question_position_policy: String(question?.question_position_policy || '').trim(),
       };
     })
     .filter((question) => question.prompt && question.answers.length >= 2);

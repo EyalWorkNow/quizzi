@@ -15,6 +15,7 @@ import {
   Target,
 } from 'lucide-react';
 import { apiFetchJson } from '../lib/api.ts';
+import { enterLinkedStudentLiveSession, hasStoredLiveSeatForPin } from '../lib/studentLiveSession.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 
 function buildPracticePath(payload: any) {
@@ -88,6 +89,8 @@ export default function StudentClassView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [accepting, setAccepting] = useState(false);
+  const [enteringLive, setEnteringLive] = useState(false);
+  const [liveEntryError, setLiveEntryError] = useState('');
 
   const copy = ({
     he: {
@@ -380,7 +383,47 @@ export default function StudentClassView() {
   const classRow = data?.class || null;
   const isClaimed = String(classRow?.approval_state || classRow?.invite_status || 'none') === 'claimed';
   const activeSession = classRow?.active_session || null;
-  const hasLiveRoom = Boolean(isClaimed && activeSession?.pin);
+  const hasLiveRoom = Boolean(activeSession?.pin);
+  const liveSessionStatus = String(activeSession?.status || '').toUpperCase();
+  const describeLiveAction = (sessionPin?: string | null, sessionStatus?: string | null, resumeAvailable = false) => {
+    const normalizedPin = String(sessionPin || '').trim();
+    const normalizedStatus = String(sessionStatus || '').toUpperCase();
+    const hasStoredSeat = normalizedPin ? hasStoredLiveSeatForPin(normalizedPin) : false;
+    const hasRecoverableSeat = hasStoredSeat || resumeAvailable;
+
+    if (hasRecoverableSeat) {
+      return {
+        hasStoredSeat,
+        hasRecoverableSeat: true,
+        disabled: false,
+        label: language === 'he' ? 'חזרה למשחק חי' : language === 'ar' ? 'العودة إلى اللعبة الحية' : 'Return to live game',
+      };
+    }
+
+    if (normalizedStatus === 'LOBBY') {
+      return {
+        hasStoredSeat: false,
+        hasRecoverableSeat: false,
+        disabled: false,
+        label: copy.joinLive,
+      };
+    }
+
+    return {
+      hasStoredSeat: false,
+      hasRecoverableSeat: false,
+      disabled: true,
+      label: language === 'he' ? 'המתן ללובי' : language === 'ar' ? 'انتظر الردهة' : 'Wait for lobby',
+    };
+  };
+  const liveAction = describeLiveAction(
+    String(activeSession?.pin || ''),
+    liveSessionStatus,
+    Boolean(activeSession?.resume_available),
+  );
+  const hasStoredSeatForLiveRoom = liveAction.hasStoredSeat;
+  const hasRecoverableSeatForLiveRoom = liveAction.hasRecoverableSeat;
+  const canEnterLiveRoom = !liveAction.disabled;
   const classHistory = Array.isArray(classRow?.recent_sessions) ? classRow.recent_sessions : [];
   const personalHistory = Array.isArray(data?.session_history) ? data.session_history : [];
   const weakTags = Array.isArray(data?.recommendations?.weak_tags) ? data.recommendations.weak_tags.slice(0, 4) : [];
@@ -390,6 +433,41 @@ export default function StudentClassView() {
     data?.recommendations?.next_step?.body ||
     data?.student_memory?.summary?.body ||
     copy.classMissionFallback;
+  const liveBadgeLabel =
+    !hasLiveRoom
+      ? copy.liveClosed
+      : hasRecoverableSeatForLiveRoom
+        ? (language === 'he' ? 'חזרה לחדר החי' : language === 'ar' ? 'عودة إلى الغرفة الحية' : 'Return to live room')
+        : liveSessionStatus === 'LOBBY'
+          ? copy.liveOpen
+          : (language === 'he' ? 'המשחק כבר התחיל' : language === 'ar' ? 'اللعبة بدأت بالفعل' : 'Game underway');
+  const liveButtonLabel = liveAction.label;
+  const liveHelperText =
+    !hasLiveRoom
+      ? copy.liveClosed
+      : hasRecoverableSeatForLiveRoom
+        ? hasStoredSeatForLiveRoom
+          ? (language === 'he'
+            ? 'כבר יש לך מושב שמור בסשן הזה על המכשיר הזה.'
+            : language === 'ar'
+              ? 'لديك بالفعل مقعد محفوظ في هذه الجلسة على هذا الجهاز.'
+              : 'You already have a saved seat in this session on this device.')
+          : (language === 'he'
+            ? 'החשבון שלך כבר שויך לסשן הזה, ולכן אפשר לשחזר את המושב גם בלי זיכרון מקומי.'
+            : language === 'ar'
+              ? 'حسابك مرتبط بهذه الجلسة بالفعل، لذلك يمكن استعادة المقعد حتى بدون ذاكرة محلية.'
+              : 'Your account is already linked to this session, so we can restore the seat even without local device memory.')
+        : liveSessionStatus === 'LOBBY'
+          ? (language === 'he'
+            ? 'הלובי פתוח עכשיו ואפשר להיכנס ישירות.'
+            : language === 'ar'
+              ? 'الردهة مفتوحة الآن ويمكنك الدخول مباشرة.'
+              : 'The lobby is open and you can enter directly.')
+          : (language === 'he'
+            ? 'אם כבר נכנסת קודם ננסה לשחזר אותך. אם לא, תצטרך לחכות לפתיחת הלובי.'
+            : language === 'ar'
+              ? 'إذا دخلت سابقًا فسنحاول استعادتك. وإلا ستحتاج إلى انتظار فتح الردهة.'
+              : 'If you already joined before, we will try to restore you. Otherwise, wait for the lobby to reopen.');
 
   const unlockSteps = [
     {
@@ -430,6 +508,25 @@ export default function StudentClassView() {
       setError(acceptError?.message || copy.failed);
     } finally {
       setAccepting(false);
+    }
+  };
+
+  const handleEnterLive = async (sessionPin?: string | null) => {
+    const targetPin = String(sessionPin || activeSession?.pin || '').trim();
+    if (!targetPin) return;
+
+    try {
+      setEnteringLive(true);
+      setLiveEntryError('');
+      await enterLinkedStudentLiveSession({
+        pin: targetPin,
+        nickname: data?.student?.display_name || '',
+      });
+      window.location.assign(`/student/session/${targetPin}/play`);
+    } catch (liveError: any) {
+      setLiveEntryError(String(liveError?.message || copy.failed));
+    } finally {
+      setEnteringLive(false);
     }
   };
 
@@ -481,9 +578,14 @@ export default function StudentClassView() {
               </button>
             ) : null}
             {hasLiveRoom ? (
-              <Link to={`/student/session/${activeSession.pin}/play`} className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 font-black">
-                {copy.joinLive}
-              </Link>
+              <button
+                type="button"
+                onClick={() => void handleEnterLive(String(activeSession?.pin || ''))}
+                disabled={enteringLive || !canEnterLiveRoom}
+                className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 font-black disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {enteringLive ? copy.approving : liveButtonLabel}
+              </button>
             ) : null}
             {isClaimed ? (
               <Link to={practicePath} className="rounded-full border-2 border-brand-dark bg-brand-dark px-4 py-2 font-black text-white">
@@ -505,7 +607,7 @@ export default function StudentClassView() {
                   {isClaimed ? copy.readyLabel : copy.pendingLabel}
                 </StatusPill>
                 <StatusPill tone={hasLiveRoom ? 'live' : 'neutral'}>
-                  {hasLiveRoom ? copy.liveOpen : copy.liveClosed}
+                  {liveBadgeLabel}
                 </StatusPill>
                 <StatusPill tone={classRow.pack ? 'ready' : 'neutral'}>
                   {classRow.pack ? copy.packReady : copy.packMissing}
@@ -516,6 +618,9 @@ export default function StudentClassView() {
                   ? classRow.class_notes || copy.readyForClass
                   : copy.pendingBody}
               </p>
+              {hasLiveRoom ? (
+                <p className="mt-3 text-sm font-bold text-brand-dark/55">{liveHelperText}</p>
+              ) : null}
             </div>
 
             <div className="w-full max-w-md rounded-[1.9rem] border-2 border-brand-dark bg-brand-dark p-5 text-white shadow-[6px_6px_0px_0px_#FF5A36]">
@@ -570,7 +675,7 @@ export default function StudentClassView() {
               value={hasLiveRoom ? copy.liveOpen : copy.liveClosed}
               meta={
                 hasLiveRoom
-                  ? `${copy.liveRooms}: ${Number(data.class_progress?.active_session_count || 0)}`
+                  ? liveHelperText
                   : isClaimed
                     ? copy.liveClosed
                     : copy.workspaceLocked
@@ -579,13 +684,15 @@ export default function StudentClassView() {
               badge={hasLiveRoom ? copy.workspaceReady : isClaimed ? copy.readyLabel : copy.workspaceLocked}
               action={
                 hasLiveRoom ? (
-                  <Link
-                    to={`/student/session/${activeSession.pin}/play`}
-                    className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black text-brand-dark"
+                  <button
+                    type="button"
+                    onClick={() => void handleEnterLive(String(activeSession?.pin || ''))}
+                    disabled={enteringLive || !canEnterLiveRoom}
+                    className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black text-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {copy.joinLive}
+                    {enteringLive ? copy.approving : liveButtonLabel}
                     <ArrowRight className="h-4 w-4" />
-                  </Link>
+                  </button>
                 ) : null
               }
             />
@@ -834,13 +941,15 @@ export default function StudentClassView() {
                 {isClaimed ? (
                   <div className="mt-5 flex flex-wrap gap-3">
                     {hasLiveRoom ? (
-                      <Link
-                        to={`/student/session/${activeSession.pin}/play`}
-                        className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 font-black text-brand-dark"
+                      <button
+                        type="button"
+                        onClick={() => void handleEnterLive(String(activeSession?.pin || ''))}
+                        disabled={enteringLive || !canEnterLiveRoom}
+                        className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 font-black text-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        {copy.joinLive}
+                        {enteringLive ? copy.approving : liveButtonLabel}
                         <ArrowRight className="h-4 w-4" />
-                      </Link>
+                      </button>
                     ) : null}
                     <Link
                       to={practicePath}
@@ -875,10 +984,24 @@ export default function StudentClassView() {
                         <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black">
                           {session.participant_count} players
                         </span>
-                        {isClaimed && String(session.status || '').toUpperCase() !== 'ENDED' && session.pin ? (
-                          <Link to={`/student/session/${session.pin}/play`} className="rounded-full border-2 border-brand-dark bg-brand-yellow px-3 py-1 text-xs font-black">
-                            {copy.joinLive}
-                          </Link>
+                        {String(session.status || '').toUpperCase() !== 'ENDED' && session.pin ? (
+                          (() => {
+                            const sessionLiveAction = describeLiveAction(
+                              String(session.pin || ''),
+                              String(session.status || ''),
+                              Boolean(session.resume_available),
+                            );
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => void handleEnterLive(String(session.pin || ''))}
+                                disabled={enteringLive || sessionLiveAction.disabled}
+                                className="rounded-full border-2 border-brand-dark bg-brand-yellow px-3 py-1 text-xs font-black disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {enteringLive ? copy.approving : sessionLiveAction.label}
+                              </button>
+                            );
+                          })()
                         ) : null}
                       </div>
                     </div>
@@ -888,6 +1011,11 @@ export default function StudentClassView() {
                 )}
               </div>
             </div>
+            {liveEntryError ? (
+              <div className="rounded-[1.4rem] border-2 border-brand-dark bg-white p-4 font-bold text-brand-dark/75">
+                {liveEntryError}
+              </div>
+            ) : null}
 
             <div className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
               <div className="mb-5 flex items-center gap-3">

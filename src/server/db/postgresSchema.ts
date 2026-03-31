@@ -19,6 +19,9 @@ export const POSTGRES_TABLE_ORDER = [
   'participants',
   'answers',
   'student_behavior_logs',
+  'student_behavior_events',
+  'concept_attempt_history',
+  'analytics_labels',
   'mastery',
   'practice_attempts',
   'student_memory_snapshots',
@@ -142,7 +145,14 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       time_limit_seconds INTEGER DEFAULT 20,
       question_order INTEGER DEFAULT 0,
       learning_objective TEXT DEFAULT '',
-      bloom_level TEXT DEFAULT ''
+      bloom_level TEXT DEFAULT '',
+      concept_id TEXT DEFAULT '',
+      stem_length_chars INTEGER DEFAULT 0,
+      prompt_complexity_score INTEGER DEFAULT 0,
+      reading_difficulty TEXT DEFAULT '',
+      media_type TEXT DEFAULT 'text',
+      distractor_profile_json TEXT DEFAULT '{}',
+      question_position_policy TEXT DEFAULT 'fixed_pack_order'
     )
   `,
   `
@@ -295,6 +305,63 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       visibility_interruptions INTEGER DEFAULT 0,
       network_degraded BOOLEAN DEFAULT FALSE,
       device_profile TEXT DEFAULT '',
+      analytics_version TEXT DEFAULT 'telemetry_v2',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS student_behavior_events (
+      id SERIAL PRIMARY KEY,
+      session_id INTEGER,
+      question_id INTEGER,
+      participant_id INTEGER,
+      event_type TEXT NOT NULL,
+      event_ts_ms INTEGER DEFAULT 0,
+      event_seq INTEGER DEFAULT 0,
+      option_index INTEGER,
+      payload_json TEXT DEFAULT '{}',
+      network_latency_ms INTEGER DEFAULT 0,
+      client_render_delay_ms INTEGER DEFAULT 0,
+      device_profile TEXT DEFAULT '',
+      analytics_version TEXT DEFAULT 'telemetry_v2',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS concept_attempt_history (
+      id SERIAL PRIMARY KEY,
+      identity_key TEXT NOT NULL,
+      concept_id TEXT NOT NULL,
+      session_id INTEGER,
+      question_id INTEGER,
+      is_correct BOOLEAN DEFAULT FALSE,
+      response_ms INTEGER DEFAULT 0,
+      stress_index DOUBLE PRECISION DEFAULT 0,
+      engagement_score DOUBLE PRECISION DEFAULT 0,
+      prior_mastery DOUBLE PRECISION DEFAULT 0,
+      attempt_number INTEGER DEFAULT 1,
+      days_since_last_seen DOUBLE PRECISION DEFAULT 0,
+      rolling_accuracy_5 DOUBLE PRECISION DEFAULT 0,
+      rolling_stress_5 DOUBLE PRECISION DEFAULT 0,
+      rolling_engagement_5 DOUBLE PRECISION DEFAULT 0,
+      retention_24h DOUBLE PRECISION DEFAULT 0,
+      retention_7d DOUBLE PRECISION DEFAULT 0,
+      analytics_version TEXT DEFAULT 'telemetry_v2',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS analytics_labels (
+      id SERIAL PRIMARY KEY,
+      session_id INTEGER,
+      question_id INTEGER,
+      participant_id INTEGER,
+      identity_key TEXT,
+      label_type TEXT NOT NULL,
+      label_value TEXT NOT NULL,
+      source TEXT DEFAULT 'system',
+      metadata_json TEXT DEFAULT '{}',
+      labeled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `,
@@ -349,6 +416,13 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS learning_objective TEXT DEFAULT ''`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS bloom_level TEXT DEFAULT ''`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS image_url TEXT DEFAULT ''`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS concept_id TEXT DEFAULT ''`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS stem_length_chars INTEGER DEFAULT 0`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS prompt_complexity_score INTEGER DEFAULT 0`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS reading_difficulty TEXT DEFAULT ''`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS media_type TEXT DEFAULT 'text'`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS distractor_profile_json TEXT DEFAULT '{}'`,
+  `ALTER TABLE questions ADD COLUMN IF NOT EXISTS question_position_policy TEXT DEFAULT 'fixed_pack_order'`,
   `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS teacher_class_id INTEGER`,
   `ALTER TABLE participants ADD COLUMN IF NOT EXISTS identity_key TEXT`,
   `ALTER TABLE participants ADD COLUMN IF NOT EXISTS student_user_id INTEGER`,
@@ -405,6 +479,63 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS visibility_interruptions INTEGER DEFAULT 0`,
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS network_degraded BOOLEAN DEFAULT FALSE`,
   `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS device_profile TEXT DEFAULT ''`,
+  `ALTER TABLE student_behavior_logs ADD COLUMN IF NOT EXISTS analytics_version TEXT DEFAULT 'telemetry_v2'`,
+  `
+    CREATE TABLE IF NOT EXISTS student_behavior_events (
+      id SERIAL PRIMARY KEY,
+      session_id INTEGER,
+      question_id INTEGER,
+      participant_id INTEGER,
+      event_type TEXT NOT NULL,
+      event_ts_ms INTEGER DEFAULT 0,
+      event_seq INTEGER DEFAULT 0,
+      option_index INTEGER,
+      payload_json TEXT DEFAULT '{}',
+      network_latency_ms INTEGER DEFAULT 0,
+      client_render_delay_ms INTEGER DEFAULT 0,
+      device_profile TEXT DEFAULT '',
+      analytics_version TEXT DEFAULT 'telemetry_v2',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS concept_attempt_history (
+      id SERIAL PRIMARY KEY,
+      identity_key TEXT NOT NULL,
+      concept_id TEXT NOT NULL,
+      session_id INTEGER,
+      question_id INTEGER,
+      is_correct BOOLEAN DEFAULT FALSE,
+      response_ms INTEGER DEFAULT 0,
+      stress_index DOUBLE PRECISION DEFAULT 0,
+      engagement_score DOUBLE PRECISION DEFAULT 0,
+      prior_mastery DOUBLE PRECISION DEFAULT 0,
+      attempt_number INTEGER DEFAULT 1,
+      days_since_last_seen DOUBLE PRECISION DEFAULT 0,
+      rolling_accuracy_5 DOUBLE PRECISION DEFAULT 0,
+      rolling_stress_5 DOUBLE PRECISION DEFAULT 0,
+      rolling_engagement_5 DOUBLE PRECISION DEFAULT 0,
+      retention_24h DOUBLE PRECISION DEFAULT 0,
+      retention_7d DOUBLE PRECISION DEFAULT 0,
+      analytics_version TEXT DEFAULT 'telemetry_v2',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS analytics_labels (
+      id SERIAL PRIMARY KEY,
+      session_id INTEGER,
+      question_id INTEGER,
+      participant_id INTEGER,
+      identity_key TEXT,
+      label_type TEXT NOT NULL,
+      label_value TEXT NOT NULL,
+      source TEXT DEFAULT 'system',
+      metadata_json TEXT DEFAULT '{}',
+      labeled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
   `
     CREATE TABLE IF NOT EXISTS mastery (
       id SERIAL PRIMARY KEY,
@@ -463,13 +594,18 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'CREATE INDEX IF NOT EXISTS idx_answers_participant_session ON answers(participant_id, session_id)',
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_answers_unique_submission ON answers(session_id, question_id, participant_id)',
   'CREATE INDEX IF NOT EXISTS idx_questions_pack_order ON questions(quiz_pack_id, id)',
+  'CREATE INDEX IF NOT EXISTS idx_questions_concept_id ON questions(concept_id)',
   'CREATE INDEX IF NOT EXISTS idx_behavior_participant_session ON student_behavior_logs(participant_id, session_id)',
+  'CREATE INDEX IF NOT EXISTS idx_behavior_events_participant_session ON student_behavior_events(participant_id, session_id, question_id, event_seq)',
+  'CREATE INDEX IF NOT EXISTS idx_behavior_events_type_session ON student_behavior_events(event_type, session_id)',
   'CREATE INDEX IF NOT EXISTS idx_mastery_nickname ON mastery(nickname)',
   'CREATE INDEX IF NOT EXISTS idx_mastery_identity_key ON mastery(identity_key)',
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_mastery_identity_tag_unique ON mastery(identity_key, tag)',
   'CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_question ON practice_attempts(nickname, question_id)',
   'CREATE INDEX IF NOT EXISTS idx_practice_attempts_identity_created ON practice_attempts(identity_key, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_student_memory_identity_key ON student_memory_snapshots(identity_key)',
+  'CREATE INDEX IF NOT EXISTS idx_concept_attempt_history_identity_concept ON concept_attempt_history(identity_key, concept_id, created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_analytics_labels_lookup ON analytics_labels(identity_key, label_type, labeled_at)',
   'CREATE INDEX IF NOT EXISTS idx_generation_cache_lookup ON question_generation_cache(material_profile_id, difficulty, output_language, question_count)',
   'CREATE INDEX IF NOT EXISTS idx_quiz_packs_profile ON quiz_packs(material_profile_id)',
   'CREATE INDEX IF NOT EXISTS idx_quiz_packs_source_hash ON quiz_packs(source_hash)',
@@ -524,6 +660,57 @@ const POSTGRES_DATA_REPAIR_STATEMENTS = [
     UPDATE questions
     SET question_order = id
     WHERE question_order IS NULL OR question_order = 0
+  `,
+  `
+    UPDATE questions
+    SET concept_id = LOWER(REPLACE(REPLACE(COALESCE(NULLIF(learning_objective, ''), split_part(COALESCE(tags_json, '[]'), ',', 1), 'q-' || id::text), ' ', '-'), '--', '-'))
+    WHERE concept_id IS NULL OR concept_id = ''
+  `,
+  `
+    UPDATE questions
+    SET stem_length_chars = LENGTH(COALESCE(prompt, ''))
+    WHERE stem_length_chars IS NULL OR stem_length_chars = 0
+  `,
+  `
+    UPDATE questions
+    SET media_type = CASE WHEN COALESCE(image_url, '') <> '' THEN 'image' ELSE 'text' END
+    WHERE media_type IS NULL OR media_type = ''
+  `,
+  `
+    UPDATE questions
+    SET reading_difficulty = CASE
+      WHEN LENGTH(COALESCE(prompt, '')) >= 220 THEN 'advanced'
+      WHEN LENGTH(COALESCE(prompt, '')) >= 120 THEN 'moderate'
+      ELSE 'basic'
+    END
+    WHERE reading_difficulty IS NULL OR reading_difficulty = ''
+  `,
+  `
+    UPDATE questions
+    SET prompt_complexity_score = LEAST(
+      100,
+      GREATEST(
+        0,
+        FLOOR(LENGTH(COALESCE(prompt, '')) / 3.0)
+        + CASE WHEN COALESCE(image_url, '') <> '' THEN 10 ELSE 0 END
+        + CASE WHEN COALESCE(bloom_level, '') <> '' THEN 8 ELSE 0 END
+      )
+    )
+    WHERE prompt_complexity_score IS NULL OR prompt_complexity_score = 0
+  `,
+  `
+    UPDATE questions
+    SET distractor_profile_json = json_build_object(
+      'answer_count', json_array_length(COALESCE(answers_json, '[]')::json),
+      'tag_count', json_array_length(COALESCE(tags_json, '[]')::json),
+      'has_image', CASE WHEN COALESCE(image_url, '') <> '' THEN true ELSE false END
+    )::text
+    WHERE distractor_profile_json IS NULL OR distractor_profile_json = ''
+  `,
+  `
+    UPDATE questions
+    SET question_position_policy = 'fixed_pack_order'
+    WHERE question_position_policy IS NULL OR question_position_policy = ''
   `,
   `
     UPDATE quiz_packs

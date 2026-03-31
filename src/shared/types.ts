@@ -47,8 +47,16 @@ export interface Question {
   tags_json: string; // stringified array of strings
   difficulty: number; // 1-5
   time_limit_seconds: number;
+  question_order?: number;
   learning_objective?: string;
   bloom_level?: string;
+  concept_id?: string;
+  stem_length_chars?: number;
+  prompt_complexity_score?: number;
+  reading_difficulty?: string;
+  media_type?: string;
+  distractor_profile_json?: string;
+  question_position_policy?: string;
 }
 
 export interface Session {
@@ -123,9 +131,65 @@ export interface SubmitAnswerPayload {
   chosen_index: number;
   response_ms: number;
   confidence_level?: number;
+  telemetry?: TelemetryPayload;
 }
 
 export interface UpdateSessionStatePayload {
   status: SessionStatus;
   current_question_index: number;
+}
+
+export type TelemetryEventType =
+  | 'question_rendered'
+  | 'first_interaction'
+  | 'option_hover_start'
+  | 'option_hover_end'
+  | 'option_selected'
+  | 'option_deselected'
+  | 'submit_clicked'
+  | 'tab_blur'
+  | 'tab_focus'
+  | 'visibility_hidden'
+  | 'visibility_visible'
+  | 'prompt_reread'
+  | 'media_opened'
+  | 'network_state_changed'
+  | 'ui_freeze_detected';
+
+export interface TelemetryEvent {
+  event_type: TelemetryEventType;
+  event_ts_ms: number;
+  event_seq: number;
+  option_index?: number | null;
+  payload_json?: string;
+  network_latency_ms?: number;
+  client_render_delay_ms?: number;
+  device_profile?: string;
+}
+
+export interface TelemetryPayload {
+  tfi_ms?: number;
+  final_decision_buffer_ms?: number;
+  total_swaps?: number;
+  panic_swaps?: number;
+  answer_path_json?: string;
+  focus_loss_count?: number;
+  idle_time_ms?: number;
+  blur_time_ms?: number;
+  longest_idle_streak_ms?: number;
+  pointer_activity_count?: number;
+  keyboard_activity_count?: number;
+  touch_activity_count?: number;
+  same_answer_reclicks?: number;
+  option_dwell_json?: string;
+  option_hover_counts_json?: string;
+  outside_answer_pointer_moves?: number;
+  rapid_pointer_jumps?: number;
+  submission_retry_count?: number;
+  reconnect_count?: number;
+  visibility_interruptions?: number;
+  network_degraded?: boolean;
+  device_profile?: string;
+  analytics_version?: string;
+  events?: TelemetryEvent[];
 }

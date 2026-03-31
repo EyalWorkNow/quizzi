@@ -21,6 +21,7 @@ import { motion } from 'motion/react';
 import { apiFetchJson } from '../lib/api.ts';
 import { signOutStudent } from '../lib/studentAuth.ts';
 import { getParticipantToken } from '../lib/studentSession.ts';
+import { enterLinkedStudentLiveSession, hasStoredLiveSeatForPin } from '../lib/studentLiveSession.ts';
 import AppLoadingScreen from '../components/AppLoadingScreen.tsx';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 
@@ -61,6 +62,11 @@ export default function StudentPortal() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyClassId, setBusyClassId] = useState<number | null>(null);
+  const [liveEntryClassId, setLiveEntryClassId] = useState<number | null>(null);
+  const [liveEntryError, setLiveEntryError] = useState<{ classId: number | null; message: string }>({
+    classId: null,
+    message: '',
+  });
 
   const copy = {
     he: {
@@ -324,6 +330,72 @@ export default function StudentPortal() {
     },
   ];
 
+  const describeLiveClassCta = (classRow: any) => {
+    const activeSession = classRow?.active_session || null;
+    const activePin = String(activeSession?.pin || '');
+    const sessionStatus = String(activeSession?.status || '').toUpperCase();
+    const hasStoredSeat = activePin ? hasStoredLiveSeatForPin(activePin) : false;
+    const hasRecoverableSeat = hasStoredSeat || Boolean(activeSession?.resume_available);
+
+    if (!activePin) {
+      return {
+        buttonLabel: copy.joinClass,
+        badgeLabel: '',
+        helperText: '',
+        disabled: true,
+      };
+    }
+
+    if (hasRecoverableSeat) {
+      return {
+        buttonLabel: copy.continueLive,
+        badgeLabel: copy.continueLive,
+        helperText:
+          hasStoredSeat
+            ? language === 'he'
+              ? 'כבר יש לך מושב שמור בחדר הזה על המכשיר הזה.'
+              : language === 'ar'
+                ? 'لديك بالفعل مقعد محفوظ في هذه الغرفة على هذا الجهاز.'
+                : 'You already have a saved seat for this room on this device.'
+            : language === 'he'
+              ? 'החשבון שלך כבר שויך לחדר הזה, ונשחזר את המושב שלך גם בלי זיכרון מקומי.'
+              : language === 'ar'
+                ? 'حسابك مرتبط بهذه الغرفة بالفعل، وسنستعيد مقعدك حتى بدون ذاكرة محلية.'
+                : 'Your account is already linked to this room, so we can restore your seat even without local device memory.',
+        disabled: false,
+      };
+    }
+
+    if (sessionStatus === 'LOBBY') {
+      return {
+        buttonLabel: copy.joinClass,
+        badgeLabel:
+          language === 'he' ? 'לובי פתוח' : language === 'ar' ? 'ردهة مفتوحة' : 'Lobby open',
+        helperText:
+          language === 'he'
+            ? 'החדר פתוח עכשיו להצטרפות.'
+            : language === 'ar'
+              ? 'الغرفة مفتوحة الآن للانضمام.'
+              : 'The room is open to join right now.',
+        disabled: false,
+      };
+    }
+
+    return {
+      buttonLabel:
+        language === 'he' ? 'המתן ללובי' : language === 'ar' ? 'انتظر الردهة' : 'Wait for lobby',
+      badgeLabel:
+        language === 'he' ? 'המשחק כבר התחיל' : language === 'ar' ? 'اللعبة بدأت بالفعل' : 'Game underway',
+      helperText:
+        language === 'he'
+          ? 'אם כבר הצטרפת קודם ננסה לשחזר אותך. אם לא, תצטרך להצטרף כשהלובי פתוח.'
+          : language === 'ar'
+            ? 'إذا كنت قد انضممت سابقًا فسنحاول استعادتك. وإلا ستحتاج للانضمام عندما تكون الردهة مفتوحة.'
+            : 'If you already joined before, we will try to restore your seat. Otherwise, wait until the lobby is open.',
+      disabled: true,
+    };
+  };
+
   const handleSignOut = async () => {
     await signOutStudent();
     navigate('/student/auth', { replace: true });
@@ -340,6 +412,28 @@ export default function StudentPortal() {
       setError(acceptError?.message || copy.loadFailed);
     } finally {
       setBusyClassId(null);
+    }
+  };
+
+  const handleEnterLiveClass = async (classRow: any) => {
+    const activePin = String(classRow?.active_session?.pin || '');
+    if (!activePin) return;
+
+    try {
+      setLiveEntryClassId(Number(classRow?.class_id || 0));
+      setLiveEntryError({ classId: null, message: '' });
+      await enterLinkedStudentLiveSession({
+        pin: activePin,
+        nickname: data?.student?.display_name || '',
+      });
+      navigate(`/student/session/${activePin}/play`);
+    } catch (liveError: any) {
+      setLiveEntryError({
+        classId: Number(classRow?.class_id || 0),
+        message: String(liveError?.message || copy.loadFailed),
+      });
+    } finally {
+      setLiveEntryClassId(null);
     }
   };
 
@@ -774,6 +868,10 @@ export default function StudentPortal() {
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45">{copy.pendingInvites}</p>
                     {pendingInvites.map((classRow: any) => (
                       <div key={`pending-${classRow.id}`} className="rounded-[1.7rem] border-2 border-brand-dark bg-brand-yellow/50 p-5">
+                        {(() => {
+                          const liveCta = describeLiveClassCta(classRow);
+                          return (
+                            <>
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">
@@ -815,7 +913,33 @@ export default function StudentPortal() {
                           >
                             {copy.reviewInvite}
                           </Link>
+                          {classRow.active_session?.pin ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleEnterLiveClass(classRow)}
+                              disabled={liveEntryClassId === Number(classRow.class_id || 0) || liveCta.disabled}
+                              className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black text-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {liveEntryClassId === Number(classRow.class_id || 0) ? copy.approving : liveCta.buttonLabel}
+                            </button>
+                          ) : null}
                         </div>
+                        {classRow.active_session?.pin ? (
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black">
+                              {liveCta.badgeLabel}
+                            </span>
+                            <p className="text-xs font-bold text-brand-dark/70">{liveCta.helperText}</p>
+                          </div>
+                        ) : null}
+                        {liveEntryError.classId === Number(classRow.class_id || 0) && liveEntryError.message ? (
+                          <p className="mt-3 rounded-[1rem] border-2 border-brand-dark bg-white px-4 py-3 text-sm font-bold text-brand-dark/80">
+                            {liveEntryError.message}
+                          </p>
+                        ) : null}
+                            </>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>
@@ -830,6 +954,10 @@ export default function StudentPortal() {
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45">{copy.activeClasses}</p>
                     {activeClasses.map((classRow: any) => (
                       <div key={classRow.id} className="rounded-[1.7rem] border-2 border-brand-dark bg-brand-bg p-5">
+                        {(() => {
+                          const liveCta = describeLiveClassCta(classRow);
+                          return (
+                            <>
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">
@@ -864,9 +992,9 @@ export default function StudentPortal() {
                           <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black">
                             {copy.classReady}
                           </span>
-                          {classRow.active_session?.pin ? (
+                          {classRow.active_session?.pin && liveCta.badgeLabel ? (
                             <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black">
-                              {copy.joinClass}
+                              {liveCta.badgeLabel}
                             </span>
                           ) : null}
                         </div>
@@ -878,12 +1006,14 @@ export default function StudentPortal() {
                             {copy.openClass}
                           </Link>
                           {classRow.active_session?.pin ? (
-                            <Link
-                              to={`/student/session/${classRow.active_session.pin}/play`}
-                              className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black text-brand-dark"
+                            <button
+                              type="button"
+                              onClick={() => void handleEnterLiveClass(classRow)}
+                              disabled={liveEntryClassId === Number(classRow.class_id || 0) || liveCta.disabled}
+                              className="rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black text-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                              {copy.joinClass}
-                            </Link>
+                              {liveEntryClassId === Number(classRow.class_id || 0) ? copy.approving : liveCta.buttonLabel}
+                            </button>
                           ) : null}
                           <Link
                             to={practicePath}
@@ -892,6 +1022,17 @@ export default function StudentPortal() {
                             {copy.launchPractice}
                           </Link>
                         </div>
+                        {classRow.active_session?.pin ? (
+                          <p className="mt-3 text-xs font-bold text-brand-dark/70">{liveCta.helperText}</p>
+                        ) : null}
+                        {liveEntryError.classId === Number(classRow.class_id || 0) && liveEntryError.message ? (
+                          <p className="mt-3 rounded-[1rem] border-2 border-brand-dark bg-white px-4 py-3 text-sm font-bold text-brand-dark/80">
+                            {liveEntryError.message}
+                          </p>
+                        ) : null}
+                            </>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>

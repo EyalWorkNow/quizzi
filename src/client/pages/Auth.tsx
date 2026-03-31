@@ -681,7 +681,7 @@ export default function Auth() {
             <div className="h-[2px] flex-1 bg-brand-dark/10" />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             <SocialAccessButton
               brand="google"
               title="Google"
@@ -689,14 +689,6 @@ export default function Auth() {
               loading={pendingAction === 'google'}
               disabled={pendingAction !== null}
               onClick={() => handleSocialAccess('google')}
-            />
-            <SocialAccessButton
-              brand="facebook"
-              title="Facebook"
-              body={t('auth.facebookActivation')}
-              loading={pendingAction === 'facebook'}
-              disabled={pendingAction !== null}
-              onClick={() => handleSocialAccess('facebook')}
             />
           </div>
 

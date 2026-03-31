@@ -69,6 +69,7 @@ import {
 import {
   createTeacherUser,
   getTeacherUserByEmail,
+  updateTeacherPassword,
   validateTeacherEmail,
   validateTeacherPassword,
   verifyTeacherPassword,
@@ -138,6 +139,51 @@ const TEAM_NAME_BANK = [
 
 const SUPPORTED_UI_LANGUAGES = new Set(['en', 'he', 'ar']);
 const MAX_SESSION_PARTICIPANTS = envTaskConcurrency('QUIZZI_MAX_SESSION_PARTICIPANTS', 500);
+const STUDENT_SELF_REPORT_LABEL_TYPES = new Set([
+  'self_report_confidence',
+  'self_report_guess',
+  'self_report_effort',
+  'self_report_need_help',
+]);
+
+type SanitizedTelemetryEvent = {
+  event_type: string;
+  event_ts_ms: number;
+  event_seq: number;
+  option_index: number | null;
+  payload_json: string;
+  network_latency_ms: number;
+  client_render_delay_ms: number;
+  device_profile: string;
+  analytics_version: string;
+};
+
+type SanitizedTelemetry = {
+  tfi_ms: number;
+  final_decision_buffer_ms: number;
+  total_swaps: number;
+  panic_swaps: number;
+  answer_path_json: string;
+  focus_loss_count: number;
+  idle_time_ms: number;
+  blur_time_ms: number;
+  longest_idle_streak_ms: number;
+  pointer_activity_count: number;
+  keyboard_activity_count: number;
+  touch_activity_count: number;
+  same_answer_reclicks: number;
+  option_dwell_json: string;
+  option_hover_counts_json: string;
+  outside_answer_pointer_moves: number;
+  rapid_pointer_jumps: number;
+  submission_retry_count: number;
+  reconnect_count: number;
+  visibility_interruptions: number;
+  network_degraded: boolean;
+  device_profile: string;
+  analytics_version: string;
+  events: SanitizedTelemetryEvent[];
+};
 const MAX_QUESTION_ANSWERS = 8;
 const SESSION_STATE_SET = new Set([
   'LOBBY',
@@ -154,6 +200,24 @@ const aiGenerationGate = createBoundedTaskGate({
   maxQueue: envTaskConcurrency('QUIZZI_AI_GENERATION_MAX_QUEUE', 24),
 });
 const inFlightQuestionGenerations = new Map<string, Promise<any>>();
+const ANALYTICS_TELEMETRY_VERSION = 'telemetry_v2';
+const ALLOWED_TELEMETRY_EVENT_TYPES = new Set([
+  'question_rendered',
+  'first_interaction',
+  'option_hover_start',
+  'option_hover_end',
+  'option_selected',
+  'option_deselected',
+  'submit_clicked',
+  'tab_blur',
+  'tab_focus',
+  'visibility_hidden',
+  'visibility_visible',
+  'prompt_reread',
+  'media_opened',
+  'network_state_changed',
+  'ui_freeze_detected',
+]);
 
 function parseJsonArray(value: string | null | undefined) {
   if (!value) return [];
@@ -299,10 +363,297 @@ function sanitizeJsonBlob(value: unknown, maxLength: number, fallback: string) {
   }
 }
 
-function sanitizeTelemetry(value: unknown) {
+function slugifyConceptToken(value: unknown, fallback = 'general') {
+  const normalized = sanitizeLine(value, 120)
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}:_-]+/gu, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return normalized || fallback;
+}
+
+function computeReadingDifficulty(prompt: string) {
+  const normalizedPrompt = String(prompt || '').trim();
+  const sentenceCount = normalizedPrompt
+    .split(/[.!?]+/)
+    .map((part) => part.trim())
+    .filter(Boolean).length;
+  if (normalizedPrompt.length >= 220 || sentenceCount >= 4) return 'advanced';
+  if (normalizedPrompt.length >= 120 || sentenceCount >= 2) return 'moderate';
+  return 'basic';
+}
+
+function computePromptComplexityScore({
+  prompt,
+  answers,
+  hasImage,
+  bloomLevel,
+  timeLimitSeconds,
+}: {
+  prompt: string;
+  answers: string[];
+  hasImage: boolean;
+  bloomLevel: string;
+  timeLimitSeconds: number;
+}) {
+  const answerLengthMean = answers.length
+    ? answers.reduce((sum, answer) => sum + String(answer || '').length, 0) / answers.length
+    : 0;
+  const rawScore =
+    (prompt.length / 3)
+    + Math.min(18, answerLengthMean / 6)
+    + (hasImage ? 10 : 0)
+    + (bloomLevel ? 8 : 0)
+    + Math.max(0, 24 - Math.min(24, timeLimitSeconds));
+  return Math.max(0, Math.min(100, Math.round(rawScore)));
+}
+
+function buildDistractorProfileJson({
+  answers,
+  tags,
+  hasImage,
+}: {
+  answers: string[];
+  tags: string[];
+  hasImage: boolean;
+}) {
+  const lengths = answers.map((answer) => String(answer || '').trim().length);
+  const averageLength = lengths.length
+    ? lengths.reduce((sum, value) => sum + value, 0) / lengths.length
+    : 0;
+  const lengthSpread = lengths.length
+    ? Math.max(...lengths) - Math.min(...lengths)
+    : 0;
+  return JSON.stringify({
+    answer_count: answers.length,
+    average_answer_length: Number(averageLength.toFixed(1)),
+    length_spread: lengthSpread,
+    tag_count: tags.length,
+    has_image: hasImage,
+  });
+}
+
+function deriveQuestionMetadata(
+  question: any,
+  {
+    answers = [],
+    tags = [],
+    index = 0,
+  }: {
+    answers?: string[];
+    tags?: string[];
+    index?: number;
+  } = {},
+) {
+  const prompt = sanitizeMultiline(question?.prompt, 320);
+  const safeAnswers = answers.map((answer) => sanitizeLine(answer, 180)).filter(Boolean);
+  const safeTags = tags.map((tag) => sanitizeLine(tag, 40)).filter(Boolean);
+  const imageUrl = sanitizeQuestionImage(question?.image_url ?? question?.imageUrl);
+  const learningObjective = sanitizeLine(question?.learning_objective, 120);
+  const bloomLevel = sanitizeLine(question?.bloom_level, 40);
+  const conceptId = slugifyConceptToken(
+    question?.concept_id
+      || learningObjective
+      || safeTags[0]
+      || `question-${index + 1}`,
+    `question-${index + 1}`,
+  );
+  const timeLimitSeconds = clampNumber(question?.time_limit_seconds, 10, 90, 20);
+  return {
+    concept_id: conceptId,
+    stem_length_chars: prompt.length,
+    prompt_complexity_score: computePromptComplexityScore({
+      prompt,
+      answers: safeAnswers,
+      hasImage: Boolean(imageUrl),
+      bloomLevel,
+      timeLimitSeconds,
+    }),
+    reading_difficulty: sanitizeLine(question?.reading_difficulty, 24) || computeReadingDifficulty(prompt),
+    media_type: sanitizeLine(question?.media_type, 24) || (imageUrl ? 'image' : 'text'),
+    distractor_profile_json:
+      sanitizeJsonBlob(question?.distractor_profile_json, 2_000, '')
+      || buildDistractorProfileJson({ answers: safeAnswers, tags: safeTags, hasImage: Boolean(imageUrl) }),
+    question_position_policy: sanitizeLine(question?.question_position_policy, 40) || 'fixed_pack_order',
+  };
+}
+
+function sanitizeTelemetryEvent(
+  value: unknown,
+  fallbackDeviceProfile = '',
+  fallbackSequence = 0,
+): SanitizedTelemetryEvent | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  const eventType = sanitizeLine(raw.event_type ?? raw.type, 40).toLowerCase();
+  if (!ALLOWED_TELEMETRY_EVENT_TYPES.has(eventType)) return null;
+  const optionIndexRaw = raw.option_index ?? raw.optionIndex;
+  const optionIndex = Number.isFinite(Number(optionIndexRaw))
+    ? clampNumber(optionIndexRaw, 0, 32, 0)
+    : null;
+  return {
+    event_type: eventType,
+    event_ts_ms: clampNumber(raw.event_ts_ms ?? raw.timestamp_ms ?? raw.timestamp, 0, 300_000, 0),
+    event_seq: clampNumber(raw.event_seq ?? raw.seq, 0, 10_000, fallbackSequence),
+    option_index: optionIndex,
+    payload_json: sanitizeJsonBlob(raw.payload_json ?? raw.payload, 2_000, '{}'),
+    network_latency_ms: clampNumber(raw.network_latency_ms, 0, 120_000, 0),
+    client_render_delay_ms: clampNumber(raw.client_render_delay_ms, 0, 120_000, 0),
+    device_profile: sanitizeLine(raw.device_profile, 40) || fallbackDeviceProfile,
+    analytics_version: ANALYTICS_TELEMETRY_VERSION,
+  };
+}
+
+function sanitizeTelemetryEvents(value: unknown, fallbackDeviceProfile = '') {
+  const rawEvents = Array.isArray(value) ? value : [];
+  return rawEvents
+    .slice(0, 180)
+    .map((entry, index) => sanitizeTelemetryEvent(entry, fallbackDeviceProfile, index + 1))
+    .filter((entry): entry is NonNullable<ReturnType<typeof sanitizeTelemetryEvent>> => Boolean(entry))
+    .sort((left, right) => left.event_seq - right.event_seq || left.event_ts_ms - right.event_ts_ms)
+    .map((entry, index) => ({
+      ...entry,
+      event_seq: index + 1,
+    }));
+}
+
+function deriveTelemetrySummaryFromEvents(
+  telemetryBase: Omit<SanitizedTelemetry, 'events'>,
+  events: SanitizedTelemetryEvent[],
+): SanitizedTelemetry {
+  if (!events.length) {
+    return {
+      ...telemetryBase,
+      events: [],
+    };
+  }
+
+  const orderedEvents = events
+    .filter((event): event is NonNullable<typeof event> => Boolean(event))
+    .sort((left, right) => left.event_seq - right.event_seq || left.event_ts_ms - right.event_ts_ms);
+  const submitEvent =
+    [...orderedEvents].reverse().find((event) => event.event_type === 'submit_clicked')
+    || orderedEvents[orderedEvents.length - 1];
+  const submitTs = Math.max(0, Number(submitEvent?.event_ts_ms || 0));
+  const firstInteractionEvent = orderedEvents.find((event) =>
+    ['first_interaction', 'option_selected', 'option_hover_start', 'submit_clicked'].includes(event.event_type),
+  );
+  const selectionPath = orderedEvents
+    .filter((event) => event.event_type === 'option_selected' && Number.isFinite(Number(event.option_index)))
+    .map((event) => ({
+      index: Number(event.option_index),
+      timestamp: Number(event.event_ts_ms || 0),
+    }));
+  const totalSwaps = selectionPath.reduce((count, event, index, history) => {
+    if (index === 0) return count;
+    return history[index - 1].index !== event.index ? count + 1 : count;
+  }, 0);
+  const panicSwaps = selectionPath.reduce((count, event, index) => {
+    if (index === 0) return count;
+    return submitTs > 0 && submitTs - event.timestamp <= 5_000 ? count + 1 : count;
+  }, 0);
+  const hoverStarts = new Map<number, number>();
+  const optionDwell: Record<number, number> = {};
+  const optionHoverCounts: Record<number, number> = {};
+  let blurTimeMs = 0;
+  let inactiveStartedAt: number | null = null;
+  let focusLossCount = 0;
+  let visibilityInterruptions = Number(telemetryBase.visibility_interruptions || 0);
+  let reconnectCount = Number(telemetryBase.reconnect_count || 0);
+  let networkDegraded = Boolean(telemetryBase.network_degraded);
+
+  for (const event of orderedEvents) {
+    if (event.event_type === 'option_hover_start' && Number.isFinite(Number(event.option_index))) {
+      const optionIndex = Number(event.option_index);
+      hoverStarts.set(optionIndex, Number(event.event_ts_ms || 0));
+      optionHoverCounts[optionIndex] = (optionHoverCounts[optionIndex] || 0) + 1;
+    }
+
+    if (event.event_type === 'option_hover_end' && Number.isFinite(Number(event.option_index))) {
+      const optionIndex = Number(event.option_index);
+      const startedAt = hoverStarts.get(optionIndex);
+      if (startedAt !== undefined) {
+        optionDwell[optionIndex] = (optionDwell[optionIndex] || 0) + Math.max(0, Number(event.event_ts_ms || 0) - startedAt);
+        hoverStarts.delete(optionIndex);
+      }
+    }
+
+    if (event.event_type === 'tab_blur' || event.event_type === 'visibility_hidden') {
+      focusLossCount += 1;
+      if (event.event_type === 'visibility_hidden') {
+        visibilityInterruptions += 1;
+      }
+      if (inactiveStartedAt === null) {
+        inactiveStartedAt = Number(event.event_ts_ms || 0);
+      }
+    }
+
+    if ((event.event_type === 'tab_focus' || event.event_type === 'visibility_visible') && inactiveStartedAt !== null) {
+      blurTimeMs += Math.max(0, Number(event.event_ts_ms || 0) - inactiveStartedAt);
+      inactiveStartedAt = null;
+    }
+
+    if (event.event_type === 'network_state_changed') {
+      const payload = parseJsonObject(event.payload_json);
+      const nextState = sanitizeLine(payload.next_state ?? payload.state ?? payload.to, 24).toLowerCase();
+      const previousState = sanitizeLine(payload.previous_state ?? payload.from, 24).toLowerCase();
+      if (nextState && nextState !== 'live') {
+        networkDegraded = true;
+      }
+      if (previousState && previousState !== 'live' && nextState === 'live') {
+        reconnectCount += 1;
+      }
+    }
+  }
+
+  if (inactiveStartedAt !== null && submitTs > inactiveStartedAt) {
+    blurTimeMs += submitTs - inactiveStartedAt;
+  }
+
+  for (const [optionIndex, startedAt] of hoverStarts.entries()) {
+    optionDwell[optionIndex] = (optionDwell[optionIndex] || 0) + Math.max(0, submitTs - startedAt);
+  }
+
+  const lastSelectedTimestamp = selectionPath.length > 0
+    ? Number(selectionPath[selectionPath.length - 1].timestamp || 0)
+    : 0;
+
+  return {
+    ...telemetryBase,
+    tfi_ms:
+      Number(firstInteractionEvent?.event_ts_ms)
+      || Number(telemetryBase.tfi_ms || 0),
+    final_decision_buffer_ms:
+      submitTs > 0 ? Math.max(0, submitTs - lastSelectedTimestamp) : Number(telemetryBase.final_decision_buffer_ms || 0),
+    total_swaps: selectionPath.length > 1 ? totalSwaps : Number(telemetryBase.total_swaps || 0),
+    panic_swaps: selectionPath.length > 1 ? panicSwaps : Number(telemetryBase.panic_swaps || 0),
+    answer_path_json: selectionPath.length > 0
+      ? JSON.stringify(selectionPath)
+      : telemetryBase.answer_path_json,
+    focus_loss_count: focusLossCount > 0 ? focusLossCount : Number(telemetryBase.focus_loss_count || 0),
+    blur_time_ms: blurTimeMs > 0 ? blurTimeMs : Number(telemetryBase.blur_time_ms || 0),
+    option_dwell_json:
+      Object.keys(optionDwell).length > 0
+        ? JSON.stringify(optionDwell)
+        : telemetryBase.option_dwell_json,
+    option_hover_counts_json:
+      Object.keys(optionHoverCounts).length > 0
+        ? JSON.stringify(optionHoverCounts)
+        : telemetryBase.option_hover_counts_json,
+    reconnect_count: reconnectCount,
+    visibility_interruptions: visibilityInterruptions,
+    network_degraded: networkDegraded,
+    events: orderedEvents,
+  };
+}
+
+function sanitizeTelemetry(value: unknown): SanitizedTelemetry | null {
   if (!value || typeof value !== 'object') return null;
   const telemetry = value as Record<string, unknown>;
-  return {
+  const deviceProfile = sanitizeLine(telemetry.device_profile, 40);
+  const events = sanitizeTelemetryEvents(telemetry.events, deviceProfile);
+  const baseTelemetry = {
     tfi_ms: clampNumber(telemetry.tfi_ms, 0, 300_000, 0),
     final_decision_buffer_ms: clampNumber(telemetry.final_decision_buffer_ms, 0, 300_000, 0),
     total_swaps: clampNumber(telemetry.total_swaps, 0, 100, 0),
@@ -317,12 +668,17 @@ function sanitizeTelemetry(value: unknown) {
     touch_activity_count: clampNumber(telemetry.touch_activity_count, 0, 10_000, 0),
     same_answer_reclicks: clampNumber(telemetry.same_answer_reclicks, 0, 10_000, 0),
     option_dwell_json: sanitizeJsonBlob(telemetry.option_dwell_json, 4_000, '{}'),
+    option_hover_counts_json: sanitizeJsonBlob(telemetry.option_hover_counts_json, 4_000, '{}'),
+    outside_answer_pointer_moves: clampNumber(telemetry.outside_answer_pointer_moves, 0, 10_000, 0),
+    rapid_pointer_jumps: clampNumber(telemetry.rapid_pointer_jumps, 0, 10_000, 0),
     submission_retry_count: clampNumber(telemetry.submission_retry_count, 0, 100, 0),
     reconnect_count: clampNumber(telemetry.reconnect_count, 0, 100, 0),
     visibility_interruptions: clampNumber(telemetry.visibility_interruptions, 0, 100, 0),
     network_degraded: sanitizeBooleanFlag(telemetry.network_degraded, false),
-    device_profile: sanitizeLine(telemetry.device_profile, 40),
+    device_profile: deviceProfile,
+    analytics_version: sanitizeLine(telemetry.analytics_version, 40) || ANALYTICS_TELEMETRY_VERSION,
   };
+  return deriveTelemetrySummaryFromEvents(baseTelemetry, events);
 }
 
 function parseJsonObject(value: string | null | undefined) {
@@ -424,17 +780,24 @@ function sanitizeQuestionDraft(question: any, index: number, fallbackTags: strin
     .map((answer: unknown) => sanitizeLine(answer, 180))
     .filter(Boolean)
     .slice(0, MAX_QUESTION_ANSWERS);
+  const tags = sanitizeStringList(safeTags, 6, 40);
+  const metadata = deriveQuestionMetadata(question, {
+    answers,
+    tags,
+    index,
+  });
   return {
     prompt: sanitizeMultiline(question?.prompt, 320),
     answers,
     correct_index: clampNumber(question?.correct_index, 0, Math.max(0, answers.length - 1), 0),
     explanation: sanitizeMultiline(question?.explanation, 500),
     image_url: sanitizeQuestionImage(question?.image_url ?? question?.imageUrl),
-    tags: sanitizeStringList(safeTags, 6, 40),
+    tags,
     time_limit_seconds: clampNumber(question?.time_limit_seconds, 10, 90, 20),
     question_order: clampNumber(question?.question_order, 1, 999, index + 1),
     learning_objective: sanitizeLine(question?.learning_objective, 120),
     bloom_level: sanitizeLine(question?.bloom_level, 40),
+    ...metadata,
   };
 }
 
@@ -986,8 +1349,9 @@ async function getSessionPayload(sessionId: number) {
       .all(session.quiz_pack_id));
   const answers = (await db.prepare('SELECT * FROM answers WHERE session_id = ?').all(sessionId));
   const behavior_logs = (await db.prepare('SELECT * FROM student_behavior_logs WHERE session_id = ?').all(sessionId));
+  const behavior_events = (await db.prepare('SELECT * FROM student_behavior_events WHERE session_id = ?').all(sessionId));
 
-  return { session, pack, participants, questions, answers, behavior_logs };
+  return { session, pack, participants, questions, answers, behavior_logs, behavior_events };
 }
 
 function uniqueNumbers(values: Array<number | string | null | undefined>) {
@@ -1606,6 +1970,9 @@ async function buildStudentAnalyticsContext({
   const practiceAttempts = await getPracticeAttemptsForIdentityKeys(identityKeys);
   const mastery = await getMasteryRowsForIdentityKeys(identityKeys);
   const behaviorLogs = await getLogsForParticipantIds(participantIds);
+  const behaviorEvents = await getBehaviorEventsForParticipantIds(participantIds);
+  const conceptAttemptHistory = await getConceptAttemptHistoryForIdentityKeys(identityKeys);
+  const analyticsLabels = await getAnalyticsLabelsForIdentityKeys(identityKeys);
   const primaryIdentityKey =
     (studentUserId ? await getPrimaryIdentityKey(studentUserId) : '') ||
     identityKeys[0] ||
@@ -1633,6 +2000,9 @@ async function buildStudentAnalyticsContext({
     practice_attempts: practiceAttempts,
     mastery,
     behavior_logs: behaviorLogs,
+    behavior_events: behaviorEvents,
+    concept_attempt_history: conceptAttemptHistory,
+    analytics_labels: analyticsLabels,
   };
 }
 
@@ -1678,6 +2048,51 @@ async function getAuthorizedParticipantForPin(req: any, pin: string, claimedPart
     ...authorized,
     session: hydrateSessionRow(session),
   };
+}
+
+function resolveLinkedStudentEntryNickname(rawNickname: unknown, fallbackDisplayName: unknown) {
+  return sanitizeLine(rawNickname, 24) || sanitizeLine(fallbackDisplayName, 24) || 'Student';
+}
+
+function findLinkedParticipantForSession({
+  sessionId,
+  studentUserId,
+  classStudentId,
+}: {
+  sessionId: number;
+  studentUserId?: number | null;
+  classStudentId?: number | null;
+}) {
+  const safeSessionId = Math.max(0, Math.floor(Number(sessionId) || 0));
+  const safeStudentUserId = Math.max(0, Math.floor(Number(studentUserId) || 0));
+  const safeClassStudentId = Math.max(0, Math.floor(Number(classStudentId) || 0));
+  if (!safeSessionId || (!safeStudentUserId && !safeClassStudentId)) {
+    return null;
+  }
+
+  const clauses: string[] = [];
+  const params: Array<number> = [safeSessionId];
+  if (safeClassStudentId) {
+    clauses.push('class_student_id = ?');
+    params.push(safeClassStudentId);
+  }
+  if (safeStudentUserId) {
+    clauses.push('student_user_id = ?');
+    params.push(safeStudentUserId);
+  }
+
+  if (!clauses.length) return null;
+
+  return db
+    .prepare(`
+      SELECT *
+      FROM participants
+      WHERE session_id = ?
+        AND (${clauses.join(' OR ')})
+      ORDER BY created_at ASC, id ASC
+      LIMIT 1
+    `)
+    .get(...params) as any;
 }
 
 async function createSessionPin() {
@@ -1915,12 +2330,24 @@ function insertQuestionsForPack(packId: number, questions: any[]) {
       time_limit_seconds,
       question_order,
       learning_objective,
-      bloom_level
+      bloom_level,
+      concept_id,
+      stem_length_chars,
+      prompt_complexity_score,
+      reading_difficulty,
+      media_type,
+      distractor_profile_json,
+      question_position_policy
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   for (const question of questions) {
+    const metadata = deriveQuestionMetadata(question, {
+      answers: Array.isArray(question.answers) ? question.answers : [],
+      tags: Array.isArray(question.tags) ? question.tags : [],
+      index: Number(question.question_order || 1) - 1,
+    });
     insertQuestion.run(
       packId,
       question.prompt,
@@ -1933,6 +2360,13 @@ function insertQuestionsForPack(packId: number, questions: any[]) {
       question.question_order || 0,
       question.learning_objective || '',
       question.bloom_level || '',
+      question.concept_id || metadata.concept_id,
+      question.stem_length_chars || metadata.stem_length_chars,
+      question.prompt_complexity_score || metadata.prompt_complexity_score,
+      question.reading_difficulty || metadata.reading_difficulty,
+      question.media_type || metadata.media_type,
+      question.distractor_profile_json || metadata.distractor_profile_json,
+      question.question_position_policy || metadata.question_position_policy,
     );
   }
 }
@@ -2082,6 +2516,13 @@ async function buildPackSnapshot(packId: number) {
       question_order: Number(question.question_order || index + 1),
       learning_objective: question.learning_objective || '',
       bloom_level: question.bloom_level || '',
+      concept_id: question.concept_id || '',
+      stem_length_chars: Number(question.stem_length_chars || 0),
+      prompt_complexity_score: Number(question.prompt_complexity_score || 0),
+      reading_difficulty: question.reading_difficulty || '',
+      media_type: question.media_type || '',
+      distractor_profile_json: question.distractor_profile_json || '',
+      question_position_policy: question.question_position_policy || '',
     })),
   };
 }
@@ -2190,12 +2631,24 @@ async function createPackFromSnapshot(
       time_limit_seconds,
       question_order,
       learning_objective,
-      bloom_level
+      bloom_level,
+      concept_id,
+      stem_length_chars,
+      prompt_complexity_score,
+      reading_difficulty,
+      media_type,
+      distractor_profile_json,
+      question_position_policy
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   questionRows.forEach((question) => {
+    const metadata = deriveQuestionMetadata(question, {
+      answers: Array.isArray(question.answers) ? question.answers : [],
+      tags: Array.isArray(question.tags) ? question.tags : [],
+      index: Number(question.question_order || 1) - 1,
+    });
     insertQuestion.run(
       newPackId,
       question.prompt,
@@ -2208,6 +2661,13 @@ async function createPackFromSnapshot(
       question.question_order,
       question.learning_objective,
       question.bloom_level,
+      question.concept_id || metadata.concept_id,
+      question.stem_length_chars || metadata.stem_length_chars,
+      question.prompt_complexity_score || metadata.prompt_complexity_score,
+      question.reading_difficulty || metadata.reading_difficulty,
+      question.media_type || metadata.media_type,
+      question.distractor_profile_json || metadata.distractor_profile_json,
+      question.question_position_policy || metadata.question_position_policy,
     );
   });
 
@@ -2332,6 +2792,19 @@ async function getLogsForParticipantIds(participantIds: number[]) {
       .all(...participantIds));
 }
 
+async function getBehaviorEventsForParticipantIds(participantIds: number[]) {
+  if (participantIds.length === 0) return [];
+  const placeholders = participantIds.map(() => '?').join(', ');
+  return (await db
+      .prepare(`
+        SELECT *
+        FROM student_behavior_events
+        WHERE participant_id IN (${placeholders})
+        ORDER BY session_id ASC, participant_id ASC, question_id ASC, event_seq ASC, id ASC
+      `)
+      .all(...participantIds));
+}
+
 async function getSessionsForIds(sessionIds: number[]) {
   if (sessionIds.length === 0) return [];
   const placeholders = sessionIds.map(() => '?').join(', ');
@@ -2366,6 +2839,322 @@ async function getBehaviorLogsForSessionIds(sessionIds: number[]) {
   if (sessionIds.length === 0) return [];
   const placeholders = sessionIds.map(() => '?').join(', ');
   return (await db.prepare(`SELECT * FROM student_behavior_logs WHERE session_id IN (${placeholders})`).all(...sessionIds));
+}
+
+async function getBehaviorEventsForSessionIds(sessionIds: number[]) {
+  if (sessionIds.length === 0) return [];
+  const placeholders = sessionIds.map(() => '?').join(', ');
+  return (await db.prepare(`
+    SELECT *
+    FROM student_behavior_events
+    WHERE session_id IN (${placeholders})
+    ORDER BY session_id ASC, participant_id ASC, question_id ASC, event_seq ASC, id ASC
+  `).all(...sessionIds));
+}
+
+async function getConceptAttemptHistoryForIdentityKeys(identityKeys: string[]) {
+  if (identityKeys.length === 0) return [];
+  const placeholders = identityKeys.map(() => '?').join(', ');
+  return (await db
+    .prepare(`SELECT * FROM concept_attempt_history WHERE identity_key IN (${placeholders}) ORDER BY created_at DESC, id DESC`)
+    .all(...identityKeys));
+}
+
+async function getAnalyticsLabelsForIdentityKeys(identityKeys: string[]) {
+  if (identityKeys.length === 0) return [];
+  const placeholders = identityKeys.map(() => '?').join(', ');
+  return (await db
+    .prepare(`SELECT * FROM analytics_labels WHERE identity_key IN (${placeholders}) ORDER BY labeled_at DESC, id DESC`)
+    .all(...identityKeys));
+}
+
+function computeHeuristicStressIndex(log: any) {
+  const hesitation = Math.min(1, Math.max(0, Number(log?.tfi_ms || 0) / 12_000)) * 40;
+  const swaps = Math.min(1, Math.max(0, Number(log?.total_swaps || 0) / 3)) * 25;
+  const panicRatio = Math.min(1, Math.max(0, Number(log?.panic_swaps || 0))) * 20;
+  const focus = Math.min(1, Math.max(0, Number(log?.focus_loss_count || 0) / 1.5)) * 15;
+  return Number((hesitation + swaps + panicRatio + focus).toFixed(1));
+}
+
+function computeHeuristicEngagementScore(log: any) {
+  const rawScore =
+    100
+    - (Number(log?.focus_loss_count || 0) * 12)
+    - (Number(log?.idle_time_ms || 0) / 1600)
+    - (Number(log?.blur_time_ms || 0) / 260)
+    - (Number(log?.submission_retry_count || 0) * 6)
+    - (Number(log?.reconnect_count || 0) * 5)
+    - (Number(log?.visibility_interruptions || 0) * 4)
+    - (log?.network_degraded ? 8 : 0);
+  return Math.max(0, Math.min(100, Number(rawScore.toFixed(1))));
+}
+
+function resolveQuestionConceptId(question: any) {
+  return slugifyConceptToken(
+    question?.concept_id
+      || question?.learning_objective
+      || parseJsonArray(question?.tags_json)[0]
+      || `question-${Number(question?.id || 0)}`,
+    `question-${Number(question?.id || 0) || 0}`,
+  );
+}
+
+function resolvePriorMasteryForConcept(currentMastery: any[], question: any) {
+  const conceptId = resolveQuestionConceptId(question);
+  const normalizedConcept = conceptId.toLowerCase();
+  const learningObjective = String(question?.learning_objective || '').trim().toLowerCase();
+  const tags = parseJsonArray(question?.tags_json).map((tag) => String(tag || '').trim().toLowerCase());
+  const matchingRow = (Array.isArray(currentMastery) ? currentMastery : []).find((entry: any) => {
+    const tag = String(entry?.tag || '').trim().toLowerCase();
+    return Boolean(tag) && (
+      tag === normalizedConcept
+      || tag === learningObjective
+      || tags.includes(tag)
+    );
+  });
+  return Number(matchingRow?.score || 0);
+}
+
+function parseAnswerPathForLabels(answerPathJson: unknown) {
+  return parseJsonArray(typeof answerPathJson === 'string' ? answerPathJson : '')
+    .map((entry) => {
+      const row = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : null;
+      if (!row) return null;
+      const index = Number(row.index);
+      const timestamp = Number(row.timestamp ?? row.timestamp_ms ?? 0);
+      if (!Number.isFinite(index) || index < 0) return null;
+      return {
+        index: Math.floor(index),
+        timestamp: Number.isFinite(timestamp) ? Math.max(0, Math.floor(timestamp)) : 0,
+      };
+    })
+    .filter((entry): entry is { index: number; timestamp: number } => Boolean(entry));
+}
+
+function insertAnalyticsLabel({
+  sessionId,
+  questionId,
+  participantId,
+  identityKey,
+  labelType,
+  labelValue,
+  source = 'system_auto',
+  metadata = {},
+}: {
+  sessionId?: number | null;
+  questionId?: number | null;
+  participantId?: number | null;
+  identityKey?: string | null;
+  labelType: string;
+  labelValue: string;
+  source?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  db.prepare(`
+    INSERT INTO analytics_labels (
+      session_id,
+      question_id,
+      participant_id,
+      identity_key,
+      label_type,
+      label_value,
+      source,
+      metadata_json,
+      labeled_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `).run(
+    sessionId || null,
+    questionId || null,
+    participantId || null,
+    identityKey || null,
+    sanitizeLine(labelType, 64),
+    sanitizeLine(labelValue, 120),
+    sanitizeLine(source, 40) || 'system_auto',
+    sanitizeJsonBlob(metadata, 2_000, '{}'),
+  );
+}
+
+function recordAutomaticAnalyticsLabels({
+  sessionId,
+  questionId,
+  participantId,
+  identityKey,
+  isCorrect,
+  confidenceLevel,
+  telemetry,
+  question,
+  previousAnswer,
+}: {
+  sessionId?: number | null;
+  questionId: number;
+  participantId?: number | null;
+  identityKey: string;
+  isCorrect: boolean;
+  confidenceLevel?: number | null;
+  telemetry?: any;
+  question: any;
+  previousAnswer?: any;
+}) {
+  const stressIndex = computeHeuristicStressIndex(telemetry || {});
+  const engagementScore = computeHeuristicEngagementScore(telemetry || {});
+  const answerPath = parseAnswerPathForLabels(telemetry?.answer_path_json);
+  const startedCorrect = answerPath.length > 0 && Number(answerPath[0]?.index) === Number(question?.correct_index);
+  const endedWrong = !isCorrect;
+  const likelyDistractorIssue = startedCorrect && endedWrong;
+  const performanceBreakdownUnderPressure =
+    !isCorrect && (stressIndex >= 60 || Number(telemetry?.panic_swaps || 0) > 0);
+  const needsReteach = !isCorrect || (stressIndex >= 65 && engagementScore >= 55);
+
+  insertAnalyticsLabel({
+    sessionId,
+    questionId,
+    participantId,
+    identityKey,
+    labelType: 'needs_reteach',
+    labelValue: needsReteach ? '1' : '0',
+    metadata: { stress_index: stressIndex, engagement_score: engagementScore },
+  });
+  insertAnalyticsLabel({
+    sessionId,
+    questionId,
+    participantId,
+    identityKey,
+    labelType: 'performance_breakdown_under_pressure',
+    labelValue: performanceBreakdownUnderPressure ? '1' : '0',
+    metadata: { stress_index: stressIndex, panic_swaps: Number(telemetry?.panic_swaps || 0) },
+  });
+  insertAnalyticsLabel({
+    sessionId,
+    questionId,
+    participantId,
+    identityKey,
+    labelType: 'likely_distractor_issue',
+    labelValue: likelyDistractorIssue ? '1' : '0',
+    metadata: {
+      correct_index: Number(question?.correct_index || 0),
+      first_choice_index: answerPath[0]?.index ?? null,
+    },
+  });
+
+  if (Number.isFinite(Number(confidenceLevel))) {
+    insertAnalyticsLabel({
+      sessionId,
+      questionId,
+      participantId,
+      identityKey,
+      labelType: 'self_report_confidence',
+      labelValue: String(Number(confidenceLevel)),
+      source: 'student_self_report',
+      metadata: {
+        stress_index: stressIndex,
+        engagement_score: engagementScore,
+      },
+    });
+  }
+
+  if (previousAnswer?.question_id) {
+    insertAnalyticsLabel({
+      sessionId: Number(previousAnswer.session_id || sessionId || 0) || null,
+      questionId: Number(previousAnswer.question_id || 0),
+      participantId: Number(previousAnswer.participant_id || participantId || 0) || null,
+      identityKey,
+      labelType: 'future_wrong_next',
+      labelValue: isCorrect ? '0' : '1',
+      metadata: {
+        next_question_id: questionId,
+        next_session_id: sessionId || null,
+      },
+    });
+  }
+}
+
+function appendConceptAttemptHistory({
+  identityKey,
+  question,
+  sessionId,
+  questionId,
+  isCorrect,
+  responseMs,
+  telemetry,
+  priorMastery,
+}: {
+  identityKey: string;
+  question: any;
+  sessionId?: number | null;
+  questionId: number;
+  isCorrect: boolean;
+  responseMs: number;
+  telemetry?: any;
+  priorMastery: number;
+}) {
+  const conceptId = resolveQuestionConceptId(question);
+  const recentRows = db.prepare(`
+    SELECT *
+    FROM concept_attempt_history
+    WHERE identity_key = ? AND concept_id = ?
+    ORDER BY created_at DESC, id DESC
+    LIMIT 4
+  `).all(identityKey, conceptId) as any[];
+  const totalAttemptsRow = db.prepare(`
+    SELECT COUNT(*) as count
+    FROM concept_attempt_history
+    WHERE identity_key = ? AND concept_id = ?
+  `).get(identityKey, conceptId) as any;
+  const previousRow = recentRows[0] || null;
+  const stressIndex = computeHeuristicStressIndex(telemetry || {});
+  const engagementScore = computeHeuristicEngagementScore(telemetry || {});
+  const rollingRows = [
+    {
+      is_correct: isCorrect ? 1 : 0,
+      stress_index: stressIndex,
+      engagement_score: engagementScore,
+    },
+    ...recentRows,
+  ].slice(0, 5);
+  const lastSeenAt = previousRow?.created_at ? Date.parse(String(previousRow.created_at)) : NaN;
+  const daysSinceLastSeen = Number.isFinite(lastSeenAt)
+    ? Number((((Date.now() - lastSeenAt) / (24 * 60 * 60 * 1000))).toFixed(2))
+    : 0;
+  db.prepare(`
+    INSERT INTO concept_attempt_history (
+      identity_key,
+      concept_id,
+      session_id,
+      question_id,
+      is_correct,
+      response_ms,
+      stress_index,
+      engagement_score,
+      prior_mastery,
+      attempt_number,
+      days_since_last_seen,
+      rolling_accuracy_5,
+      rolling_stress_5,
+      rolling_engagement_5,
+      retention_24h,
+      retention_7d,
+      analytics_version,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `).run(
+    identityKey,
+    conceptId,
+    sessionId || null,
+    questionId,
+    isCorrect ? 1 : 0,
+    responseMs,
+    stressIndex,
+    engagementScore,
+    Number(priorMastery || 0),
+    Number(totalAttemptsRow?.count || 0) + 1,
+    daysSinceLastSeen,
+    Number((rollingRows.reduce((sum, row) => sum + (Number(row.is_correct || 0) ? 100 : 0), 0) / Math.max(1, rollingRows.length)).toFixed(1)),
+    Number((rollingRows.reduce((sum, row) => sum + Number(row.stress_index || 0), 0) / Math.max(1, rollingRows.length)).toFixed(1)),
+    Number((rollingRows.reduce((sum, row) => sum + Number(row.engagement_score || 0), 0) / Math.max(1, rollingRows.length)).toFixed(1)),
+    0,
+    0,
+    ANALYTICS_TELEMETRY_VERSION,
+  );
 }
 
 function averageNumbers(values: number[]) {
@@ -3207,6 +3996,7 @@ function normalizeQuestionForEngine(question: any, index = 0) {
   const tags = Array.isArray(question?.tags)
     ? question.tags.map((tag: unknown) => String(tag || '').trim()).filter(Boolean)
     : parseJsonArray(question?.tags_json).map((tag) => String(tag || '').trim()).filter(Boolean);
+  const metadata = deriveQuestionMetadata(question, { answers, tags, index });
 
   return {
     ...question,
@@ -3223,6 +4013,13 @@ function normalizeQuestionForEngine(question: any, index = 0) {
     time_limit_seconds: Number(question?.time_limit_seconds || 20),
     learning_objective: String(question?.learning_objective || ''),
     bloom_level: String(question?.bloom_level || ''),
+    concept_id: String(question?.concept_id || metadata.concept_id || ''),
+    stem_length_chars: Number(question?.stem_length_chars || metadata.stem_length_chars || 0),
+    prompt_complexity_score: Number(question?.prompt_complexity_score || metadata.prompt_complexity_score || 0),
+    reading_difficulty: String(question?.reading_difficulty || metadata.reading_difficulty || ''),
+    media_type: String(question?.media_type || metadata.media_type || ''),
+    distractor_profile_json: String(question?.distractor_profile_json || metadata.distractor_profile_json || '{}'),
+    question_position_policy: String(question?.question_position_policy || metadata.question_position_policy || 'fixed_pack_order'),
   };
 }
 
@@ -3232,6 +4029,7 @@ function buildEngineReadySessionPayload(payload: Record<string, any>): Record<st
     participants: Array.isArray(payload?.participants) ? payload.participants : [],
     answers: Array.isArray(payload?.answers) ? payload.answers : [],
     behavior_logs: Array.isArray(payload?.behavior_logs) ? payload.behavior_logs : [],
+    behavior_events: Array.isArray(payload?.behavior_events) ? payload.behavior_events : [],
     questions: (Array.isArray(payload?.questions) ? payload.questions : [])
       .map((question, index) => normalizeQuestionForEngine(question, index))
       .filter((question) => Number(question.id) > 0 && String(question.prompt || '').length > 0),
@@ -3319,6 +4117,7 @@ async function runClassDashboardWithFallback(payload: Record<string, any>) {
       questions: takeLastRows(Array.isArray(enginePayload.questions) ? enginePayload.questions : [], 250),
       answers: takeLastRows(Array.isArray(enginePayload.answers) ? enginePayload.answers : [], 500),
       behavior_logs: takeLastRows(Array.isArray(enginePayload.behavior_logs) ? enginePayload.behavior_logs : [], 600),
+      behavior_events: takeLastRows(Array.isArray(enginePayload.behavior_events) ? enginePayload.behavior_events : [], 1200),
       participants: takeLastRows(Array.isArray(enginePayload.participants) ? enginePayload.participants : [], 120),
     };
 
@@ -3360,6 +4159,9 @@ async function runStudentDashboardWithFallback(payload: Record<string, any>) {
       answers: takeLastRows(Array.isArray(payload.answers) ? payload.answers : [], 500),
       questions: reducedQuestions,
       behavior_logs: takeLastRows(Array.isArray(payload.behavior_logs) ? payload.behavior_logs : [], 600),
+      behavior_events: takeLastRows(Array.isArray(payload.behavior_events) ? payload.behavior_events : [], 1200),
+      concept_attempt_history: takeLastRows(Array.isArray(payload.concept_attempt_history) ? payload.concept_attempt_history : [], 180),
+      analytics_labels: takeLastRows(Array.isArray(payload.analytics_labels) ? payload.analytics_labels : [], 180),
       practice_attempts: takeLastRows(Array.isArray(payload.practice_attempts) ? payload.practice_attempts : [], 200),
       sessions: takeLastRows(Array.isArray(payload.sessions) ? payload.sessions : [], 36),
       packs: takeLastRows(Array.isArray(payload.packs) ? payload.packs : [], 24),
@@ -3533,6 +4335,9 @@ async function getOverallStudentAnalytics({
     answers: context.answers,
     questions: context.questions,
     behavior_logs: context.behavior_logs,
+    behavior_events: context.behavior_events,
+    concept_attempt_history: context.concept_attempt_history,
+    analytics_labels: context.analytics_labels,
     practice_attempts: context.practice_attempts,
     sessions: context.sessions,
     packs: context.packs,
@@ -3588,6 +4393,8 @@ async function getSessionStudentContext(sessionId: number, participantId: number
   const practice_attempts = studentScope.practice_attempts;
   const answers = classPayload.answers.filter((answer: any) => Number(answer.participant_id) === participantId);
   const behavior_logs = classPayload.behavior_logs.filter((log: any) => Number(log.participant_id) === participantId);
+  const behavior_events = (Array.isArray(classPayload.behavior_events) ? classPayload.behavior_events : [])
+    .filter((event: any) => Number(event.participant_id) === participantId);
 
   const sessionAnalytics = await runStudentDashboardWithFallback({
     nickname: studentScope.canonical_nickname,
@@ -3595,6 +4402,9 @@ async function getSessionStudentContext(sessionId: number, participantId: number
     answers,
     questions: classPayload.questions,
     behavior_logs,
+    behavior_events,
+    concept_attempt_history: studentScope.concept_attempt_history,
+    analytics_labels: studentScope.analytics_labels,
     practice_attempts,
     sessions: [classPayload.session],
     packs: classPayload.pack ? [classPayload.pack] : [],
@@ -3917,13 +4727,27 @@ async function createFollowUpPack({
       time_limit_seconds,
       question_order,
       learning_objective,
-      bloom_level
+      bloom_level,
+      concept_id,
+      stem_length_chars,
+      prompt_complexity_score,
+      reading_difficulty,
+      media_type,
+      distractor_profile_json,
+      question_position_policy
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertQuestions = db.transaction((draftQuestions: any[]) => {
     draftQuestions.forEach((question, index) => {
+      const answers = Array.isArray(question.answers)
+        ? question.answers
+        : parseJsonArray(question.answers_json);
+      const tags = Array.isArray(question.tags)
+        ? question.tags
+        : parseJsonArray(question.tags_json);
+      const metadata = deriveQuestionMetadata(question, { answers, tags, index });
       insertQuestion.run(
         packId,
         question.type || 'multiple_choice',
@@ -3938,6 +4762,13 @@ async function createFollowUpPack({
         index + 1,
         question.learning_objective || '',
         question.bloom_level || '',
+        question.concept_id || metadata.concept_id,
+        question.stem_length_chars || metadata.stem_length_chars,
+        question.prompt_complexity_score || metadata.prompt_complexity_score,
+        question.reading_difficulty || metadata.reading_difficulty,
+        question.media_type || metadata.media_type,
+        question.distractor_profile_json || metadata.distractor_profile_json,
+        question.question_position_policy || metadata.question_position_policy,
       );
     });
   });
@@ -4349,6 +5180,47 @@ router.post('/auth/login', async (req, res) => {
   const { session, token } = createTeacherSession({ email: teacherUser.email, provider: 'password' });
   issueTeacherSession(req, res, token);
   res.json({ ...session, token });
+});
+
+router.post('/auth/change-password', async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+  if (!enforceRateLimit(req, res, 'auth-change-password', 8, 10 * 60 * 1000)) return;
+
+  const sessionData = readTeacherSession(req);
+  if (!sessionData) {
+    clearTeacherSession(req, res);
+    return res.status(401).json({ error: 'Please sign in again before changing your password.' });
+  }
+
+  const teacherUser = await getTeacherUserByEmail(sessionData.email);
+  if (!teacherUser?.id) {
+    clearTeacherSession(req, res);
+    return res.status(401).json({ error: 'Teacher account no longer exists. Please sign in again.' });
+  }
+
+  if (sessionData.provider !== 'password' || !teacherUser.password_hash) {
+    return res.status(400).json({ error: 'Password changes are only available for email and password accounts.' });
+  }
+
+  const currentPassword = String(req.body?.currentPassword || '');
+  const newPassword = String(req.body?.newPassword || '');
+  if (!verifyTeacherPassword(currentPassword, teacherUser.password_hash)) {
+    return res.status(401).json({ error: 'Current password is incorrect.' });
+  }
+
+  const passwordError = validateTeacherPassword(newPassword);
+  if (passwordError) {
+    return res.status(400).json({ error: passwordError });
+  }
+
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ error: 'Choose a new password that is different from the current password.' });
+  }
+
+  const updatedTeacher = await updateTeacherPassword(Number(teacherUser.id), newPassword);
+  const { session, token } = createTeacherSession({ email: updatedTeacher.email, provider: 'password' });
+  issueTeacherSession(req, res, token);
+  res.json({ success: true, ...session, token });
 });
 
 router.post('/auth/social', async (req, res) => {
@@ -6106,11 +6978,21 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, async (req, r
         time_limit_seconds,
         question_order,
         learning_objective,
-        bloom_level
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        bloom_level,
+        concept_id,
+        stem_length_chars,
+        prompt_complexity_score,
+        reading_difficulty,
+        media_type,
+        distractor_profile_json,
+        question_position_policy
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     questions.forEach((question: any, index: number) => {
+      const answers = parseJsonArray(question.answers_json);
+      const tags = parseJsonArray(question.tags_json);
+      const metadata = deriveQuestionMetadata(question, { answers, tags, index });
       insertQuestion.run(
         newPackId,
         question.type || 'multiple_choice',
@@ -6125,6 +7007,13 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, async (req, r
         Number(question.question_order || index),
         question.learning_objective || '',
         question.bloom_level || '',
+        question.concept_id || metadata.concept_id,
+        question.stem_length_chars || metadata.stem_length_chars,
+        question.prompt_complexity_score || metadata.prompt_complexity_score,
+        question.reading_difficulty || metadata.reading_difficulty,
+        question.media_type || metadata.media_type,
+        question.distractor_profile_json || metadata.distractor_profile_json,
+        question.question_position_policy || metadata.question_position_policy,
       );
     });
 
@@ -6143,6 +7032,13 @@ router.post('/teacher/packs/:id/duplicate', requireTeacherSession, async (req, r
     question_order: Number(question.question_order || index),
     learning_objective: question.learning_objective || '',
     bloom_level: question.bloom_level || '',
+    concept_id: question.concept_id || '',
+    stem_length_chars: Number(question.stem_length_chars || 0),
+    prompt_complexity_score: Number(question.prompt_complexity_score || 0),
+    reading_difficulty: question.reading_difficulty || '',
+    media_type: question.media_type || '',
+    distractor_profile_json: question.distractor_profile_json || '',
+    question_position_policy: question.question_position_policy || '',
   })));
   await createPackVersionSnapshot(newPackId, teacherUserId, 'Initial version', 'duplicate');
 
@@ -6908,6 +7804,30 @@ router.put('/sessions/:id/state', requireTeacherSession, async (req, res) => {
       ? clampNumber(req.body?.current_question_index, 0, Math.max(0, questionCount - 1), 0)
       : 0;
 
+  const targetQuestion = status === 'QUESTION_ACTIVE'
+    ? (await db
+        .prepare('SELECT id FROM questions WHERE quiz_pack_id = ? ORDER BY question_order ASC, id ASC LIMIT 1 OFFSET ?')
+        .get(session.quiz_pack_id, current_question_index)) as any
+    : null;
+  let roundResetMeta: Record<string, unknown> | null = null;
+
+  if (status === 'QUESTION_ACTIVE' && Number(targetQuestion?.id || 0) > 0) {
+    const targetQuestionId = Number(targetQuestion.id);
+    const deletedBehaviorEvents = db.prepare('DELETE FROM student_behavior_events WHERE session_id = ? AND question_id = ?').run(sessionId, targetQuestionId);
+    const deletedBehaviorLogs = db.prepare('DELETE FROM student_behavior_logs WHERE session_id = ? AND question_id = ?').run(sessionId, targetQuestionId);
+    const deletedLabels = db.prepare('DELETE FROM analytics_labels WHERE session_id = ? AND question_id = ?').run(sessionId, targetQuestionId);
+    const deletedConceptHistory = db.prepare('DELETE FROM concept_attempt_history WHERE session_id = ? AND question_id = ?').run(sessionId, targetQuestionId);
+    const deletedAnswers = db.prepare('DELETE FROM answers WHERE session_id = ? AND question_id = ?').run(sessionId, targetQuestionId);
+    roundResetMeta = {
+      question_id: targetQuestionId,
+      answers_deleted: Number(deletedAnswers.changes || 0),
+      behavior_logs_deleted: Number(deletedBehaviorLogs.changes || 0),
+      behavior_events_deleted: Number(deletedBehaviorEvents.changes || 0),
+      analytics_labels_deleted: Number(deletedLabels.changes || 0),
+      concept_attempt_history_deleted: Number(deletedConceptHistory.changes || 0),
+    };
+  }
+
   const update = db.prepare(`
     UPDATE sessions
     SET
@@ -6968,6 +7888,7 @@ router.put('/sessions/:id/state', requireTeacherSession, async (req, res) => {
       success: true,
       session: hydratedSession,
       state: stateChangePayload,
+      round_reset: roundResetMeta,
     });
     return;
   }
@@ -6978,6 +7899,284 @@ router.put('/sessions/:id/state', requireTeacherSession, async (req, res) => {
 // --- Student Routes ---
 
 // Join a session
+router.post('/sessions/:pin/student-entry', async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+
+  const pin = sanitizeSessionPin(req.params.pin);
+  const studentSession = readStudentSession(req);
+  const studentUserId = Math.max(0, Math.floor(Number(studentSession?.studentUserId || 0)));
+  if (!studentUserId) {
+    return res.status(401).json({ error: 'Student authentication required' });
+  }
+  if (!enforceRateLimit(req, res, 'student-linked-entry', 30, 5 * 60 * 1000, studentUserId, pin)) return;
+
+  const activeStudentUser = await getStudentUserById(studentUserId);
+  if (!activeStudentUser?.id || String(activeStudentUser.status || 'active') !== 'active') {
+    clearStudentSession(req, res);
+    return res.status(401).json({ error: 'Student account no longer exists. Please sign in again.' });
+  }
+
+  const fallbackDisplayName =
+    activeStudentUser.display_name ||
+    studentSession?.displayName ||
+    activeStudentUser.email ||
+    'Student';
+  const preferredNickname = resolveLinkedStudentEntryNickname(req.body?.nickname, fallbackDisplayName);
+  const identityKey = resolveStudentIdentityKey(req.body?.identity_key, preferredNickname || fallbackDisplayName);
+
+  await linkStudentIdentity({
+    studentUserId,
+    identityKey,
+    source: 'account_join',
+  });
+  await claimRosterRowsForStudentUser({
+    studentUserId,
+    email: String(activeStudentUser.email || ''),
+  });
+
+  const session = hydrateSessionRow(await db.prepare('SELECT * FROM sessions WHERE pin = ?').get(pin));
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+  if (String(session.status || '').toUpperCase() === 'ENDED') {
+    return res.status(409).json({ error: 'This live session has already ended.' });
+  }
+
+  try {
+    const entryResult = db.transaction(() => {
+      const latestSession = hydrateSessionRow(db.prepare('SELECT * FROM sessions WHERE id = ?').get(session.id));
+      if (!latestSession) {
+        throw new Error('Session not found');
+      }
+      if (String(latestSession.status || '').toUpperCase() === 'ENDED') {
+        throw new Error('This live session has already ended.');
+      }
+
+      let matchedClassStudent: any = null;
+      if (Number(latestSession.teacher_class_id || 0) > 0) {
+        matchedClassStudent = findRosterRowForStudentUserInClass({
+          classId: Number(latestSession.teacher_class_id || 0),
+          studentUserId,
+          email: String(activeStudentUser.email || ''),
+        });
+        if (!matchedClassStudent?.id) {
+          throw new Error('This student account is not linked to this class yet.');
+        }
+        matchedClassStudent = markRosterRowClaimed({
+          rosterStudentId: Number(matchedClassStudent.id),
+          studentUserId,
+          touchSeenAt: true,
+        });
+      }
+
+      const existingParticipant = findLinkedParticipantForSession({
+        sessionId: Number(latestSession.id || 0),
+        studentUserId,
+        classStudentId: Number(matchedClassStudent?.id || 0) || null,
+      });
+
+      if (existingParticipant?.id) {
+        db
+          .prepare(`
+            UPDATE participants
+            SET identity_key = ?,
+                student_user_id = ?,
+                class_student_id = COALESCE(?, class_student_id),
+                join_mode = CASE
+                  WHEN COALESCE(student_user_id, 0) > 0 THEN 'account'
+                  ELSE 'claimed_anonymous'
+                END,
+                display_name_snapshot = COALESCE(NULLIF(display_name_snapshot, ''), ?)
+            WHERE id = ?
+          `)
+          .run(
+            identityKey,
+            studentUserId,
+            Number(matchedClassStudent?.id || 0) || null,
+            preferredNickname,
+            Number(existingParticipant.id),
+          );
+
+        const refreshedExisting = db
+          .prepare('SELECT * FROM participants WHERE id = ? LIMIT 1')
+          .get(Number(existingParticipant.id)) as any;
+
+        return {
+          participant_id: Number(refreshedExisting?.id || existingParticipant.id),
+          total: Number(db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(latestSession.id).count || 0),
+          assignedTeamId: Number(refreshedExisting?.team_id || existingParticipant.team_id || 0),
+          assignedTeamName: refreshedExisting?.team_name || existingParticipant.team_name,
+          seatIndex: Number(refreshedExisting?.seat_index || existingParticipant.seat_index || 0),
+          identityKey: getParticipantIdentityKey(refreshedExisting || existingParticipant),
+          studentUserId: Number(refreshedExisting?.student_user_id || existingParticipant.student_user_id || 0) || null,
+          classStudentId: Number(refreshedExisting?.class_student_id || existingParticipant.class_student_id || 0) || null,
+          joinMode: String(refreshedExisting?.join_mode || existingParticipant.join_mode || 'account'),
+          accountLinked: Boolean(Number(refreshedExisting?.student_user_id || existingParticipant.student_user_id || 0)),
+          profileMode: Number(refreshedExisting?.student_user_id || existingParticipant.student_user_id || 0) > 0 ? 'longitudinal' : 'session-only',
+          classStudentName: String(matchedClassStudent?.name || ''),
+          classStudentEmail: String(matchedClassStudent?.email || ''),
+          inviteStatus: String(matchedClassStudent?.invite_status || 'none'),
+          displayNameSnapshot: String(refreshedExisting?.display_name_snapshot || refreshedExisting?.nickname || preferredNickname),
+          rejoined: true,
+          entryMode: 'resume',
+          gameType: String(latestSession.game_type || 'classic_quiz'),
+          sessionId: Number(latestSession.id || 0),
+        };
+      }
+
+      if (String(latestSession.status || '').toUpperCase() !== 'LOBBY') {
+        throw new Error('The live game is already underway. Resume is available only after you have already joined this room.');
+      }
+
+      if (preferredNickname.length < 2) {
+        throw new Error('Display name must be at least 2 characters.');
+      }
+
+      const currentCount = Number(
+        db.prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ?').get(latestSession.id).count || 0,
+      );
+      if (currentCount >= MAX_SESSION_PARTICIPANTS) {
+        throw new Error('Session capacity reached');
+      }
+
+      const assignedTeamId = isTeamGame(latestSession.game_type)
+        ? (currentCount % Math.max(2, latestSession.team_count || 4)) + 1
+        : 0;
+      const assignedTeamName = assignedTeamId > 0 ? buildTeamIdentity(assignedTeamId) : null;
+      const seatIndex =
+        assignedTeamId > 0
+          ? Number(
+              db
+                .prepare('SELECT COUNT(*) as count FROM participants WHERE session_id = ? AND team_id = ?')
+                .get(latestSession.id, assignedTeamId).count || 0,
+            ) + 1
+          : currentCount + 1;
+
+      const info = db
+        .prepare(`
+          INSERT INTO participants (
+            session_id,
+            identity_key,
+            nickname,
+            student_user_id,
+            class_student_id,
+            join_mode,
+            display_name_snapshot,
+            team_id,
+            team_name,
+            seat_index
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          latestSession.id,
+          identityKey,
+          preferredNickname,
+          studentUserId,
+          Number(matchedClassStudent?.id || 0) || null,
+          'account',
+          preferredNickname,
+          assignedTeamId,
+          assignedTeamName,
+          seatIndex,
+        );
+
+      return {
+        participant_id: Number(info.lastInsertRowid),
+        total: currentCount + 1,
+        assignedTeamId,
+        assignedTeamName,
+        seatIndex,
+        identityKey,
+        studentUserId,
+        classStudentId: Number(matchedClassStudent?.id || 0) || null,
+        joinMode: 'account',
+        accountLinked: true,
+        profileMode: 'longitudinal',
+        classStudentName: String(matchedClassStudent?.name || ''),
+        classStudentEmail: String(matchedClassStudent?.email || ''),
+        inviteStatus: String(matchedClassStudent?.invite_status || 'none'),
+        displayNameSnapshot: preferredNickname,
+        rejoined: false,
+        entryMode: 'join',
+        gameType: String(latestSession.game_type || 'classic_quiz'),
+        sessionId: Number(latestSession.id || 0),
+      };
+    })();
+
+    const { token: participantToken } = createParticipantAccessToken({
+      participantId: entryResult.participant_id,
+      sessionId: entryResult.sessionId,
+      identityKey: entryResult.identityKey,
+      nickname: entryResult.displayNameSnapshot || preferredNickname,
+    });
+
+    if (!entryResult.rejoined) {
+      broadcastToSession(entryResult.sessionId, 'PARTICIPANT_JOINED', {
+        nickname: entryResult.displayNameSnapshot || preferredNickname,
+        participant_id: entryResult.participant_id,
+        total_participants: entryResult.total,
+        team_id: entryResult.assignedTeamId,
+        team_name: entryResult.assignedTeamName,
+        seat_index: entryResult.seatIndex,
+        student_user_id: entryResult.studentUserId,
+        class_student_id: entryResult.classStudentId,
+        join_mode: entryResult.joinMode,
+        account_linked: entryResult.accountLinked,
+        profile_mode: entryResult.profileMode,
+        display_name_snapshot: entryResult.displayNameSnapshot || preferredNickname,
+        class_student_name: entryResult.classStudentName,
+        class_student_email: entryResult.classStudentEmail,
+        invite_status: entryResult.inviteStatus,
+        game_type: entryResult.gameType,
+      });
+    }
+
+    res.json({
+      participant_id: entryResult.participant_id,
+      session_id: entryResult.sessionId,
+      game_type: entryResult.gameType,
+      team_id: entryResult.assignedTeamId,
+      team_name: entryResult.assignedTeamName,
+      seat_index: entryResult.seatIndex,
+      identity_key: entryResult.identityKey,
+      student_user_id: entryResult.studentUserId,
+      class_student_id: entryResult.classStudentId,
+      join_mode: entryResult.joinMode,
+      account_linked: entryResult.accountLinked,
+      profile_mode: entryResult.profileMode,
+      display_name_snapshot: entryResult.displayNameSnapshot || preferredNickname,
+      class_student_name: entryResult.classStudentName,
+      class_student_email: entryResult.classStudentEmail,
+      invite_status: entryResult.inviteStatus,
+      participant_token: participantToken,
+      entry_mode: entryResult.entryMode,
+    });
+  } catch (error: any) {
+    const message = String(error?.message || '');
+    if (message === 'Session capacity reached') {
+      return res.status(409).json({ error: message });
+    }
+    if (message === 'This live session has already ended.') {
+      return res.status(409).json({ error: message });
+    }
+    if (message === 'Session not found') {
+      return res.status(404).json({ error: message });
+    }
+    if (message === 'This student account is not linked to this class yet.') {
+      return res.status(403).json({ error: message });
+    }
+    if (message.includes('already underway')) {
+      return res.status(409).json({ error: message });
+    }
+    if (message.includes('Display name')) {
+      return res.status(400).json({ error: message });
+    }
+    console.error('[ERROR] Linked student entry failed:', error);
+    return respondWithServerError(res, 'Failed to enter the live session');
+  }
+});
+
 router.post('/sessions/:pin/join', async (req, res) => {
   if (!enforceTrustedOrigin(req, res)) return;
   const pin = sanitizeSessionPin(req.params.pin);
@@ -7278,7 +8477,20 @@ router.post('/sessions/:pin/answer', async (req, res) => {
     }
 
     const question = (await db
-          .prepare('SELECT correct_index, time_limit_seconds, tags_json, answers_json FROM questions WHERE id = ? AND quiz_pack_id = ?')
+          .prepare(`
+            SELECT
+              id,
+              correct_index,
+              time_limit_seconds,
+              tags_json,
+              answers_json,
+              learning_objective,
+              bloom_level,
+              concept_id,
+              image_url
+            FROM questions
+            WHERE id = ? AND quiz_pack_id = ?
+          `)
           .get(question_id, session.quiz_pack_id)) as any;
     if (!question) return res.status(404).json({ error: 'Question not found' });
 
@@ -7295,6 +8507,8 @@ router.post('/sessions/:pin/answer', async (req, res) => {
     const isCorrect = Number(chosen_index) === Number(question.correct_index);
     const modeConfig = getSessionModeConfig(session);
     const effectiveTimeLimitSeconds = resolveQuestionTimeLimit(question, session);
+    const identityKey = getParticipantIdentityKey(participant);
+    const currentMastery = (await getMasteryRows(identityKey));
     const outcome = await runPythonEngine<{
       score_awarded: number;
       mastery_updates: Array<{ tag: string; score: number }>;
@@ -7305,7 +8519,7 @@ router.post('/sessions/:pin/answer', async (req, res) => {
       time_limit_seconds: effectiveTimeLimitSeconds,
       scoring_profile: modeConfig.scoring_profile || getGameMode(session.game_type).defaultModeConfig.scoring_profile || 'standard',
       tags: parseJsonArray(question.tags_json),
-      current_mastery: (await getMasteryRows(getParticipantIdentityKey(participant))),
+      current_mastery: currentMastery,
     });
     const adjustedScoreAwarded = Number(outcome.score_awarded || 0) + resolveConfidenceBonus(session.game_type, isCorrect, confidence_level);
 
@@ -7316,9 +8530,26 @@ router.post('/sessions/:pin/answer', async (req, res) => {
         answer_path_json, focus_loss_count, idle_time_ms, blur_time_ms,
         longest_idle_streak_ms, pointer_activity_count, keyboard_activity_count,
         touch_activity_count, same_answer_reclicks, option_dwell_json,
+        option_hover_counts_json, outside_answer_pointer_moves, rapid_pointer_jumps,
         submission_retry_count, reconnect_count, visibility_interruptions,
-        network_degraded, device_profile
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        network_degraded, device_profile, analytics_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertBehaviorEvent = db.prepare(`
+      INSERT INTO student_behavior_events (
+        session_id,
+        question_id,
+        participant_id,
+        event_type,
+        event_ts_ms,
+        event_seq,
+        option_index,
+        payload_json,
+        network_latency_ms,
+        client_render_delay_ms,
+        device_profile,
+        analytics_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const writeResult = db.transaction(() => {
@@ -7373,12 +8604,33 @@ router.post('/sessions/:pin/answer', async (req, res) => {
           telemetry.touch_activity_count,
           telemetry.same_answer_reclicks,
           telemetry.option_dwell_json,
+          telemetry.option_hover_counts_json,
+          telemetry.outside_answer_pointer_moves,
+          telemetry.rapid_pointer_jumps,
           telemetry.submission_retry_count,
           telemetry.reconnect_count,
           telemetry.visibility_interruptions,
           telemetry.network_degraded ? 1 : 0,
           telemetry.device_profile,
+          telemetry.analytics_version || ANALYTICS_TELEMETRY_VERSION,
         );
+
+        for (const event of Array.isArray(telemetry.events) ? telemetry.events : []) {
+          insertBehaviorEvent.run(
+            session.id,
+            question_id,
+            participant_id,
+            event.event_type,
+            event.event_ts_ms,
+            event.event_seq,
+            Number.isFinite(Number(event.option_index)) ? Number(event.option_index) : null,
+            event.payload_json,
+            event.network_latency_ms,
+            event.client_render_delay_ms,
+            event.device_profile || telemetry.device_profile || '',
+            event.analytics_version || telemetry.analytics_version || ANALYTICS_TELEMETRY_VERSION,
+          );
+        }
       }
 
       return {
@@ -7388,7 +8640,38 @@ router.post('/sessions/:pin/answer', async (req, res) => {
     })();
 
     if (!writeResult.duplicate && outcome.mastery_updates.length > 0) {
-      applyMasteryUpdates(getParticipantIdentityKey(authorized.participant), authorized.participant.nickname, outcome.mastery_updates);
+      applyMasteryUpdates(identityKey, authorized.participant.nickname, outcome.mastery_updates);
+    }
+
+    if (!writeResult.duplicate) {
+      const previousAnswer = (await db.prepare(`
+        SELECT session_id, question_id, participant_id, is_correct
+        FROM answers
+        WHERE participant_id = ? AND session_id = ? AND question_id <> ?
+        ORDER BY id DESC
+        LIMIT 1
+      `).get(participant_id, session.id, question_id)) as any;
+      recordAutomaticAnalyticsLabels({
+        sessionId: session.id,
+        questionId: question_id,
+        participantId: participant_id,
+        identityKey,
+        isCorrect,
+        confidenceLevel: confidence_level,
+        telemetry,
+        question,
+        previousAnswer,
+      });
+      appendConceptAttemptHistory({
+        identityKey,
+        question,
+        sessionId: session.id,
+        questionId: question_id,
+        isCorrect,
+        responseMs: response_ms,
+        telemetry,
+        priorMastery: resolvePriorMasteryForConcept(currentMastery, question),
+      });
     }
 
     const totalAnswers = Number(
@@ -7547,6 +8830,7 @@ router.get('/analytics/class/:sessionId', async (req, res) => {
           {
             learning_objective: question.learning_objective || '',
             bloom_level: question.bloom_level || '',
+            concept_id: question.concept_id || '',
           },
         ]),
       );
@@ -8486,6 +9770,112 @@ router.get('/analytics/student/:nickname', async (req, res) => {
   }
 });
 
+router.post('/analytics/labels', async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+
+  try {
+    const rawSessionId = parsePositiveInt(req.body?.session_id ?? req.body?.sessionId);
+    const rawQuestionId = parsePositiveInt(req.body?.question_id ?? req.body?.questionId);
+    const rawParticipantId = parsePositiveInt(req.body?.participant_id ?? req.body?.participantId);
+    const labelType = sanitizeLine(req.body?.label_type ?? req.body?.labelType, 64);
+    const labelValue = sanitizeLine(req.body?.label_value ?? req.body?.labelValue, 120);
+    if (!labelType || !labelValue) {
+      return res.status(400).json({ error: 'label_type and label_value are required' });
+    }
+
+    const metadata =
+      req.body?.metadata && typeof req.body.metadata === 'object' && !Array.isArray(req.body.metadata)
+        ? req.body.metadata
+        : {};
+    const providedIdentityKey = sanitizeLine(req.body?.identity_key ?? req.body?.identityKey, 160);
+    const teacherSession = readTeacherSession(req);
+    const authorizedParticipant = await getAuthorizedParticipantAccess(req);
+    let sessionId = rawSessionId || null;
+    let questionId = rawQuestionId || null;
+    let participantId = rawParticipantId || null;
+    let identityKey = providedIdentityKey || null;
+    let source = 'system_auto';
+
+    if (teacherSession?.email) {
+      const teacherUserId = Number((await getTeacherUserByEmail(teacherSession.email))?.id || 0);
+      if (!teacherUserId) {
+        return res.status(401).json({ error: 'Teacher authentication required' });
+      }
+      if (!enforceRateLimit(req, res, 'analytics-label-teacher', 180, 5 * 60 * 1000, teacherUserId, sessionId, participantId, questionId, labelType)) return;
+
+      let participantRow = null as any;
+      if (participantId) {
+        participantRow = (await db.prepare('SELECT * FROM participants WHERE id = ?').get(participantId)) as any;
+        if (!participantRow) {
+          return res.status(404).json({ error: 'Participant not found' });
+        }
+        sessionId = sessionId || Number(participantRow.session_id || 0) || null;
+        identityKey = identityKey || getParticipantIdentityKey(participantRow);
+      }
+      if (!sessionId) {
+        return res.status(400).json({ error: 'session_id is required for teacher labels' });
+      }
+      const ownedSession = await getTeacherOwnedSession(sessionId, teacherUserId);
+      if (!ownedSession) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
+      if (questionId) {
+        const questionRow = (await db.prepare(`
+          SELECT id
+          FROM questions
+          WHERE id = ? AND quiz_pack_id = ?
+        `).get(questionId, ownedSession.quiz_pack_id)) as any;
+        if (!questionRow) {
+          return res.status(404).json({ error: 'Question not found in this session pack' });
+        }
+      }
+      source = sanitizeLine(req.body?.source, 40) || 'teacher_review';
+    } else if (authorizedParticipant) {
+      const participant = authorizedParticipant.participant as any;
+      if (!enforceRateLimit(req, res, 'analytics-label-student', 120, 5 * 60 * 1000, participant.id, rawQuestionId, labelType)) return;
+      if (!STUDENT_SELF_REPORT_LABEL_TYPES.has(labelType)) {
+        return res.status(403).json({ error: 'Students can only submit self-report analytics labels' });
+      }
+      if (participantId && Number(participant.id) !== Number(participantId)) {
+        return res.status(403).json({ error: 'Cannot label another participant' });
+      }
+      sessionId = sessionId || Number(participant.session_id || 0) || null;
+      participantId = Number(participant.id || 0) || null;
+      identityKey = identityKey || getParticipantIdentityKey(participant);
+      source = 'student_self_report';
+    } else {
+      return res.status(401).json({ error: 'Teacher or participant authentication required' });
+    }
+
+    insertAnalyticsLabel({
+      sessionId,
+      questionId,
+      participantId,
+      identityKey,
+      labelType,
+      labelValue,
+      source,
+      metadata,
+    });
+
+    res.json({
+      success: true,
+      label: {
+        session_id: sessionId,
+        question_id: questionId,
+        participant_id: participantId,
+        identity_key: identityKey,
+        label_type: labelType,
+        label_value: labelValue,
+        source,
+      },
+    });
+  } catch (error: any) {
+    console.error('[ERROR] Analytics label write failed:', error);
+    respondWithServerError(res, 'Failed to save analytics label');
+  }
+});
+
 // --- Adaptive Practice ---
 router.get('/student/me/practice', requireStudentSession, async (req, res) => {
   try {
@@ -8506,17 +9896,45 @@ router.get('/student/me/practice', requireStudentSession, async (req, res) => {
     const requestedFocusTags = uniqueStrings(String(req.query?.focus_tags || '').split(',').map((tag) => sanitizeLine(tag, 40))).slice(0, 4);
     const requestedMissionId = sanitizeLine(req.query?.mission, 40);
     const requestedMissionLabel = sanitizeLine(req.query?.mission_label, 80);
-    const overallAnalytics = await getOverallStudentAnalytics({
-      studentUserId,
-      displayName: studentUser.display_name || studentUser.email,
-      nickname: studentUser.display_name || studentUser.email,
-    });
-    const studentContext = await buildStudentAnalyticsContext({
-      studentUserId,
-      displayName: studentUser.display_name || studentUser.email,
-      nickname: studentUser.display_name || studentUser.email,
-    });
-    const studentMemory = overallAnalytics?.student_memory || (await readStudentMemorySnapshot(studentContext.primary_identity_key));
+    let overallAnalytics: any = null;
+    try {
+      overallAnalytics = await getOverallStudentAnalytics({
+        studentUserId,
+        displayName: studentUser.display_name || studentUser.email,
+        nickname: studentUser.display_name || studentUser.email,
+      });
+    } catch (analyticsError: any) {
+      console.error('[WARN] Student account practice analytics fallback engaged:', analyticsError);
+    }
+
+    let studentContext: any = null;
+    try {
+      studentContext = await buildStudentAnalyticsContext({
+        studentUserId,
+        displayName: studentUser.display_name || studentUser.email,
+        nickname: studentUser.display_name || studentUser.email,
+      });
+    } catch (contextError: any) {
+      console.error('[WARN] Student account practice context fallback engaged:', contextError);
+    }
+
+    const safeStudentContext = {
+      canonical_nickname: sanitizeStudentDisplayName(studentUser.display_name || studentUser.email) || 'Student',
+      primary_identity_key: resolveStudentIdentityKey('', studentUser.display_name || studentUser.email || 'student'),
+      questions: Array.isArray(studentContext?.questions) ? studentContext.questions : [],
+      mastery: Array.isArray(studentContext?.mastery) ? studentContext.mastery : [],
+      practice_attempts: Array.isArray(studentContext?.practice_attempts) ? studentContext.practice_attempts : [],
+    };
+
+    let studentMemory = overallAnalytics?.student_memory || null;
+    if (!studentMemory && safeStudentContext.primary_identity_key) {
+      try {
+        studentMemory = await readStudentMemorySnapshot(safeStudentContext.primary_identity_key);
+      } catch (memoryError: any) {
+        console.error('[WARN] Student account practice memory fallback engaged:', memoryError);
+      }
+    }
+
     const recommendedFocusTags = Array.isArray(studentMemory?.recommended_next_step?.focus_tags)
       ? studentMemory.recommended_next_step.focus_tags
       : [];
@@ -8531,14 +9949,14 @@ router.get('/student/me/practice', requireStudentSession, async (req, res) => {
           : recommendedAction === 'keep_momentum'
             ? 'momentum'
             : '');
-    const availableQuestions = studentContext.questions.length > 0
-      ? studentContext.questions
+    const availableQuestions = safeStudentContext.questions.length > 0
+      ? safeStudentContext.questions
       : ((await db.prepare('SELECT * FROM questions').all()) as any[]);
     const practiceSet = await runPracticeSetWithFallback({
-      nickname: studentContext.canonical_nickname,
-      mastery: studentContext.mastery,
+      nickname: safeStudentContext.canonical_nickname,
+      mastery: safeStudentContext.mastery,
       questions: availableQuestions,
-      practice_attempts: studentContext.practice_attempts,
+      practice_attempts: safeStudentContext.practice_attempts,
       count: requestedCount,
       focus_tags: focusTags,
     });
@@ -8602,7 +10020,21 @@ router.post('/student/me/practice/answer', requireStudentSession, async (req, re
       nickname: studentUser.display_name || studentUser.email,
     });
     const question = (await db
-      .prepare('SELECT correct_index, explanation, tags_json, time_limit_seconds, answers_json FROM questions WHERE id = ?')
+      .prepare(`
+        SELECT
+          id,
+          correct_index,
+          explanation,
+          tags_json,
+          time_limit_seconds,
+          answers_json,
+          learning_objective,
+          bloom_level,
+          concept_id,
+          image_url
+        FROM questions
+        WHERE id = ?
+      `)
       .get(question_id)) as any;
     if (!question) return res.status(404).json({ error: 'Question not found' });
     const answers = parseJsonArray(question.answers_json);
@@ -8612,6 +10044,7 @@ router.post('/student/me/practice/answer', requireStudentSession, async (req, re
     const chosen_index = Math.floor(chosenIndexValue);
     const isCorrect = Number(chosen_index) === Number(question.correct_index);
 
+    const currentMastery = studentContext.mastery;
     const outcome = await runPythonEngine<{
       mastery_updates: Array<{ tag: string; score: number }>;
     }>('answer-outcome', {
@@ -8620,7 +10053,7 @@ router.post('/student/me/practice/answer', requireStudentSession, async (req, re
       response_ms,
       time_limit_seconds: question.time_limit_seconds,
       tags: parseJsonArray(question.tags_json),
-      current_mastery: studentContext.mastery,
+      current_mastery: currentMastery,
     });
 
     await db.prepare(`
@@ -8637,6 +10070,29 @@ router.post('/student/me/practice/answer', requireStudentSession, async (req, re
     if (outcome.mastery_updates.length > 0) {
       applyMasteryUpdates(studentContext.primary_identity_key, studentContext.canonical_nickname, outcome.mastery_updates);
     }
+
+    const previousPractice = (await db.prepare(`
+      SELECT question_id
+      FROM practice_attempts
+      WHERE identity_key = ? AND question_id <> ?
+      ORDER BY id DESC
+      LIMIT 1
+    `).get(studentContext.primary_identity_key, question_id)) as any;
+    recordAutomaticAnalyticsLabels({
+      questionId: question_id,
+      identityKey: studentContext.primary_identity_key,
+      isCorrect,
+      question,
+      previousAnswer: previousPractice,
+    });
+    appendConceptAttemptHistory({
+      identityKey: studentContext.primary_identity_key,
+      question,
+      questionId: question_id,
+      isCorrect,
+      responseMs: response_ms,
+      priorMastery: resolvePriorMasteryForConcept(currentMastery, question),
+    });
 
     res.json({
       is_correct: isCorrect,
@@ -8733,7 +10189,21 @@ router.post('/practice/:nickname/answer', async (req, res) => {
     if (!enforceRateLimit(req, res, 'practice-answer', 120, 5 * 60 * 1000, authorized.participant.id, question_id)) return;
 
     const question = (await db
-          .prepare('SELECT correct_index, explanation, tags_json, time_limit_seconds, answers_json FROM questions WHERE id = ?')
+          .prepare(`
+            SELECT
+              id,
+              correct_index,
+              explanation,
+              tags_json,
+              time_limit_seconds,
+              answers_json,
+              learning_objective,
+              bloom_level,
+              concept_id,
+              image_url
+            FROM questions
+            WHERE id = ?
+          `)
           .get(question_id)) as any;
     if (!question) return res.status(404).json({ error: 'Question not found' });
     const answers = parseJsonArray(question.answers_json);
@@ -8743,6 +10213,7 @@ router.post('/practice/:nickname/answer', async (req, res) => {
     const chosen_index = Math.floor(chosenIndexValue);
 
     const isCorrect = Number(chosen_index) === Number(question.correct_index);
+    const currentMastery = (await getMasteryRows(identityKey));
     const outcome = await runPythonEngine<{
       mastery_updates: Array<{ tag: string; score: number }>;
     }>('answer-outcome', {
@@ -8751,7 +10222,7 @@ router.post('/practice/:nickname/answer', async (req, res) => {
       response_ms,
       time_limit_seconds: question.time_limit_seconds,
       tags: parseJsonArray(question.tags_json),
-      current_mastery: (await getMasteryRows(identityKey)),
+      current_mastery: currentMastery,
     });
 
     (await db.prepare(`
@@ -8762,6 +10233,29 @@ router.post('/practice/:nickname/answer', async (req, res) => {
     if (outcome.mastery_updates.length > 0) {
       applyMasteryUpdates(identityKey, authorized.participant.nickname, outcome.mastery_updates);
     }
+
+    const previousPractice = (await db.prepare(`
+      SELECT question_id
+      FROM practice_attempts
+      WHERE identity_key = ? AND question_id <> ?
+      ORDER BY id DESC
+      LIMIT 1
+    `).get(identityKey, question_id)) as any;
+    recordAutomaticAnalyticsLabels({
+      questionId: question_id,
+      identityKey,
+      isCorrect,
+      question,
+      previousAnswer: previousPractice,
+    });
+    appendConceptAttemptHistory({
+      identityKey,
+      question,
+      questionId: question_id,
+      isCorrect,
+      responseMs: response_ms,
+      priorMastery: resolvePriorMasteryForConcept(currentMastery, question),
+    });
 
     res.json({
       is_correct: isCorrect,
@@ -8836,6 +10330,14 @@ router.get('/reports/student/:participant_id', async (req, res) => {
       answers: (await db.prepare('SELECT * FROM answers WHERE participant_id = ?').all(participantId)),
       questions,
       behavior_logs: (await db.prepare('SELECT * FROM student_behavior_logs WHERE participant_id = ?').all(participantId)),
+      behavior_events: (await db.prepare(`
+        SELECT *
+        FROM student_behavior_events
+        WHERE participant_id = ?
+        ORDER BY session_id ASC, question_id ASC, event_seq ASC, id ASC
+      `).all(participantId)),
+      concept_attempt_history: (await getConceptAttemptHistoryForIdentityKeys([getParticipantIdentityKey(participant)])),
+      analytics_labels: (await getAnalyticsLabelsForIdentityKeys([getParticipantIdentityKey(participant)])),
       practice_attempts: (await db.prepare('SELECT * FROM practice_attempts WHERE identity_key = ?').all(getParticipantIdentityKey(participant))),
       sessions: liveSession ? [liveSession] : [],
       packs: pack ? [pack] : [],
@@ -8877,6 +10379,7 @@ router.get('/dashboard/teacher/overview', async (req, res) => {
       answers: (await getAnswersForSessionIds(sessionIds)),
       questions: (await getQuestionsForPackIds(packIds)),
       behavior_logs: (await getBehaviorLogsForSessionIds(sessionIds)),
+      behavior_events: (await getBehaviorEventsForSessionIds(sessionIds)),
     };
     const fallbackOverview = buildTeacherOverviewFallback(overviewPayload);
     let overview = fallbackOverview;

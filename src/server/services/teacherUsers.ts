@@ -62,6 +62,19 @@ export async function getTeacherUserByEmail(email: string) {
   return (await db.prepare('SELECT * FROM users WHERE email = ?').get(normalizeTeacherEmail(email))) as any;
 }
 
+export async function updateTeacherPassword(userId: number, password: string) {
+  const passwordHash = hashTeacherPassword(password);
+  await db
+    .prepare(`
+      UPDATE users
+      SET password_hash = ?, auth_provider = 'password', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `)
+    .run(passwordHash, userId);
+
+  return (await db.prepare('SELECT * FROM users WHERE id = ?').get(userId)) as any;
+}
+
 export async function createTeacherUser({
   email,
   password,

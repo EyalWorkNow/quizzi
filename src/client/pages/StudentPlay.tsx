@@ -18,8 +18,11 @@ import { getGameModeTone } from '../lib/gameModePresentation.ts';
 import { isPeerInstructionMode, isUntimedMode, requiresConfidenceLock } from '../lib/sessionModeRules.ts';
 import { apiFetch, apiFetchJson, apiEventSource } from '../lib/api.ts';
 import { getParticipantToken } from '../lib/studentSession.ts';
+import { enterLinkedStudentLiveSession } from '../lib/studentLiveSession.ts';
+import { loadStudentAuth } from '../lib/studentAuth.ts';
 import { useAppLanguage } from '../lib/appLanguage.tsx';
 import { getLiveQuestionDensity, formatAnswerSlotLabel } from '../../shared/liveQuestionDensity.ts';
+import type { TelemetryEvent, TelemetryPayload } from '../../shared/types.ts';
 
 const ANSWER_TONES = [
   {
@@ -99,10 +102,44 @@ type QueuedAnswerSubmission = {
   chosenIndex: number;
   responseMs: number;
   confidenceLevel: number | null;
-  telemetry: Record<string, unknown>;
+  telemetry: TelemetryPayload;
   queuedAt: number;
   selectedAnswerText: string;
 };
+
+type StoredSeatSnapshot = {
+  participantId: string;
+  nickname: string;
+  participantToken: string;
+  storedSessionPin: string;
+  teamName: string;
+  savedGameType: string;
+};
+
+const TELEMETRY_VERSION = 'telemetry_v2';
+
+function readStoredSeatSnapshot(): StoredSeatSnapshot {
+  if (typeof window === 'undefined') {
+    return {
+      participantId: '',
+      nickname: '',
+      participantToken: '',
+      storedSessionPin: '',
+      teamName: '',
+      savedGameType: '',
+    };
+  }
+
+  return {
+    participantId: String(window.localStorage.getItem('participant_id') || ''),
+    nickname: String(window.localStorage.getItem('nickname') || ''),
+    participantToken: String(getParticipantToken() || ''),
+    storedSessionPin: String(window.localStorage.getItem('session_pin') || ''),
+    teamName: String(window.localStorage.getItem('team_name') || ''),
+    savedGameType: String(window.localStorage.getItem('game_type') || ''),
+  };
+}
+const UI_FREEZE_THRESHOLD_MS = 2500;
 
 function isTeamGameLabel(gameType?: string) {
   return ['team_relay', 'peer_pods', 'mastery_matrix'].includes(String(gameType || ''));
@@ -193,6 +230,10 @@ function shouldQueueAnswerRetry(message: string) {
   );
 }
 
+function isInvalidSessionStateError(message: string) {
+  return message.toLowerCase().includes('invalid session state');
+}
+
 function resolvePhaseSeconds(value: unknown, fallback = 30) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -258,12 +299,16 @@ export default function StudentPlay() {
   const [sessionError, setSessionError] = useState('');
   const [actionError, setActionError] = useState('');
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [isRecoveringSeat, setIsRecoveringSeat] = useState(false);
   const [connectionState, setConnectionState] = useState<'connecting' | 'live' | 'fallback'>('connecting');
   const [pendingSubmission, setPendingSubmission] = useState<QueuedAnswerSubmission | null>(null);
   const [isRetryingPendingSubmission, setIsRetryingPendingSubmission] = useState(false);
 
   const firstInteractionMsRef = useRef<number | null>(null);
+  const startTimeRef = useRef(0);
   const answerHistoryRef = useRef<{ index: number; timestamp: number }[]>([]);
+  const telemetryEventsRef = useRef<TelemetryEvent[]>([]);
+  const telemetryEventSequenceRef = useRef(0);
   const focusLossCountRef = useRef(0);
   const idleTimeMsRef = useRef(0);
   const longestIdleStreakRef = useRef(0);
@@ -275,9 +320,14 @@ export default function StudentPlay() {
   const touchActivityCountRef = useRef(0);
   const sameAnswerReclicksRef = useRef(0);
   const optionDwellRef = useRef<Record<number, number>>({});
+  const optionHoverCountsRef = useRef<Record<number, number>>({});
   const currentHoverOptionRef = useRef<number | null>(null);
   const hoverStartTimeRef = useRef<number | null>(null);
   const lastPointerTrackedAtRef = useRef(0);
+  const lastPointerPositionRef = useRef<{ x: number; y: number; at: number } | null>(null);
+  const outsideAnswerPointerMovesRef = useRef(0);
+  const rapidPointerJumpsRef = useRef(0);
+  const lastPromptRereadAtRef = useRef(0);
   const firstRoundChoiceRef = useRef<number | null>(null);
   const currentSelectedAnswerRef = useRef<number | null>(null);
   const pendingSubmissionRef = useRef<QueuedAnswerSubmission | null>(null);
@@ -285,18 +335,39 @@ export default function StudentPlay() {
   const reconnectCountRef = useRef(0);
   const visibilityInterruptionsRef = useRef(0);
   const connectionStateRef = useRef<'connecting' | 'live' | 'fallback'>('connecting');
+  const linkedSeatBootstrapAttemptedRef = useRef(false);
+  const participantAuthRecoveryAttemptedRef = useRef(false);
+  const seatRecoveryInFlightRef = useRef<Promise<StoredSeatSnapshot | null> | null>(null);
+  const expirySyncKeyRef = useRef('');
 
   const focusLossDebounceRef = useRef(0);
+  const answerBoardRef = useRef<HTMLDivElement | null>(null);
   const idleThresholdMs = 4000;
 
-  const participantId = localStorage.getItem('participant_id');
-  const nickname = localStorage.getItem('nickname');
-  const participantToken = getParticipantToken();
-  const teamName = localStorage.getItem('team_name') || '';
-  const savedGameType = localStorage.getItem('game_type') || '';
+  const [seatSnapshot, setSeatSnapshot] = useState<StoredSeatSnapshot>(() => readStoredSeatSnapshot());
+  const participantId = seatSnapshot.participantId;
+  const nickname = seatSnapshot.nickname;
+  const participantToken = seatSnapshot.participantToken;
+  const storedSessionPin = seatSnapshot.storedSessionPin;
+  const teamName = seatSnapshot.teamName;
+  const savedGameType = seatSnapshot.savedGameType;
+  const participantIdNumber = Number.parseInt(participantId, 10);
+  const linkedStudentSession = loadStudentAuth();
+  const linkedStudentUserId = Number(linkedStudentSession?.student_user_id || 0);
+  const linkedStudentDisplayName = String(linkedStudentSession?.displayName || '').trim();
+  const hasMatchingStoredSeat = Boolean(
+    Number.isFinite(participantIdNumber) && participantIdNumber > 0
+    && nickname
+    && participantToken
+    && String(storedSessionPin || '') === String(pin || ''),
+  );
   const playStateKey = pin && participantId ? buildStudentPlayStateKey(String(pin), String(participantId)) : '';
   const queuedAnswerKey = pin && participantId ? buildQueuedAnswerKey(String(pin), String(participantId)) : '';
   const displayNickname = extractNickname(String(nickname || ''));
+  const participantDashboardPath = nickname ? `/student/dashboard/${nickname}` : '/';
+  const linkedStudentHomePath = linkedStudentUserId ? '/student/me' : '';
+  const primaryExitPath = linkedStudentHomePath || participantDashboardPath;
+  const leaveSessionPath = linkedStudentHomePath || (pin ? `/join/${pin}` : '/');
   const modeConfig = sessionMeta?.mode_config || sessionMeta?.modeConfig || {};
   const gameMode = getGameMode(sessionMeta?.game_type || savedGameType || 'classic_quiz');
   const gameTone = getGameModeTone(gameMode.id);
@@ -305,6 +376,10 @@ export default function StudentPlay() {
   const isUntimedQuestionPhase =
     (status === 'QUESTION_ACTIVE' || status === 'QUESTION_REVOTE') && isUntimedMode(gameMode.id, modeConfig);
   const isInteractivePhase = status === 'QUESTION_ACTIVE' || status === 'QUESTION_REVOTE';
+  const isTimedInteractivePhaseExpired =
+    isInteractivePhase &&
+    !isUntimedQuestionPhase &&
+    timeLeft <= 0;
   const isSelectionLocked = hasAnswered || Boolean(pendingSubmission) || (isPeerMode && status === 'QUESTION_ACTIVE' && hasLockedInitialVote);
   const selectedAnswerText =
     currentSelectedAnswer !== null && Array.isArray(question?.answers)
@@ -328,19 +403,195 @@ export default function StudentPlay() {
   }, [currentSelectedAnswer]);
 
   useEffect(() => {
+    startTimeRef.current = startTime;
+  }, [startTime]);
+
+  useEffect(() => {
     pendingSubmissionRef.current = pendingSubmission;
   }, [pendingSubmission]);
+
+  useEffect(() => {
+    linkedSeatBootstrapAttemptedRef.current = false;
+    participantAuthRecoveryAttemptedRef.current = false;
+  }, [pin]);
+
+  useEffect(() => {
+    setSeatSnapshot(readStoredSeatSnapshot());
+  }, [pin]);
+
+  const refreshSeatSnapshot = () => {
+    const nextSnapshot = readStoredSeatSnapshot();
+    setSeatSnapshot(nextSnapshot);
+    return nextSnapshot;
+  };
+
+  const ensureActiveSeatSnapshot = async () => {
+    const currentSnapshot = readStoredSeatSnapshot();
+    if (
+      Number.parseInt(currentSnapshot.participantId, 10) > 0
+      && currentSnapshot.participantToken
+      && String(currentSnapshot.storedSessionPin || '') === String(pin || '')
+    ) {
+      setSeatSnapshot(currentSnapshot);
+      return currentSnapshot;
+    }
+
+    if (!linkedStudentUserId || !pin) {
+      setSeatSnapshot(currentSnapshot);
+      return currentSnapshot;
+    }
+
+    if (seatRecoveryInFlightRef.current) {
+      return seatRecoveryInFlightRef.current;
+    }
+
+    const recoveryPromise = enterLinkedStudentLiveSession({
+      pin: String(pin),
+      nickname: linkedStudentDisplayName || String(currentSnapshot.nickname || nickname || ''),
+    })
+      .then(() => refreshSeatSnapshot())
+      .catch((error: any) => {
+        const nextSnapshot = refreshSeatSnapshot();
+        setSessionError(String(error?.message || 'We could not refresh your seat in this live room.'));
+        return nextSnapshot;
+      })
+      .finally(() => {
+        seatRecoveryInFlightRef.current = null;
+      });
+
+    seatRecoveryInFlightRef.current = recoveryPromise;
+    return recoveryPromise;
+  };
+
+  useEffect(() => {
+    if (!pin) {
+      navigate('/');
+      return;
+    }
+    if (hasMatchingStoredSeat) {
+      setSessionError('');
+      return;
+    }
+    if (linkedSeatBootstrapAttemptedRef.current) {
+      if (!isRecoveringSeat) {
+        setIsBootstrapping(false);
+      }
+      return;
+    }
+
+    linkedSeatBootstrapAttemptedRef.current = true;
+
+    if (!linkedStudentUserId) {
+      setSessionError(
+        storedSessionPin && String(storedSessionPin) !== String(pin)
+          ? 'This live link belongs to a different room than the saved seat on this device. Join this room from the student area or the room code page.'
+          : 'This live room needs a saved seat. Join it from the student area or enter the room code first.',
+      );
+      setIsBootstrapping(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSessionError('');
+    setActionError('');
+    setIsRecoveringSeat(true);
+    setIsBootstrapping(true);
+
+    void enterLinkedStudentLiveSession({
+      pin: String(pin),
+      nickname: linkedStudentDisplayName || String(nickname || ''),
+    })
+      .then(() => {
+        if (cancelled) return;
+        window.location.replace(`/student/session/${pin}/play`);
+      })
+      .catch((error: any) => {
+        if (cancelled) return;
+        setSessionError(String(error?.message || 'We could not restore your seat in this live room.'));
+        setIsBootstrapping(false);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsRecoveringSeat(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasMatchingStoredSeat, isRecoveringSeat, linkedStudentDisplayName, linkedStudentUserId, navigate, nickname, pin, storedSessionPin]);
 
   useEffect(() => {
     const previousState = connectionStateRef.current;
     if (previousState === 'fallback' && connectionState === 'live') {
       reconnectCountRef.current += 1;
     }
+    if (
+      question?.id
+      && ['QUESTION_ACTIVE', 'QUESTION_REVOTE', 'QUESTION_DISCUSSION', 'QUESTION_REVEAL'].includes(status)
+      && previousState !== connectionState
+    ) {
+      recordTelemetryEvent('network_state_changed', {
+        payload: {
+          previous_state: previousState,
+          next_state: connectionState,
+        },
+      });
+    }
     connectionStateRef.current = connectionState;
-  }, [connectionState]);
+  }, [connectionState, question?.id, status]);
+
+  const recordTelemetryEvent = (
+    eventType: TelemetryEvent['event_type'],
+    {
+      optionIndex = null,
+      payload,
+      eventTime = Date.now(),
+      networkLatencyMs = 0,
+      clientRenderDelayMs = 0,
+    }: {
+      optionIndex?: number | null;
+      payload?: Record<string, unknown>;
+      eventTime?: number;
+      networkLatencyMs?: number;
+      clientRenderDelayMs?: number;
+    } = {},
+  ) => {
+    if (!question?.id) return;
+    const baseStart = startTimeRef.current || eventTime;
+    const eventTsMs = Math.max(0, eventTime - baseStart);
+    telemetryEventSequenceRef.current += 1;
+    telemetryEventsRef.current = [
+      ...telemetryEventsRef.current,
+      {
+        event_type: eventType,
+        event_ts_ms: eventTsMs,
+        event_seq: telemetryEventSequenceRef.current,
+        option_index: optionIndex ?? undefined,
+        payload_json: JSON.stringify(payload || {}),
+        network_latency_ms: networkLatencyMs,
+        client_render_delay_ms: clientRenderDelayMs,
+        device_profile: detectDeviceProfile(),
+      },
+    ].slice(-180);
+  };
+
+  const ensureFirstInteraction = (eventTime = Date.now(), source = 'pointer') => {
+    if (firstInteractionMsRef.current !== null) return;
+    const baseStart = startTimeRef.current || eventTime;
+    firstInteractionMsRef.current = Math.max(0, eventTime - baseStart);
+    recordTelemetryEvent('first_interaction', {
+      eventTime,
+      payload: {
+        source,
+      },
+    });
+  };
 
   const resetTelemetry = () => {
     firstInteractionMsRef.current = null;
+    telemetryEventsRef.current = [];
+    telemetryEventSequenceRef.current = 0;
     answerHistoryRef.current = [];
     focusLossCountRef.current = 0;
     idleTimeMsRef.current = 0;
@@ -356,6 +607,11 @@ export default function StudentPlay() {
     reconnectCountRef.current = 0;
     visibilityInterruptionsRef.current = 0;
     optionDwellRef.current = {};
+    optionHoverCountsRef.current = {};
+    outsideAnswerPointerMovesRef.current = 0;
+    rapidPointerJumpsRef.current = 0;
+    lastPointerPositionRef.current = null;
+    lastPromptRereadAtRef.current = 0;
     currentHoverOptionRef.current = null;
     hoverStartTimeRef.current = null;
   };
@@ -365,10 +621,18 @@ export default function StudentPlay() {
     const hoverStartedAt = hoverStartTimeRef.current;
     if (optionIndex === null || hoverStartedAt === null) return;
     const endedAt = forcedTimestamp ?? Date.now();
+    const durationMs = Math.max(0, endedAt - hoverStartedAt);
     optionDwellRef.current = {
       ...optionDwellRef.current,
-      [optionIndex]: (optionDwellRef.current[optionIndex] || 0) + Math.max(0, endedAt - hoverStartedAt),
+      [optionIndex]: (optionDwellRef.current[optionIndex] || 0) + durationMs,
     };
+    recordTelemetryEvent('option_hover_end', {
+      optionIndex,
+      eventTime: endedAt,
+      payload: {
+        duration_ms: durationMs,
+      },
+    });
     currentHoverOptionRef.current = null;
     hoverStartTimeRef.current = null;
   };
@@ -376,12 +640,26 @@ export default function StudentPlay() {
   const beginHoverDwell = (optionIndex: number) => {
     if (isSelectionLocked || !isInteractivePhase) return;
     if (currentHoverOptionRef.current === optionIndex) return;
-    flushHoverDwell();
+    const now = Date.now();
+    flushHoverDwell(now);
+    ensureFirstInteraction(now, 'hover');
     currentHoverOptionRef.current = optionIndex;
-    hoverStartTimeRef.current = Date.now();
+    hoverStartTimeRef.current = now;
+    optionHoverCountsRef.current = {
+      ...optionHoverCountsRef.current,
+      [optionIndex]: (optionHoverCountsRef.current[optionIndex] || 0) + 1,
+    };
+    recordTelemetryEvent('option_hover_start', {
+      optionIndex,
+      eventTime: now,
+    });
   };
 
-  const recordActivity = (kind: 'pointer' | 'keyboard' | 'touch', eventTime = Date.now()) => {
+  const recordActivity = (
+    kind: 'pointer' | 'keyboard' | 'touch',
+    eventTime = Date.now(),
+    details?: { x?: number; y?: number; target?: EventTarget | null },
+  ) => {
     if (!isInteractivePhase || isSelectionLocked) return;
 
     const idleGap = eventTime - lastActivityTimeRef.current;
@@ -391,11 +669,35 @@ export default function StudentPlay() {
       longestIdleStreakRef.current = Math.max(longestIdleStreakRef.current, idleSpan);
     }
     lastActivityTimeRef.current = eventTime;
+    ensureFirstInteraction(eventTime, kind);
 
     if (kind === 'pointer') {
       if (eventTime - lastPointerTrackedAtRef.current < 250) return;
       lastPointerTrackedAtRef.current = eventTime;
       pointerActivityCountRef.current += 1;
+      if (typeof details?.x === 'number' && typeof details?.y === 'number') {
+        const lastPointer = lastPointerPositionRef.current;
+        if (
+          lastPointer
+          && eventTime - lastPointer.at <= 300
+          && Math.hypot(details.x - lastPointer.x, details.y - lastPointer.y) >= 220
+        ) {
+          rapidPointerJumpsRef.current += 1;
+        }
+        lastPointerPositionRef.current = {
+          x: details.x,
+          y: details.y,
+          at: eventTime,
+        };
+      }
+      if (
+        details?.target
+        && answerBoardRef.current
+        && details.target instanceof Node
+        && !answerBoardRef.current.contains(details.target)
+      ) {
+        outsideAnswerPointerMovesRef.current += 1;
+      }
       return;
     }
     if (kind === 'keyboard') {
@@ -412,6 +714,42 @@ export default function StudentPlay() {
     }
   };
 
+  const syncStateFromServer = async () => {
+    if (!pin) return null;
+    const data = await apiFetchJson(`/api/sessions/${pin}/student-state`);
+    const sessionPayload = data?.session || null;
+    const participantState = data?.participant_state || null;
+    const currentAnswer = participantState?.current_answer || null;
+    const nextQuestion = data?.question || null;
+    const nextStatus = String(sessionPayload?.status || 'LOBBY');
+
+    setSessionMeta(sessionPayload);
+    setStatus(nextStatus as any);
+    setScore(Number(participantState?.score || 0));
+    setStreak(Number(participantState?.streak || 0));
+
+    if (nextQuestion) {
+      setQuestion(nextQuestion);
+      setTimeLeft(resolvePhaseSeconds(nextQuestion.time_limit_seconds, 30));
+    }
+
+    if (currentAnswer && nextQuestion && Number(currentAnswer.question_id) === Number(nextQuestion.id)) {
+      clearPendingSubmissionState();
+      setHasAnswered(true);
+      setCurrentSelectedAnswer(Number(currentAnswer.chosen_index));
+      setFirstRoundChoice(Number(currentAnswer.chosen_index));
+      setHasLockedInitialVote(false);
+      setSelectedConfidence(2);
+      setLastScoreAwarded(Number(currentAnswer.score_awarded || 0));
+    } else if (nextStatus === 'QUESTION_ACTIVE' || nextStatus === 'QUESTION_REVOTE') {
+      setHasAnswered(false);
+      setHasLockedInitialVote(false);
+      setLastScoreAwarded(0);
+    }
+
+    return data;
+  };
+
   const applyAnswerSubmissionSuccess = (payload: any) => {
     clearPendingSubmissionState();
     setHasAnswered(true);
@@ -419,7 +757,12 @@ export default function StudentPlay() {
     const participantScoreTotal = Number(payload?.participant_score_total);
     const participantStreak = Number(payload?.participant_streak);
     const chosenIndex = Number(payload?.chosen_index);
+    const hasChosenIndex = Number.isFinite(chosenIndex);
     setLastScoreAwarded(Math.max(0, scoreAwarded));
+    if (hasChosenIndex) {
+      setCurrentSelectedAnswer(chosenIndex);
+      setFirstRoundChoice(chosenIndex);
+    }
 
     if (Number.isFinite(participantScoreTotal)) {
       setScore(participantScoreTotal);
@@ -437,36 +780,66 @@ export default function StudentPlay() {
       }
     }
 
-    void publishAnswerProgress(String(pin || ''), {
-      participantId: Number(participantId),
-      totalAnswers: Number(payload?.total_answers || 0),
-      expected: Number(payload?.expected || 0),
-    });
-    void publishLiveSelection(String(pin || ''), {
-      participantId: Number(participantId),
-      nickname: String(nickname || ''),
-      chosenIndex: Number.isFinite(chosenIndex) ? chosenIndex : -1,
-    });
+    if (participantIdNumber > 0) {
+      void publishAnswerProgress(String(pin || ''), {
+        participantId: participantIdNumber,
+        totalAnswers: Number(payload?.total_answers || 0),
+        expected: Number(payload?.expected || 0),
+      });
+      void publishLiveSelection(String(pin || ''), {
+        participantId: participantIdNumber,
+        nickname: String(nickname || ''),
+        chosenIndex: Number.isFinite(chosenIndex) ? chosenIndex : -1,
+      });
+    }
   };
 
   const postAnswerSubmission = async (submission: QueuedAnswerSubmission) => {
-    const response = await apiFetch(`/api/sessions/${pin}/answer`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        participant_id: Number(participantId),
-        question_id: submission.questionId,
-        chosen_index: submission.chosenIndex,
-        response_ms: submission.responseMs,
-        confidence_level: submission.confidenceLevel ?? undefined,
-        telemetry: submission.telemetry,
-      }),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      throw new Error(payload?.error || 'Failed to submit answer');
+    const maxAttempts = 3;
+    let attempt = 0;
+    const activeSeat = await ensureActiveSeatSnapshot();
+    const activeParticipantId = Number.parseInt(String(activeSeat?.participantId || ''), 10);
+
+    if (!Number.isFinite(activeParticipantId) || activeParticipantId <= 0) {
+      throw new Error('Participant authentication required');
     }
-    return payload;
+
+    while (attempt < maxAttempts) {
+      attempt += 1;
+      const response = await apiFetch(`/api/sessions/${pin}/answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participant_id: activeParticipantId,
+          question_id: submission.questionId,
+          chosen_index: submission.chosenIndex,
+          response_ms: submission.responseMs,
+          confidence_level: submission.confidenceLevel ?? undefined,
+          telemetry: submission.telemetry,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (response.ok) {
+        return payload;
+      }
+
+      const message = String(payload?.error || 'Failed to submit answer');
+      const canRetryStateRace =
+        isInvalidSessionStateError(message)
+        && (status === 'QUESTION_ACTIVE' || status === 'QUESTION_REVOTE')
+        && attempt < maxAttempts;
+
+      if (!canRetryStateRace) {
+        if (isInvalidSessionStateError(message)) {
+          void syncStateFromServer().catch(() => {});
+        }
+        throw new Error(message);
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 180 * attempt));
+    }
+
+    throw new Error('Failed to submit answer');
   };
 
   const retryPendingSubmission = async () => {
@@ -483,6 +856,7 @@ export default function StudentPlay() {
           visibility_interruptions: visibilityInterruptionsRef.current,
           network_degraded: connectionStateRef.current !== 'live' || (typeof navigator !== 'undefined' && navigator.onLine === false),
           device_profile: detectDeviceProfile(),
+          analytics_version: TELEMETRY_VERSION,
         },
       };
       setPendingSubmission(refreshedSubmission);
@@ -491,10 +865,13 @@ export default function StudentPlay() {
       setActionError('');
     } catch (error: any) {
       const message = String(error?.message || '');
+      if (isInvalidSessionStateError(message)) {
+        void syncStateFromServer().catch(() => {});
+      }
       if (!shouldQueueAnswerRetry(message)) {
         clearPendingSubmissionState();
         setActionError(
-          message.toLowerCase().includes('invalid session state')
+          isInvalidSessionStateError(message)
             ? 'The round moved on before your queued answer could sync.'
             : message || 'The queued answer could not be synced.',
         );
@@ -507,8 +884,11 @@ export default function StudentPlay() {
   };
 
   useEffect(() => {
-    if (!participantId || !nickname || !participantToken) {
+    if (!pin) {
       navigate('/');
+      return;
+    }
+    if (!hasMatchingStoredSeat) {
       return;
     }
 
@@ -547,7 +927,9 @@ export default function StudentPlay() {
         setHasAnswered(false);
         setHasLockedInitialVote(false);
         setFirstRoundChoice(null);
-        setStartTime(Date.now());
+        const nextStartTime = Date.now();
+        startTimeRef.current = nextStartTime;
+        setStartTime(nextStartTime);
         setTimeLeft(resolvePhaseSeconds(nextQuestion?.time_limit_seconds, 30));
         setCurrentSelectedAnswer(null);
         setSelectedConfidence(2);
@@ -556,8 +938,11 @@ export default function StudentPlay() {
         if (nextQuestion) {
           setQuestion(nextQuestion);
           setTimeLeft(resolvePhaseSeconds(nextQuestion.time_limit_seconds, Number(nextModeConfig?.discussion_seconds || 30)));
-        } else {
+      } else {
           setTimeLeft(resolvePhaseSeconds(nextModeConfig?.discussion_seconds, 30));
+        }
+        if (firstRoundChoiceRef.current === null && currentSelectedAnswerRef.current !== null) {
+          setFirstRoundChoice(currentSelectedAnswerRef.current);
         }
         flushHoverDwell();
       } else if (nextStatus === 'QUESTION_REVOTE') {
@@ -572,7 +957,9 @@ export default function StudentPlay() {
         setHasLockedInitialVote(false);
         setCurrentSelectedAnswer((current) => current ?? firstRoundChoiceRef.current);
         setSelectedConfidence(2);
-        setStartTime(Date.now());
+        const nextStartTime = Date.now();
+        startTimeRef.current = nextStartTime;
+        setStartTime(nextStartTime);
         resetTelemetry();
         if (firstRoundChoiceRef.current !== null) {
           answerHistoryRef.current = [{ index: firstRoundChoiceRef.current, timestamp: 0 }];
@@ -597,7 +984,7 @@ export default function StudentPlay() {
         flushHoverDwell();
       } else if (nextStatus === 'ENDED') {
         clearPendingSubmissionState();
-        navigate(`/student/dashboard/${nickname}`);
+        navigate(primaryExitPath);
       }
     };
 
@@ -606,7 +993,7 @@ export default function StudentPlay() {
 
       eventSource = apiEventSource(`/api/sessions/${pin}/stream`);
       eventSource.onopen = () => {
-        if (!cancelled) {
+        if (!cancelled && connectionStateRef.current !== 'live') {
           setConnectionState('fallback');
         }
       };
@@ -619,6 +1006,8 @@ export default function StudentPlay() {
         }
       };
     };
+
+    startEventSource();
 
     apiFetchJson(`/api/sessions/${pin}/student-state`)
       .then((data) => {
@@ -657,10 +1046,15 @@ export default function StudentPlay() {
           setSelectedConfidence(queuedSubmission.confidenceLevel || 2);
         }
         if (persistedState && data?.question && persistedState.questionId === Number(data.question.id)) {
-          setCurrentSelectedAnswer(persistedState.currentSelectedAnswer);
+          setCurrentSelectedAnswer(
+            persistedState.currentSelectedAnswer ?? persistedState.firstRoundChoice ?? null,
+          );
           setSelectedConfidence(persistedState.selectedConfidence || 2);
           setFirstRoundChoice(persistedState.firstRoundChoice);
-          setHasLockedInitialVote(persistedState.hasLockedInitialVote);
+          // Do not re-apply a purely local "locked first vote" flag on fresh room entry.
+          // If the server has no answer for this question yet, restoring that flag can
+          // trap linked students in a locked state with no way to submit.
+          setHasLockedInitialVote(false);
           setHasAnswered(false);
         }
       })
@@ -668,7 +1062,33 @@ export default function StudentPlay() {
         console.error('Failed to load session meta:', error);
         if (cancelled) return;
         if (String(error?.message || '').includes('Participant authentication required')) {
-          navigate('/');
+          if (linkedStudentUserId && !participantAuthRecoveryAttemptedRef.current) {
+            participantAuthRecoveryAttemptedRef.current = true;
+            setSessionError('Refreshing your seat in this live room...');
+            setIsRecoveringSeat(true);
+            setIsBootstrapping(true);
+            void enterLinkedStudentLiveSession({
+              pin: String(pin),
+              nickname: linkedStudentDisplayName || String(nickname || ''),
+            })
+              .then(() => {
+                if (cancelled) return;
+                window.location.replace(`/student/session/${pin}/play`);
+              })
+              .catch((recoveryError: any) => {
+                if (cancelled) return;
+                setSessionError(String(recoveryError?.message || 'We could not refresh your access to this live room.'));
+                setIsBootstrapping(false);
+              })
+              .finally(() => {
+                if (!cancelled) {
+                  setIsRecoveringSeat(false);
+                }
+              });
+            return;
+          }
+          setSessionError('The saved access for this room is no longer valid. Please enter the room again.');
+          setIsBootstrapping(false);
           return;
         }
         setSessionError(error?.message || 'לא ניתן היה לטעון את הסשן.');
@@ -678,21 +1098,23 @@ export default function StudentPlay() {
         setIsBootstrapping(false);
       });
 
-    void attachParticipantPresence(String(pin || ''), {
-      participantId: Number(participantId),
-      nickname,
-      teamName: teamName || null,
-      createdAt: new Date().toISOString(),
-      online: true,
-    }).then((cleanup) => {
-      if (cancelled) {
-        cleanup?.();
-        return;
-      }
-      if (cleanup) {
-        presenceCleanup = cleanup;
-      }
-    });
+    if (participantIdNumber > 0) {
+      void attachParticipantPresence(String(pin || ''), {
+        participantId: participantIdNumber,
+        nickname,
+        teamName: teamName || null,
+        createdAt: new Date().toISOString(),
+        online: true,
+      }).then((cleanup) => {
+        if (cancelled) {
+          cleanup?.();
+          return;
+        }
+        if (cleanup) {
+          presenceCleanup = cleanup;
+        }
+      });
+    }
 
     void subscribeToStudentSessionRealtime(String(pin || ''), {
       onMeta: (meta) => {
@@ -717,8 +1139,6 @@ export default function StudentPlay() {
       }
       if (cleanup) {
         realtimeCleanup = cleanup;
-      } else {
-        startEventSource();
       }
     });
 
@@ -728,7 +1148,21 @@ export default function StudentPlay() {
       presenceCleanup?.();
       eventSource?.close();
     };
-  }, [navigate, nickname, participantId, participantToken, pin, playStateKey, queuedAnswerKey, savedGameType, teamName]);
+  }, [
+    hasMatchingStoredSeat,
+    linkedStudentDisplayName,
+    linkedStudentUserId,
+    navigate,
+    nickname,
+    participantId,
+    participantToken,
+    pin,
+    playStateKey,
+    primaryExitPath,
+    queuedAnswerKey,
+    savedGameType,
+    teamName,
+  ]);
 
   useEffect(() => {
     if (!playStateKey || isBootstrapping) return;
@@ -804,6 +1238,78 @@ export default function StudentPlay() {
     }
   }, [status, hasAnswered, timeLeft]);
 
+  useEffect(() => {
+    if (!pin || !question?.id || !isTimedInteractivePhaseExpired) return;
+
+    const expiryKey = `${status}:${question.id}`;
+    if (expirySyncKeyRef.current === expiryKey) return;
+    expirySyncKeyRef.current = expiryKey;
+    setActionError((current) => current || 'Time is up. Syncing the next phase...');
+    void syncStateFromServer().catch(() => {});
+  }, [isTimedInteractivePhaseExpired, pin, question?.id, status]);
+
+  useEffect(() => {
+    if (isTimedInteractivePhaseExpired) return;
+    expirySyncKeyRef.current = '';
+  }, [isTimedInteractivePhaseExpired, question?.id, status]);
+
+  useEffect(() => {
+    if (!question?.id || !['QUESTION_ACTIVE', 'QUESTION_REVOTE', 'QUESTION_DISCUSSION'].includes(status)) return;
+    const renderedAt = Date.now();
+    let settleId = 0;
+    const frameId = window.requestAnimationFrame(() => {
+      settleId = window.requestAnimationFrame(() => {
+        const clientRenderDelayMs = Math.max(0, Date.now() - renderedAt);
+        recordTelemetryEvent('question_rendered', {
+          eventTime: renderedAt,
+          clientRenderDelayMs,
+          payload: {
+            question_id: Number(question.id),
+            has_image: Boolean(question?.image_url),
+            answer_count: Array.isArray(question?.answers) ? question.answers.length : 0,
+          },
+        });
+        if (clientRenderDelayMs >= UI_FREEZE_THRESHOLD_MS) {
+          recordTelemetryEvent('ui_freeze_detected', {
+            payload: {
+              freeze_ms: clientRenderDelayMs,
+              phase: status,
+            },
+          });
+        }
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      if (settleId) {
+        window.cancelAnimationFrame(settleId);
+      }
+    };
+  }, [question?.id, question?.image_url, question?.answers, status]);
+
+  useEffect(() => {
+    if (!['QUESTION_ACTIVE', 'QUESTION_REVOTE', 'QUESTION_DISCUSSION'].includes(status)) return;
+    let frameId = 0;
+    let lastTick = performance.now();
+    const trackFrame = (tick: number) => {
+      const delta = tick - lastTick;
+      if (delta >= UI_FREEZE_THRESHOLD_MS) {
+        recordTelemetryEvent('ui_freeze_detected', {
+          payload: {
+            freeze_ms: Math.round(delta),
+            phase: status,
+          },
+        });
+      }
+      lastTick = tick;
+      frameId = window.requestAnimationFrame(trackFrame);
+    };
+
+    frameId = window.requestAnimationFrame(trackFrame);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [status, question?.id]);
+
   // Focus loss tracker
   useEffect(() => {
     const registerFocusLoss = (reason: 'blur' | 'visibility') => {
@@ -818,29 +1324,36 @@ export default function StudentPlay() {
         if (blurStartRef.current === null) {
           blurStartRef.current = now;
         }
+        recordTelemetryEvent(reason === 'visibility' ? 'visibility_hidden' : 'tab_blur', {
+          eventTime: now,
+        });
         flushHoverDwell(now);
         // Report to host
-        apiFetch(`/api/sessions/${pin}/focus-loss`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ participant_id: Number(participantId) })
-        }).catch(err => console.error('Focus loss report failed:', err));
-        void publishFocusAlert(String(pin || ''), {
-          participantId: Number(participantId),
-          nickname: String(nickname || ''),
-        });
+        if (participantIdNumber > 0) {
+          apiFetch(`/api/sessions/${pin}/focus-loss`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ participant_id: participantIdNumber })
+          }).catch(err => console.error('Focus loss report failed:', err));
+          void publishFocusAlert(String(pin || ''), {
+            participantId: participantIdNumber,
+            nickname: String(nickname || ''),
+          });
+        }
       }
     };
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden') {
         registerFocusLoss('visibility');
       } else if (blurStartRef.current !== null) {
+        recordTelemetryEvent('visibility_visible');
         blurTimeMsRef.current += Math.max(0, Date.now() - blurStartRef.current);
         blurStartRef.current = null;
       }
     };
     const handleFocusRestore = () => {
       if (blurStartRef.current !== null) {
+        recordTelemetryEvent('tab_focus');
         blurTimeMsRef.current += Math.max(0, Date.now() - blurStartRef.current);
         blurStartRef.current = null;
       }
@@ -858,8 +1371,16 @@ export default function StudentPlay() {
 
   // Idle time tracker
   useEffect(() => {
-    const handleMouseMove = () => recordActivity('pointer');
-    const handlePointerDown = () => recordActivity('pointer');
+    const handleMouseMove = (event: MouseEvent) => recordActivity('pointer', Date.now(), {
+      x: event.clientX,
+      y: event.clientY,
+      target: event.target,
+    });
+    const handlePointerDown = (event: PointerEvent) => recordActivity('pointer', Date.now(), {
+      x: event.clientX,
+      y: event.clientY,
+      target: event.target,
+    });
     const handleTouch = () => recordActivity('touch');
     const handleKeyDown = () => recordActivity('keyboard');
 
@@ -882,6 +1403,13 @@ export default function StudentPlay() {
     setHasAnswered(true);
 
     const submitTime = Date.now();
+    recordTelemetryEvent('submit_clicked', {
+      optionIndex: finalIndex,
+      eventTime: submitTime,
+      payload: {
+        selected_confidence: needsConfidence ? selectedConfidence : null,
+      },
+    });
     flushHoverDwell(submitTime);
     if (blurStartRef.current !== null) {
       blurTimeMsRef.current += Math.max(0, submitTime - blurStartRef.current);
@@ -906,7 +1434,7 @@ export default function StudentPlay() {
       return timeLimitMs - item.timestamp <= 5000 ? count + 1 : count;
     }, 0);
 
-    const telemetry = {
+    const telemetry: TelemetryPayload = {
       tfi_ms: tfi,
       final_decision_buffer_ms: commitWindowMs,
       total_swaps: totalSwaps,
@@ -921,11 +1449,16 @@ export default function StudentPlay() {
       touch_activity_count: touchActivityCountRef.current,
       same_answer_reclicks: sameAnswerReclicksRef.current,
       option_dwell_json: JSON.stringify(optionDwellRef.current),
+      option_hover_counts_json: JSON.stringify(optionHoverCountsRef.current),
+      outside_answer_pointer_moves: outsideAnswerPointerMovesRef.current,
+      rapid_pointer_jumps: rapidPointerJumpsRef.current,
       submission_retry_count: submissionRetryCountRef.current,
       reconnect_count: reconnectCountRef.current,
       visibility_interruptions: visibilityInterruptionsRef.current,
       network_degraded: connectionStateRef.current !== 'live' || (typeof navigator !== 'undefined' && navigator.onLine === false),
       device_profile: detectDeviceProfile(),
+      analytics_version: TELEMETRY_VERSION,
+      events: telemetryEventsRef.current,
     };
 
     const submission: QueuedAnswerSubmission = {
@@ -958,10 +1491,16 @@ export default function StudentPlay() {
 
   const handleAnswerSelect = async (index: number) => {
     if (isSelectionLocked) return;
+    if (!isInteractivePhase) return;
+    if (isTimedInteractivePhaseExpired) {
+      setActionError('Time is up. Syncing the next phase...');
+      void syncStateFromServer().catch(() => {});
+      return;
+    }
 
     const now = Date.now();
     setActionError('');
-    if (!firstInteractionMsRef.current) firstInteractionMsRef.current = now - startTime;
+    ensureFirstInteraction(now, 'answer_select');
     recordActivity('pointer', now);
     beginHoverDwell(index);
     if (currentSelectedAnswer === index) {
@@ -969,28 +1508,71 @@ export default function StudentPlay() {
       return;
     }
 
+    if (currentSelectedAnswerRef.current !== null) {
+      recordTelemetryEvent('option_deselected', {
+        optionIndex: currentSelectedAnswerRef.current,
+        eventTime: now,
+        payload: {
+          next_index: index,
+        },
+      });
+    }
+
     setCurrentSelectedAnswer(index);
-    answerHistoryRef.current = [...answerHistoryRef.current, { index, timestamp: now - startTime }];
+    answerHistoryRef.current = [...answerHistoryRef.current, { index, timestamp: now - startTimeRef.current }];
     lastActivityTimeRef.current = now;
+    recordTelemetryEvent('option_selected', {
+      optionIndex: index,
+      eventTime: now,
+      payload: {
+        answer_text: String(question?.answers?.[index] || ''),
+      },
+    });
 
     // Broadcast selection change to host for real-time "thinking" pulse
-    try {
-      apiFetch(`/api/sessions/${pin}/selection`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          participant_id: Number(participantId),
-          chosen_index: index
-        })
-      });
-      void publishLiveSelection(String(pin || ''), {
-        participantId: Number(participantId),
-        nickname: String(nickname || ''),
-        chosenIndex: index,
-      });
-    } catch (err) {
-      console.error('Failed to broadcast selection:', err);
-    }
+    void (async () => {
+      try {
+        const activeSeat = await ensureActiveSeatSnapshot();
+        const activeParticipantId = Number.parseInt(String(activeSeat?.participantId || ''), 10);
+        if (!Number.isFinite(activeParticipantId) || activeParticipantId <= 0) {
+          return;
+        }
+
+        const response = await apiFetch(`/api/sessions/${pin}/selection`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            participant_id: activeParticipantId,
+            chosen_index: index,
+          }),
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          const message = String(payload?.error || response.statusText || '');
+          if (isInvalidSessionStateError(message)) {
+            setActionError('The round already moved on. Syncing now...');
+            void syncStateFromServer().catch(() => {});
+            return;
+          }
+          throw new Error(message || 'Failed to broadcast selection');
+        }
+
+        void publishLiveSelection(String(pin || ''), {
+          participantId: activeParticipantId,
+          nickname: String(activeSeat?.nickname || nickname || ''),
+          chosenIndex: index,
+        });
+      } catch (err) {
+        const message = String((err as any)?.message || '');
+        if (isInvalidSessionStateError(message)) {
+          setActionError('The round already moved on. Syncing now...');
+          void syncStateFromServer().catch(() => {});
+          return;
+        }
+        console.error('Failed to broadcast selection:', err);
+      }
+    })();
   };
 
   const handleLockIn = () => {
@@ -1012,11 +1594,24 @@ export default function StudentPlay() {
     submitAnswer(currentSelectedAnswer, answerHistoryRef.current);
   };
 
+  const handlePromptReread = () => {
+    const now = Date.now();
+    if (now - lastPromptRereadAtRef.current < 1200) return;
+    lastPromptRereadAtRef.current = now;
+    recordTelemetryEvent('prompt_reread', {
+      eventTime: now,
+    });
+  };
+
   if (isBootstrapping) {
     return (
       <StudentShellFallback
-        title="Connecting you to the game..."
-        body="We are restoring your seat, syncing the live room, and getting the next phase ready."
+        title={isRecoveringSeat ? 'Restoring your live seat...' : 'Connecting you to the game...'}
+        body={
+          isRecoveringSeat
+            ? 'We found your student account and are reconnecting it to this live room.'
+            : 'We are restoring your seat, syncing the live room, and getting the next phase ready.'
+        }
         loading
       />
     );
@@ -1028,7 +1623,8 @@ export default function StudentPlay() {
         title="The live game could not be loaded"
         body={sessionError}
         onRetry={() => window.location.reload()}
-        onExit={() => navigate('/')}
+        onExit={() => navigate(leaveSessionPath)}
+        exitLabel={linkedStudentHomePath ? 'Back to student space' : 'Back home'}
       />
     );
   }
@@ -1043,7 +1639,8 @@ export default function StudentPlay() {
         body="The host already moved the room forward. We are still syncing the question payload to your device."
         loading
         onRetry={() => window.location.reload()}
-        onExit={() => navigate(`/student/dashboard/${nickname}`)}
+        onExit={() => navigate(primaryExitPath)}
+        exitLabel={linkedStudentHomePath ? 'Back to student space' : 'Back home'}
       />
     );
   }
@@ -1055,32 +1652,32 @@ export default function StudentPlay() {
         
         {/* Cinematic Lobby Header */}
         <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
-          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-8">
-             <div className="flex items-center gap-3">
+          <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:gap-3 sm:px-8 sm:py-3">
+             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                <motion.button
                  whileHover={{ scale: 1.05 }}
                  whileTap={{ scale: 0.95 }}
                  onClick={() => {
                    if (window.confirm('Are you sure you want to leave the game?')) {
-                     navigate(`/student/dashboard/${nickname}`);
+                     navigate(primaryExitPath);
                    }
                  }}
-                 className="game-icon-button h-11 w-11 hover:bg-rose-50 hover:text-rose-600"
+                 className="game-icon-button h-10 w-10 hover:bg-rose-50 hover:text-rose-600 sm:h-11 sm:w-11"
                >
                  <XCircle className="h-6 w-6 opacity-40" />
                </motion.button>
-               <div className="rounded-2xl border-2 border-brand-dark px-4 py-1.5 text-xs font-black uppercase tracking-widest bg-brand-bg shadow-[3px_3px_0px_0px_#1A1A1A]">
+               <div className="rounded-2xl border-2 border-brand-dark bg-brand-bg px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A] sm:px-4 sm:text-xs sm:tracking-widest">
                   {t('game.status.lobby')}
                </div>
              </div>
              
-             <div className="flex items-center gap-3">
-               <div className="flex h-11 items-center gap-3 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+             <div className="flex w-full items-center justify-end gap-2 sm:w-auto sm:gap-3">
+               <div className="flex h-10 max-w-full items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-11 sm:gap-3 sm:px-4">
                  <Avatar
                    nickname={String(nickname || '')}
-                   imgClassName="h-7 w-7 rounded-xl"
+                   imgClassName="h-6 w-6 rounded-lg sm:h-7 sm:w-7 sm:rounded-xl"
                  />
-                 <span className="hidden sm:inline font-black text-sm uppercase tracking-tight">{displayNickname}</span>
+                 <span className="max-w-[45vw] truncate font-black text-xs uppercase tracking-tight sm:max-w-none sm:text-sm">{displayNickname}</span>
                </div>
              </div>
           </div>
@@ -1093,11 +1690,11 @@ export default function StudentPlay() {
         )}
 
         {/* Centered Lobby Content */}
-        <div className="relative flex-1 min-h-0 flex flex-col items-center justify-center p-4 sm:p-8 lg:p-12 w-full max-w-4xl mx-auto custom-scrollbar">
+        <div className="relative mx-auto flex w-full max-w-3xl flex-1 min-h-0 flex-col items-center justify-center overflow-y-auto px-3 py-4 sm:p-5 lg:p-8 custom-scrollbar">
            <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 30 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
-              className="relative z-10 w-full rounded-[2.5rem] sm:rounded-[3.5rem] border-4 border-brand-dark bg-white p-6 sm:p-12 text-center shadow-[12px_12px_0px_0px_#1A1A1A] sm:shadow-[16px_16px_0px_0px_#1A1A1A] overflow-hidden"
+              className="relative z-10 w-full rounded-[2.25rem] sm:rounded-[3rem] border-4 border-brand-dark bg-white px-5 py-6 sm:px-8 sm:py-8 text-center shadow-[10px_10px_0px_0px_#1A1A1A] sm:shadow-[14px_14px_0px_0px_#1A1A1A] overflow-hidden"
            >
               {/* Background ambient elements */}
               <div className="absolute inset-0 z-0 pointer-events-none opacity-10">
@@ -1106,7 +1703,7 @@ export default function StudentPlay() {
               </div>
 
               <div className="relative z-10 text-center">
-                 <div className="mx-auto mb-6 sm:mb-10 w-fit relative group">
+                 <div className="mx-auto mb-5 sm:mb-7 w-fit relative group">
                     <motion.div
                       animate={{ 
                         y: [0, -8, 0],
@@ -1122,7 +1719,7 @@ export default function StudentPlay() {
                       <Avatar
                         nickname={String(nickname || '')}
                         className="mb-0"
-                        imgClassName="h-28 w-28 sm:h-40 sm:w-40 rounded-[2rem] sm:rounded-[2.5rem] border-4 border-brand-dark bg-brand-yellow shadow-[6px_6px_0px_0px_#1A1A1A] sm:shadow-[8px_8px_0px_0px_#1A1A1A]"
+                        imgClassName="h-24 w-24 sm:h-32 sm:w-32 rounded-[1.75rem] sm:rounded-[2.25rem] border-4 border-brand-dark bg-brand-yellow shadow-[5px_5px_0px_0px_#1A1A1A] sm:shadow-[7px_7px_0px_0px_#1A1A1A]"
                         textClassName="hidden"
                       />
                     </motion.div>
@@ -1132,28 +1729,28 @@ export default function StudentPlay() {
                       initial={{ scale: 0 }}
                       animate={{ scale: 1 }}
                       transition={{ delay: 0.5, type: 'spring' }}
-                      className="absolute -bottom-2 -right-2 z-20 h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-4 border-brand-dark bg-white flex items-center justify-center shadow-[4px_4px_0px_0px_#1A1A1A]"
+                      className="absolute -bottom-1 -right-1 z-20 h-9 w-9 sm:h-10 sm:w-10 rounded-xl sm:rounded-[1.1rem] border-4 border-brand-dark bg-white flex items-center justify-center shadow-[3px_3px_0px_0px_#1A1A1A]"
                     >
-                       <CheckCircle className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-500" />
+                       <CheckCircle className="h-4.5 w-4.5 sm:h-5 sm:w-5 text-emerald-500" />
                     </motion.div>
 
                     {/* Decorative glow */}
                     <div className="absolute inset-0 -z-10 bg-brand-yellow/20 blur-2xl rounded-full scale-110 opacity-0 group-hover:opacity-100 transition-opacity" />
                  </div>
                  
-                 <h2 className="mb-2 sm:mb-4 text-[clamp(2.5rem,10vw,4.5rem)] font-black tracking-tighter leading-none text-brand-dark">
+                 <h2 className="mb-2 sm:mb-3 text-[clamp(2.2rem,8vw,3.8rem)] font-black tracking-tighter leading-none text-brand-dark">
                     You're in!
                  </h2>
-                 <p className="mb-8 sm:mb-10 text-base sm:text-2xl font-bold leading-tight text-brand-dark/50 max-w-[25ch] mx-auto">
+                 <p className="mb-6 sm:mb-7 text-sm sm:text-xl font-bold leading-tight text-brand-dark/50 max-w-[24ch] mx-auto">
                     Ready for the magic? The host starts soon.
                  </p>
 
-                 <div className="grid grid-cols-1 gap-3 sm:gap-4 sm:grid-cols-2">
+                 <div className="grid grid-cols-1 gap-3 sm:gap-3.5 sm:grid-cols-2">
                     <LobbyMetaCard label="Game Track" value={gameMode.label} />
                     <LobbyMetaCard label="Your Pod" value={teamName || (gameMode.teamBased ? 'Syncing team' : 'Solo Mastery')} />
                  </div>
 
-                 <div className="mt-8 sm:mt-10 rounded-[2rem] sm:rounded-[2.5rem] border-4 border-brand-dark/5 bg-brand-bg/30 p-4 sm:p-6 flex flex-wrap items-center justify-center gap-4 sm:gap-8">
+                 <div className="mt-6 sm:mt-7 rounded-[1.75rem] sm:rounded-[2.25rem] border-4 border-brand-dark/5 bg-brand-bg/30 px-4 py-3.5 sm:px-5 sm:py-4 flex flex-wrap items-center justify-center gap-3 sm:gap-6">
                     <div className="flex items-center gap-2 sm:gap-3">
                        <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-dark/40">Status:</span>
@@ -1195,43 +1792,43 @@ export default function StudentPlay() {
         </div>
 
         {/* Centered Discussion Content */}
-        <div className="relative flex-1 min-h-0 overflow-y-auto p-6 sm:p-8 lg:p-12 w-full max-w-4xl mx-auto custom-scrollbar">
+        <div className="relative mx-auto flex-1 min-h-0 w-full max-w-4xl overflow-y-auto px-3 py-4 sm:p-8 lg:p-12 custom-scrollbar">
            <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 30 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
-              className="relative z-10 w-full rounded-[3.5rem] border-4 border-brand-dark bg-white p-8 text-center shadow-[16px_16px_0px_0px_#1A1A1A] sm:p-12"
+              className="relative z-10 w-full rounded-[2.25rem] border-4 border-brand-dark bg-white p-5 text-center shadow-[8px_8px_0px_0px_#1A1A1A] sm:rounded-[3.5rem] sm:p-12 sm:shadow-[16px_16px_0px_0px_#1A1A1A]"
            >
-              <h2 className="mb-4 text-4xl font-black tracking-tighter text-brand-dark sm:text-6xl lg:text-7xl">Pod Discussion</h2>
-              <p className="mx-auto max-w-[35ch] text-lg font-bold leading-relaxed text-brand-dark/50 sm:text-2xl mb-12">
+              <h2 className="mb-3 text-3xl font-black tracking-tighter text-brand-dark sm:text-6xl lg:text-7xl">Pod Discussion</h2>
+              <p className="mx-auto mb-8 max-w-[30ch] text-base font-bold leading-relaxed text-brand-dark/50 sm:mb-12 sm:text-2xl">
                  Defend your choice, listen to your peers, and sync up for the final vote!
               </p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left mb-10">
-                <div className="rounded-[2.5rem] border-4 border-brand-dark bg-brand-bg/50 p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+              <div className="mb-8 grid grid-cols-1 gap-4 text-left md:grid-cols-2 sm:gap-6 sm:mb-10">
+                <div className="rounded-[1.7rem] border-4 border-brand-dark bg-brand-bg/50 p-4 shadow-[6px_6px_0px_0px_#1A1A1A] sm:rounded-[2.5rem] sm:p-6 sm:shadow-[8px_8px_0px_0px_#1A1A1A]">
                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-orange mb-3">Your Initial Choice</p>
-                   <p className="text-2xl font-black text-brand-dark leading-snug">
+                   <p className="text-xl font-black leading-snug text-brand-dark sm:text-2xl">
                      {firstRoundChoice !== null ? question?.answers?.[firstRoundChoice] : 'No choice locked'}
                    </p>
                 </div>
-                <div className="rounded-[2.5rem] border-4 border-brand-dark bg-brand-yellow p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+                <div className="rounded-[1.7rem] border-4 border-brand-dark bg-brand-yellow p-4 shadow-[6px_6px_0px_0px_#1A1A1A] sm:rounded-[2.5rem] sm:p-6 sm:shadow-[8px_8px_0px_0px_#1A1A1A]">
                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-dark/60 mb-3">Your Pod</p>
-                   <p className="text-2xl font-black text-brand-dark leading-snug">{teamName || 'Consult nearby teammates'}</p>
+                   <p className="text-xl font-black leading-snug text-brand-dark sm:text-2xl">{teamName || 'Consult nearby teammates'}</p>
                 </div>
               </div>
 
-              <div className="rounded-[3rem] border-4 border-brand-dark bg-brand-dark text-white p-8 sm:p-10 text-left relative overflow-hidden shadow-[12px_12px_0px_0px_#1A1A1A]">
+              <div className="relative overflow-hidden rounded-[2.2rem] border-4 border-brand-dark bg-brand-dark p-5 text-left text-white shadow-[8px_8px_0px_0px_#1A1A1A] sm:rounded-[3rem] sm:p-10 sm:shadow-[12px_12px_0px_0px_#1A1A1A]">
                 <div className="absolute -top-10 -right-10 p-4 opacity-10">
                    <Sparkles className="h-40 w-40 text-brand-yellow" />
                 </div>
                 <div className="relative z-10">
                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-yellow mb-5">Question Spotlight</p>
-                   <h3 className="text-2xl font-black sm:text-4xl mb-10 text-balance leading-[1.15] tracking-tight">{question?.prompt}</h3>
+                   <h3 className="mb-6 text-xl font-black leading-[1.15] tracking-tight text-balance sm:mb-10 sm:text-4xl">{question?.prompt}</h3>
                    
                    <div className="grid gap-4 sm:grid-cols-2">
                      {question?.answers?.map((answer: string, index: number) => (
                        <div
                          key={index}
-                         className={`rounded-[1.5rem] border-4 p-5 font-black text-base transition-colors ${
+                         className={`rounded-[1.25rem] border-4 p-4 text-sm font-black transition-colors sm:rounded-[1.5rem] sm:p-5 sm:text-base ${
                            firstRoundChoice === index 
                             ? 'bg-brand-yellow text-brand-dark border-brand-dark shadow-[4px_4px_0px_0px_#FF5A36]' 
                             : 'bg-white/10 border-white/10 text-white/90'
@@ -1251,7 +1848,7 @@ export default function StudentPlay() {
                 </div>
               </div>
               
-              <div className="mt-12 flex items-center justify-center gap-4">
+              <div className="mt-8 flex items-center justify-center gap-3 sm:mt-12 sm:gap-4">
                  <div className="h-2.5 w-2.5 animate-bounce rounded-full bg-brand-purple" />
                  <div className="h-2.5 w-2.5 animate-bounce rounded-full bg-brand-yellow [animation-delay:0.2s]" />
                  <div className="h-2.5 w-2.5 animate-bounce rounded-full bg-brand-orange [animation-delay:0.4s]" />
@@ -1480,44 +2077,44 @@ export default function StudentPlay() {
         
         {/* Cinematic Student Header */}
         <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
-          <div className="mx-auto flex w-full max-w-[1540px] items-center justify-between gap-3 px-4 py-3 sm:px-8">
-            <div className="flex items-center gap-3">
+          <div className="mx-auto flex w-full max-w-[1540px] flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:gap-3 sm:px-8 sm:py-3">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => {
                   if (window.confirm('Are you sure you want to leave the game?')) {
-                    navigate(`/student/dashboard/${nickname}`);
+                    navigate(primaryExitPath);
                   }
                 }}
-                className="game-icon-button h-11 w-11 hover:bg-rose-50 hover:text-rose-600"
+                className="game-icon-button h-10 w-10 hover:bg-rose-50 hover:text-rose-600 sm:h-11 sm:w-11"
               >
                 <XCircle className="h-6 w-6 opacity-40" />
               </motion.button>
               
-              <div className="flex h-11 items-center gap-3 rounded-2xl border-2 border-brand-dark bg-brand-bg px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+              <div className="flex h-10 max-w-[60vw] items-center gap-2 rounded-2xl border-2 border-brand-dark bg-brand-bg px-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-11 sm:max-w-none sm:gap-3 sm:px-4">
                 <Avatar
                   nickname={String(nickname || '')}
-                  imgClassName="h-7 w-7 rounded-xl"
+                  imgClassName="h-6 w-6 rounded-lg sm:h-7 sm:w-7 sm:rounded-xl"
                 />
-                <span className="hidden sm:inline font-black text-sm uppercase tracking-tight">{displayNickname}</span>
+                <span className="truncate font-black text-xs uppercase tracking-tight sm:text-sm">{displayNickname}</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+            <div className="flex w-full items-center justify-end gap-2 sm:w-auto sm:gap-3">
+              <div className="flex h-10 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-11 sm:px-4">
                 <Clock className={`h-5 w-5 ${phaseTimerDanger ? 'text-rose-500 animate-pulse' : 'text-brand-purple'}`} />
-                <span className={`font-black text-lg ${phaseTimerDanger ? 'text-rose-600' : ''}`}>{phaseTimerLabel}</span>
+                <span className={`font-black text-base sm:text-lg ${phaseTimerDanger ? 'text-rose-600' : ''}`}>{phaseTimerLabel}</span>
               </div>
               
               <motion.div
                 key={score}
                 initial={{ scale: 1.25, rotate: -5 }}
                 animate={{ scale: 1, rotate: 0 }}
-                className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-brand-yellow px-4 shadow-[4px_4px_0px_0px_#1A1A1A]"
+                className="flex h-10 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-brand-yellow px-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-11 sm:px-4"
               >
                 <Trophy className="h-5 w-5 fill-current text-brand-dark/30" />
-                <span className="font-black text-lg">{score}</span>
+                <span className="font-black text-base sm:text-lg">{score}</span>
               </motion.div>
             </div>
           </div>
@@ -1537,17 +2134,17 @@ export default function StudentPlay() {
         )}
 
         {/* Main Content Viewport */}
-        <div className="relative flex-1 min-h-0 flex flex-col gap-4 p-4 sm:p-6 lg:p-8 w-full max-w-[1540px] mx-auto overflow-x-visible overflow-y-hidden">
+        <div className="relative mx-auto flex w-full max-w-[1540px] flex-1 min-h-0 flex-col gap-3 overflow-x-visible overflow-y-auto px-3 py-3 sm:gap-4 sm:p-6 sm:overflow-y-hidden lg:p-8">
           
           {/* Question Hero */}
           <motion.div
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className={`relative ${questionHeroFlexClass} ${questionHeroMinHeightClass} shrink-0 overflow-hidden rounded-[2.5rem] border-4 border-brand-dark bg-white shadow-[10px_10px_0px_0px_#1A1A1A]`}
+            className={`relative ${questionHeroFlexClass} ${questionHeroMinHeightClass} shrink-0 overflow-hidden rounded-[2rem] border-4 border-brand-dark bg-white shadow-[6px_6px_0px_0px_#1A1A1A] sm:rounded-[2.5rem] sm:shadow-[10px_10px_0px_0px_#1A1A1A]`}
           >
             <div className="absolute inset-x-0 top-0 z-20 h-2 bg-gradient-to-r from-brand-purple via-brand-yellow to-brand-orange" />
             
-            <div className="relative z-10 flex h-full w-full flex-col p-6 sm:p-8">
+            <div className="relative z-10 flex h-full w-full flex-col p-4 sm:p-8">
                {question?.image_url ? (
                   <>
                     <div className="absolute inset-0 z-0">
@@ -1555,33 +2152,50 @@ export default function StudentPlay() {
                         src={question.image_url}
                         alt={question?.prompt || 'Question image'}
                         className="h-full w-full object-cover"
+                        onClick={() => {
+                          recordTelemetryEvent('media_opened', {
+                            payload: {
+                              media_type: 'image',
+                            },
+                          });
+                        }}
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-brand-dark/90 via-brand-dark/28 to-transparent" />
                     </div>
                     <div className="relative z-10 flex h-full w-full items-center justify-center">
-                      <div className="w-full max-w-5xl rounded-[2rem] border-4 border-brand-dark bg-white/94 p-5 text-center shadow-[6px_6px_0px_0px_#1A1A1A] backdrop-blur-md sm:rounded-[2.6rem] sm:p-8">
-                        <h2 className={`${studentPromptClassName} font-black leading-[1.1] tracking-tight text-brand-dark text-balance`}>
-                          {question?.prompt}
-                        </h2>
+                      <div className="w-full max-w-5xl rounded-[1.5rem] border-4 border-brand-dark bg-white/94 p-4 text-center shadow-[4px_4px_0px_0px_#1A1A1A] backdrop-blur-md sm:rounded-[2.6rem] sm:p-8 sm:shadow-[6px_6px_0px_0px_#1A1A1A]">
+                        <div
+                          onScroll={handlePromptReread}
+                          className={`mx-auto ${questionPromptScrollerClass} overflow-y-auto px-1 custom-scrollbar`}
+                        >
+                          <h2 className={`${studentPromptClassName} font-black leading-[1.1] tracking-tight text-brand-dark text-balance`}>
+                            {question?.prompt}
+                          </h2>
+                        </div>
                       </div>
                     </div>
                   </>
                ) : (
                   <div className="flex-1 flex flex-col justify-center text-center">
-                     <h2 className={`${studentPromptClassName} font-black leading-[1.1] tracking-tight text-brand-dark max-w-[35ch] mx-auto text-balance`}>
-                        {question?.prompt}
-                     </h2>
+                     <div
+                       onScroll={handlePromptReread}
+                       className={`mx-auto max-w-[35ch] ${questionPromptScrollerClass} overflow-y-auto px-1 custom-scrollbar`}
+                     >
+                       <h2 className={`${studentPromptClassName} font-black leading-[1.1] tracking-tight text-brand-dark text-balance`}>
+                          {question?.prompt}
+                       </h2>
+                     </div>
                   </div>
                )}
             </div>
           </motion.div>
 
           {/* Answer Interaction Area */}
-          <section className={`relative z-10 flex min-h-0 ${answerBoardFlexClass} flex-col overflow-hidden rounded-[2.8rem] border-4 border-brand-dark bg-white shadow-[12px_12px_0px_0px_#1A1A1A]`}>
+          <section ref={answerBoardRef} className={`relative z-10 flex min-h-0 ${answerBoardFlexClass} flex-col overflow-hidden rounded-[2rem] border-4 border-brand-dark bg-white shadow-[7px_7px_0px_0px_#1A1A1A] sm:rounded-[2.8rem] sm:shadow-[12px_12px_0px_0px_#1A1A1A]`}>
             
             {/* Answer Grid Container - Added bottom padding to avoid overlap with floating bar */}
-            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 pb-28 sm:p-6 sm:pb-32 lg:p-8 lg:pb-12 custom-scrollbar">
-               <div className={`grid min-h-full ${answerGridColumnsClass} gap-4 sm:gap-6`}>
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 pb-36 sm:p-6 sm:pb-32 lg:p-8 lg:pb-12 custom-scrollbar">
+               <div className={`grid min-h-full ${answerGridColumnsClass} ${answerGridRowsClass} gap-3 sm:gap-6`}>
                   {question?.answers?.map((ans: string, i: number) => {
                     const isSelected = currentSelectedAnswer === i;
                     return (
@@ -1593,15 +2207,19 @@ export default function StudentPlay() {
                         whileTap={{ scale: isSelectionLocked ? 1 : 0.98 }}
                         transition={{ duration: 0.15 }}
                         onClick={() => handleAnswerSelect(i)}
+                        onMouseEnter={() => beginHoverDwell(i)}
+                        onFocus={() => beginHoverDwell(i)}
+                        onMouseLeave={() => flushHoverDwell()}
+                        onBlur={() => flushHoverDwell()}
                         style={buildAnswerToneStyle(i, isSelected)}
                         data-locked={isSelectionLocked && !isSelected ? 'true' : 'false'}
                         className={`
-                          student-answer-button student-play-answer-tile group relative flex ${studentAnswerMinHeightClass} items-center px-6 py-4 text-left sm:px-8
+                          student-answer-button student-play-answer-tile group relative flex ${studentAnswerMinHeightClass} items-center px-4 py-3 text-left sm:px-8 sm:py-4
                           ${isSelected ? 'student-play-answer-tile--selected' : ''}
                           ${isSelectionLocked && !isSelected ? 'opacity-30 grayscale-[0.8]' : ''}
                         `}
                       >
-                        <div className={`mr-5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 font-black text-lg transition-colors ${
+                        <div className={`mr-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 text-base font-black transition-colors sm:mr-5 sm:h-10 sm:w-10 sm:rounded-xl sm:text-lg ${
                           isSelected ? 'border-white/20 bg-white/10' : 'border-brand-dark/10 bg-white/40 text-brand-dark/30'
                         }`}>
                           {formatAnswerSlotLabel(i)}
@@ -1611,7 +2229,7 @@ export default function StudentPlay() {
                         </span>
                         
                         {isSelected && !hasAnswered && (
-                          <div className="absolute top-2 right-4 flex h-6 items-center gap-1.5 rounded-full bg-brand-orange px-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg">
+                          <div className="absolute right-3 top-2 flex h-5 items-center gap-1 rounded-full bg-brand-orange px-2 text-[9px] font-black uppercase tracking-[0.15em] text-white shadow-lg sm:right-4 sm:h-6 sm:gap-1.5 sm:px-3 sm:text-[10px] sm:tracking-widest">
                              <Stars className="h-3 w-3 fill-current" />
                              Selected
                           </div>
@@ -1631,7 +2249,7 @@ export default function StudentPlay() {
                 initial={{ y: 28, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 28, opacity: 0 }}
-                className="pointer-events-none absolute inset-x-0 bottom-4 z-40 flex justify-center px-4 sm:bottom-6"
+                className="pointer-events-none absolute inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-40 flex justify-center px-3 sm:bottom-6 sm:px-4"
               >
                 <div className="pointer-events-auto">
                   {shouldShowAnswerSummary && !hasAnswered && (
@@ -1672,28 +2290,28 @@ export default function StudentPlay() {
         
         {/* Cinematic Reveal Header */}
         <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
-          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-8">
-             <div className="flex items-center gap-3">
-                <div className="rounded-2xl border-2 border-brand-dark px-4 py-1.5 text-xs font-black uppercase tracking-widest bg-brand-bg shadow-[3px_3px_0px_0px_#1A1A1A]">
+          <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:gap-3 sm:px-8 sm:py-3">
+             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <div className="rounded-2xl border-2 border-brand-dark bg-brand-bg px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A] sm:px-4 sm:text-xs sm:tracking-widest">
                    {t('game.status.reveal')}
                 </div>
              </div>
              
-             <div className="flex items-center gap-3">
-               <div className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+             <div className="flex w-full items-center justify-end gap-2 sm:w-auto sm:gap-3">
+               <div className="flex h-10 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-11 sm:px-4">
                  <Trophy className="h-5 w-5 fill-current text-brand-yellow" />
-                 <span className="font-black text-lg">{score}</span>
+                 <span className="font-black text-base sm:text-lg">{score}</span>
                </div>
              </div>
           </div>
         </div>
 
         {/* Reveal Content Viewport - Optimized for 100vh */}
-        <div className="relative mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col items-center justify-center overflow-hidden p-3 sm:p-5 lg:p-6">
+        <div className="relative mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col items-center justify-center overflow-hidden px-2 py-3 sm:p-5 lg:p-6">
            <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
-              className="relative z-10 max-h-[calc(100vh-8.75rem)] w-full overflow-y-auto rounded-[2rem] border-4 border-brand-dark bg-white p-4 text-center shadow-[6px_6px_0px_0px_#1A1A1A] sm:max-h-[calc(100vh-9.5rem)] sm:p-5"
+              className="relative z-10 max-h-[calc(100vh-8.75rem)] w-full overflow-x-hidden overflow-y-auto rounded-[2rem] border-4 border-brand-dark bg-white p-3 text-center shadow-[6px_6px_0px_0px_#1A1A1A] sm:max-h-[calc(100vh-9.5rem)] sm:p-5"
            >
               <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-[1.15rem] border-4 border-brand-dark bg-brand-bg shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-16 sm:w-16">
                  {answeredCorrectly ? (
@@ -1715,7 +2333,7 @@ export default function StudentPlay() {
                  {answeredCorrectly ? 'Dynamic performance! You’re crushing this.' : 'A learning moment! Swipe through the details below.'}
               </p>
 
-              <div className="mt-5 grid gap-3 text-left sm:grid-cols-2">
+              <div className="mt-5 grid min-w-0 gap-3 text-left sm:grid-cols-2">
                  <RevealAnswerCard
                     label="Your Submission"
                     value={chosenAnswer || 'Thinking...'}
@@ -1728,7 +2346,7 @@ export default function StudentPlay() {
                  />
               </div>
 
-              <div className="mt-3 flex flex-wrap justify-center gap-2.5">
+              <div className="mt-3 grid w-full min-w-0 grid-cols-2 gap-2.5 sm:flex sm:flex-wrap sm:justify-center">
                  <PlayerMetricCard label="Score" value={score} tone="dark" />
                  {lastScoreAwarded > 0 && <PlayerMetricCard label="This Round" value={`+${lastScoreAwarded}`} tone="warm" />}
                  <PlayerMetricCard label="Streak" value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
@@ -1785,31 +2403,31 @@ export default function StudentPlay() {
         
         {/* Cinematic Leaderboard Header */}
         <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
-          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-8">
-             <div className="flex items-center gap-3">
-                <div className="rounded-2xl border-2 border-brand-dark px-4 py-1.5 text-xs font-black uppercase tracking-widest bg-brand-bg shadow-[3px_3px_0px_0px_#1A1A1A]">
+          <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:gap-3 sm:px-8 sm:py-3">
+             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <div className="rounded-2xl border-2 border-brand-dark bg-brand-bg px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A] sm:px-4 sm:text-xs sm:tracking-widest">
                    {t('game.leaderboard.title')}
                 </div>
              </div>
              
-             <div className="flex items-center gap-3">
-               <div className="flex h-11 items-center gap-3 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+             <div className="flex w-full items-center justify-end gap-2 sm:w-auto sm:gap-3">
+               <div className="flex h-10 max-w-[60vw] items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-11 sm:max-w-none sm:gap-3 sm:px-4">
                  <Avatar
                    nickname={String(nickname || '')}
-                   imgClassName="h-7 w-7 rounded-xl"
+                   imgClassName="h-6 w-6 rounded-lg sm:h-7 sm:w-7 sm:rounded-xl"
                  />
-                 <span className="hidden sm:inline font-black text-sm uppercase tracking-tight">{displayNickname}</span>
+                 <span className="truncate font-black text-xs uppercase tracking-tight sm:text-sm">{displayNickname}</span>
                </div>
              </div>
           </div>
         </div>
 
         {/* Centered Leaderboard Content - Optimized for 100vh */}
-        <div className="relative flex-1 min-h-0 flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8 w-full max-w-2xl mx-auto overflow-hidden">
+        <div className="relative mx-auto flex w-full max-w-2xl flex-1 min-h-0 flex-col items-center justify-center overflow-hidden px-3 py-4 sm:p-6 lg:p-8">
            <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
-              className="relative z-10 w-full rounded-[2.5rem] border-4 border-brand-dark bg-white p-5 text-center shadow-[6px_6px_0px_0px_#1A1A1A] sm:p-7"
+              className="relative z-10 w-full rounded-[2rem] border-4 border-brand-dark bg-white p-4 text-center shadow-[6px_6px_0px_0px_#1A1A1A] sm:rounded-[2.5rem] sm:p-7"
            >
               <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[1.5rem] border-4 border-brand-dark bg-brand-yellow shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-20 sm:w-20 text-brand-dark">
                  <Trophy className="h-8 w-8 sm:h-10 sm:w-10" />
@@ -1843,55 +2461,55 @@ export default function StudentPlay() {
         
         {/* Cinematic Ended Header */}
         <div className="z-30 shrink-0 border-b-4 border-brand-dark bg-white shadow-sm">
-          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-8">
-             <div className="flex items-center gap-3">
-                <div className="rounded-2xl border-2 border-brand-dark px-4 py-1.5 text-xs font-black uppercase tracking-widest bg-brand-bg shadow-[3px_3px_0px_0px_#1A1A1A]">
+          <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:gap-3 sm:px-8 sm:py-3">
+             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <div className="rounded-2xl border-2 border-brand-dark bg-brand-bg px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.2em] shadow-[3px_3px_0px_0px_#1A1A1A] sm:px-4 sm:text-xs sm:tracking-widest">
                    {t('game.status.ended')}
                 </div>
              </div>
              
-             <div className="flex items-center gap-3">
-               <div className="flex h-11 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-4 shadow-[4px_4px_0px_0px_#1A1A1A]">
+             <div className="flex w-full items-center justify-end gap-2 sm:w-auto sm:gap-3">
+               <div className="flex h-10 items-center gap-2 rounded-2xl border-2 border-brand-dark bg-white px-3 shadow-[4px_4px_0px_0px_#1A1A1A] sm:h-11 sm:px-4">
                  <Trophy className="h-5 w-5 fill-current text-brand-yellow" />
-                 <span className="font-black text-lg">{score}</span>
+                 <span className="font-black text-base sm:text-lg">{score}</span>
                </div>
              </div>
           </div>
         </div>
 
         {/* Centered Ended Content */}
-        <div className="relative flex-1 min-h-0 flex flex-col items-center justify-center p-6 sm:p-8 lg:p-12 w-full max-w-3xl mx-auto">
+        <div className="relative mx-auto flex w-full max-w-3xl flex-1 min-h-0 flex-col items-center justify-center overflow-y-auto px-3 py-4 sm:p-8 lg:p-12">
            <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 30 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
-              className="relative z-10 w-full rounded-[3.5rem] border-4 border-brand-dark bg-white p-8 text-center shadow-[16px_16px_0px_0px_#1A1A1A] sm:p-12"
+              className="relative z-10 w-full rounded-[2.2rem] border-4 border-brand-dark bg-white p-5 text-center shadow-[8px_8px_0px_0px_#1A1A1A] sm:rounded-[3.5rem] sm:p-12 sm:shadow-[16px_16px_0px_0px_#1A1A1A]"
            >
-              <div className="mx-auto mb-10 flex h-28 w-28 items-center justify-center rounded-[2.5rem] border-4 border-brand-dark bg-brand-yellow shadow-[8px_8px_0px_0px_#1A1A1A] sm:h-36 sm:w-36">
+              <div className="mx-auto mb-7 flex h-24 w-24 items-center justify-center rounded-[1.8rem] border-4 border-brand-dark bg-brand-yellow shadow-[6px_6px_0px_0px_#1A1A1A] sm:mb-10 sm:h-36 sm:w-36 sm:rounded-[2.5rem] sm:shadow-[8px_8px_0px_0px_#1A1A1A]">
                  <Sparkles className="h-16 w-16 text-brand-dark" />
               </div>
 
-              <h2 className="mb-4 text-5xl font-black tracking-tighter text-brand-dark sm:text-7xl">{t('game.ended.title')}</h2>
-              <p className="mb-10 text-xl font-bold leading-relaxed text-brand-dark/40 sm:text-3xl">{t('game.ended.body')}</p>
+              <h2 className="mb-3 text-3xl font-black tracking-tighter text-brand-dark sm:text-7xl">{t('game.ended.title')}</h2>
+              <p className="mb-7 text-base font-bold leading-relaxed text-brand-dark/40 sm:mb-10 sm:text-3xl">{t('game.ended.body')}</p>
 
-              <div className="grid grid-cols-2 gap-6 mb-12">
+              <div className="mb-8 grid grid-cols-2 gap-3 sm:mb-12 sm:gap-6">
                 <PlayerMetricCard label="Final Rank" value={score > 1000 ? "#4" : "#12"} tone="dark" />
                 <PlayerMetricCard label="Final Streak" value={streak} tone={streak >= 2 ? 'warm' : 'light'} />
               </div>
 
-              <div className="flex flex-col gap-5 sm:flex-row sm:justify-center">
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-center sm:gap-5">
                  <motion.button
                    whileHover={{ scale: 1.05 }}
                    whileTap={{ scale: 0.95 }}
-                   onClick={() => navigate(`/student/dashboard/${nickname}`)}
-                   className="game-action-button game-action-button--primary px-10 py-5 text-lg"
+                   onClick={() => navigate(primaryExitPath)}
+                   className="game-action-button game-action-button--primary px-6 py-4 text-base sm:px-10 sm:py-5 sm:text-lg"
                  >
                    {t('game.ended.primary')}
                  </motion.button>
                  <motion.button
                    whileHover={{ scale: 1.05 }}
                    whileTap={{ scale: 0.95 }}
-                   onClick={() => navigate('/')}
-                   className="game-action-button game-action-button--secondary px-10 py-5 text-lg"
+                   onClick={() => navigate(leaveSessionPath)}
+                   className="game-action-button game-action-button--secondary px-6 py-4 text-base sm:px-10 sm:py-5 sm:text-lg"
                  >
                    {t('game.ended.secondary')}
                  </motion.button>
@@ -1907,7 +2525,8 @@ export default function StudentPlay() {
       title={t('game.fallback.unfamiliarState')}
       body={t('game.fallback.unknownStatus', { status })}
       onRetry={() => window.location.reload()}
-      onExit={() => navigate(`/student/dashboard/${nickname}`)}
+      onExit={() => navigate(primaryExitPath)}
+      exitLabel={linkedStudentHomePath ? 'Back to student space' : 'Back home'}
     />
   );
 }
@@ -2017,9 +2636,11 @@ function RevealAnswerCard({
         : 'bg-brand-bg border-brand-dark';
 
   return (
-    <div className={`rounded-2xl border-4 p-3 sm:p-4 ${toneClass}`}>
+    <div className={`min-w-0 overflow-hidden rounded-2xl border-4 p-3 sm:p-4 ${toneClass}`}>
       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{label}</p>
-      <p className="text-base sm:text-xl font-black text-brand-dark truncate">{value}</p>
+      <p className="min-w-0 break-words text-base font-black leading-tight text-brand-dark sm:text-xl">
+        {value}
+      </p>
     </div>
   );
 }
@@ -2041,9 +2662,9 @@ function PlayerMetricCard({
         : 'bg-brand-bg text-brand-dark';
 
   return (
-    <div className={`rounded-2xl border-4 border-brand-dark p-3 sm:p-4 ${toneClass}`}>
-      <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-1">{label}</p>
-      <p className="text-lg sm:text-2xl font-black">{value}</p>
+    <div className={`min-w-0 rounded-2xl border-4 border-brand-dark p-3 sm:p-4 ${toneClass}`}>
+      <p className="mb-1 text-[10px] font-black uppercase tracking-[0.2em] opacity-70">{label}</p>
+      <p className="min-w-0 break-words text-lg font-black leading-tight sm:text-2xl">{value}</p>
     </div>
   );
 }
@@ -2054,12 +2675,14 @@ function StudentShellFallback({
   loading = false,
   onRetry,
   onExit,
+  exitLabel = 'Exit room',
 }: {
   title: string;
   body: string;
   loading?: boolean;
   onRetry?: () => void;
   onExit?: () => void;
+  exitLabel?: string;
 }) {
   const { t } = useAppLanguage();
   return (
@@ -2085,7 +2708,7 @@ function StudentShellFallback({
                 onClick={onExit}
                 className="game-action-button game-action-button--secondary px-6 py-4"
               >
-                {t('game.action.next')}
+                {exitLabel}
               </button>
             )}
           </div>

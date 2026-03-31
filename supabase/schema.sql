@@ -42,7 +42,17 @@ CREATE TABLE IF NOT EXISTS questions (
   tags_json TEXT,
   difficulty INTEGER DEFAULT 3,
   time_limit_seconds INTEGER DEFAULT 20,
-  question_order INTEGER DEFAULT 0
+  question_order INTEGER DEFAULT 0,
+  learning_objective TEXT DEFAULT '',
+  bloom_level TEXT DEFAULT '',
+  image_url TEXT DEFAULT '',
+  concept_id TEXT DEFAULT '',
+  stem_length_chars INTEGER DEFAULT 0,
+  prompt_complexity_score INTEGER DEFAULT 0,
+  reading_difficulty TEXT DEFAULT '',
+  media_type TEXT DEFAULT 'text',
+  distractor_profile_json TEXT DEFAULT '{}',
+  question_position_policy TEXT DEFAULT 'fixed_pack_order'
 );
 
 CREATE TABLE IF NOT EXISTS material_profiles (
@@ -162,6 +172,60 @@ CREATE TABLE IF NOT EXISTS student_behavior_logs (
   visibility_interruptions INTEGER DEFAULT 0,
   network_degraded BOOLEAN DEFAULT FALSE,
   device_profile TEXT DEFAULT '',
+  analytics_version TEXT DEFAULT 'telemetry_v2',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS student_behavior_events (
+  id SERIAL PRIMARY KEY,
+  session_id INTEGER,
+  question_id INTEGER,
+  participant_id INTEGER,
+  event_type TEXT NOT NULL,
+  event_ts_ms INTEGER DEFAULT 0,
+  event_seq INTEGER DEFAULT 0,
+  option_index INTEGER,
+  payload_json TEXT DEFAULT '{}',
+  network_latency_ms INTEGER DEFAULT 0,
+  client_render_delay_ms INTEGER DEFAULT 0,
+  device_profile TEXT DEFAULT '',
+  analytics_version TEXT DEFAULT 'telemetry_v2',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS concept_attempt_history (
+  id SERIAL PRIMARY KEY,
+  identity_key TEXT NOT NULL,
+  concept_id TEXT NOT NULL,
+  session_id INTEGER,
+  question_id INTEGER,
+  is_correct BOOLEAN DEFAULT FALSE,
+  response_ms INTEGER DEFAULT 0,
+  stress_index DOUBLE PRECISION DEFAULT 0,
+  engagement_score DOUBLE PRECISION DEFAULT 0,
+  prior_mastery DOUBLE PRECISION DEFAULT 0,
+  attempt_number INTEGER DEFAULT 1,
+  days_since_last_seen DOUBLE PRECISION DEFAULT 0,
+  rolling_accuracy_5 DOUBLE PRECISION DEFAULT 0,
+  rolling_stress_5 DOUBLE PRECISION DEFAULT 0,
+  rolling_engagement_5 DOUBLE PRECISION DEFAULT 0,
+  retention_24h DOUBLE PRECISION DEFAULT 0,
+  retention_7d DOUBLE PRECISION DEFAULT 0,
+  analytics_version TEXT DEFAULT 'telemetry_v2',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS analytics_labels (
+  id SERIAL PRIMARY KEY,
+  session_id INTEGER,
+  question_id INTEGER,
+  participant_id INTEGER,
+  identity_key TEXT,
+  label_type TEXT NOT NULL,
+  label_value TEXT NOT NULL,
+  source TEXT DEFAULT 'system',
+  metadata_json TEXT DEFAULT '{}',
+  labeled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

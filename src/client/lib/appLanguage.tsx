@@ -20,7 +20,7 @@ type TranslationRecord = {
   translated?: string;
 };
 
-type AppLanguageContextValue = {
+export type AppLanguageContextValue = {
   language: AppLanguage;
   direction: 'ltr' | 'rtl';
   setLanguage: (language: AppLanguage) => void;
@@ -584,6 +584,27 @@ function writeStoredLanguage(language: AppLanguage) {
   }
 }
 
+export function readPreferredAppLanguage(): AppLanguage {
+  return readStoredLanguage();
+}
+
+export function resolveAppLanguageDirection(language: AppLanguage): 'ltr' | 'rtl' {
+  return language === 'en' ? 'ltr' : 'rtl';
+}
+
+export function translateAppUiString(language: AppLanguage, key: string, params?: Record<string, string>) {
+  const bundle = UI_STRINGS[language] || UI_STRINGS.en;
+  let text = bundle[key] || UI_STRINGS.en[key] || key;
+
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      text = text.replace(`{${k}}`, v);
+    });
+  }
+
+  return text;
+}
+
 function loadCache(language: AppLanguage) {
   if (!isBrowser()) return {};
   try {
@@ -669,7 +690,7 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
   const isApplyingTranslationsRef = useRef(false);
   const observerRef = useRef<MutationObserver | null>(null);
 
-  const direction = language === 'en' ? 'ltr' : 'rtl';
+  const direction = resolveAppLanguageDirection(language);
 
   const setLanguage = (nextLanguage: AppLanguage) => {
     writeStoredLanguage(nextLanguage);
@@ -965,17 +986,7 @@ export function AppLanguageProvider({ children }: { children: React.ReactNode })
     };
   }, [language]);
 
-  const t = (key: string, params?: Record<string, string>) => {
-    const bundle = UI_STRINGS[language] || UI_STRINGS.en;
-    let text = bundle[key] || UI_STRINGS.en[key] || key;
-    
-    if (params) {
-      Object.entries(params).forEach(([k, v]) => {
-        text = text.replace(`{${k}}`, v);
-      });
-    }
-    return text;
-  };
+  const t = (key: string, params?: Record<string, string>) => translateAppUiString(language, key, params);
 
   const value = useMemo<AppLanguageContextValue>(() => ({
     language,
@@ -993,4 +1004,8 @@ export function useAppLanguage() {
     throw new Error('useAppLanguage must be used within AppLanguageProvider');
   }
   return context;
+}
+
+export function useOptionalAppLanguage() {
+  return useContext(AppLanguageContext);
 }
