@@ -33,6 +33,15 @@ const trustedOrigins = Array.from(
   new Set(
     [
       ...DEFAULT_TRUSTED_ORIGINS,
+      ...[
+        process.env.PUBLIC_APP_URL,
+        process.env.RENDER_EXTERNAL_URL,
+        process.env.APP_URL,
+        process.env.VITE_APP_URL,
+        process.env.NEXT_PUBLIC_APP_URL,
+      ]
+        .map((origin) => String(origin || '').trim())
+        .filter(Boolean),
       ...String(process.env.QUIZZI_ALLOWED_ORIGINS || '')
         .split(',')
         .map((origin) => origin.trim())

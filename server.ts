@@ -154,40 +154,50 @@ async function startServer() {
   }
 
   const allowedMethods = ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'];
+  const allowedHeaders = [
+    'Content-Type',
+    'Authorization',
+    'X-Quizzi-Participant-Token',
+    'X-Quizzi-Student-Auth',
+    'X-Requested-With',
+  ];
 
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
   // Using standard 'cors' middleware for reliable preflight/actual handling.
   // Same-origin browser requests should always work, even on custom domains or preview URLs.
-  app.use(
-    cors((req, callback) => {
-      const origin = String(req.headers.origin || '').trim();
-      const forwardedProto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http')
-        .split(',')[0]
-        .trim();
-      const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '')
-        .split(',')[0]
-        .trim();
-      const expectedOrigin = forwardedHost ? normalizeOrigin(`${forwardedProto}://${forwardedHost}`) : '';
-      const allowed =
-        !origin ||
-        isAllowedBrowserOrigin(origin) ||
-        (expectedOrigin && normalizeOrigin(origin) === expectedOrigin) ||
-        process.env.NODE_ENV !== 'production';
+  const resolveCorsOptions: Parameters<typeof cors>[0] = (req, callback) => {
+    const origin = String(req.headers.origin || '').trim();
+    const forwardedProto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http')
+      .split(',')[0]
+      .trim();
+    const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+      .split(',')[0]
+      .trim();
+    const expectedOrigin = forwardedHost ? normalizeOrigin(`${forwardedProto}://${forwardedHost}`) : '';
+    const allowed =
+      !origin ||
+      isAllowedBrowserOrigin(origin) ||
+      (expectedOrigin && normalizeOrigin(origin) === expectedOrigin) ||
+      process.env.NODE_ENV !== 'production';
 
-      if (!allowed) {
-        console.warn(`[cors] Blocked origin: ${origin}`);
-      }
+    if (!allowed) {
+      console.warn(`[cors] Blocked origin: ${origin}`);
+    }
 
-      callback(null, {
-        origin: allowed ? true : false,
-        credentials: true,
-        methods: allowedMethods,
-        exposedHeaders: ['X-Quizzi-Participant-Token', 'X-Request-Id'],
-      });
-    }),
-  );
+    callback(null, {
+      origin: allowed ? true : false,
+      credentials: true,
+      methods: allowedMethods,
+      allowedHeaders,
+      exposedHeaders: ['X-Quizzi-Participant-Token', 'X-Request-Id'],
+      optionsSuccessStatus: 204,
+    });
+  };
+
+  app.use(cors(resolveCorsOptions));
+  app.options('*', cors(resolveCorsOptions));
 
   // In production, we move seeding to background to avoid blocking port binding
   const initializeHeavyData = async () => {
