@@ -992,7 +992,7 @@ export default function TeacherClasses() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[90] flex items-center justify-center bg-brand-dark/55 backdrop-blur-sm p-4 sm:p-6"
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-brand-dark/55 backdrop-blur-sm p-3 sm:p-4"
             onClick={closeCreatePanel}
           >
             <motion.div
@@ -1000,77 +1000,70 @@ export default function TeacherClasses() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 16, scale: 0.98 }}
               transition={{ duration: 0.22 }}
-              className="relative w-full max-w-6xl overflow-hidden rounded-[2.4rem] border-4 border-brand-dark bg-white shadow-[12px_12px_0px_0px_#1A1A1A]"
+              className="relative w-full max-w-3xl overflow-hidden rounded-[2rem] border border-brand-dark/10 bg-white shadow-[0_24px_70px_rgba(26,26,26,0.18)]"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="grid grid-cols-1 lg:grid-cols-[0.95fr_1.05fr]">
-                <div className="relative overflow-hidden border-b-4 border-brand-dark bg-[radial-gradient(circle_at_top_left,#FFF4D8_0%,#FFE5C8_42%,#FFD0BE_70%,#FFC3EA_100%)] p-6 sm:p-8 lg:border-b-0 lg:border-r-4">
-                  <div className="absolute right-[-60px] top-[-50px] h-40 w-40 rounded-full bg-white/45 blur-2xl" />
-                  <div className="absolute bottom-[-40px] left-[-20px] h-32 w-32 rounded-full bg-brand-yellow/35 blur-2xl" />
+              <div className="absolute inset-x-0 top-0 h-1.5 bg-[linear-gradient(90deg,#FFCD1F_0%,#FF8A3D_52%,#FF6E98_100%)]" />
+              <div className="grid grid-cols-1 lg:grid-cols-[0.78fr_1.22fr]">
+                <div className="relative overflow-hidden border-b border-brand-dark/10 bg-[radial-gradient(circle_at_top_left,#FFF8EA_0%,#FFF0DC_45%,#FFE4D5_72%,#FFE0F1_100%)] p-4 sm:p-5 lg:border-b-0 lg:border-r lg:border-brand-dark/10">
+                  <div className="absolute right-[-50px] top-[-45px] h-28 w-28 rounded-full bg-white/45 blur-2xl" />
+                  <div className="absolute bottom-[-30px] left-[-10px] h-24 w-24 rounded-full bg-brand-yellow/35 blur-2xl" />
 
                   <div className="relative z-10">
-                    <div className="mb-8 flex items-start justify-between gap-4">
+                    <div className="mb-5 flex items-start justify-between gap-3">
                       <div>
                         <p className="text-xs font-black uppercase tracking-[0.22em] text-brand-dark/45">{copy.quickCreate}</p>
-                        <h2 className="mt-2 text-3xl sm:text-4xl font-black leading-[0.96] tracking-tight text-brand-dark">
+                        <h2 className="mt-1.5 text-2xl sm:text-[2rem] font-black leading-[0.96] tracking-tight text-brand-dark">
                           {copy.createModalTitle}
                         </h2>
-                        <p className="mt-3 max-w-xl font-bold text-brand-dark/65">{copy.createModalBody}</p>
+                        <p className="mt-2 max-w-md text-sm font-bold text-brand-dark/65">{copy.createModalBody}</p>
                       </div>
                       <button
                         type="button"
                         onClick={closeCreatePanel}
-                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-brand-dark bg-white text-brand-dark shadow-[2px_2px_0px_0px_#1A1A1A]"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-brand-dark/15 bg-white/90 text-brand-dark transition hover:bg-white"
                         aria-label={copy.close}
                       >
-                        <X className="h-5 w-5" />
+                        <X className="h-4 w-4" />
                       </button>
                     </div>
 
-                    <div className="mb-8 flex gap-2">
+                    <div className="mb-4 flex gap-1.5">
                       {quickCreateSteps.map((step, index) => (
-                        <div key={step.id} className="flex-1">
-                          <div className={`h-3 rounded-full border-2 border-brand-dark transition-all ${
-                            index <= createStep ? 'bg-brand-orange' : 'bg-white/60'
-                          }`} />
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="space-y-4">
-                      {quickCreateSteps.map((step, index) => (
-                        <div
+                        <button
                           key={step.id}
-                          className={`rounded-[1.6rem] border-2 border-brand-dark p-4 transition-all ${
-                            index === createStep ? 'bg-white shadow-[4px_4px_0px_0px_#1A1A1A]' : 'bg-white/50 opacity-75'
+                          type="button"
+                          onClick={() => {
+                            if (index === 0 || (index === 1 && form.name.trim() && form.subject.trim() && form.grade.trim()) || index <= createStep) {
+                              setCreateStep(index);
+                            }
+                          }}
+                          className={`flex-1 rounded-full border-2 border-brand-dark px-2 py-2 text-center transition ${
+                            index === createStep
+                              ? 'border-brand-dark/15 bg-white shadow-[0_10px_24px_rgba(26,26,26,0.08)]'
+                              : index < createStep
+                                ? 'border-brand-dark/10 bg-brand-yellow/70'
+                                : 'border-brand-dark/10 bg-white/70'
                           }`}
                         >
-                          <div className="flex items-start gap-3">
-                            <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-brand-dark ${
-                              index <= createStep ? 'bg-brand-yellow' : 'bg-white'
-                            }`}>
-                              {step.icon}
-                            </div>
-                            <div>
-                              <p className="text-sm font-black uppercase tracking-[0.2em] text-brand-dark/45">
-                                {index + 1}
-                              </p>
-                              <h3 className="text-xl font-black text-brand-dark">{step.label}</h3>
-                              <p className="mt-1 text-sm font-bold text-brand-dark/65">{step.body}</p>
-                            </div>
-                          </div>
-                        </div>
+                          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{index + 1}</p>
+                          <p className="mt-0.5 text-[11px] font-black text-brand-dark">{step.label}</p>
+                        </button>
                       ))}
                     </div>
 
-                    <div className={`mt-8 rounded-[1.8rem] border-2 border-brand-dark p-5 shadow-[4px_4px_0px_0px_#1A1A1A] ${form.color}`}>
+                    <div className="rounded-[1rem] border border-brand-dark/10 bg-white/75 px-3 py-2 text-xs font-bold text-brand-dark/70 shadow-[0_8px_18px_rgba(26,26,26,0.05)]">
+                      {quickCreateSteps[createStep]?.body}
+                    </div>
+
+                    <div className={`mt-4 rounded-[1.5rem] border border-brand-dark/10 p-4 shadow-[0_16px_34px_rgba(26,26,26,0.1)] ${form.color}`}>
                       <p className={`text-xs font-black uppercase tracking-[0.18em] ${form.color === 'bg-brand-dark' ? 'text-white/70' : 'text-brand-dark/60'}`}>
                         {copy.previewTitle}
                       </p>
-                      <p className={`mt-2 text-3xl font-black ${form.color === 'bg-brand-dark' ? 'text-white' : 'text-brand-dark'}`}>
+                      <p className={`mt-1.5 text-xl font-black ${form.color === 'bg-brand-dark' ? 'text-white' : 'text-brand-dark'}`}>
                         {form.name.trim() || copy.newClass}
                       </p>
-                      <div className={`mt-3 flex flex-wrap gap-2 text-sm font-black ${form.color === 'bg-brand-dark' ? 'text-white/85' : 'text-brand-dark/75'}`}>
+                      <div className={`mt-2 flex flex-wrap gap-1.5 text-xs font-black ${form.color === 'bg-brand-dark' ? 'text-white/85' : 'text-brand-dark/75'}`}>
                         <span>{form.subject.trim() || copy.subject}</span>
                         <span>•</span>
                         <span>{form.grade.trim() || copy.grade}</span>
@@ -1078,7 +1071,7 @@ export default function TeacherClasses() {
                         <span>{selectedPack?.title || copy.noPack}</span>
                       </div>
                       {form.notes.trim() ? (
-                        <p className={`mt-4 text-sm font-bold leading-relaxed ${form.color === 'bg-brand-dark' ? 'text-white/88' : 'text-brand-dark/72'}`}>
+                        <p className={`mt-3 text-xs font-bold leading-relaxed ${form.color === 'bg-brand-dark' ? 'text-white/88' : 'text-brand-dark/72'}`}>
                           {form.notes.trim()}
                         </p>
                       ) : null}
@@ -1086,9 +1079,9 @@ export default function TeacherClasses() {
                   </div>
                 </div>
 
-                <div className="p-6 sm:p-8">
+                <div className="bg-[linear-gradient(180deg,#FFFFFF_0%,#FFFDF8_100%)] p-4 sm:p-5">
                   {createStep === 0 ? (
-                    <div className="space-y-5">
+                    <div className="space-y-4 rounded-[1.4rem] border border-brand-dark/10 bg-white p-4 shadow-[0_14px_30px_rgba(26,26,26,0.05)]">
                       <Field
                         inputRef={classNameInputRef}
                         label={copy.className}
@@ -1112,14 +1105,14 @@ export default function TeacherClasses() {
                   ) : null}
 
                   {createStep === 1 ? (
-                    <div className="space-y-6">
+                    <div className="space-y-4 rounded-[1.4rem] border border-brand-dark/10 bg-white p-4 shadow-[0_14px_30px_rgba(26,26,26,0.05)]">
                       <div>
                         <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{copy.assignedPack}</label>
-                        <p className="mb-3 text-sm font-bold text-brand-dark/60">{copy.pickStarterPack}</p>
+                        <p className="mb-2 text-xs font-bold text-brand-dark/60">{copy.pickStarterPack}</p>
                         <select
                           value={form.packId}
                           onChange={(event) => setForm((current) => ({ ...current, packId: event.target.value }))}
-                          className="w-full rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4 font-bold"
+                          className="w-full rounded-[1rem] border border-brand-dark/12 bg-brand-bg p-3 font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]"
                         >
                           <option value="">{copy.noPack}</option>
                           {packs.map((pack) => (
@@ -1132,18 +1125,18 @@ export default function TeacherClasses() {
 
                       <div>
                         <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{copy.color}</label>
-                        <p className="mb-3 text-sm font-bold text-brand-dark/60">{copy.pickAColor}</p>
+                        <p className="mb-2 text-xs font-bold text-brand-dark/60">{copy.pickAColor}</p>
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                           {TEACHER_CLASS_COLOR_OPTIONS.map((color) => (
                             <button
                               key={color}
                               type="button"
                               onClick={() => setForm((current) => ({ ...current, color }))}
-                              className={`rounded-[1.3rem] border-2 border-brand-dark p-3 text-left shadow-[3px_3px_0px_0px_#1A1A1A] transition ${
-                                form.color === color ? 'translate-x-[2px] translate-y-[2px] shadow-none ring-4 ring-brand-orange/25' : ''
+                              className={`rounded-[1rem] border border-brand-dark/12 bg-white/70 p-2 text-left shadow-[0_10px_20px_rgba(26,26,26,0.06)] transition ${
+                                form.color === color ? 'ring-4 ring-brand-orange/20' : 'hover:-translate-y-0.5'
                               } ${color}`}
                             >
-                              <div className={`h-12 rounded-[0.9rem] border-2 border-brand-dark/20 ${color === 'bg-white' ? 'bg-white' : color}`} />
+                              <div className={`h-9 rounded-[0.7rem] border-2 border-brand-dark/20 ${color === 'bg-white' ? 'bg-white' : color}`} />
                             </button>
                           ))}
                         </div>
@@ -1152,23 +1145,23 @@ export default function TeacherClasses() {
                   ) : null}
 
                   {createStep === 2 ? (
-                    <div className="space-y-6">
+                    <div className="space-y-4 rounded-[1.4rem] border border-brand-dark/10 bg-white p-4 shadow-[0_14px_30px_rgba(26,26,26,0.05)]">
                       <div>
                         <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">
                           {copy.notes} · {copy.optional}
                         </label>
-                        <p className="mb-3 text-sm font-bold text-brand-dark/60">{copy.notesHelper}</p>
+                        <p className="mb-2 text-xs font-bold text-brand-dark/60">{copy.notesHelper}</p>
                         <textarea
                           value={form.notes}
                           onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-                          className="min-h-36 w-full rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4 font-bold"
+                          className="min-h-24 w-full rounded-[1rem] border border-brand-dark/12 bg-brand-bg p-3 font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]"
                           placeholder={copy.notesPlaceholder}
                         />
                       </div>
 
-                      <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
+                      <div className="rounded-[1.2rem] border border-brand-dark/10 bg-brand-bg p-4">
                         <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45">{copy.previewTitle}</p>
-                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                           <PreviewStat label={copy.className} value={form.name || '—'} />
                           <PreviewStat label={copy.subject} value={form.subject || '—'} />
                           <PreviewStat label={copy.grade} value={form.grade || '—'} />
@@ -1178,13 +1171,13 @@ export default function TeacherClasses() {
                     </div>
                   ) : null}
 
-                  <div className="mt-8 flex flex-col gap-3 border-t-2 border-brand-dark/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="mt-5 flex flex-col gap-2.5 border-t border-brand-dark/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex gap-3">
                       <button
                         type="button"
                         onClick={() => setCreateStep((current) => Math.max(current - 1, 0))}
                         disabled={createStep === 0 || busyKey === 'create-class'}
-                        className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-5 py-3 font-black disabled:opacity-40"
+                        className="inline-flex items-center gap-2 rounded-full border border-brand-dark/15 bg-white px-4 py-2.5 text-sm font-black shadow-[0_8px_18px_rgba(26,26,26,0.05)] disabled:opacity-40"
                       >
                         <ArrowLeft className={`h-4 w-4 ${language === 'he' || language === 'ar' ? 'rotate-180' : ''}`} />
                         {copy.back}
@@ -1193,7 +1186,7 @@ export default function TeacherClasses() {
                         type="button"
                         onClick={resetForm}
                         disabled={busyKey === 'create-class'}
-                        className="rounded-full border-2 border-brand-dark bg-brand-bg px-5 py-3 font-black disabled:opacity-40"
+                        className="rounded-full border border-brand-dark/10 bg-brand-bg px-4 py-2.5 text-sm font-black disabled:opacity-40"
                       >
                         {copy.reset}
                       </button>
@@ -1203,7 +1196,7 @@ export default function TeacherClasses() {
                       <button
                         type="button"
                         onClick={handleCreateStepContinue}
-                        className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-6 py-3 font-black shadow-[3px_3px_0px_0px_#1A1A1A]"
+                        className="inline-flex items-center justify-center gap-2 rounded-full border border-brand-dark/10 bg-brand-yellow px-5 py-2.5 text-sm font-black shadow-[0_12px_26px_rgba(255,184,0,0.28)]"
                       >
                         {copy.continue}
                         <ArrowRight className={`h-5 w-5 ${language === 'he' || language === 'ar' ? 'rotate-180' : ''}`} />
@@ -1213,7 +1206,7 @@ export default function TeacherClasses() {
                         type="button"
                         onClick={() => void handleCreateClass()}
                         disabled={busyKey === 'create-class'}
-                        className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-brand-orange px-6 py-3 font-black text-white shadow-[3px_3px_0px_0px_#1A1A1A] disabled:opacity-60"
+                        className="inline-flex items-center justify-center gap-2 rounded-full border border-brand-dark/10 bg-brand-orange px-5 py-2.5 text-sm font-black text-white shadow-[0_14px_30px_rgba(255,122,26,0.28)] disabled:opacity-60"
                       >
                         {busyKey === 'create-class' ? copy.saving : copy.saveAndOpen}
                         <CheckCircle2 className="h-5 w-5" />
@@ -1251,7 +1244,7 @@ function Field({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-[1.2rem] border-2 border-brand-dark bg-brand-bg p-4 font-bold placeholder:text-brand-dark/28"
+        className="w-full rounded-[1.2rem] border border-brand-dark/12 bg-brand-bg p-4 font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] placeholder:text-brand-dark/28"
       />
     </div>
   );
@@ -1259,7 +1252,7 @@ function Field({
 
 function PreviewStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[1.1rem] border-2 border-brand-dark/10 bg-white px-4 py-3">
+    <div className="rounded-[1.1rem] border border-brand-dark/10 bg-white px-4 py-3 shadow-[0_8px_18px_rgba(26,26,26,0.04)]">
       <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/45">{label}</p>
       <p className="mt-1 text-base font-black text-brand-dark">{value}</p>
     </div>

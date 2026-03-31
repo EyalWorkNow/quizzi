@@ -291,14 +291,142 @@ function TabButton({ icon, label, active, onClick }: { icon: React.ReactNode; la
 
 function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <div className="flex items-center justify-between p-4 border-2 border-brand-dark rounded-xl bg-brand-bg">
-      <span className="font-bold">{label}</span>
-      <button
-        onClick={() => onChange(!checked)}
-        className={`w-14 h-8 rounded-full border-2 border-brand-dark p-1 transition-colors relative ${checked ? 'bg-brand-orange' : 'bg-slate-300'}`}
-      >
-        <div className={`w-5 h-5 bg-white border-2 border-brand-dark rounded-full transition-transform ${checked ? 'translate-x-6' : 'translate-x-0'}`} />
-      </button>
+    <div className="flex flex-col gap-3 rounded-xl border-2 border-brand-dark bg-brand-bg p-4 sm:flex-row sm:items-center sm:justify-between">
+      <span className="min-w-0 font-bold leading-relaxed">{label}</span>
+      <FancyToggleSwitch checked={checked} onChange={onChange} />
     </div>
+  );
+}
+
+function FancyToggleSwitch({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <>
+      <style>{`
+        .quizzi-toggle-container {
+          --active-color: #ff5a36;
+          --inactive-color: #d3d3d6;
+          position: relative;
+          flex: 0 0 auto;
+          height: 2.6rem;
+          aspect-ratio: 292 / 142;
+        }
+
+        .quizzi-toggle-input {
+          appearance: none;
+          margin: 0;
+          position: absolute;
+          z-index: 1;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          cursor: pointer;
+        }
+
+        .quizzi-toggle {
+          width: 100%;
+          height: 100%;
+          overflow: visible;
+          display: block;
+        }
+
+        .quizzi-toggle-background {
+          fill: var(--inactive-color);
+          transition: fill .4s;
+        }
+
+        .quizzi-toggle-input:checked + .quizzi-toggle .quizzi-toggle-background {
+          fill: var(--active-color);
+        }
+
+        .quizzi-toggle-circle-center {
+          transform-origin: center;
+          transition: transform .6s;
+        }
+
+        .quizzi-toggle-input:checked + .quizzi-toggle .quizzi-toggle-circle-center {
+          transform: translateX(150px);
+        }
+
+        .quizzi-toggle-circle {
+          transform-origin: center;
+          transition: transform .45s;
+          backface-visibility: hidden;
+        }
+
+        .quizzi-toggle-circle.left {
+          transform: scale(1);
+        }
+
+        .quizzi-toggle-input:checked + .quizzi-toggle .quizzi-toggle-circle.left {
+          transform: scale(0);
+        }
+
+        .quizzi-toggle-circle.right {
+          transform: scale(0);
+        }
+
+        .quizzi-toggle-input:checked + .quizzi-toggle .quizzi-toggle-circle.right {
+          transform: scale(1);
+        }
+
+        .quizzi-toggle-icon {
+          transition: fill .4s;
+        }
+
+        .quizzi-toggle-icon.on {
+          fill: var(--inactive-color);
+        }
+
+        .quizzi-toggle-input:checked + .quizzi-toggle .quizzi-toggle-icon.on {
+          fill: #fff;
+        }
+
+        .quizzi-toggle-icon.off {
+          fill: #eaeaec;
+        }
+
+        .quizzi-toggle-input:checked + .quizzi-toggle .quizzi-toggle-icon.off {
+          fill: var(--active-color);
+        }
+      `}</style>
+
+      <label className="quizzi-toggle-container">
+        <input
+          type="checkbox"
+          className="quizzi-toggle-input"
+          checked={checked}
+          onChange={(event) => onChange(event.target.checked)}
+          role="switch"
+          aria-checked={checked}
+        />
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 292 142" className="quizzi-toggle" aria-hidden="true">
+          <path
+            d="M71 142C31.7878 142 0 110.212 0 71C0 31.7878 31.7878 0 71 0C110.212 0 119 30 146 30C173 30 182 0 221 0C260 0 292 31.7878 292 71C292 110.212 260.212 142 221 142C181.788 142 173 112 146 112C119 112 110.212 142 71 142Z"
+            className="quizzi-toggle-background"
+          />
+          <rect rx={6} height={64} width={12} y={39} x={64} className="quizzi-toggle-icon on" />
+          <path
+            d="M221 91C232.046 91 241 82.0457 241 71C241 59.9543 232.046 51 221 51C209.954 51 201 59.9543 201 71C201 82.0457 209.954 91 221 91ZM221 103C238.673 103 253 88.6731 253 71C253 53.3269 238.673 39 221 39C203.327 39 189 53.3269 189 71C189 88.6731 203.327 103 221 103Z"
+            fillRule="evenodd"
+            className="quizzi-toggle-icon off"
+          />
+          <g filter="url(#quizzi-toggle-goo)">
+            <rect fill="#fff" rx={29} height={58} width={116} y={42} x={13} className="quizzi-toggle-circle-center" />
+            <rect fill="#fff" rx={58} height={114} width={114} y={14} x={14} className="quizzi-toggle-circle left" />
+            <rect fill="#fff" rx={58} height={114} width={114} y={14} x={164} className="quizzi-toggle-circle right" />
+          </g>
+          <filter id="quizzi-toggle-goo">
+            <feGaussianBlur stdDeviation={10} result="blur" in="SourceGraphic" />
+            <feColorMatrix result="goo" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" in="blur" />
+          </filter>
+        </svg>
+      </label>
+    </>
   );
 }

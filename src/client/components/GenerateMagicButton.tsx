@@ -33,15 +33,15 @@ export default function GenerateMagicButton({
           --ease: cubic-bezier(0.5, 0, 0.3, 1);
           --ease-elastic: cubic-bezier(0.5, 2, 0.3, 0.8);
           --radius: 26px;
-          --primary: #ff5a36;
-          --primary-strong: #ff7a1a;
-          --primary-soft: #ffd13b;
-          --shell-top: #fff3cf;
-          --shell-bottom: #ff9f45;
-          --metal-top: #fff7ea;
-          --metal-bottom: #ffc56b;
-          --text-main: #1a1a1a;
-          --text-accent: #7a3412;
+          --primary: #8b5cf6;
+          --primary-strong: #7c3aed;
+          --primary-soft: #c4b5fd;
+          --shell-top: #f3ecff;
+          --shell-bottom: #9f7aea;
+          --metal-top: #faf7ff;
+          --metal-bottom: #d6c6ff;
+          --text-main: #7c3aed;
+          --text-accent: #8b5cf6;
           position: relative;
           display: block;
           width: min(100%, 320px);
@@ -71,11 +71,11 @@ export default function GenerateMagicButton({
           transform: rotateX(4deg);
           background: var(--primary);
           box-shadow:
-            inset 0 0 30px rgba(255, 142, 43, 0.8),
-            0 5px 10px -2px rgba(67, 20, 7, 0.45),
-            0 40px 30px -15px rgba(67, 20, 7, 0.26),
-            inset 0 -2px 0 -1px #7a3412,
-            inset 0 0 2px 4px #ffd89a;
+            inset 0 0 30px rgba(139, 92, 246, 0.45),
+            0 5px 10px -2px rgba(76, 29, 149, 0.42),
+            0 40px 30px -15px rgba(76, 29, 149, 0.24),
+            inset 0 -2px 0 -1px #6d28d9,
+            inset 0 0 2px 4px #ddd6fe;
           font-size: clamp(1rem, 2.5vw, 1.3rem);
           font-family: "Outfit", var(--font-main), ui-sans-serif, system-ui, sans-serif;
           letter-spacing: 0.08em;
@@ -111,12 +111,12 @@ export default function GenerateMagicButton({
 
         .quizzi-generate-button:focus-visible {
           box-shadow:
-            inset 0 0 30px rgba(255, 142, 43, 0.8),
-            0 5px 10px -2px rgba(67, 20, 7, 0.45),
-            0 40px 30px -15px rgba(67, 20, 7, 0.26),
-            inset 0 -2px 0 -1px #7a3412,
-            inset 0 0 2px 4px #ffd89a,
-            0 0 0 4px rgba(255, 209, 59, 0.55);
+            inset 0 0 30px rgba(139, 92, 246, 0.45),
+            0 5px 10px -2px rgba(76, 29, 149, 0.42),
+            0 40px 30px -15px rgba(76, 29, 149, 0.24),
+            inset 0 -2px 0 -1px #6d28d9,
+            inset 0 0 2px 4px #ddd6fe,
+            0 0 0 4px rgba(139, 92, 246, 0.28);
         }
 
         .quizzi-generate-button::before,
