@@ -126,6 +126,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       status TEXT DEFAULT 'active',
       archived INTEGER DEFAULT 0,
       created_by INTEGER,
+      student_assistance_policy_json TEXT DEFAULT '{}',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
@@ -210,6 +211,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       color TEXT DEFAULT 'bg-brand-purple',
       notes TEXT DEFAULT '',
       pack_id INTEGER,
+      student_assistance_policy_json TEXT DEFAULT '{}',
       archived INTEGER DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -385,6 +387,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS color TEXT DEFAULT 'bg-brand-purple'`,
   `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT ''`,
   `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS pack_id INTEGER`,
+  `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS student_assistance_policy_json TEXT DEFAULT '{}'`,
   `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS archived INTEGER DEFAULT 0`,
   `ALTER TABLE teacher_classes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE student_users ADD COLUMN IF NOT EXISTS display_name TEXT`,
@@ -412,6 +415,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   `ALTER TABLE teacher_class_assignments ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`,
   `ALTER TABLE teacher_class_assignments ADD COLUMN IF NOT EXISTS archived INTEGER DEFAULT 0`,
   `ALTER TABLE teacher_class_assignments ADD COLUMN IF NOT EXISTS created_by INTEGER`,
+  `ALTER TABLE teacher_class_assignments ADD COLUMN IF NOT EXISTS student_assistance_policy_json TEXT DEFAULT '{}'`,
   `ALTER TABLE teacher_class_assignments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS learning_objective TEXT DEFAULT ''`,
   `ALTER TABLE questions ADD COLUMN IF NOT EXISTS bloom_level TEXT DEFAULT ''`,

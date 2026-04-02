@@ -1816,7 +1816,7 @@ export default function StudentPlay() {
                 </div>
               </div>
 
-              <div className="relative overflow-hidden rounded-[2.2rem] border-4 border-brand-dark bg-brand-dark p-5 text-left text-white shadow-[8px_8px_0px_0px_#1A1A1A] sm:rounded-[3rem] sm:p-10 sm:shadow-[12px_12px_0px_0px_#1A1A1A]">
+              <div className="relative overflow-hidden rounded-[2.2rem] border-4 border-brand-dark bg-brand-dark p-5 text-center text-white shadow-[8px_8px_0px_0px_#1A1A1A] sm:rounded-[3rem] sm:p-10 sm:shadow-[12px_12px_0px_0px_#1A1A1A]">
                 <div className="absolute -top-10 -right-10 p-4 opacity-10">
                    <Sparkles className="h-40 w-40 text-brand-yellow" />
                 </div>
@@ -2176,10 +2176,10 @@ export default function StudentPlay() {
                     </div>
                   </>
                ) : (
-                  <div className="flex-1 flex flex-col justify-center text-center">
+                  <div className="flex flex-1 flex-col items-center justify-center text-center">
                      <div
                        onScroll={handlePromptReread}
-                       className={`mx-auto max-w-[35ch] ${questionPromptScrollerClass} overflow-y-auto px-1 custom-scrollbar`}
+                       className={`mx-auto max-w-5xl ${questionPromptScrollerClass} overflow-y-auto px-1 custom-scrollbar`}
                      >
                        <h2 className={`${studentPromptClassName} font-black leading-[1.1] tracking-tight text-brand-dark text-balance`}>
                           {question?.prompt}
@@ -2497,6 +2497,16 @@ export default function StudentPlay() {
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:justify-center sm:gap-5">
+                 {linkedStudentHomePath && (
+                   <motion.button
+                     whileHover={{ scale: 1.05 }}
+                     whileTap={{ scale: 0.95 }}
+                     onClick={() => navigate(linkedStudentHomePath)}
+                     className="game-action-button game-action-button--primary px-6 py-4 text-base sm:px-10 sm:py-5 sm:text-lg"
+                   >
+                     חזרה לדף תלמיד
+                   </motion.button>
+                 )}
                  <motion.button
                    whileHover={{ scale: 1.05 }}
                    whileTap={{ scale: 0.95 }}

@@ -19,6 +19,15 @@ import { GAME_MODES, getGameMode, getTeamGameModeIds, type GameModeConfig } from
 import { buildFollowUpEnginePreview, type FollowUpPlan } from '../../shared/followUpEngine.js';
 import { sanitizeSessionSoundtrackChoice } from '../../shared/sessionSoundtracks.js';
 import {
+  DEFAULT_STUDENT_ASSISTANCE_POLICY,
+  STUDENT_ASSISTANCE_ACTIONS,
+  getStudentAssistanceCapabilities,
+  hasStudentAssistancePolicyOverrides,
+  normalizeStudentAssistancePolicy,
+  type StudentAssistanceAction,
+  type StudentAssistancePolicy,
+} from '../../shared/studentAssistance.js';
+import {
   createParticipantAccessToken,
   readParticipantAccessToken,
   resolveStudentIdentityKey,
@@ -84,6 +93,17 @@ import {
   listStudentClassWorkspaces,
   sanitizeTeacherClassColor,
 } from '../services/teacherClasses.js';
+import {
+  buildStudentAssistanceSummary,
+  createStudentAssistanceSupportToken,
+  generateStudentAssistance,
+  isStudentAssistanceEnabled,
+  parseStudentAssistancePolicyJson,
+  resolveStudentAssistanceCapabilities,
+  resolveStudentAssistancePolicy,
+  serializeStudentAssistancePolicy,
+  readStudentAssistanceSupportToken,
+} from '../services/studentAssistance.js';
 import {
   getHydratedPackWithQuestions,
   getOrCreateMaterialProfile,
@@ -738,7 +758,22 @@ function sanitizeTeacherClassPayload(value: any) {
     color: sanitizeTeacherClassColor(raw.color),
     notes: sanitizeMultiline(raw.notes, 1200),
     pack_id: parsePositiveInt(raw.pack_id ?? raw.packId),
+    student_assistance_policy: sanitizeStudentAssistancePolicyInput(raw.student_assistance_policy ?? raw.studentAssistancePolicy),
   };
+}
+
+function sanitizeStudentAssistancePolicyInput(value: unknown): StudentAssistancePolicy | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return normalizeStudentAssistancePolicy(value as Partial<StudentAssistancePolicy>);
+}
+
+function sanitizeStudentAssistanceAction(value: unknown) {
+  const normalized = sanitizeLine(value, 40).toLowerCase();
+  return (STUDENT_ASSISTANCE_ACTIONS as readonly string[]).includes(normalized)
+    ? (normalized as StudentAssistanceAction)
+    : null;
 }
 
 function sanitizeTeacherStudentName(value: unknown) {
@@ -1742,6 +1777,8 @@ async function buildTeacherAssignmentBoard(classBoard: any) {
       question_goal: questionGoal,
       status: String(assignment.status || 'active'),
       created_at: assignment.created_at || null,
+      student_assistance_policy:
+        parseStudentAssistancePolicyJson(assignment.student_assistance_policy_json) || DEFAULT_STUDENT_ASSISTANCE_POLICY,
       summary: {
         assigned_count: roster.length,
         started_count: roster.filter((row) => row.status === 'in_progress' || row.status === 'completed').length,
@@ -1765,78 +1802,225 @@ async function buildStudentAssignmentView({
   classRow: any;
   studentUserId: number;
 }) {
+  const assignmentViews = await buildStudentAssignmentViews({
+    classRow,
+    studentUserId,
+  });
+  return assignmentViews.find((row: any) => String(row.status || 'active').toLowerCase() === 'active') || assignmentViews[0] || null;
+}
+
+async function buildStudentAssignmentViews({
+  classRow,
+  studentUserId,
+}: {
+  classRow: any;
+  studentUserId: number;
+}) {
   const classId = Number(classRow?.class_id || classRow?.id || 0);
-  const packId = Number(classRow?.pack?.id || 0);
-  if (!classId || !packId || !studentUserId) return null;
+  if (!classId || !studentUserId) return [];
 
   const assignmentRows = await listTeacherClassAssignments(classId);
-  const assignment = assignmentRows.find((row: any) => String(row.status || 'active').toLowerCase() === 'active') || assignmentRows[0] || null;
-  if (!assignment?.id) return null;
+  if (!assignmentRows.length) return [];
 
   const identityKeys = await listResolvedIdentityKeys({ studentUserId });
   const safeIdentityKeys = uniqueStrings(identityKeys.map((key) => resolveStudentIdentityKey(key, '')));
-  const questionRows = (await db.prepare(`SELECT id FROM questions WHERE quiz_pack_id = ?`).all(packId)) as any[];
-  const questionIds = uniqueNumbers(questionRows.map((row: any) => row.id));
-  const questionGoal = sanitizeAssignmentQuestionGoal(
-    assignment.question_goal,
-    Math.max(1, Math.min(Number(assignment.pack_question_count || questionIds.length || 0) || 1, 10)),
-  );
-  if (!safeIdentityKeys.length || !questionIds.length) {
-    return {
+
+  const assignmentViews = [];
+  for (const assignment of assignmentRows) {
+    const packId = Number(assignment.pack_id || classRow?.pack?.id || 0);
+    const questionRows = packId ? ((await db.prepare(`SELECT id FROM questions WHERE quiz_pack_id = ?`).all(packId)) as any[]) : [];
+    const questionIds = uniqueNumbers(questionRows.map((row: any) => row.id));
+    const questionGoal = sanitizeAssignmentQuestionGoal(
+      assignment.question_goal,
+      Math.max(1, Math.min(Number(assignment.pack_question_count || questionIds.length || 0) || 1, 10)),
+    );
+
+    if (!safeIdentityKeys.length || !questionIds.length) {
+      assignmentViews.push({
+        id: Number(assignment.id || 0),
+        class_id: classId,
+        pack_id: packId || null,
+        pack_title: String(assignment.pack_title || classRow?.pack?.title || 'Pack'),
+        title: String(assignment.title || 'Class assignment'),
+        instructions: String(assignment.instructions || ''),
+        due_at: assignment.due_at || null,
+        question_goal: questionGoal,
+        status: String(assignment.status || 'active'),
+        created_at: assignment.created_at || null,
+        student_assistance_policy:
+          parseStudentAssistancePolicyJson(assignment.student_assistance_policy_json) || DEFAULT_STUDENT_ASSISTANCE_POLICY,
+        progress: {
+          attempted_questions: 0,
+          attempt_count: 0,
+          completion_pct: 0,
+          accuracy_pct: null,
+          last_activity_at: null,
+          status: assignment.due_at ? (new Date(String(assignment.due_at)).getTime() < Date.now() ? 'overdue' : 'not_started') : 'not_started',
+        },
+      });
+      continue;
+    }
+
+    const attemptRows = (await db
+      .prepare(`
+        SELECT question_id, is_correct, created_at
+        FROM practice_attempts
+        WHERE identity_key IN (${buildSqlPlaceholders(safeIdentityKeys.length)})
+          AND question_id IN (${buildSqlPlaceholders(questionIds.length)})
+        ORDER BY created_at DESC, id DESC
+      `)
+      .all(...safeIdentityKeys, ...questionIds)) as any[];
+
+    const attemptedQuestionIds = new Set<number>();
+    let correctCount = 0;
+    let lastActivityAt: string | null = null;
+    attemptRows.forEach((row: any) => {
+      attemptedQuestionIds.add(Number(row.question_id || 0));
+      correctCount += Number(row.is_correct) ? 1 : 0;
+      if (!lastActivityAt || new Date(String(row.created_at || 0)).getTime() > new Date(String(lastActivityAt || 0)).getTime()) {
+        lastActivityAt = row.created_at || null;
+      }
+    });
+    const attemptedQuestions = attemptedQuestionIds.size;
+    const completionPct = Math.round((Math.min(attemptedQuestions, questionGoal) / Math.max(1, questionGoal)) * 100);
+    const overdue = assignment.due_at ? new Date(String(assignment.due_at)).getTime() < Date.now() && completionPct < 100 : false;
+
+    assignmentViews.push({
       id: Number(assignment.id || 0),
+      class_id: classId,
+      pack_id: packId || null,
+      pack_title: String(assignment.pack_title || classRow?.pack?.title || 'Pack'),
       title: String(assignment.title || 'Class assignment'),
       instructions: String(assignment.instructions || ''),
       due_at: assignment.due_at || null,
       question_goal: questionGoal,
+      status: String(assignment.status || 'active'),
+      created_at: assignment.created_at || null,
+      student_assistance_policy:
+        parseStudentAssistancePolicyJson(assignment.student_assistance_policy_json) || DEFAULT_STUDENT_ASSISTANCE_POLICY,
       progress: {
-        attempted_questions: 0,
-        attempt_count: 0,
-        completion_pct: 0,
-        accuracy_pct: null,
-        last_activity_at: null,
-        status: assignment.due_at ? (new Date(String(assignment.due_at)).getTime() < Date.now() ? 'overdue' : 'not_started') : 'not_started',
+        attempted_questions: attemptedQuestions,
+        attempt_count: attemptRows.length,
+        completion_pct: completionPct,
+        accuracy_pct: attemptRows.length ? Math.round((correctCount / Math.max(1, attemptRows.length)) * 100) : null,
+        last_activity_at: lastActivityAt,
+        status: completionPct >= 100 ? 'completed' : overdue ? 'overdue' : attemptedQuestions > 0 ? 'in_progress' : 'not_started',
       },
-    };
+    });
   }
 
-  const attemptRows = (await db
-    .prepare(`
-      SELECT question_id, is_correct, created_at
-      FROM practice_attempts
-      WHERE identity_key IN (${buildSqlPlaceholders(safeIdentityKeys.length)})
-        AND question_id IN (${buildSqlPlaceholders(questionIds.length)})
-      ORDER BY created_at DESC, id DESC
-    `)
-    .all(...safeIdentityKeys, ...questionIds)) as any[];
+  return assignmentViews;
+}
 
-  const attemptedQuestionIds = new Set<number>();
-  let correctCount = 0;
-  let lastActivityAt: string | null = null;
-  attemptRows.forEach((row: any) => {
-    attemptedQuestionIds.add(Number(row.question_id || 0));
-    correctCount += Number(row.is_correct) ? 1 : 0;
-    if (!lastActivityAt || new Date(String(row.created_at || 0)).getTime() > new Date(String(lastActivityAt || 0)).getTime()) {
-      lastActivityAt = row.created_at || null;
-    }
+async function resolveStudentPracticeClassContext({
+  studentUserId,
+  studentEmail,
+  classId,
+  assignmentId,
+  packId,
+}: {
+  studentUserId: number;
+  studentEmail?: string | null;
+  classId?: number | null;
+  assignmentId?: number | null;
+  packId?: number | null;
+}) {
+  const safeAssignmentId = Math.max(0, Math.floor(Number(assignmentId) || 0));
+  let safeClassId = Math.max(0, Math.floor(Number(classId) || 0));
+  const safePackId = Math.max(0, Math.floor(Number(packId) || 0));
+
+  if (!safeClassId && safeAssignmentId) {
+    const assignmentClassRow = (await db
+      .prepare(`
+        SELECT class_id
+        FROM teacher_class_assignments
+        WHERE id = ?
+          AND COALESCE(archived, 0) = 0
+        LIMIT 1
+      `)
+      .get(safeAssignmentId)) as any;
+    safeClassId = Number(assignmentClassRow?.class_id || 0);
+  }
+
+  if (!safeClassId || !studentUserId) return null;
+
+  const rosterRow = findRosterRowForStudentUserInClass({
+    studentUserId,
+    classId: safeClassId,
+    email: studentEmail || '',
   });
-  const attemptedQuestions = attemptedQuestionIds.size;
-  const completionPct = Math.round((Math.min(attemptedQuestions, questionGoal) / Math.max(1, questionGoal)) * 100);
-  const overdue = assignment.due_at ? new Date(String(assignment.due_at)).getTime() < Date.now() && completionPct < 100 : false;
+  if (!rosterRow) return null;
+  if (String(rosterRow.invite_status || 'none').trim().toLowerCase() !== 'claimed') {
+    return null;
+  }
+
+  const classRow = (await db
+    .prepare(`
+      SELECT
+        tc.*,
+        qp.title AS pack_title,
+        COALESCE(qp.question_count_cache, 0) AS pack_question_count
+      FROM teacher_classes tc
+      LEFT JOIN quiz_packs qp ON qp.id = tc.pack_id
+      WHERE tc.id = ?
+      LIMIT 1
+    `)
+    .get(safeClassId)) as any;
+  if (!classRow) return null;
+
+  const linkedPackRows = (await db
+    .prepare(`
+      SELECT qp.id, qp.title
+      FROM teacher_class_packs tcp
+      JOIN quiz_packs qp ON qp.id = tcp.pack_id
+      WHERE tcp.class_id = ?
+      ORDER BY tcp.created_at DESC, tcp.id DESC
+    `)
+    .all(safeClassId)) as any[];
+  const linkedPackIds = new Set<number>([
+    Number(classRow.pack_id || 0),
+    ...linkedPackRows.map((row: any) => Number(row.id || 0)),
+  ]);
+  if (safePackId && !linkedPackIds.has(safePackId)) {
+    return null;
+  }
+
+  const assignmentRows = await listTeacherClassAssignments(safeClassId);
+  const assignment = safeAssignmentId
+    ? assignmentRows.find((row: any) => Number(row.id || 0) === safeAssignmentId) || null
+    : assignmentRows.find((row: any) => String(row.status || 'active').toLowerCase() === 'active') || assignmentRows[0] || null;
+  const resolvedPackId = safePackId || Number(assignment?.pack_id || classRow.pack_id || 0) || null;
+  const resolvedPackTitle =
+    linkedPackRows.find((row: any) => Number(row.id || 0) === Number(resolvedPackId || 0))?.title ||
+    (Number(classRow.pack_id || 0) === Number(resolvedPackId || 0) ? String(classRow.pack_title || '') : '') ||
+    '';
+
+  const classPolicy = parseStudentAssistancePolicyJson(classRow.student_assistance_policy_json) || DEFAULT_STUDENT_ASSISTANCE_POLICY;
+  const assignmentPolicy = assignment
+    ? parseStudentAssistancePolicyJson(assignment.student_assistance_policy_json) || null
+    : null;
+  const assistancePolicy = resolveStudentAssistancePolicy({
+    classPolicy,
+    assignmentPolicy,
+    enabledBySystem: isStudentAssistanceEnabled(),
+  });
 
   return {
-    id: Number(assignment.id || 0),
-    title: String(assignment.title || 'Class assignment'),
-    instructions: String(assignment.instructions || ''),
-    due_at: assignment.due_at || null,
-    question_goal: questionGoal,
-    progress: {
-      attempted_questions: attemptedQuestions,
-      attempt_count: attemptRows.length,
-      completion_pct: completionPct,
-      accuracy_pct: attemptRows.length ? Math.round((correctCount / Math.max(1, attemptRows.length)) * 100) : null,
-      last_activity_at: lastActivityAt,
-      status: completionPct >= 100 ? 'completed' : overdue ? 'overdue' : attemptedQuestions > 0 ? 'in_progress' : 'not_started',
-    },
+    class_id: safeClassId,
+    assignment_id: assignment ? Number(assignment.id || 0) : null,
+    class_name: String(classRow.name || ''),
+    class_subject: String(classRow.subject || ''),
+    class_grade: String(classRow.grade || ''),
+    assignment_title: assignment ? String(assignment.title || '') : '',
+    assignment_instructions: assignment ? String(assignment.instructions || '') : '',
+    pack_id: resolvedPackId,
+    pack_title: resolvedPackTitle,
+    assistance_policy: assistancePolicy,
+    assistance_capabilities: resolveStudentAssistanceCapabilities({
+      classPolicy,
+      assignmentPolicy,
+      enabledBySystem: isStudentAssistanceEnabled(),
+    }),
   };
 }
 
@@ -4539,6 +4723,7 @@ function buildFallbackStudentSessionHistory({
       participant_id: Number(participant.id || 0),
       pack_id: Number(pack?.id || session?.quiz_pack_id || 0) || null,
       pack_title: String(pack?.title || `Pack ${session?.quiz_pack_id || ''}`).trim(),
+      game_type: String(session?.game_type || 'classic_quiz'),
       status: String(session?.status || 'ENDED'),
       joined_at: participant.created_at || null,
       started_at: session?.started_at || participant.created_at || null,
@@ -4548,6 +4733,45 @@ function buildFallbackStudentSessionHistory({
       nickname: String(participant.display_name_snapshot || participant.nickname || 'Student'),
     };
   });
+}
+
+async function buildStudentPracticeHistory(identityKey: string) {
+  if (!String(identityKey || '').trim()) return [];
+  const rows = (await db
+    .prepare(`
+      SELECT
+        pa.id,
+        pa.question_id,
+        pa.is_correct,
+        pa.response_ms,
+        pa.created_at,
+        q.prompt,
+        q.tags_json,
+        q.learning_objective,
+        q.quiz_pack_id,
+        qp.title AS pack_title
+      FROM practice_attempts pa
+      LEFT JOIN questions q ON q.id = pa.question_id
+      LEFT JOIN quiz_packs qp ON qp.id = q.quiz_pack_id
+      WHERE pa.identity_key = ?
+      ORDER BY pa.created_at DESC, pa.id DESC
+      LIMIT 80
+    `)
+    .all(identityKey)) as any[];
+
+  return rows.map((row: any) => ({
+    id: Number(row?.id || 0),
+    question_id: Number(row?.question_id || 0),
+    is_correct: Boolean(Number(row?.is_correct || 0)),
+    response_ms: Number(row?.response_ms || 0),
+    created_at: row?.created_at || null,
+    prompt: sanitizeLine(row?.prompt, 180),
+    learning_objective: sanitizeLine(row?.learning_objective, 120),
+    pack_id: Number(row?.quiz_pack_id || 0) || null,
+    pack_title: sanitizeLine(row?.pack_title || 'Adaptive Practice', 120) || 'Adaptive Practice',
+    tags: parseJsonArray(row?.tags_json).map((tag) => sanitizeLine(tag, 40)).filter(Boolean).slice(0, 4),
+    activity_type: 'practice',
+  }));
 }
 
 async function buildStudentPortalPayload(studentUserId: number) {
@@ -4614,6 +4838,7 @@ async function buildStudentPortalPayload(studentUserId: number) {
         packs: safePacks,
         answers: safeAnswers,
       });
+  const practiceHistory = await buildStudentPracticeHistory(String(context?.primary_identity_key || ''));
   const recommendations = {
     next_step: analytics?.student_memory?.recommended_next_step || null,
     comeback_mission: analytics?.comebackMission || analytics?.engagement?.comeback_mission || null,
@@ -4621,6 +4846,31 @@ async function buildStudentPortalPayload(studentUserId: number) {
   };
   const pendingClasses = classes.filter((classRow: any) => String(classRow?.approval_state || classRow?.invite_status || 'none') !== 'claimed');
   const activeClasses = classes.filter((classRow: any) => String(classRow?.approval_state || classRow?.invite_status || 'none') === 'claimed');
+  let activePracticeContext = null as any;
+  for (const classRow of activeClasses) {
+    activePracticeContext = await resolveStudentPracticeClassContext({
+      studentUserId,
+      studentEmail: studentUser.email,
+      classId: Number(classRow?.class_id || 0),
+    });
+    if (activePracticeContext?.class_id) break;
+  }
+  const practiceDefaultsBase = analytics?.comebackMission?.practice_query || null;
+  const practiceDefaults = practiceDefaultsBase
+    ? {
+        ...practiceDefaultsBase,
+        class_id: activePracticeContext?.class_id || null,
+        assignment_id: activePracticeContext?.assignment_id || null,
+      }
+    : activePracticeContext?.class_id
+      ? {
+          count: 5,
+          mission: 'class_focus',
+          mission_label: activePracticeContext.assignment_title || activePracticeContext.class_name || 'Class Practice',
+          class_id: activePracticeContext.class_id,
+          assignment_id: activePracticeContext.assignment_id || null,
+        }
+      : null;
 
   return {
     student: {
@@ -4647,10 +4897,21 @@ async function buildStudentPortalPayload(studentUserId: number) {
         }
       : null,
     overall_analytics: analytics,
-    recommendations,
+    recommendations: {
+      ...recommendations,
+      active_assignment_context: activePracticeContext
+        ? {
+            class_id: activePracticeContext.class_id,
+            assignment_id: activePracticeContext.assignment_id,
+            class_name: activePracticeContext.class_name,
+            assignment_title: activePracticeContext.assignment_title,
+          }
+        : null,
+    },
     student_memory: analytics?.student_memory || null,
     session_history: sessionHistory,
-    practice_defaults: analytics?.comebackMission?.practice_query || null,
+    practice_history: practiceHistory,
+    practice_defaults: practiceDefaults,
   };
 }
 
@@ -5740,6 +6001,10 @@ router.post('/teacher/classes/:id/assignments', requireTeacherSession, async (re
     const instructions = sanitizeAssignmentInstructions(req.body?.instructions);
     const questionGoal = sanitizeAssignmentQuestionGoal(req.body?.question_goal, Math.max(1, Math.min(Number(pack.question_count || 0) || 5, 10)));
     const dueAt = sanitizeAssignmentDueAt(req.body?.due_at);
+    const assistancePolicy =
+      sanitizeStudentAssistancePolicyInput(req.body?.student_assistance_policy ?? req.body?.studentAssistancePolicy) ||
+      classBoard.student_assistance_policy ||
+      DEFAULT_STUDENT_ASSISTANCE_POLICY;
 
     const archivedActive = await db
       .prepare(`
@@ -5754,11 +6019,20 @@ router.post('/teacher/classes/:id/assignments', requireTeacherSession, async (re
     await db
       .prepare(`
         INSERT INTO teacher_class_assignments (
-          class_id, pack_id, title, instructions, due_at, question_goal, status, archived, created_by, updated_at
+          class_id, pack_id, title, instructions, due_at, question_goal, status, archived, created_by, student_assistance_policy_json, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, 'active', 0, ?, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', 0, ?, ?, CURRENT_TIMESTAMP)
       `)
-      .run(classId, packId, title, instructions, dueAt, questionGoal, teacherUserId);
+      .run(
+        classId,
+        packId,
+        title,
+        instructions,
+        dueAt,
+        questionGoal,
+        teacherUserId,
+        serializeStudentAssistancePolicy(assistancePolicy),
+      );
 
     const refreshedClass = await getHydratedTeacherClass(classId, teacherUserId);
     res.status(201).json({
@@ -5790,14 +6064,28 @@ router.put('/teacher/classes/:classId/assignments/:assignmentId', requireTeacher
     const dueAt = sanitizeAssignmentDueAt(req.body?.due_at) ?? assignment.due_at ?? null;
     const questionGoal = sanitizeAssignmentQuestionGoal(req.body?.question_goal, Number(assignment.question_goal || 0) || 5);
     const status = String(req.body?.status || assignment.status || 'active').trim().toLowerCase() === 'completed' ? 'completed' : 'active';
+    const assistancePolicy =
+      sanitizeStudentAssistancePolicyInput(req.body?.student_assistance_policy ?? req.body?.studentAssistancePolicy) ||
+      parseStudentAssistancePolicyJson(assignment.student_assistance_policy_json) ||
+      classBoard.student_assistance_policy ||
+      DEFAULT_STUDENT_ASSISTANCE_POLICY;
 
     await db
       .prepare(`
         UPDATE teacher_class_assignments
-        SET title = ?, instructions = ?, due_at = ?, question_goal = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+        SET title = ?, instructions = ?, due_at = ?, question_goal = ?, status = ?, student_assistance_policy_json = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND class_id = ?
       `)
-      .run(title, instructions, dueAt, questionGoal, status, assignmentId, classId);
+      .run(
+        title,
+        instructions,
+        dueAt,
+        questionGoal,
+        status,
+        serializeStudentAssistancePolicy(assistancePolicy),
+        assignmentId,
+        classId,
+      );
 
     const refreshedClass = await getHydratedTeacherClass(classId, teacherUserId);
     res.json({
@@ -6277,8 +6565,10 @@ router.post('/teacher/classes', requireTeacherSession, async (req, res) => {
     const insertTeacherClass = db.transaction((input: typeof payload, roster: Array<{ name: string; email: string }>) => {
       const info = db
         .prepare(`
-          INSERT INTO teacher_classes (teacher_id, name, subject, grade, color, notes, pack_id, archived, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          INSERT INTO teacher_classes (
+            teacher_id, name, subject, grade, color, notes, pack_id, student_assistance_policy_json, archived, created_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         `)
         .run(
           teacherUserId,
@@ -6288,6 +6578,7 @@ router.post('/teacher/classes', requireTeacherSession, async (req, res) => {
           input.color,
           input.notes,
           input.pack_id || null,
+          serializeStudentAssistancePolicy(input.student_assistance_policy || DEFAULT_STUDENT_ASSISTANCE_POLICY),
         );
 
       const classId = Number(info.lastInsertRowid);
@@ -6386,7 +6677,7 @@ router.put('/teacher/classes/:id', requireTeacherSession, async (req, res) => {
     (await db
         .prepare(`
         UPDATE teacher_classes
-        SET name = ?, subject = ?, grade = ?, color = ?, notes = ?, pack_id = ?, updated_at = CURRENT_TIMESTAMP
+        SET name = ?, subject = ?, grade = ?, color = ?, notes = ?, pack_id = ?, student_assistance_policy_json = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND teacher_id = ?
       `)
         .run(
@@ -6396,6 +6687,11 @@ router.put('/teacher/classes/:id', requireTeacherSession, async (req, res) => {
           payload.color,
           payload.notes,
           payload.pack_id || null,
+          serializeStudentAssistancePolicy(
+            payload.student_assistance_policy ||
+              parseStudentAssistancePolicyJson((existingClass as any)?.student_assistance_policy_json) ||
+              DEFAULT_STUDENT_ASSISTANCE_POLICY,
+          ),
           classId,
           teacherUserId,
         ));
@@ -9349,6 +9645,7 @@ router.get('/analytics/class/:sessionId/student/:participantId', async (req, res
       analytics: context.sessionAnalytics,
       overall_analytics: context.overallAnalytics,
       student_memory: context.studentMemory,
+      assistance_summary: buildStudentAssistanceSummary(context.studentScope?.analytics_labels || []),
       memory_intervention_plan: buildMemoryInterventionPlan(context),
       session_vs_overall: context.analyticsComparison,
       adaptive_game_preview: context.adaptivePreview,
@@ -9671,7 +9968,12 @@ router.get('/student/me/classes/:classId', requireStudentSession, async (req, re
           ? null
           : Math.round(Number(classSummary.stats.average_accuracy || 0));
     let assignment = null;
+    let assignments = [] as any[];
     try {
+      assignments = await buildStudentAssignmentViews({
+        classRow: classSummary,
+        studentUserId,
+      });
       assignment = await buildStudentAssignmentView({
         classRow: classSummary,
         studentUserId,
@@ -9683,12 +9985,30 @@ router.get('/student/me/classes/:classId', requireStudentSession, async (req, re
         message: assignmentError?.message || 'Unknown assignment error',
       });
     }
+    const classPracticeDefaults = payload.practice_defaults
+      ? {
+          ...payload.practice_defaults,
+          class_id: Number(classSummary.class_id || 0),
+          assignment_id: Number(assignment?.id || 0) || null,
+          mission_label:
+            assignment?.title ||
+            String(payload.practice_defaults?.mission_label || '').trim() ||
+            `${String(classSummary.class_name || 'Class').trim()} Practice`,
+        }
+      : {
+          count: Number(assignment?.question_goal || 5) || 5,
+          mission: 'class_focus',
+          mission_label: assignment?.title || `${String(classSummary.class_name || 'Class').trim()} Practice`,
+          class_id: Number(classSummary.class_id || 0),
+          assignment_id: Number(assignment?.id || 0) || null,
+        };
 
     res.json({
       student: payload.student,
       class: classSummary,
       assignment,
-      practice_defaults: payload.practice_defaults,
+      assignments,
+      practice_defaults: classPracticeDefaults,
       recommendations: payload.recommendations,
       student_memory: payload.student_memory,
       session_history: classHistory,
@@ -9892,10 +10212,27 @@ router.get('/student/me/practice', requireStudentSession, async (req, res) => {
       return res.status(401).json({ error: 'Student account no longer exists. Please sign in again.' });
     }
 
-    const requestedCount = clampNumber(req.query?.count, 2, 8, 5);
+    const requestedAdaptiveCount = clampNumber(req.query?.count, 2, 8, 5);
+    const requestedMode = sanitizeLine(req.query?.mode, 24).toLowerCase() === 'lesson' ? 'lesson' : 'adaptive';
     const requestedFocusTags = uniqueStrings(String(req.query?.focus_tags || '').split(',').map((tag) => sanitizeLine(tag, 40))).slice(0, 4);
     const requestedMissionId = sanitizeLine(req.query?.mission, 40);
     const requestedMissionLabel = sanitizeLine(req.query?.mission_label, 80);
+    const requestedClassId = parsePositiveInt(req.query?.class_id);
+    const requestedAssignmentId = parsePositiveInt(req.query?.assignment_id);
+    const requestedPackId = parsePositiveInt(req.query?.pack_id);
+    const practiceContext =
+      requestedClassId || requestedAssignmentId || requestedPackId
+        ? await resolveStudentPracticeClassContext({
+            studentUserId,
+            studentEmail: studentUser.email,
+            classId: requestedClassId || null,
+            assignmentId: requestedAssignmentId || null,
+            packId: requestedPackId || null,
+          })
+        : null;
+    if ((requestedClassId || requestedAssignmentId || requestedPackId) && !practiceContext) {
+      return res.status(404).json({ error: 'Class practice context is no longer available for this student.' });
+    }
     let overallAnalytics: any = null;
     try {
       overallAnalytics = await getOverallStudentAnalytics({
@@ -9941,43 +10278,149 @@ router.get('/student/me/practice', requireStudentSession, async (req, res) => {
     const focusTags = requestedFocusTags.length > 0 ? requestedFocusTags : recommendedFocusTags.slice(0, 4);
     const recommendedAction = String(studentMemory?.recommended_next_step?.action || '');
     const missionId =
-      requestedMissionId ||
-      (recommendedAction === 'confidence_reset'
-        ? 'reentry'
-        : recommendedAction === 'adaptive_practice'
-          ? 'targeted'
-          : recommendedAction === 'keep_momentum'
-            ? 'momentum'
-            : '');
-    const availableQuestions = safeStudentContext.questions.length > 0
+      requestedMode === 'lesson'
+        ? 'lesson_study'
+        : (
+          requestedMissionId ||
+          (recommendedAction === 'confidence_reset'
+            ? 'reentry'
+            : recommendedAction === 'adaptive_practice'
+              ? 'targeted'
+              : recommendedAction === 'keep_momentum'
+                ? 'momentum'
+                : '')
+        );
+    const allAvailableQuestions = safeStudentContext.questions.length > 0
       ? safeStudentContext.questions
       : ((await db.prepare('SELECT * FROM questions').all()) as any[]);
-    const practiceSet = await runPracticeSetWithFallback({
-      nickname: safeStudentContext.canonical_nickname,
-      mastery: safeStudentContext.mastery,
-      questions: availableQuestions,
-      practice_attempts: safeStudentContext.practice_attempts,
-      count: requestedCount,
-      focus_tags: focusTags,
-    });
+    const directPackQuestions = practiceContext?.pack_id
+      ? ((await db
+          .prepare('SELECT * FROM questions WHERE quiz_pack_id = ? ORDER BY question_order ASC, id ASC')
+          .all(Number(practiceContext.pack_id))) as any[]).map((question: any, index: number) => normalizeQuestionForEngine(question, index))
+      : [];
+    const availableQuestions = directPackQuestions.length > 0
+      ? directPackQuestions
+      : practiceContext?.pack_id
+        ? allAvailableQuestions.filter((question: any) => Number(question.quiz_pack_id || 0) === Number(practiceContext.pack_id || 0))
+        : allAvailableQuestions;
+    const lessonQuestionPool = availableQuestions;
+    const requestedLessonCount = clampNumber(
+      req.query?.count,
+      1,
+      50,
+      Math.max(1, Number(lessonQuestionPool.length || 10)),
+    );
+    const practiceSet =
+      requestedMode === 'lesson'
+        ? {
+            questions: [...lessonQuestionPool]
+              .sort((left: any, right: any) => {
+                const leftOrder = Number(left?.question_order || 0);
+                const rightOrder = Number(right?.question_order || 0);
+                if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+                return Number(left?.id || 0) - Number(right?.id || 0);
+              })
+              .slice(0, requestedLessonCount),
+            strategy: {
+              headline: practiceContext?.pack_title || requestedMissionLabel || 'Lesson Study',
+              body:
+                requestedMissionLabel ||
+                (practiceContext?.class_name
+                  ? `A self-paced study round from ${practiceContext.class_name}.`
+                  : 'A self-paced lesson round from shared class material.'),
+              focus_tags: focusTags,
+            },
+          }
+        : await runPracticeSetWithFallback({
+            nickname: safeStudentContext.canonical_nickname,
+            mastery: safeStudentContext.mastery,
+            questions: availableQuestions,
+            practice_attempts: safeStudentContext.practice_attempts,
+            count: requestedAdaptiveCount,
+            focus_tags: focusTags,
+          });
     const missionLabel =
-      requestedMissionLabel ||
-      (missionId === 'reentry'
-        ? 'Comeback Mission'
-        : missionId === 'targeted'
-          ? 'Focus Sprint'
-          : missionId === 'momentum'
-            ? 'Momentum Booster'
-            : 'Adaptive Practice');
+      requestedMode === 'lesson'
+        ? (
+          requestedMissionLabel ||
+          practiceContext?.assignment_title ||
+          practiceContext?.pack_title ||
+          'Lesson Study'
+        )
+        : (
+          requestedMissionLabel ||
+          (missionId === 'reentry'
+            ? 'Comeback Mission'
+            : missionId === 'targeted'
+              ? 'Focus Sprint'
+              : missionId === 'momentum'
+                ? 'Momentum Booster'
+                : practiceContext?.assignment_title
+                  ? practiceContext.assignment_title
+                : practiceContext?.class_name
+                  ? `${practiceContext.class_name} Practice`
+                : 'Adaptive Practice')
+        );
+    const questionsWithSupportTokens = Array.isArray(practiceSet?.questions)
+      ? practiceSet.questions.map((question: any) => {
+          const support = createStudentAssistanceSupportToken({
+            studentUserId,
+            questionId: Number(question?.id || 0),
+            classId: practiceContext?.class_id || null,
+            assignmentId: practiceContext?.assignment_id || null,
+            packId: practiceContext?.pack_id || null,
+          });
+          return {
+            ...question,
+            support_token: support.token,
+          };
+        })
+      : [];
+    const questionSupportTokens = Object.fromEntries(
+      questionsWithSupportTokens.map((question: any) => [String(question.id), String(question.support_token || '')]),
+    );
+    const assistancePolicy = practiceContext?.assistance_policy || resolveStudentAssistancePolicy({
+      enabledBySystem: isStudentAssistanceEnabled(),
+    });
+    const assistanceCapabilities = practiceContext?.assistance_capabilities || getStudentAssistanceCapabilities(assistancePolicy);
 
     res.json({
       ...(practiceSet && typeof practiceSet === 'object' ? practiceSet : {}),
+      questions: questionsWithSupportTokens,
       mission: {
         id: missionId || null,
         label: missionLabel,
-        question_count: requestedCount,
+        question_count:
+          requestedMode === 'lesson'
+            ? Array.isArray(practiceSet?.questions)
+              ? practiceSet.questions.length
+              : requestedLessonCount
+            : requestedAdaptiveCount,
         focus_tags: focusTags,
+        mode: requestedMode,
       },
+      context: practiceContext
+        ? {
+            class_id: practiceContext.class_id,
+            assignment_id: practiceContext.assignment_id,
+            class_name: practiceContext.class_name,
+            class_subject: practiceContext.class_subject,
+            class_grade: practiceContext.class_grade,
+            assignment_title: practiceContext.assignment_title,
+            assignment_instructions: practiceContext.assignment_instructions,
+            pack_id: practiceContext.pack_id,
+            pack_title: practiceContext.pack_title,
+            practice_mode: requestedMode,
+          }
+        : {
+            class_id: null,
+            assignment_id: null,
+            pack_id: null,
+            practice_mode: requestedMode,
+          },
+      assistance_policy: assistancePolicy,
+      assistance_capabilities: assistanceCapabilities,
+      question_support_tokens: questionSupportTokens,
       memory_reason: studentMemory?.recommended_next_step?.body || null,
       memory_reasons: Array.isArray(studentMemory?.recommended_next_step?.reasons) ? studentMemory.recommended_next_step.reasons : [],
       memory_confidence: studentMemory?.trust || null,
@@ -10102,6 +10545,222 @@ router.post('/student/me/practice/answer', requireStudentSession, async (req, re
   } catch (error: any) {
     console.error('[ERROR] Student account practice answer failed:', error);
     respondWithServerError(res, 'Failed to submit practice answer');
+  }
+});
+
+router.post('/student/me/practice/assist', requireStudentSession, async (req, res) => {
+  if (!enforceTrustedOrigin(req, res)) return;
+
+  const questionId = parsePositiveInt(req.body?.question_id);
+  const action = sanitizeStudentAssistanceAction(req.body?.action);
+  const supportToken = sanitizeMultiline(req.body?.support_token, 1200);
+  const requestedClassId = parsePositiveInt(req.body?.class_id);
+  const requestedAssignmentId = parsePositiveInt(req.body?.assignment_id);
+  const requestedPackId = parsePositiveInt(req.body?.pack_id);
+  if (!questionId) {
+    return res.status(400).json({ error: 'question_id is required' });
+  }
+  if (!action) {
+    return res.status(400).json({ error: 'action is required' });
+  }
+  if (!supportToken) {
+    return res.status(400).json({ error: 'support_token is required' });
+  }
+
+  try {
+    const studentSession = readStudentSession(req);
+    const studentUserId = Number(studentSession?.studentUserId || 0);
+    if (!studentUserId) {
+      return res.status(401).json({ error: 'Student authentication required' });
+    }
+    if (!enforceRateLimit(req, res, 'student-me-practice-assist', 60, 15 * 60 * 1000, studentUserId, questionId, action)) return;
+
+    const studentUser = await getStudentUserById(studentUserId);
+    if (!studentUser?.id) {
+      clearStudentSession(req, res);
+      return res.status(401).json({ error: 'Student account no longer exists. Please sign in again.' });
+    }
+
+    const tokenSession = readStudentAssistanceSupportToken(supportToken);
+    if (!tokenSession || Number(tokenSession.student_user_id || 0) !== studentUserId || Number(tokenSession.question_id || 0) !== questionId) {
+      return res.status(403).json({ error: 'This support token is not valid anymore.' });
+    }
+
+    const practiceContext =
+      requestedClassId || requestedAssignmentId || requestedPackId || tokenSession.class_id || tokenSession.assignment_id || tokenSession.pack_id
+        ? await resolveStudentPracticeClassContext({
+            studentUserId,
+            studentEmail: studentUser.email,
+            classId: requestedClassId || tokenSession.class_id || null,
+            assignmentId: requestedAssignmentId || tokenSession.assignment_id || null,
+            packId: requestedPackId || tokenSession.pack_id || null,
+          })
+        : null;
+    if ((requestedClassId || requestedAssignmentId || requestedPackId || tokenSession.class_id || tokenSession.assignment_id || tokenSession.pack_id) && !practiceContext) {
+      return res.status(404).json({ error: 'This class practice context is no longer available.' });
+    }
+    if (
+      (requestedClassId && Number(practiceContext?.class_id || 0) !== requestedClassId) ||
+      (requestedAssignmentId && Number(practiceContext?.assignment_id || 0) !== requestedAssignmentId) ||
+      (requestedPackId && Number(practiceContext?.pack_id || 0) !== requestedPackId)
+    ) {
+      return res.status(403).json({ error: 'Class assistance context mismatch.' });
+    }
+
+    const question = (await db
+      .prepare(`
+        SELECT
+          id,
+          quiz_pack_id,
+          prompt,
+          answers_json,
+          correct_index,
+          explanation,
+          tags_json,
+          learning_objective,
+          bloom_level
+        FROM questions
+        WHERE id = ?
+        LIMIT 1
+      `)
+      .get(questionId)) as any;
+    if (!question) {
+      return res.status(404).json({ error: 'Question not found.' });
+    }
+    if (practiceContext?.pack_id && Number(question.quiz_pack_id || 0) !== Number(practiceContext.pack_id || 0)) {
+      return res.status(403).json({ error: 'This question does not belong to the current practice context.' });
+    }
+
+    const assistancePolicy = practiceContext?.assistance_policy || resolveStudentAssistancePolicy({
+      enabledBySystem: isStudentAssistanceEnabled(),
+    });
+    if (!getStudentAssistanceCapabilities(assistancePolicy)[action]) {
+      return res.status(403).json({ error: 'This help action is disabled for the current practice.' });
+    }
+
+    const studentContext = await buildStudentAnalyticsContext({
+      studentUserId,
+      displayName: studentUser.display_name || studentUser.email,
+      nickname: studentUser.display_name || studentUser.email,
+    });
+    const identityKey =
+      studentContext?.primary_identity_key ||
+      (await getPrimaryIdentityKey(studentUserId)) ||
+      resolveStudentIdentityKey('', studentUser.display_name || studentUser.email || 'student');
+
+    const answers = parseJsonArray(question.answers_json).map((answer) => String(answer || '').trim()).filter(Boolean);
+    const tags = parseJsonArray(question.tags_json).map((tag) => sanitizeLine(tag, 40)).filter(Boolean);
+    const overallAnalytics = await getOverallStudentAnalytics({
+      studentUserId,
+      displayName: studentUser.display_name || studentUser.email,
+      nickname: studentUser.display_name || studentUser.email,
+    }).catch(() => null);
+    const studentMemory =
+      overallAnalytics?.student_memory ||
+      (identityKey ? await readStudentMemorySnapshot(identityKey).catch(() => null) : null);
+    const latestAttempt = (await db
+      .prepare(`
+        SELECT is_correct, created_at
+        FROM practice_attempts
+        WHERE identity_key = ?
+          AND question_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+      `)
+      .get(identityKey, questionId)) as any;
+
+    insertAnalyticsLabel({
+      identityKey,
+      questionId,
+      labelType: 'ai_assist_request',
+      labelValue: action,
+      source: 'student_assistance',
+      metadata: {
+        action,
+        class_id: practiceContext?.class_id || null,
+        assignment_id: practiceContext?.assignment_id || null,
+      },
+    });
+
+    const uiLanguageCandidate = String(req.body?.ui_language || req.body?.uiLanguage || '').trim().toLowerCase();
+    const uiLanguage = SUPPORTED_UI_LANGUAGES.has(uiLanguageCandidate) ? (uiLanguageCandidate as 'en' | 'he' | 'ar') : 'en';
+
+    const assistance = await generateStudentAssistance({
+      action,
+      question: {
+        id: questionId,
+        prompt: String(question.prompt || ''),
+        answers,
+        correctIndex: Number(question.correct_index || 0),
+        tags,
+        learningObjective: sanitizeLine(question.learning_objective, 160),
+        bloomLevel: sanitizeLine(question.bloom_level, 40),
+        explanation: sanitizeMultiline(question.explanation, 400),
+      },
+      missionLabel: sanitizeLine(req.body?.mission_label || req.body?.missionLabel, 80),
+      className: practiceContext?.class_name || null,
+      assignmentTitle: practiceContext?.assignment_title || null,
+      weakTags: Array.isArray(overallAnalytics?.profile?.weak_tags) ? overallAnalytics.profile.weak_tags : [],
+      coachingMessage: studentMemory?.coaching?.student_message || null,
+      memorySummary: studentMemory?.summary?.body || null,
+      uiLanguage,
+      lastAttempt: latestAttempt
+        ? {
+            is_correct: Boolean(Number(latestAttempt.is_correct || 0)),
+          }
+        : undefined,
+    });
+
+    insertAnalyticsLabel({
+      identityKey,
+      questionId,
+      labelType: 'ai_assist_served',
+      labelValue: action,
+      source: 'student_assistance',
+      metadata: {
+        action,
+        class_id: practiceContext?.class_id || null,
+        assignment_id: practiceContext?.assignment_id || null,
+        fallback_used: assistance.meta.fallback_used,
+        provider: assistance.meta.provider,
+        model: assistance.meta.model,
+      },
+    });
+    if (assistance.meta.fallback_used) {
+      insertAnalyticsLabel({
+        identityKey,
+        questionId,
+        labelType: 'ai_assist_fallback',
+        labelValue: action,
+        source: 'student_assistance',
+        metadata: {
+          action,
+          class_id: practiceContext?.class_id || null,
+          assignment_id: practiceContext?.assignment_id || null,
+          provider: assistance.meta.provider,
+          model: assistance.meta.model,
+        },
+      });
+    }
+    if (action === 'time_nudge') {
+      insertAnalyticsLabel({
+        identityKey,
+        questionId,
+        labelType: 'ai_focus_reset_used',
+        labelValue: 'time_nudge',
+        source: 'student_assistance',
+        metadata: {
+          action,
+          class_id: practiceContext?.class_id || null,
+          assignment_id: practiceContext?.assignment_id || null,
+        },
+      });
+    }
+
+    res.json(assistance);
+  } catch (error: any) {
+    console.error('[ERROR] Student practice assistance failed:', error);
+    respondWithServerError(res, 'Failed to load practice assistance');
   }
 });
 

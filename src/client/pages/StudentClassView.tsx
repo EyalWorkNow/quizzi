@@ -30,6 +30,58 @@ function buildPracticePath(payload: any) {
   }
   if (query.mission) params.set('mission', String(query.mission));
   if (query.mission_label) params.set('mission_label', String(query.mission_label));
+  const classId = Number(query.class_id || payload?.class?.class_id || payload?.class?.id || 0);
+  const assignmentId = Number(query.assignment_id || payload?.assignment?.id || 0);
+  if (classId > 0) params.set('class_id', String(classId));
+  if (assignmentId > 0) params.set('assignment_id', String(assignmentId));
+  const suffix = params.toString();
+  return suffix ? `/student/me/practice?${suffix}` : '/student/me/practice';
+}
+
+function buildAssignmentPracticePath(payload: any, assignment: any, mode: 'adaptive' | 'lesson' = 'adaptive') {
+  const query = payload?.practice_defaults || payload?.recommendations?.comeback_mission?.practice_query || {};
+  const params = new URLSearchParams();
+  const count = Number(
+    mode === 'lesson'
+      ? Math.min(Number(assignment?.question_goal || 10) || 10, 50)
+      : (assignment?.question_goal || query.count || query.question_count || 0),
+  );
+  if (count > 0) {
+    params.set('count', String(count));
+  }
+  if (Array.isArray(query.focus_tags) && query.focus_tags.length > 0) {
+    params.set('focus_tags', query.focus_tags.join(','));
+  }
+  params.set('mission', String(mode === 'lesson' ? 'lesson_study' : (query.mission || 'class_focus')));
+  params.set('mode', mode);
+  if (assignment?.title) params.set('mission_label', String(assignment.title));
+  const classId = Number(payload?.class?.class_id || payload?.class?.id || assignment?.class_id || query.class_id || 0);
+  const assignmentId = Number(assignment?.id || query.assignment_id || 0);
+  if (classId > 0) params.set('class_id', String(classId));
+  if (assignmentId > 0) params.set('assignment_id', String(assignmentId));
+  const suffix = params.toString();
+  return suffix ? `/student/me/practice?${suffix}` : '/student/me/practice';
+}
+
+function buildPackPracticePath(payload: any, pack: any, mode: 'adaptive' | 'lesson' = 'adaptive') {
+  const query = payload?.practice_defaults || payload?.recommendations?.comeback_mission?.practice_query || {};
+  const params = new URLSearchParams();
+  const count = Number(
+    mode === 'lesson'
+      ? Math.min(Number(pack?.question_count || 10) || 10, 50)
+      : (query.count || query.question_count || 5),
+  );
+  if (count > 0) params.set('count', String(count));
+  if (Array.isArray(query.focus_tags) && query.focus_tags.length > 0) {
+    params.set('focus_tags', query.focus_tags.join(','));
+  }
+  params.set('mission', String(mode === 'lesson' ? 'lesson_study' : (query.mission || 'class_focus')));
+  params.set('mode', mode);
+  if (pack?.title) params.set('mission_label', String(pack.title));
+  const classId = Number(payload?.class?.class_id || payload?.class?.id || 0);
+  const packId = Number(pack?.id || 0);
+  if (classId > 0) params.set('class_id', String(classId));
+  if (packId > 0) params.set('pack_id', String(packId));
   const suffix = params.toString();
   return suffix ? `/student/me/practice?${suffix}` : '/student/me/practice';
 }
@@ -151,6 +203,13 @@ export default function StudentClassView() {
       approvedAt: 'אישור',
       lastSeen: 'נראה לאחרונה',
       openPracticeHint: 'תרגול אדפטיבי על אותו חומר יעזור לך להגיע מוכן יותר לסשן הבא.',
+      sharedLessons: 'שיעורים ומשימות פתוחים',
+      sharedLessonsBody: 'אפשר לבחור שיעור מסוים שהמורה שיתף איתך ולתרגל אותו בזמן הפנוי שלך.',
+      practiceThisLesson: 'תרגל את השיעור הזה',
+      studyThisLesson: 'למד את השיעור הזה',
+      lessonAvailable: 'זמין לתרגול',
+      lessonCardMeta: 'חומר ממוקד ששויך אליך מתוך הכיתה הזאת.',
+      allLessonsFallback: 'עדיין אין שיעורים פתוחים לבחירה בכיתה הזאת.',
     },
     ar: {
       back: 'العودة إلى مساحة الطالب',
@@ -210,6 +269,13 @@ export default function StudentClassView() {
       approvedAt: 'الموافقة',
       lastSeen: 'آخر ظهور',
       openPracticeHint: 'التدريب التكيفي على نفس المادة سيساعدك على الوصول أكثر جاهزية إلى الجلسة التالية.',
+      sharedLessons: 'دروس ومهام متاحة',
+      sharedLessonsBody: 'يمكنك اختيار درس محدد شاركه المعلم معك والتدرب عليه في وقت فراغك.',
+      practiceThisLesson: 'تدرّب على هذا الدرس',
+      studyThisLesson: 'ادرس هذا الدرس',
+      lessonAvailable: 'متاح للتدريب',
+      lessonCardMeta: 'مادة مركزة تمت مشاركتها معك من هذا الصف.',
+      allLessonsFallback: 'لا توجد دروس متاحة للاختيار في هذا الصف بعد.',
     },
     en: {
       back: 'Back to student space',
@@ -269,6 +335,13 @@ export default function StudentClassView() {
       approvedAt: 'Approval',
       lastSeen: 'Last seen',
       openPracticeHint: 'Adaptive practice on the same material will help you show up steadier for the next class session.',
+      sharedLessons: 'Shared lessons',
+      sharedLessonsBody: 'Choose a specific lesson your teacher shared with you and practice it in your free time.',
+      practiceThisLesson: 'Practice this lesson',
+      studyThisLesson: 'Study this lesson',
+      lessonAvailable: 'Ready to practice',
+      lessonCardMeta: 'Focused material shared with you from this class.',
+      allLessonsFallback: 'No class lessons are available to choose yet.',
     },
   } as const)[language as 'he' | 'ar' | 'en'] || {
     back: 'Back to student space',
@@ -328,6 +401,13 @@ export default function StudentClassView() {
     approvedAt: 'Approval',
     lastSeen: 'Last seen',
     openPracticeHint: 'Adaptive practice will help before the next class session.',
+    sharedLessons: 'Shared lessons',
+    sharedLessonsBody: 'Choose a specific lesson your teacher shared with you and practice it in your free time.',
+    practiceThisLesson: 'Practice this lesson',
+    studyThisLesson: 'Study this lesson',
+    lessonAvailable: 'Ready to practice',
+    lessonCardMeta: 'Focused material shared with you from this class.',
+    allLessonsFallback: 'No class lessons are available to choose yet.',
   };
 
   const loadClass = useCallback(async () => {
@@ -356,6 +436,7 @@ export default function StudentClassView() {
           student_memory: portalPayload.student_memory,
           session_history: Array.isArray(portalPayload.session_history) ? portalPayload.session_history : [],
           assignment: null,
+          assignments: [],
           class_progress: {
             accuracy: matchedClass?.stats?.average_accuracy ?? null,
             session_count: Number(matchedClass?.stats?.session_count || 0),
@@ -426,8 +507,11 @@ export default function StudentClassView() {
   const canEnterLiveRoom = !liveAction.disabled;
   const classHistory = Array.isArray(classRow?.recent_sessions) ? classRow.recent_sessions : [];
   const personalHistory = Array.isArray(data?.session_history) ? data.session_history : [];
+  const classPacks = Array.isArray(classRow?.packs) ? classRow.packs : classRow?.pack ? [classRow.pack] : [];
   const weakTags = Array.isArray(data?.recommendations?.weak_tags) ? data.recommendations.weak_tags.slice(0, 4) : [];
   const assignment = data?.assignment || null;
+  const assignments = Array.isArray(data?.assignments) ? data.assignments : assignment ? [assignment] : [];
+  const availableLessons = assignments.filter((row: any) => Number(row?.id || 0) > 0);
   const practiceHeadline = data?.recommendations?.next_step?.title || data?.student_memory?.summary?.headline || copy.practice;
   const practiceBody =
     data?.recommendations?.next_step?.body ||
@@ -829,6 +913,94 @@ export default function StudentClassView() {
           </section>
         ) : null}
 
+        <section className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-brand-purple">{copy.sharedLessons}</p>
+              <h2 className="mt-2 text-3xl font-black text-brand-dark md:text-4xl">{copy.sharedLessons}</h2>
+              <p className="mt-3 max-w-3xl font-bold text-brand-dark/65">{copy.sharedLessonsBody}</p>
+            </div>
+            <StatusPill tone={isClaimed ? 'ready' : 'pending'}>
+              {isClaimed ? copy.lessonAvailable : copy.pendingLabel}
+            </StatusPill>
+          </div>
+
+          <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            {availableLessons.length > 0 ? availableLessons.map((lesson: any) => {
+              const lessonPracticePath = buildAssignmentPracticePath(data, lesson, 'adaptive');
+              const lessonStudyPath = buildAssignmentPracticePath(data, lesson, 'lesson');
+              const lessonStatus =
+                lesson.progress?.status === 'completed'
+                  ? (language === 'he' ? 'הושלם' : language === 'ar' ? 'اكتمل' : 'Completed')
+                  : lesson.progress?.status === 'overdue'
+                    ? (language === 'he' ? 'באיחור' : language === 'ar' ? 'متأخر' : 'Overdue')
+                    : lesson.progress?.status === 'in_progress'
+                      ? (language === 'he' ? 'בתהליך' : language === 'ar' ? 'قيد التنفيذ' : 'In progress')
+                      : language === 'he'
+                        ? 'עוד לא התחיל'
+                        : language === 'ar'
+                          ? 'لم يبدأ'
+                          : 'Not started';
+
+              return (
+                <div key={`lesson-${lesson.id}`} className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xl font-black text-brand-dark">{lesson.title}</p>
+                      <p className="mt-2 text-sm font-bold leading-6 text-brand-dark/65">
+                        {lesson.instructions || copy.lessonCardMeta}
+                      </p>
+                    </div>
+                    <StatusPill tone={lesson.progress?.status === 'completed' ? 'ready' : lesson.progress?.status === 'overdue' ? 'live' : 'neutral'}>
+                      {lessonStatus}
+                    </StatusPill>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <StatusPill tone="neutral">
+                      {language === 'he' ? 'יעד' : language === 'ar' ? 'الهدف' : 'Goal'}: {lesson.question_goal}
+                    </StatusPill>
+                    <StatusPill tone="neutral">
+                      {copy.accuracy}: {lesson.progress?.accuracy_pct !== null && lesson.progress?.accuracy_pct !== undefined ? `${Math.round(Number(lesson.progress.accuracy_pct))}%` : '--'}
+                    </StatusPill>
+                    <StatusPill tone="neutral">
+                      {language === 'he' ? 'התקדמות' : language === 'ar' ? 'التقدم' : 'Progress'}: {Number(lesson.progress?.attempted_questions || 0)}/{Number(lesson.question_goal || 0)}
+                    </StatusPill>
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <Link
+                      to={lessonStudyPath}
+                      className={`inline-flex items-center gap-2 rounded-full border-2 border-brand-dark px-4 py-2 font-black ${
+                        isClaimed ? 'bg-white text-brand-dark' : 'bg-white text-brand-dark/45 pointer-events-none'
+                      }`}
+                    >
+                      {copy.studyThisLesson}
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                    <Link
+                      to={lessonPracticePath}
+                      className={`inline-flex items-center gap-2 rounded-full border-2 border-brand-dark px-4 py-2 font-black ${
+                        isClaimed ? 'bg-brand-dark text-white' : 'bg-white text-brand-dark/45 pointer-events-none'
+                      }`}
+                    >
+                      {copy.practiceThisLesson}
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                    <span className="rounded-full border border-brand-dark bg-white px-3 py-2 text-xs font-black text-brand-dark/70">
+                      {lesson.pack_title || classRow?.pack?.title || copy.assignedPack}
+                    </span>
+                  </div>
+                </div>
+              );
+            }) : (
+              <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5 font-bold text-brand-dark/65 lg:col-span-2">
+                {copy.allLessonsFallback}
+              </div>
+            )}
+          </div>
+        </section>
+
         <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {[
             {
@@ -901,6 +1073,57 @@ export default function StudentClassView() {
               ) : (
                 <p className="font-bold text-brand-dark/60">{copy.packMissing}</p>
               )}
+            </div>
+
+            <div className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">
+              <div className="mb-5 flex items-center gap-3">
+                <BrainCircuit className="h-6 w-6 text-brand-orange" />
+                <div>
+                  <h2 className="text-3xl font-black">{copy.sharedLessons}</h2>
+                  <p className="text-sm font-bold text-brand-dark/60">{copy.sharedLessonsBody}</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {classPacks.length > 0 ? classPacks.map((pack: any) => (
+                  <div key={`class-pack-${pack.id}`} className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-lg font-black text-brand-dark">{pack.title}</p>
+                        <p className="mt-2 text-sm font-bold text-brand-dark/60">
+                          {Number(pack.question_count || 0)} {copy.packQuestions} • {copy.lessonCardMeta}
+                        </p>
+                      </div>
+                      <StatusPill tone={isClaimed ? 'ready' : 'pending'}>
+                        {isClaimed ? copy.lessonAvailable : copy.pendingLabel}
+                      </StatusPill>
+                    </div>
+                    <div className="mt-4">
+                      <div className="flex flex-wrap gap-3">
+                        <Link
+                          to={buildPackPracticePath(data, pack, 'lesson')}
+                          className={`inline-flex items-center gap-2 rounded-full border-2 border-brand-dark px-4 py-2 font-black ${
+                            isClaimed ? 'bg-white text-brand-dark' : 'pointer-events-none bg-white text-brand-dark/45'
+                          }`}
+                        >
+                          {copy.studyThisLesson}
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                        <Link
+                          to={buildPackPracticePath(data, pack, 'adaptive')}
+                          className={`inline-flex items-center gap-2 rounded-full border-2 border-brand-dark px-4 py-2 font-black ${
+                            isClaimed ? 'bg-brand-dark text-white' : 'pointer-events-none bg-white text-brand-dark/45'
+                          }`}
+                        >
+                          {copy.practiceThisLesson}
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                )) : (
+                  <p className="font-bold text-brand-dark/60">{copy.allLessonsFallback}</p>
+                )}
+              </div>
             </div>
 
             <div className="rounded-[2rem] border-4 border-brand-dark bg-white p-6 shadow-[8px_8px_0px_0px_#1A1A1A]">

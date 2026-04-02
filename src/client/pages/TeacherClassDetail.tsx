@@ -40,6 +40,11 @@ import {
   updateTeacherClassAssignment,
   updateTeacherClass,
 } from '../lib/teacherClasses.ts';
+import {
+  DEFAULT_STUDENT_ASSISTANCE_POLICY,
+  normalizeStudentAssistancePolicy,
+  type StudentAssistancePolicy,
+} from '../../shared/studentAssistance.ts';
 
 type ClassFormState = {
   name: string;
@@ -146,6 +151,120 @@ function formatDueDateTime(value?: string | null, language = 'en') {
   }).format(parsed);
 }
 
+const STUDENT_ASSISTANCE_TOGGLES: Array<{
+  key: keyof Pick<
+    StudentAssistancePolicy,
+    | 'allow_question_reframe'
+    | 'allow_keywords'
+    | 'allow_checklist'
+    | 'allow_hint'
+    | 'allow_confidence_check'
+    | 'allow_time_nudge'
+    | 'allow_post_answer_explanation'
+  >;
+  label: string;
+}> = [
+  { key: 'allow_question_reframe', label: 'Question reframe' },
+  { key: 'allow_keywords', label: 'Keywords' },
+  { key: 'allow_checklist', label: 'Checklist' },
+  { key: 'allow_hint', label: 'Hint' },
+  { key: 'allow_confidence_check', label: 'Confidence check' },
+  { key: 'allow_time_nudge', label: 'Time nudge' },
+  { key: 'allow_post_answer_explanation', label: 'Post-answer wrap' },
+];
+
+function cloneAssistancePolicy(value?: Partial<StudentAssistancePolicy> | null) {
+  return normalizeStudentAssistancePolicy(value || DEFAULT_STUDENT_ASSISTANCE_POLICY);
+}
+
+function AssistancePolicyEditor({
+  title,
+  subtitle,
+  policy,
+  onChange,
+}: {
+  title: string;
+  subtitle: string;
+  policy: StudentAssistancePolicy;
+  onChange: (next: StudentAssistancePolicy) => void;
+}) {
+  return (
+    <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
+      <div className="mb-4">
+        <p className="text-sm font-black text-brand-dark">{title}</p>
+        <p className="text-sm font-bold text-brand-dark/60">{subtitle}</p>
+      </div>
+      <div className="mb-4 flex items-center justify-between rounded-[1rem] border-2 border-brand-dark bg-white px-4 py-3">
+        <div>
+          <p className="font-black text-brand-dark">Student Smart Assistance</p>
+          <p className="text-sm font-bold text-brand-dark/60">Exam-safe help inside adaptive practice.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange({ ...policy, enabled: !policy.enabled })}
+          className={`rounded-full border-2 border-brand-dark px-4 py-2 text-sm font-black ${
+            policy.enabled ? 'bg-brand-purple text-white' : 'bg-white text-brand-dark'
+          }`}
+        >
+          {policy.enabled ? 'On' : 'Off'}
+        </button>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {STUDENT_ASSISTANCE_TOGGLES.map((toggle) => (
+          <label
+            key={toggle.key}
+            className="flex items-center justify-between rounded-[1rem] border-2 border-brand-dark bg-white px-4 py-3"
+          >
+            <span className="font-black text-brand-dark">{toggle.label}</span>
+            <input
+              type="checkbox"
+              checked={Boolean(policy[toggle.key])}
+              onChange={(event) => onChange({ ...policy, [toggle.key]: event.target.checked })}
+              className="h-5 w-5 accent-brand-purple"
+            />
+          </label>
+        ))}
+      </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <div>
+          <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">Hint max / question</label>
+          <input
+            type="number"
+            min="0"
+            max="20"
+            value={policy.max_hint_requests_per_question}
+            onChange={(event) =>
+              onChange({
+                ...policy,
+                max_hint_requests_per_question: Math.max(0, Math.min(20, Number(event.target.value || 0) || 0)),
+              })
+            }
+            className="w-full rounded-xl border-2 border-brand-dark bg-white p-3 font-bold"
+          />
+          <p className="mt-2 text-xs font-bold text-brand-dark/55">Use `0` for unlimited hints.</p>
+        </div>
+        <div>
+          <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">Total actions / question</label>
+          <input
+            type="number"
+            min="0"
+            max="50"
+            value={policy.max_total_actions_per_question}
+            onChange={(event) =>
+              onChange({
+                ...policy,
+                max_total_actions_per_question: Math.max(0, Math.min(50, Number(event.target.value || 0) || 0)),
+              })
+            }
+            className="w-full rounded-xl border-2 border-brand-dark bg-white p-3 font-bold"
+          />
+          <p className="mt-2 text-xs font-bold text-brand-dark/55">Use `0` for unlimited support actions.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TeacherClassDetail() {
   const { language } = useAppLanguage();
   const { id } = useParams();
@@ -177,6 +296,8 @@ export default function TeacherClassDetail() {
   const [assignmentInstructions, setAssignmentInstructions] = useState('');
   const [assignmentDueAt, setAssignmentDueAt] = useState('');
   const [assignmentQuestionGoal, setAssignmentQuestionGoal] = useState('5');
+  const [classAssistancePolicy, setClassAssistancePolicy] = useState<StudentAssistancePolicy>(DEFAULT_STUDENT_ASSISTANCE_POLICY);
+  const [assignmentAssistancePolicy, setAssignmentAssistancePolicy] = useState<StudentAssistancePolicy>(DEFAULT_STUDENT_ASSISTANCE_POLICY);
 
   const copy = ({
     he: {
@@ -913,13 +1034,19 @@ export default function TeacherClassDetail() {
       setAssignmentInstructions('');
       setAssignmentDueAt('');
       setAssignmentQuestionGoal('5');
+      setAssignmentAssistancePolicy(cloneAssistancePolicy(classBoard?.student_assistance_policy));
       return;
     }
     setAssignmentTitle(String(activeAssignment.title || ''));
     setAssignmentInstructions(String(activeAssignment.instructions || ''));
     setAssignmentDueAt(activeAssignment.due_at ? String(activeAssignment.due_at).slice(0, 16) : '');
     setAssignmentQuestionGoal(String(activeAssignment.question_goal || 5));
+    setAssignmentAssistancePolicy(cloneAssistancePolicy(activeAssignment.student_assistance_policy));
   }, [classBoard?.assignment_board?.active_assignment?.id]);
+
+  useEffect(() => {
+    setClassAssistancePolicy(cloneAssistancePolicy(classBoard?.student_assistance_policy));
+  }, [classBoard?.id, classBoard?.updated_at]);
 
   useEffect(() => {
     setSelectedRosterStudentIds([]);
@@ -958,7 +1085,10 @@ export default function TeacherClassDetail() {
 
   const handleSaveClass = async () => {
     if (!classBoard) return;
-    const payload = normalizePayload(form);
+    const payload = {
+      ...normalizePayload(form),
+      student_assistance_policy: classAssistancePolicy,
+    };
     if (!payload.name || !payload.subject || !payload.grade) {
       setFeedback(copy.fillRequired);
       return;
@@ -1229,6 +1359,7 @@ export default function TeacherClassDetail() {
         due_at: assignmentDueAt ? new Date(assignmentDueAt).toISOString() : null,
         question_goal: Number(assignmentQuestionGoal || 0) || 5,
         pack_id: Number(classBoard.pack.id),
+        student_assistance_policy: assignmentAssistancePolicy,
       };
       const refreshed = activeAssignment?.id
         ? await updateTeacherClassAssignment(classBoard.id, Number(activeAssignment.id), payload)
@@ -2121,6 +2252,20 @@ export default function TeacherClassDetail() {
                     className="min-h-28 w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
                   />
                 </div>
+                <div className="mt-4">
+                  <AssistancePolicyEditor
+                    title={language === 'he' ? 'סיוע חכם ברמת הכיתה' : language === 'ar' ? 'المساعدة الذكية على مستوى الصف' : 'Class smart assistance'}
+                    subtitle={
+                      language === 'he'
+                        ? 'זו ברירת המחדל לכל תרגול מותאם ומשימה של הכיתה.'
+                        : language === 'ar'
+                          ? 'هذا هو الإعداد الافتراضي لكل تدريب متكيف ومهمة في الصف.'
+                          : 'This is the default policy for adaptive practice and assignment work in the class.'
+                    }
+                    policy={classAssistancePolicy}
+                    onChange={setClassAssistancePolicy}
+                  />
+                </div>
                 <button
                   onClick={() => void handleSaveClass()}
                   disabled={busyKey === 'save-class'}
@@ -2216,6 +2361,19 @@ export default function TeacherClassDetail() {
                         </p>
                       </div>
                     </div>
+
+                    <AssistancePolicyEditor
+                      title={language === 'he' ? 'סיוע חכם למשימה' : language === 'ar' ? 'المساعدة الذكية للمهمة' : 'Assignment smart assistance'}
+                      subtitle={
+                        language === 'he'
+                          ? 'Override למשימה הפעילה. מה שמוגדר כאן יגבר על ברירת המחדל של הכיתה.'
+                          : language === 'ar'
+                            ? 'إعداد خاص للمهمة النشطة. ما يتم ضبطه هنا يتغلب على إعداد الصف الافتراضي.'
+                            : 'Override for the active assignment. These settings win over the class default.'
+                      }
+                      policy={assignmentAssistancePolicy}
+                      onChange={setAssignmentAssistancePolicy}
+                    />
 
                     <div className="flex flex-wrap items-center gap-3">
                       <button

@@ -251,6 +251,7 @@ export default function TeacherStudentAnalytics() {
   const analytics = data?.analytics;
   const overallAnalytics = data?.overall_analytics;
   const studentMemory = data?.student_memory;
+  const assistanceSummary = data?.assistance_summary || null;
   const comparison = data?.session_vs_overall || buildSessionComparison(analytics, overallAnalytics);
   const student = data?.student_summary;
   const classSummary = data?.class_summary;
@@ -1457,6 +1458,44 @@ export default function TeacherStudentAnalytics() {
                 )}
               </div>
             </div>
+          </section>
+        )}
+
+        {assistanceSummary && (
+          <section className="mb-8">
+            <TeacherSurface
+              title="Smart Assistance"
+              subtitle="How often the student used exam-safe support inside adaptive practice."
+              icon={<Sparkles className="w-6 h-6 text-brand-purple" />}
+            >
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-4 mb-5">
+                <CompactMetric label="Requests" value={String(Number(assistanceSummary.total_requests || 0))} />
+                <CompactMetric label="Served" value={String(Number(assistanceSummary.total_served || 0))} />
+                <CompactMetric label="Fallbacks" value={String(Number(assistanceSummary.total_fallbacks || 0))} />
+                <CompactMetric label="Focus resets" value={String(Number(assistanceSummary.focus_reset_used || 0))} />
+              </div>
+              {Array.isArray(assistanceSummary.actions) && assistanceSummary.actions.length > 0 ? (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {assistanceSummary.actions.map((row: any) => (
+                    <div key={row.action} className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
+                      <div className="flex items-center justify-between gap-3 mb-3">
+                        <p className="font-black text-brand-dark">{row.label}</p>
+                        <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black uppercase">
+                          {row.requests} requests
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3">
+                        <CompactMetric label="Served" value={String(Number(row.served || 0))} />
+                        <CompactMetric label="Fallbacks" value={String(Number(row.fallbacks || 0))} />
+                        <CompactMetric label="Requests" value={String(Number(row.requests || 0))} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="font-medium text-brand-dark/70">No smart-assistance activity has been logged for this student yet.</p>
+              )}
+            </TeacherSurface>
           </section>
         )}
 

@@ -325,15 +325,15 @@ export function buildStudentMemorySnapshot(input: StudentMemoryBuildInput): Stud
       tone,
       headline:
         tone === 'support'
-          ? 'This learner needs consistency more than another fast round'
+          ? 'This learner needs a steadier pace before another fast round'
           : tone === 'watch'
             ? 'The learner is progressing, but the memory trace is still uneven'
             : 'The learner shows a stable memory pattern overall',
       body:
         tone === 'support'
-          ? `Accuracy is ${accuracyPct.toFixed(0)}% with ${stressIndex.toFixed(0)}% stress, so the next step should reduce pressure and tighten the concept loop.`
+          ? `Accuracy is ${accuracyPct.toFixed(0)}% with ${stressIndex.toFixed(0)}% stress, so the next step should reduce pressure and revisit the core idea more clearly.`
           : tone === 'watch'
-            ? 'The student is building momentum, but confidence and focus are not stable enough yet for autopilot.'
+            ? 'The student is improving, but confidence and focus are not stable enough yet for autopilot.'
             : 'The current memory trace is strong enough to keep advancing rather than reteaching the same core ideas.',
     },
     history_rollup: {
@@ -359,10 +359,10 @@ export function buildStudentMemorySnapshot(input: StudentMemoryBuildInput): Stud
         action === 'confidence_reset'
           ? 'Slow it down for one short round. You are closer than the timer makes it feel.'
           : action === 'adaptive_practice'
-            ? `Your next win is in ${recommendedFocusTags.map(titleCaseTag).join(', ') || 'your weakest topics'}.`
+            ? `The next practice should focus on ${recommendedFocusTags.map(titleCaseTag).join(', ') || 'your weakest topics'}.`
             : action === 'targeted_review'
               ? 'A quick explanation-first review should help your next round feel easier.'
-              : 'Your recent pattern is stable. Keep the streak warm with one short booster.',
+              : 'Your recent pattern is stable. One short review round should be enough to keep it fresh.',
       teacher_message:
         action === 'confidence_reset'
           ? 'Lower pace before retesting. The memory trace suggests pressure is distorting performance more than content gaps alone.'
@@ -376,7 +376,7 @@ export function buildStudentMemorySnapshot(input: StudentMemoryBuildInput): Stud
           ? 'Accuracy is trending up across recent sessions.'
           : confidenceTrend === 'up'
             ? 'Confidence is becoming more stable.'
-            : 'The learner is still showing up consistently, which gives the model useful signal.',
+            : 'The learner is staying engaged, which gives the model useful signal.',
       caution:
         stressTrend === 'down'
           ? 'Pressure tolerance is slipping, so the next step should be calmer.'

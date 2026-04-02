@@ -1,4 +1,5 @@
 import { apiFetch, apiFetchJson } from './api.ts';
+import { DEFAULT_STUDENT_ASSISTANCE_POLICY, type StudentAssistancePolicy } from '../../shared/studentAssistance.ts';
 
 export const TEACHER_CLASS_COLOR_OPTIONS = [
   'bg-brand-purple',
@@ -106,6 +107,7 @@ export type TeacherClassCard = {
   approval_state: TeacherClassApprovalState;
   invite_delivery_state: 'none' | 'sent' | 'failed' | 'not_configured' | 'claimed';
   invite_summary: TeacherClassInviteSummary;
+  student_assistance_policy: StudentAssistancePolicy;
   active_session: TeacherClassSessionSummary | null;
   latest_session: TeacherClassSessionSummary | null;
   latest_completed_session: TeacherClassSessionSummary | null;
@@ -150,6 +152,7 @@ export type TeacherClassAssignment = {
   question_goal: number;
   status: string;
   created_at: string | null;
+  student_assistance_policy: StudentAssistancePolicy;
   summary: {
     assigned_count: number;
     started_count: number;
@@ -232,6 +235,7 @@ export type TeacherClassPayload = {
   color: TeacherClassColor;
   notes: string;
   pack_id: number | null;
+  student_assistance_policy?: StudentAssistancePolicy | null;
   students?: Array<{ name: string; email?: string }>;
 };
 
@@ -256,6 +260,7 @@ export async function getTeacherClass(classId: number) {
       ...matchedClass,
       students: [],
       recent_sessions: [],
+      student_assistance_policy: matchedClass.student_assistance_policy || DEFAULT_STUDENT_ASSISTANCE_POLICY,
       mail_health: {
         configured: false,
         mode: 'none',
@@ -332,7 +337,14 @@ export async function resendTeacherClassStudentInvite(classId: number, studentId
 
 export async function createTeacherClassAssignment(
   classId: number,
-  payload: { title: string; instructions?: string; due_at?: string | null; question_goal?: number; pack_id?: number | null },
+  payload: {
+    title: string;
+    instructions?: string;
+    due_at?: string | null;
+    question_goal?: number;
+    pack_id?: number | null;
+    student_assistance_policy?: StudentAssistancePolicy | null;
+  },
 ) {
   return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/assignments`, {
     method: 'POST',
@@ -343,7 +355,14 @@ export async function createTeacherClassAssignment(
 export async function updateTeacherClassAssignment(
   classId: number,
   assignmentId: number,
-  payload: { title: string; instructions?: string; due_at?: string | null; question_goal?: number; status?: string },
+  payload: {
+    title: string;
+    instructions?: string;
+    due_at?: string | null;
+    question_goal?: number;
+    status?: string;
+    student_assistance_policy?: StudentAssistancePolicy | null;
+  },
 ) {
   return apiFetchJson<TeacherClassWorkspace>(`/api/teacher/classes/${classId}/assignments/${assignmentId}`, {
     method: 'PUT',

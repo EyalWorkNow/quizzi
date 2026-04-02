@@ -149,7 +149,7 @@ export function getPublicAppUrl() {
     return configured;
   }
 
-  return 'http://127.0.0.1:5173';
+  return 'http://127.0.0.1:3000';
 }
 
 export function resolvePublicAppUrlFromRequest(req?: Pick<Request, 'headers' | 'protocol'> | null) {

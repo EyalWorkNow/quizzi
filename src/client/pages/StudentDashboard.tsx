@@ -785,7 +785,7 @@ export default function StudentDashboard() {
                     <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
                       <div>
                         <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Question {question.question_index}</p>
-                        <p className="text-xl font-black leading-tight mb-3">{question.prompt}</p>
+                        <p className="text-center text-xl font-black leading-tight mb-3">{question.prompt}</p>
                         <div className="flex flex-wrap gap-2">
                           {(question.tags || []).map((tag: string) => (
                             <span key={`${question.question_id}-${tag}`} className="px-3 py-1 rounded-full bg-white border-2 border-brand-dark text-xs font-black capitalize">
@@ -840,7 +840,7 @@ export default function StudentDashboard() {
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">
                       {question.status === 'missed' ? 'Immediate review' : 'Stabilize this answer'}
                     </p>
-                    <p className="text-xl font-black mb-3">Q{question.question_index}. {question.prompt}</p>
+                    <p className="text-center text-xl font-black mb-3">Q{question.question_index}. {question.prompt}</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                       <MetricStrip label="Stress" value={`${Number(question.stress_index || 0).toFixed(0)}%`} />
                       <MetricStrip label="Swaps" value={question.total_swaps} />

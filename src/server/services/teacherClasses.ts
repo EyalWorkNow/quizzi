@@ -1,5 +1,7 @@
 import db from '../db/index.js';
 import { getMailHealth, type MailHealth } from './mailer.js';
+import { DEFAULT_STUDENT_ASSISTANCE_POLICY, type StudentAssistancePolicy } from '../../shared/studentAssistance.js';
+import { parseStudentAssistancePolicyJson } from './studentAssistance.js';
 
 export const TEACHER_CLASS_COLOR_OPTIONS = [
   'bg-brand-purple',
@@ -98,6 +100,7 @@ export type TeacherClassBase = {
   color: TeacherClassColor;
   notes: string;
   pack_id: number | null;
+  student_assistance_policy: StudentAssistancePolicy;
   created_at: string;
   updated_at: string;
   pack: TeacherClassPackSummary | null;
@@ -148,6 +151,7 @@ export type StudentClassWorkspace = {
   class_color: string;
   class_notes: string;
   pack: TeacherClassPackSummary | null;
+  packs: TeacherClassPackSummary[];
   stats: {
     session_count: number;
     active_session_count: number;
@@ -811,6 +815,7 @@ async function listTeacherClassWorkspaces(
       color: sanitizeTeacherClassColor(row.color),
       notes: String(row.notes || ''),
       pack_id: Number(row.pack_id || 0) || null,
+      student_assistance_policy: parseStudentAssistancePolicyJson(row.student_assistance_policy_json) || DEFAULT_STUDENT_ASSISTANCE_POLICY,
       created_at: row.created_at || new Date().toISOString(),
       updated_at: row.updated_at || row.created_at || new Date().toISOString(),
       students,
@@ -849,6 +854,7 @@ function mapTeacherClassWorkspaceToCard(workspace: TeacherClassWorkspace): Teach
     color: workspace.color,
     notes: workspace.notes,
     pack_id: workspace.pack_id,
+    student_assistance_policy: workspace.student_assistance_policy,
     created_at: workspace.created_at,
     updated_at: workspace.updated_at,
     pack: workspace.pack,
@@ -960,6 +966,19 @@ export async function listStudentClassWorkspaces(studentUserId: number, studentE
     ...classRows.map((row: any) => row.class_pack_id),
     ...sessionRows.map((row: any) => row.quiz_pack_id),
   ]);
+  const classPackRows = (await db
+    .prepare(`
+      SELECT
+        tcp.class_id,
+        qp.id,
+        qp.title,
+        COALESCE(qp.question_count_cache, 0) AS question_count
+      FROM teacher_class_packs tcp
+      JOIN quiz_packs qp ON qp.id = tcp.pack_id
+      WHERE tcp.class_id IN (${placeholders})
+      ORDER BY tcp.created_at DESC, tcp.id DESC
+    `)
+    .all(...classIds)) as any[];
   const packRows = packIds.length
     ? ((await db
         .prepare(`
@@ -1019,6 +1038,17 @@ export async function listStudentClassWorkspaces(studentUserId: number, studentE
       question_count: Number(row.question_count || 0),
     });
   });
+  const packsByClassId = new Map<number, TeacherClassPackSummary[]>();
+  classPackRows.forEach((row: any) => {
+    const classId = Number(row.class_id || 0);
+    const current = packsByClassId.get(classId) || [];
+    current.push({
+      id: Number(row.id || 0),
+      title: String(row.title || ''),
+      question_count: Number(row.question_count || 0),
+    });
+    packsByClassId.set(classId, current);
+  });
 
   const classCountsById = new Map<number, { student_count: number; pending_approval_count: number }>();
   classCountRows.forEach((row: any) => {
@@ -1075,6 +1105,7 @@ export async function listStudentClassWorkspaces(studentUserId: number, studentE
               question_count: 0,
             }
           : null,
+      packs: packsByClassId.get(classId) || [],
       stats: {
         session_count: sessions.length,
         active_session_count: sessions.filter((session) => String(session.status || '').toUpperCase() !== 'ENDED').length,

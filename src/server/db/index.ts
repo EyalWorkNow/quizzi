@@ -351,6 +351,7 @@ export async function initDb() {
       color TEXT DEFAULT 'bg-brand-purple',
       notes TEXT DEFAULT '',
       pack_id INTEGER,
+      student_assistance_policy_json TEXT DEFAULT '{}',
       archived INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -549,6 +550,7 @@ export async function initDb() {
       status TEXT DEFAULT 'active',
       archived INTEGER DEFAULT 0,
       created_by INTEGER,
+      student_assistance_policy_json TEXT DEFAULT '{}',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -636,6 +638,7 @@ export async function initDb() {
   (await ensureColumn('teacher_classes', 'color', "TEXT DEFAULT 'bg-brand-purple'"));
   (await ensureColumn('teacher_classes', 'notes', "TEXT DEFAULT ''"));
   (await ensureColumn('teacher_classes', 'pack_id', 'INTEGER'));
+  (await ensureColumn('teacher_classes', 'student_assistance_policy_json', "TEXT DEFAULT '{}'"));
   (await ensureColumn('teacher_classes', 'archived', 'INTEGER DEFAULT 0'));
   (await ensureColumn('teacher_classes', 'updated_at', 'DATETIME'));
   (await ensureColumn('teacher_class_students', 'joined_at', 'DATETIME'));
@@ -654,6 +657,7 @@ export async function initDb() {
   (await ensureColumn('teacher_class_assignments', 'status', "TEXT DEFAULT 'active'"));
   (await ensureColumn('teacher_class_assignments', 'archived', 'INTEGER DEFAULT 0'));
   (await ensureColumn('teacher_class_assignments', 'created_by', 'INTEGER'));
+  (await ensureColumn('teacher_class_assignments', 'student_assistance_policy_json', "TEXT DEFAULT '{}'"));
   (await ensureColumn('teacher_class_assignments', 'updated_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP'));
   (await ensureColumn('questions', 'question_order', 'INTEGER DEFAULT 0'));
   (await ensureColumn('questions', 'learning_objective', "TEXT DEFAULT ''"));

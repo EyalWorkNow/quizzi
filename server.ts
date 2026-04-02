@@ -169,7 +169,8 @@ async function startServer() {
   // Same-origin browser requests should always work, even on custom domains or preview URLs.
   const resolveCorsOptions: Parameters<typeof cors>[0] = (req, callback) => {
     const origin = String(req.headers.origin || '').trim();
-    const forwardedProto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http')
+    const requestProtocol = typeof (req as any)?.protocol === 'string' ? String((req as any).protocol) : 'http';
+    const forwardedProto = String(req.headers['x-forwarded-proto'] || requestProtocol || 'http')
       .split(',')[0]
       .trim();
     const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '')
