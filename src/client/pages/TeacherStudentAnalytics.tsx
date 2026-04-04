@@ -180,6 +180,11 @@ export default function TeacherStudentAnalytics() {
       loading: 'Loading personal dashboard...',
     },
   }[language];
+  const translateDecisionToken = (value?: string) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return t('Unknown');
+    return t(normalized);
+  };
 
   const buildFallbackPayload = async () => {
     const classPayload = await apiFetchJson(`/api/analytics/class/${sessionId}`);
@@ -452,6 +457,65 @@ export default function TeacherStudentAnalytics() {
     focusWhyRevision: 'This item shows unstable revision behavior, so ask the student to explain the choice before locking in.',
     focusWhyDeadline: 'This looks deadline-dependent, so a calmer re-check on the same content is the better next step.',
   };
+  const teachingBriefCopy = language === 'he'
+    ? {
+        panelTitle: 'תקציר הוראה מקצועי',
+        panelSubtitle: 'מסמך עבודה למורה/מרצה: אבחנה פדגוגית, ראיות, מה לשמר, ומה לעשות עכשיו.',
+        copyButton: 'העתק תקציר מקצועי',
+        copiedButton: 'התקציר הועתק',
+        printButton: 'הדפס תקציר',
+        printTitle: 'תקציר הוראה מקצועי',
+        printSubtitle: 'מסמך קצר למורה/מרצה: שורה תחתונה, אבחנה פדגוגית, ראיות, ומהלך ההוראה הבא.',
+        summaryTitle: `תקציר הוראה: ${data?.participant?.nickname || 'תלמיד/ה'}`,
+        sessionLabel: `חבילה: ${data?.pack?.title || 'סשן Quizzi'} · סשן #${data?.session?.id || sessionId}`,
+        executiveLabel: 'שורה תחתונה',
+        diagnosisLabel: 'אבחנה פדגוגית',
+        evidenceLabel: 'ראיות מרכזיות',
+        preserveLabel: 'מה לשמר',
+        barrierLabel: 'מה דורש התערבות',
+        actionLabel: 'מה לעשות עכשיו',
+        checkpointLabel: 'מה לבדוק בשיעור הבא',
+        classPositionLabel: 'מיקום יחסי בכיתה',
+        focusQuestionsLabel: 'שאלות שכדאי לפתוח מחדש',
+        coordinationLabel: 'הערת תיאום',
+        classPositionText: `מקום #${student?.rank || '-'} בסשן הזה, מול דיוק כיתתי של ${formatPercent(Number(classSummary?.accuracy || 0), 1)}.`,
+        printedOn: `הופק ב-${new Date().toLocaleDateString('he-IL')}`,
+        noQuestionFocus: 'לא זוהתה כרגע שאלה אחת שבולטת יותר מכל השאר, לכן כדאי להתחיל מהמושג המרכזי החלש ביותר.',
+        defaultMove: 'בצע סבב קצר נוסף על אותו חומר לפני שמרחיבים.',
+        questionText: (index: number, prompt: string, why: string) => `שאלה ${index}: ${prompt} ${why}`,
+        focusWhyMissed: 'כדאי לפתוח מחדש את הניסוח והמושג לפני שממשיכים הלאה.',
+        focusWhyRevision: 'השאלה הזו מצביעה על שינוי החלטה לא יציב, ולכן שווה לעצור עליה ולבדוק איך התלמיד מסביר את הבחירה.',
+        focusWhyDeadline: 'כאן נראית תלות בקצה הזמן, ולכן כדאי להריץ בדיקה רגועה יותר על אותו תוכן.',
+      }
+    : {
+        panelTitle: 'Professional Teaching Brief',
+        panelSubtitle: 'A working brief for the teacher: diagnosis, evidence, what to preserve, and the next move.',
+        copyButton: 'Copy professional brief',
+        copiedButton: 'Brief copied',
+        printButton: 'Print summary',
+        printTitle: 'Professional Teaching Brief',
+        printSubtitle: 'A short teacher-facing brief: bottom line, diagnosis, evidence, and the next instructional move.',
+        summaryTitle: `Teaching brief: ${data?.participant?.nickname || 'Student'}`,
+        sessionLabel: `Pack: ${data?.pack?.title || 'Quizzi session'} · Session #${data?.session?.id || sessionId}`,
+        executiveLabel: 'Bottom line',
+        diagnosisLabel: 'Instructional diagnosis',
+        evidenceLabel: 'Key evidence',
+        preserveLabel: 'What to preserve',
+        barrierLabel: 'What needs intervention',
+        actionLabel: 'What to do now',
+        checkpointLabel: 'What to check next lesson',
+        classPositionLabel: 'Relative class position',
+        focusQuestionsLabel: 'Questions worth reopening',
+        coordinationLabel: 'Coordination note',
+        classPositionText: `Rank #${student?.rank || '-'} in this session, against a class accuracy of ${formatPercent(Number(classSummary?.accuracy || 0), 1)}.`,
+        printedOn: `Generated on ${new Date().toLocaleDateString('en-US')}`,
+        noQuestionFocus: 'No single item stands out far above the rest yet, so start with the weakest shared concept.',
+        defaultMove: 'Run one more short round on the same material before widening the scope.',
+        questionText: (index: number, prompt: string, why: string) => `Question ${index}: ${prompt} ${why}`,
+        focusWhyMissed: 'Re-open the wording and the underlying idea before moving on.',
+        focusWhyRevision: 'This item shows unstable revision behavior, so ask the student to explain the choice before locking in.',
+        focusWhyDeadline: 'This looks deadline-dependent, so a calmer re-check on the same content is the better next step.',
+      };
   const attentionQueue = useMemo(
     () =>
       [...questionReview]
@@ -548,80 +612,230 @@ export default function TeacherStudentAnalytics() {
     const strongTags = (analytics?.profile?.strong_tags || overallAnalytics?.profile?.strong_tags || []).slice(0, 3);
     const translatedStrongTags = translateTags(strongTags);
     const translatedWeakTags = translateTags(weakTags);
-    const accuracy = formatPercent(Number(analytics?.stats?.accuracy || student?.accuracy || 0));
-    const stress = formatPercent(Number(analytics?.risk?.stress_index || student?.stress_index || 0));
-    const confidence = formatPercent(Number(analytics?.profile?.confidence_score || 0));
-    const focus = Number(analytics?.profile?.focus_score || 0).toFixed(0);
-    const recovery = formatPercent(Number(recoveryProfile?.recovery_rate || 0), 1);
-    const deadline = formatPercent(Number(deadlineProfile?.last_second_rate || 0), 1);
-    const story = t(analytics?.overallStory?.body || analytics?.profile?.body || 'No interpretation was produced yet.');
-    const pattern = (deadlineProfile?.last_second_rate || 0) >= 25 || (analytics?.risk?.stress_index || 0) >= 35
-      ? summaryCopy.pressurePattern
-      : summaryCopy.stablePattern;
-    const strengths = translatedStrongTags.length > 0
-      ? summaryCopy.strengthsText(translatedStrongTags.join(', '))
-      : t('The student is currently strongest when the question format feels familiar and the decision path stays stable.');
-    const watchouts = translatedWeakTags.length > 0
-      ? summaryCopy.supportText(translatedWeakTags.join(', '))
-      : t('The main support area is decision stability under pressure rather than one single content gap.');
-    const sessionRead = language === 'he'
-      ? `${data?.participant?.nickname} סיים/ה את הסשן הזה עם ${accuracy} דיוק, ${stress} לחץ, ביטחון ${confidence} וריכוז ${focus}.`
-      : language === 'ar'
-        ? `${data?.participant?.nickname} أنهى/أنهت هذه الجلسة بدقة ${accuracy}، ضغط ${stress}، ثقة ${confidence} وتركيز ${focus}.`
-        : `${data?.participant?.nickname} finished this session with ${accuracy} accuracy, ${stress} stress, ${confidence} confidence, and ${focus} focus.`;
+    const isHebrew = language === 'he';
+    const accuracyValue = Number(analytics?.stats?.accuracy || student?.accuracy || 0);
+    const stressValue = Number(analytics?.risk?.stress_index || student?.stress_index || 0);
+    const confidenceValue = Number(analytics?.profile?.confidence_score || 0);
+    const focusValue = Number(analytics?.profile?.focus_score || 0);
+    const recoveryValue = Number(recoveryProfile?.recovery_rate || 0);
+    const deadlineValue = Number(deadlineProfile?.last_second_rate || 0);
+    const harmfulRevisionValue = Number(revisionInsights?.changed_away_from_correct_rate || 0);
+    const helpfulRevisionValue = Number(revisionInsights?.corrected_after_wrong_rate || 0);
+    const focusLossCount = Number(analytics?.aggregates?.total_focus_loss || 0);
+    const highRisk = String(student?.risk_level || analytics?.risk?.level || '') === 'high';
+    const conceptRisk = accuracyValue < 65 || translatedWeakTags.length > 0;
+    const pressureRisk = deadlineValue >= 25 || harmfulRevisionValue >= 12 || stressValue >= 35;
+    const attentionRisk = focusLossCount > 0 || focusValue < 55;
+    const recoveryRisk = Number(recoveryProfile?.total_followups || 0) > 0 && recoveryValue < 45;
+    const accuracy = formatPercent(accuracyValue);
+    const stress = formatPercent(stressValue);
+    const confidence = formatPercent(confidenceValue);
+    const focus = focusValue.toFixed(0);
+    const recovery = formatPercent(recoveryValue, 1);
+    const deadline = formatPercent(deadlineValue, 1);
+    const sessionRead = isHebrew
+      ? `${data?.participant?.nickname} סיים/ה את הסשן הזה עם ${accuracy} דיוק, ${stress} לחץ, ${confidence} ביטחון ו-${focus} ריכוז.`
+      : `${data?.participant?.nickname} finished this session with ${accuracy} accuracy, ${stress} stress, ${confidence} confidence, and ${focus} focus.`;
     const nextMove =
       student?.recommendation
       || analytics?.practicePlan?.body
       || teacherMoves[0]?.body
-      || 'A short same-material adaptive game is the next recommended move.';
-    const familyNote =
-      student?.risk_level === 'high' || analytics?.risk?.level === 'high'
-        ? 'This learner would benefit from a short, low-pressure re-entry step before the next bigger assessment.'
-        : 'A short same-topic check-in this week should be enough to keep momentum stable.';
+      || teachingBriefCopy.defaultMove;
+    const executiveSummary = (() => {
+      if (pressureRisk) {
+        return isHebrew
+          ? 'לפני שמרחיבים את החומר, צריך לייצב את קבלת ההחלטות תחת לחץ.'
+          : 'Before widening the material, decision-making under pressure needs to stabilize.';
+      }
+      if (conceptRisk) {
+        return isHebrew
+          ? 'נדרשת חזרה קצרה ומדויקת על המושגים החלשים לפני שמעבירים את התלמיד הלאה.'
+          : 'The learner needs a short, precise revisit of the weak concepts before moving on.';
+      }
+      if (attentionRisk) {
+        return isHebrew
+          ? 'כדאי לקצר את הסבב הבא ולבדוק אם הרצף נשמר בתנאים רגועים יותר.'
+          : 'The next round should be shorter so we can check whether focus holds under calmer conditions.';
+      }
+      return isHebrew
+        ? 'התלמיד על המסלול, אבל עדיין צריך אימות קצר נוסף לפני שמעלים קושי.'
+        : 'The learner is largely on track, but still needs a short confirmation check before the difficulty rises.';
+    })();
+    const diagnosis = (() => {
+      if (pressureRisk && conceptRisk) {
+        return isHebrew
+          ? 'הקושי כרגע הוא שילוב של פער מושגי יחד עם תנודתיות תחת לחץ. כלומר, לא מספיק רק ללמד מחדש; צריך גם להאט ולבדוק נעילה רגועה יותר.'
+          : 'The current challenge is a mix of concept weakness and instability under pressure. A content reset alone is not enough; the response pace also needs to calm down.';
+      }
+      if (pressureRisk) {
+        return isHebrew
+          ? 'כרגע הקושי נראה יותר כמו שבריריות בקבלת החלטות תחת לחץ מאשר חוסר הבנה מוחלט. אותו חומר, בקצב רגוע יותר, צפוי לתת תמונה נקייה יותר.'
+          : 'Right now the issue looks more like fragile decision-making under pressure than a total lack of understanding. The same material at a calmer pace should produce a cleaner read.';
+      }
+      if (attentionRisk) {
+        return isHebrew
+          ? 'הקושי נראה קשור לרצף קשב ולעומס, ולכן חשוב לבדוק את אותו תוכן בסבב קצר ומובנה יותר לפני שמסיקים על שליטה בתוכן.'
+          : 'The issue appears tied to attention continuity and load, so the same content should be checked again in a shorter, more scaffolded round before drawing firm conclusions about mastery.';
+      }
+      if (conceptRisk) {
+        return isHebrew
+          ? `הקושי המרכזי כרגע הוא מושגי: ${translatedWeakTags.length > 0 ? translatedWeakTags.join(', ') : 'יש פער שדורש הבהרה ישירה'}. כדאי לפתוח מחדש את הרעיון עצמו ולא רק לתרגל עוד שאלות.`
+          : `The main need right now is conceptual: ${translatedWeakTags.length > 0 ? translatedWeakTags.join(', ') : 'there is a gap that needs direct clarification'}. Re-open the idea itself, not just more questions.`;
+      }
+      if (recoveryRisk) {
+        return isHebrew
+          ? 'הבעיה העיקרית מופיעה אחרי טעות: התלמיד מתקשה להתאושש ולחזור למסלול. כדאי להוסיף לולאת תיקון קצרה מיד אחרי שאלה שגויה.'
+          : 'The main issue shows up after errors: the student has trouble recovering and returning to a stable path. Add a short reteach loop immediately after misses.';
+      }
+      return isHebrew
+        ? 'הביצוע הנוכחי יחסית יציב. המטרה עכשיו היא לשמר את מה שכבר עובד ולאשר שההבנה מחזיקה גם בסבב הבא.'
+        : 'The current run is relatively stable. The goal now is to preserve what is already working and confirm it holds in the next round.';
+    })();
+    const preserve = [
+      translatedStrongTags.length > 0
+        ? isHebrew
+          ? `יש בסיס יציב יותר ב-${translatedStrongTags.join(', ')}.`
+          : `There is a steadier base in ${translatedStrongTags.join(', ')}.`
+        : '',
+      helpfulRevisionValue >= 35 || recoveryValue >= 50
+        ? isHebrew
+          ? 'התלמיד יודע להתאושש מחלק מהטעויות, ולכן כדאי לבנות על הסבר חוזר קצר ולא על איפוס מלא.'
+          : 'The learner can recover from at least some mistakes, so build on short re-explanations rather than a full reset.'
+        : '',
+      confidenceValue >= 55 && harmfulRevisionValue < 12
+        ? isHebrew
+          ? 'כשאין לחץ מיותר, יש ביטחון מספק שאפשר לבנות עליו בשיעור הבא.'
+          : 'When pressure stays low, there is enough confidence to build on in the next lesson.'
+        : '',
+    ].filter(Boolean).slice(0, 3);
+    if (!preserve.length) {
+      preserve.push(
+        isHebrew
+          ? 'יש ערך בשימור אותו חומר ואותו מבנה, כדי לבדוק האם ההבנה מתייצבת בתנאים ברורים יותר.'
+          : 'There is value in keeping the same material and structure so we can see whether understanding stabilizes under clearer conditions.',
+      );
+    }
+    const barriers = [
+      translatedWeakTags.length > 0
+        ? isHebrew
+          ? `כרגע ${translatedWeakTags.join(', ')} דורשים חיזוק ישיר.`
+          : `${translatedWeakTags.join(', ')} currently need direct reinforcement.`
+        : '',
+      harmfulRevisionValue >= 12
+        ? isHebrew
+          ? 'יש תנודתיות בהחלטה: התלמיד לפעמים נוגע בתשובה הנכונה ואז זז ממנה.'
+          : 'Decision stability is an issue: the student sometimes reaches the correct answer and then moves away from it.'
+        : '',
+      deadlineValue >= 25
+        ? isHebrew
+          ? 'יותר מדי תשובות נסגרות מאוחר, ולכן קשה להבחין בין חשיבה לבין תגובת לחץ.'
+          : 'Too many answers lock in late, which makes it harder to separate reasoning from pressure response.'
+        : '',
+      attentionRisk
+        ? isHebrew
+          ? 'יש סימנים לעומס קשב או לאיבוד רצף, ולכן צריך סבב קצר ומובנה יותר.'
+          : 'There are signs of attention load or loss of continuity, so the next round should be shorter and more scaffolded.'
+        : '',
+    ].filter(Boolean).slice(0, 3);
+    if (!barriers.length) {
+      barriers.push(
+        isHebrew
+          ? 'אין כרגע מחסום אחד דרמטי, אבל עדיין כדאי לשמור על מעקב קצר לפני שמעלים קושי.'
+          : 'No single barrier is dramatic right now, but a short follow-up is still warranted before raising difficulty.',
+      );
+    }
+    const lessonCheckpoint = (() => {
+      if (pressureRisk) {
+        return isHebrew
+          ? 'בשיעור הבא בדוק אם התלמיד נועל מוקדם יותר ושומר על התשובה בלי לעבור ממנה ברגע האחרון.'
+          : 'In the next lesson, check whether the student commits earlier and holds the answer instead of changing at the last second.';
+      }
+      if (conceptRisk) {
+        return isHebrew
+          ? 'בדוק אם התלמיד מסוגל להסביר במילים שלו את המושג החלש לפני שמחזירים שאלות מעורבות.'
+          : 'Check whether the learner can explain the weak concept in their own words before returning to mixed questions.';
+      }
+      if (attentionRisk) {
+        return isHebrew
+          ? 'בדוק אם בסבב קצר יותר הריכוז נשמר והביצוע נשאר יציב מתחילת המשחק ועד סופו.'
+          : 'Check whether focus holds in a shorter round and whether performance stays stable from start to finish.';
+      }
+      return isHebrew
+        ? 'בדוק שהדיוק נשמר גם בלי תמיכה נוספת ושאין ירידה כשמעלים מעט את הרמה.'
+        : 'Check that accuracy still holds without extra support and that performance does not drop when difficulty rises slightly.';
+    })();
+    const coordinationNote = highRisk
+      ? isHebrew
+        ? 'כדאי לעדכן רכז/מורה תומך שהתלמיד זקוק לחזרה קצרה ומובנית על אותו חומר לפני ההערכה הבאה.'
+        : 'It is worth updating a coordinator or support teacher that this learner needs a short, structured re-entry on the same material before the next assessment.'
+      : pressureRisk
+        ? isHebrew
+          ? 'אם משתפים גורם נוסף, חשוב להדגיש שהקושי הוא בעיקר בביצוע תחת לחץ ולא בהכרח בהבנה בסיסית.'
+          : 'If you brief another adult, emphasize that the main challenge is performance under pressure rather than a total understanding gap.'
+        : isHebrew
+          ? 'אין כרגע צורך בהסלמה. מספיק מעקב קצר וממוקד על אותו נושא.'
+          : 'No escalation is needed right now. A short, focused follow-up on the same topic should be enough.';
     const focusQuestions = attentionQueue.slice(0, 3).map((row: any) => {
       const why = row.revision_outcome === 'correct_to_incorrect'
-        ? summaryCopy.focusWhyRevision
+        ? teachingBriefCopy.focusWhyRevision
         : row.deadline_dependent
-          ? summaryCopy.focusWhyDeadline
-          : summaryCopy.focusWhyMissed;
-      return summaryCopy.questionText(Number(row.question_index || 0), t(row.prompt || row.question_text || ''), why);
+          ? teachingBriefCopy.focusWhyDeadline
+          : teachingBriefCopy.focusWhyMissed;
+      return teachingBriefCopy.questionText(Number(row.question_index || 0), t(row.prompt || row.question_text || ''), why);
     });
-    const evidence = summaryCopy.evidenceLines(accuracy, stress, confidence, focus, recovery, deadline);
-    const executiveSummary = summaryCopy.nextLessonText(t(nextMove));
-    const meaning = summaryCopy.meaningText(summaryCopy.teacherNowLead, `${story} ${sessionHistory.length > 0 ? pattern : summaryCopy.noHistoryPattern}`.trim());
+    const evidence = [
+      sessionRead,
+      isHebrew
+        ? `שיעור התאוששות אחרי טעות: ${recovery}; תלות בדדליין: ${deadline}.`
+        : `Recovery after misses: ${recovery}; deadline dependence: ${deadline}.`,
+      isHebrew
+        ? `${teachingBriefCopy.classPositionText}`
+        : teachingBriefCopy.classPositionText,
+      isHebrew
+        ? `${helpfulRevisionValue.toFixed(0)}% מצליחים לתקן התחלה שגויה, ו-${harmfulRevisionValue.toFixed(0)}% משנים מתשובה נכונה לשגויה.`
+        : `${helpfulRevisionValue.toFixed(0)}% recover from a wrong start, while ${harmfulRevisionValue.toFixed(0)}% move from correct to incorrect.`,
+    ];
 
     const lines = [
-      summaryCopy.summaryTitle,
-      summaryCopy.sessionLabel,
+      teachingBriefCopy.summaryTitle,
+      teachingBriefCopy.sessionLabel,
       '',
-      `${summaryCopy.executiveLabel}: ${executiveSummary}`,
+      `${teachingBriefCopy.executiveLabel}: ${executiveSummary}`,
       '',
-      `${summaryCopy.happenedTitle}: ${sessionRead}`,
-      `${summaryCopy.strengthsLabel}: ${strengths}`,
-      `${summaryCopy.supportLabel}: ${watchouts}`,
-      `${summaryCopy.meaningLabel}: ${meaning}`,
-      `${summaryCopy.nextMoveTitle}: ${t(nextMove)}`,
-      `${summaryCopy.familyLabel}: ${t(familyNote)}`,
-      `${summaryCopy.focusQuestionsLabel}:`,
-      ...(focusQuestions.length > 0 ? focusQuestions.map((line) => `- ${line}`) : [`- ${summaryCopy.noQuestionFocus}`]),
+      `${teachingBriefCopy.diagnosisLabel}: ${diagnosis}`,
       '',
-      `${summaryCopy.evidenceLabel}:`,
+      `${teachingBriefCopy.preserveLabel}:`,
+      ...preserve.map((line) => `- ${line}`),
+      '',
+      `${teachingBriefCopy.barrierLabel}:`,
+      ...barriers.map((line) => `- ${line}`),
+      '',
+      `${teachingBriefCopy.actionLabel}: ${t(nextMove)}`,
+      `${teachingBriefCopy.checkpointLabel}: ${lessonCheckpoint}`,
+      `${teachingBriefCopy.coordinationLabel}: ${coordinationNote}`,
+      `${teachingBriefCopy.focusQuestionsLabel}:`,
+      ...(focusQuestions.length > 0 ? focusQuestions.map((line) => `- ${line}`) : [`- ${teachingBriefCopy.noQuestionFocus}`]),
+      '',
+      `${teachingBriefCopy.evidenceLabel}:`,
       ...evidence.map((line) => `- ${line}`),
     ];
 
     return {
-      title: summaryCopy.summaryTitle,
-      strengths,
-      watchouts,
+      title: teachingBriefCopy.summaryTitle,
+      diagnosis,
+      preserve,
+      preserveText: preserve.join(' • '),
+      barriers,
+      barriersText: barriers.join(' • '),
       sessionRead,
       nextMove: t(nextMove),
-      familyNote: t(familyNote),
+      lessonCheckpoint,
+      coordinationNote,
       executiveSummary,
-      meaning,
       evidence,
       focusQuestions,
-      classPosition: summaryCopy.classPositionText,
-      printedOn: summaryCopy.printedOn,
+      classPosition: teachingBriefCopy.classPositionText,
+      printedOn: teachingBriefCopy.printedOn,
       text: lines.join('\n'),
     };
   }, [
@@ -634,10 +848,11 @@ export default function TeacherStudentAnalytics() {
     language,
     overallAnalytics?.profile?.strong_tags,
     recoveryProfile?.recovery_rate,
-    sessionHistory.length,
     sessionId,
     student,
-    summaryCopy,
+    teachingBriefCopy,
+    revisionInsights?.changed_away_from_correct_rate,
+    revisionInsights?.corrected_after_wrong_rate,
     t,
     teacherMoves,
   ]);
@@ -775,24 +990,24 @@ export default function TeacherStudentAnalytics() {
 
       <section className="print-summary-sheet" dir={language === 'he' ? 'rtl' : language === 'ar' ? 'rtl' : 'ltr'}>
         <div style={{ marginBottom: '14px' }}>
-          <p className="print-summary-eyebrow">{summaryCopy.printTitle}</p>
+          <p className="print-summary-eyebrow">{teachingBriefCopy.printTitle}</p>
           <h1 style={{ fontSize: '26px', fontWeight: 800, marginBottom: '6px' }}>{data?.participant?.nickname}</h1>
-          <p style={{ fontSize: '14px', color: '#444444', marginBottom: '4px' }}>{summaryCopy.sessionLabel}</p>
-          <p style={{ fontSize: '13px', color: '#555555' }}>{summaryCopy.printSubtitle}</p>
+          <p style={{ fontSize: '14px', color: '#444444', marginBottom: '4px' }}>{teachingBriefCopy.sessionLabel}</p>
+          <p style={{ fontSize: '13px', color: '#555555' }}>{teachingBriefCopy.printSubtitle}</p>
         </div>
 
         <div className="print-summary-card">
-          <p className="print-summary-eyebrow">{summaryCopy.executiveLabel}</p>
+          <p className="print-summary-eyebrow">{teachingBriefCopy.executiveLabel}</p>
           <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '8px' }}>
             {t(student?.headline || analytics?.practicePlan?.headline || analytics?.overallStory?.headline || analytics?.profile?.headline || 'Monitor')}
           </h2>
           <p style={{ fontSize: '14px', lineHeight: 1.55, marginBottom: '8px' }}>{supportSnapshot.executiveSummary}</p>
-          <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{supportSnapshot.meaning}</p>
+          <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{supportSnapshot.diagnosis}</p>
         </div>
 
         <div className="print-summary-grid">
           <div className="print-summary-card">
-            <p className="print-summary-eyebrow">{summaryCopy.evidenceLabel}</p>
+            <p className="print-summary-eyebrow">{teachingBriefCopy.evidenceLabel}</p>
             <ul style={{ display: 'grid', gap: '6px', fontSize: '13px', lineHeight: 1.5 }}>
               {supportSnapshot.evidence.map((line: string) => (
                 <li key={line}>{line}</li>
@@ -801,27 +1016,47 @@ export default function TeacherStudentAnalytics() {
           </div>
 
           <div className="print-summary-card">
-            <p className="print-summary-eyebrow">{summaryCopy.classPositionLabel}</p>
-            <p style={{ fontSize: '14px', lineHeight: 1.55, marginBottom: '10px' }}>{supportSnapshot.classPosition}</p>
-            <p className="print-summary-eyebrow" style={{ marginBottom: '6px' }}>{summaryCopy.nextLessonLabel}</p>
-            <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{supportSnapshot.nextMove}</p>
+            <p className="print-summary-eyebrow">{teachingBriefCopy.actionLabel}</p>
+            <p style={{ fontSize: '14px', lineHeight: 1.55, marginBottom: '10px' }}>{supportSnapshot.nextMove}</p>
+            <p className="print-summary-eyebrow" style={{ marginBottom: '6px' }}>{teachingBriefCopy.checkpointLabel}</p>
+            <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{supportSnapshot.lessonCheckpoint}</p>
           </div>
         </div>
 
         <div className="print-summary-grid">
           <div className="print-summary-card">
-            <p className="print-summary-eyebrow">{summaryCopy.strengthsLabel}</p>
-            <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{supportSnapshot.strengths}</p>
+            <p className="print-summary-eyebrow">{teachingBriefCopy.preserveLabel}</p>
+            <ul style={{ display: 'grid', gap: '6px', fontSize: '13px', lineHeight: 1.5 }}>
+              {supportSnapshot.preserve.map((line: string) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
           </div>
 
           <div className="print-summary-card">
-            <p className="print-summary-eyebrow">{summaryCopy.supportLabel}</p>
-            <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{supportSnapshot.watchouts}</p>
+            <p className="print-summary-eyebrow">{teachingBriefCopy.barrierLabel}</p>
+            <ul style={{ display: 'grid', gap: '6px', fontSize: '13px', lineHeight: 1.5 }}>
+              {supportSnapshot.barriers.map((line: string) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        <div className="print-summary-grid">
+          <div className="print-summary-card">
+            <p className="print-summary-eyebrow">{teachingBriefCopy.classPositionLabel}</p>
+            <p style={{ fontSize: '14px', lineHeight: 1.55, marginBottom: '10px' }}>{supportSnapshot.classPosition}</p>
+          </div>
+
+          <div className="print-summary-card">
+            <p className="print-summary-eyebrow">{teachingBriefCopy.coordinationLabel}</p>
+            <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{supportSnapshot.coordinationNote}</p>
           </div>
         </div>
 
         <div className="print-summary-card">
-          <p className="print-summary-eyebrow">{summaryCopy.focusQuestionsLabel}</p>
+          <p className="print-summary-eyebrow">{teachingBriefCopy.focusQuestionsLabel}</p>
           {supportSnapshot.focusQuestions.length > 0 ? (
             <ul style={{ display: 'grid', gap: '8px', fontSize: '13px', lineHeight: 1.5 }}>
               {supportSnapshot.focusQuestions.map((line: string) => (
@@ -829,13 +1064,8 @@ export default function TeacherStudentAnalytics() {
               ))}
             </ul>
           ) : (
-            <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{summaryCopy.noQuestionFocus}</p>
+            <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{teachingBriefCopy.noQuestionFocus}</p>
           )}
-        </div>
-
-        <div className="print-summary-card">
-          <p className="print-summary-eyebrow">{summaryCopy.familyLabel}</p>
-          <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{supportSnapshot.familyNote}</p>
         </div>
 
         <p style={{ fontSize: '12px', color: '#666666' }}>{supportSnapshot.printedOn}</p>
@@ -888,14 +1118,14 @@ export default function TeacherStudentAnalytics() {
               className="px-5 py-3 bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
             >
               {snapshotCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              {snapshotCopied ? 'התקציר הועתק' : 'העתק תקציר תמיכה'}
+              {snapshotCopied ? teachingBriefCopy.copiedButton : teachingBriefCopy.copyButton}
             </button>
             <button
               onClick={() => window.print()}
               className="px-5 py-3 bg-brand-yellow border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A]"
             >
               <Printer className="w-4 h-4" />
-              {t('Print Snapshot')}
+              {teachingBriefCopy.printButton}
             </button>
             <button
               onClick={handleCreateAdaptiveGame}
@@ -964,9 +1194,9 @@ export default function TeacherStudentAnalytics() {
 
         <section className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-6 mb-8">
           <div className="bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
-            <div className="flex items-start justify-between gap-4 mb-5">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Teacher Trust Mode</p>
+                <div className="flex items-start justify-between gap-4 mb-5">
+                  <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Teacher Trust Mode')}</p>
                 <h2 className="text-3xl font-black">{t('Why we think this is true')}</h2>
                 <p className="font-bold text-brand-dark/60 mt-2">
                   {t('Every student read is now split into observed facts, interpretation, and the next teaching move.')}
@@ -1030,8 +1260,8 @@ export default function TeacherStudentAnalytics() {
               />
               {(analytics?.risk?.suppressed_reason || trust?.suppressed_reason) && (
                 <div className="rounded-[1.3rem] border-2 border-dashed border-brand-dark/25 bg-brand-bg p-4">
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">Suppressed reason</p>
-                  <p className="font-medium text-brand-dark/70">{analytics?.risk?.suppressed_reason || trust?.suppressed_reason}</p>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45 mb-2">{t('Suppressed reason')}</p>
+                  <p className="font-medium text-brand-dark/70">{t(analytics?.risk?.suppressed_reason || trust?.suppressed_reason)}</p>
                 </div>
               )}
             </div>
@@ -1044,11 +1274,11 @@ export default function TeacherStudentAnalytics() {
               <div>
                 <div className="flex items-center gap-3 mb-3">
                   <Users className="w-6 h-6 text-brand-purple" />
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple">{t('Support Snapshot')}</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple">{teachingBriefCopy.panelTitle}</p>
                 </div>
                 <h2 className="text-3xl font-black">{supportSnapshot.title}</h2>
                 <p className="font-bold text-brand-dark/60 mt-2">
-                  {t('A short plain-language summary you can reuse with a parent, advisor, coordinator, or support teacher.')}
+                  {teachingBriefCopy.panelSubtitle}
                 </p>
               </div>
               <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg px-4 py-3 font-black">
@@ -1057,15 +1287,21 @@ export default function TeacherStudentAnalytics() {
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              <SnapshotBlock title="What happened in this game" body={supportSnapshot.sessionRead} tone="bg-brand-bg" />
-              <SnapshotBlock title="What the student already shows" body={supportSnapshot.strengths} tone="bg-emerald-50" />
-              <SnapshotBlock title="Where support is needed" body={supportSnapshot.watchouts} tone="bg-brand-yellow/25" />
-              <SnapshotBlock title="Recommended next move" body={supportSnapshot.nextMove} tone="bg-brand-orange/10" />
+              <SnapshotBlock title={teachingBriefCopy.diagnosisLabel} body={supportSnapshot.diagnosis} tone="bg-brand-bg" />
+              <SnapshotBlock title={teachingBriefCopy.preserveLabel} body={supportSnapshot.preserveText} tone="bg-emerald-50" />
+              <SnapshotBlock title={teachingBriefCopy.barrierLabel} body={supportSnapshot.barriersText} tone="bg-brand-yellow/25" />
+              <SnapshotBlock title={teachingBriefCopy.actionLabel} body={supportSnapshot.nextMove} tone="bg-brand-orange/10" />
             </div>
 
-            <div className="mt-4 rounded-[1.5rem] border-2 border-brand-dark bg-brand-dark p-5 text-white">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">{t('Home / Advisor Note')}</p>
-              <p className="font-medium text-white/80">{t(supportSnapshot.familyNote)}</p>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
+              <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-dark p-5 text-white">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-2">{teachingBriefCopy.checkpointLabel}</p>
+                <p className="font-medium text-white/80">{supportSnapshot.lessonCheckpoint}</p>
+              </div>
+              <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{teachingBriefCopy.coordinationLabel}</p>
+                <p className="font-medium text-brand-dark/80">{supportSnapshot.coordinationNote}</p>
+              </div>
             </div>
           </div>
         </section>
@@ -1100,8 +1336,8 @@ export default function TeacherStudentAnalytics() {
             icon={<BrainCircuit className="w-6 h-6 text-brand-purple" />}
           >
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
-              <CompactMetric label="Engagement State" value={`${humanizeAnalyticsToken(engagementModel?.state)} · ${Number(engagementModel?.score || 0).toFixed(0)}`} />
-              <CompactMetric label="Intervention Call" value={actionLabel(interventionModel?.recommended_action || trustTeacherAction || analytics?.practicePlan?.teacher_action)} />
+              <CompactMetric label="Engagement State" value={`${translateDecisionToken(humanizeAnalyticsToken(engagementModel?.state))} · ${Number(engagementModel?.score || 0).toFixed(0)}`} />
+              <CompactMetric label="Intervention Call" value={translateDecisionToken(actionLabel(interventionModel?.recommended_action || trustTeacherAction || analytics?.practicePlan?.teacher_action))} />
               <CompactMetric label="Suppressed Metrics" value={signalSuppressedMetrics.length} />
               <CompactMetric label="Observed Labels" value={recentAnalyticsLabels.length} />
             </div>
@@ -1112,18 +1348,18 @@ export default function TeacherStudentAnalytics() {
                   <div key={prediction.id} className={`rounded-[1.5rem] border-2 border-brand-dark p-5 ${modelTone(prediction.state)}`}>
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div className="min-w-0">
-                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{humanizeAnalyticsToken(prediction.id)}</p>
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-2">{t(humanizeAnalyticsToken(prediction.id))}</p>
                         <p className="text-3xl font-black">{Number(prediction.score || 0).toFixed(0)}%</p>
                       </div>
                       <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-xs font-black shrink-0">
-                        {humanizeAnalyticsToken(prediction.state)}
+                        {translateDecisionToken(humanizeAnalyticsToken(prediction.state))}
                       </span>
                     </div>
-                    <p className="font-medium text-brand-dark/72 mb-3">Recommended move: {actionLabel(prediction.recommended_action)}</p>
+                    <p className="font-medium text-brand-dark/72 mb-3">{t('Recommended move')}: {translateDecisionToken(actionLabel(prediction.recommended_action))}</p>
                     <div className="flex flex-wrap gap-2">
                       {(prediction.top_contributors || []).map((contributor: string) => (
                         <span key={`${prediction.id}-${contributor}`} className="px-3 py-2 rounded-full border-2 border-brand-dark bg-white text-[11px] font-black">
-                          {humanizeAnalyticsToken(contributor)}
+                          {translateDecisionToken(humanizeAnalyticsToken(contributor))}
                         </span>
                       ))}
                     </div>
@@ -1139,17 +1375,17 @@ export default function TeacherStudentAnalytics() {
             </div>
 
             <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Trust gating</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">{t('Trust gating')}</p>
               {signalSuppressedMetrics.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {signalSuppressedMetrics.map((metric: string) => (
                     <span key={metric} className="px-3 py-2 rounded-full border-2 border-brand-dark bg-white text-xs font-black">
-                      {humanizeAnalyticsToken(metric)}
+                      {translateDecisionToken(humanizeAnalyticsToken(metric))}
                     </span>
                   ))}
                 </div>
               ) : (
-                <p className="font-medium text-brand-dark/70">No sensitive metrics are currently suppressed for this student.</p>
+                <p className="font-medium text-brand-dark/70">{t('No sensitive metrics are currently suppressed for this student.')}</p>
               )}
             </div>
           </TeacherSurface>
@@ -1160,7 +1396,7 @@ export default function TeacherStudentAnalytics() {
             icon={<Layers3 className="w-6 h-6 text-brand-orange" />}
           >
             <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5 mb-5">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Concept mastery snapshot</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">{t('Concept mastery snapshot')}</p>
               <MasteryBarChart rows={masterySnapshotRows} limit={5} />
             </div>
 
@@ -1169,9 +1405,9 @@ export default function TeacherStudentAnalytics() {
                 conceptAttemptHistory.slice(0, 4).map((entry: any, index: number) => (
                   <div key={`${entry.concept_id || 'concept'}-${entry.attempt_number || index}`} className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange mb-2">
-                      {humanizeAnalyticsToken(entry.concept_id)}
+                      {t(humanizeAnalyticsToken(entry.concept_id))}
                     </p>
-                    <p className="text-xl font-black mb-3">Attempt {Number(entry.attempt_number || 0)}</p>
+                    <p className="text-xl font-black mb-3">{t(`Attempt ${Number(entry.attempt_number || 0)}`)}</p>
                     <div className="grid grid-cols-2 gap-3">
                       <CompactMetric label="Prior Mastery" value={`${Number(entry.prior_mastery || 0).toFixed(0)}%`} />
                       <CompactMetric label="Rolling Accuracy" value={`${Number(entry.rolling_accuracy_5 || 0).toFixed(0)}%`} />
@@ -1190,25 +1426,25 @@ export default function TeacherStudentAnalytics() {
             </div>
 
             <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-5">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">Recent validation labels</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-3">{t('Recent validation labels')}</p>
               {recentAnalyticsLabels.length > 0 ? (
                 <div className="space-y-3">
                   {recentAnalyticsLabels.slice(0, 5).map((label: any, index: number) => (
                     <div key={`${label.label_type || 'label'}-${label.labeled_at || index}`} className="rounded-[1.2rem] border-2 border-brand-dark bg-white p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
-                        <p className="font-black">{humanizeAnalyticsToken(label.label_type)}</p>
+                        <p className="font-black">{t(humanizeAnalyticsToken(label.label_type))}</p>
                         <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-3 py-1 text-[11px] font-black">
                           {labelSourceLabel(label.source)}
                         </span>
                       </div>
                       <p className="font-medium text-brand-dark/70">
-                        Value: <span className="font-black text-brand-dark">{humanizeAnalyticsToken(String(label.label_value || ''))}</span>
+                        {t('Value')}: <span className="font-black text-brand-dark">{translateDecisionToken(humanizeAnalyticsToken(String(label.label_value || '')))}</span>
                       </p>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="font-medium text-brand-dark/70">No teacher, self-report, or automatic validation labels are attached to this run yet.</p>
+                <p className="font-medium text-brand-dark/70">{t('No teacher, self-report, or automatic validation labels are attached to this run yet.')}</p>
               )}
             </div>
           </TeacherSurface>
@@ -1301,7 +1537,7 @@ export default function TeacherStudentAnalytics() {
                     ))}
                   </div>
                 ) : (
-                  <p className="font-medium text-brand-dark/70">No repeated distractor pattern rose above the minimum confidence threshold.</p>
+                  <p className="font-medium text-brand-dark/70">{t('No repeated distractor pattern rose above the minimum confidence threshold.')}</p>
                 )}
               </div>
             </div>
@@ -1313,29 +1549,29 @@ export default function TeacherStudentAnalytics() {
             <div className="bg-white rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#1A1A1A] p-7">
               <div className="flex items-start justify-between gap-4 mb-5">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Student memory</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Student memory')}</p>
                   <h2 className="text-3xl font-black">{studentMemory.summary?.headline}</h2>
                 </div>
                 <span className="rounded-full border-2 border-brand-dark bg-brand-bg px-4 py-2 text-sm font-black">
-                  {studentMemory.recommended_next_step?.action || 'monitor'}
+                  {t(studentMemory.recommended_next_step?.action || 'monitor')}
                 </span>
               </div>
-              <p className="font-bold text-brand-dark/68 mb-6">{studentMemory.summary?.body}</p>
+              <p className="font-bold text-brand-dark/68 mb-6">{t(studentMemory.summary?.body)}</p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
-                <DeltaCard label="Remembered accuracy" value={Number(studentMemory.history_rollup?.accuracy_pct || 0) - Number(overallAnalytics?.stats?.accuracy || 0)} helper={`${Number(studentMemory.history_rollup?.accuracy_pct || 0).toFixed(0)}% memory baseline`} />
-                <DeltaCard label="Stress baseline" value={Number(studentMemory.behavior_baseline?.stress_index || 0) - Number(overallAnalytics?.risk?.stress_index || 0)} helper={`${Number(studentMemory.behavior_baseline?.stress_index || 0).toFixed(0)}% memory stress`} />
-              </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+                  <DeltaCard label="Remembered accuracy" value={Number(studentMemory.history_rollup?.accuracy_pct || 0) - Number(overallAnalytics?.stats?.accuracy || 0)} helper={`${Number(studentMemory.history_rollup?.accuracy_pct || 0).toFixed(0)}% memory baseline`} />
+                  <DeltaCard label="Stress baseline" value={Number(studentMemory.behavior_baseline?.stress_index || 0) - Number(overallAnalytics?.risk?.stress_index || 0)} helper={`${Number(studentMemory.behavior_baseline?.stress_index || 0).toFixed(0)}% memory stress`} />
+                </div>
 
               <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-3">Memory next step</p>
-                <p className="text-2xl font-black mb-2">{studentMemory.recommended_next_step?.title}</p>
-                <p className="font-medium text-brand-dark/70 mb-4">{studentMemory.recommended_next_step?.body}</p>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/45 mb-3">{t('Memory next step')}</p>
+                <p className="text-2xl font-black mb-2">{t(studentMemory.recommended_next_step?.title)}</p>
+                <p className="font-medium text-brand-dark/70 mb-4">{t(studentMemory.recommended_next_step?.body)}</p>
                 {(studentMemory.recommended_next_step?.reasons || []).length > 0 && (
                   <div className="flex flex-wrap gap-2 mb-4">
                     {(studentMemory.recommended_next_step?.reasons || []).map((reason: string) => (
                       <span key={reason} className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
-                        {reason}
+                        {t(reason)}
                       </span>
                     ))}
                   </div>
@@ -1343,7 +1579,7 @@ export default function TeacherStudentAnalytics() {
                 <div className="flex flex-wrap gap-2">
                   {(studentMemory.recommended_next_step?.focus_tags || []).map((tag: string) => (
                     <span key={`teacher-memory-focus-${tag}`} className="px-3 py-2 rounded-full bg-white border-2 border-brand-dark text-xs font-black">
-                      {tag}
+                      {t(tag)}
                     </span>
                     ))}
                 </div>
@@ -1353,17 +1589,17 @@ export default function TeacherStudentAnalytics() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
                   {studentMemory.coaching && (
                     <div className="rounded-[1.5rem] border-2 border-brand-dark bg-[#e9fff1] p-4">
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700 mb-2">Coaching layer</p>
-                      <p className="font-black text-lg mb-2">{studentMemory.coaching.teacher_message}</p>
-                      <p className="font-medium text-brand-dark/70">{studentMemory.coaching.caution}</p>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700 mb-2">{t('Coaching layer')}</p>
+                      <p className="font-black text-lg mb-2">{t(studentMemory.coaching.teacher_message)}</p>
+                      <p className="font-medium text-brand-dark/70">{t(studentMemory.coaching.caution)}</p>
                     </div>
                   )}
                   {studentMemory.trust && (
                     <div className="rounded-[1.5rem] border-2 border-brand-dark bg-white p-4">
-                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">Trust layer</p>
-                      <p className="font-black text-lg mb-2">{studentMemory.trust.confidence_band} confidence</p>
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t('Trust layer')}</p>
+                      <p className="font-black text-lg mb-2">{t(String(studentMemory.trust.confidence_band || ''))} {t('confidence')}</p>
                       <p className="font-medium text-brand-dark/70">
-                        {studentMemory.trust.evidence_count} signals across {studentMemory.trust.session_count} sessions.
+                        {t(`${studentMemory.trust.evidence_count} signals across ${studentMemory.trust.session_count} sessions.`)}
                       </p>
                     </div>
                   )}
@@ -1372,13 +1608,13 @@ export default function TeacherStudentAnalytics() {
 
               {memoryInterventionPlan && (
                 <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-yellow/70 p-5 mt-5">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/55 mb-2">Autopilot intervention</p>
-                  <p className="text-2xl font-black mb-2">{memoryInterventionPlan.title}</p>
-                  <p className="font-medium text-brand-dark/70 mb-4">{memoryInterventionPlan.body}</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/55 mb-2">{t('Autopilot intervention')}</p>
+                  <p className="text-2xl font-black mb-2">{t(memoryInterventionPlan.title)}</p>
+                  <p className="font-medium text-brand-dark/70 mb-4">{t(memoryInterventionPlan.body)}</p>
                   <div className="flex flex-wrap gap-2 mb-4">
                     {(memoryInterventionPlan.reasons || []).map((reason: string) => (
                       <span key={reason} className="px-3 py-2 rounded-full border-2 border-brand-dark bg-white text-xs font-black">
-                        {reason}
+                        {t(reason)}
                       </span>
                     ))}
                   </div>
@@ -1387,34 +1623,34 @@ export default function TeacherStudentAnalytics() {
                     disabled={isCreatingGame}
                     className="px-5 py-3 rounded-full border-2 border-brand-dark bg-brand-dark text-white font-black disabled:opacity-60"
                   >
-                    {isCreatingGame ? 'Launching...' : 'Launch memory intervention'}
+                    {isCreatingGame ? t('Launching...') : t('Launch memory intervention')}
                   </button>
                 </div>
               )}
             </div>
 
             <div className="bg-brand-dark text-white rounded-[2.2rem] border-4 border-brand-dark shadow-[8px_8px_0px_0px_#FF5A36] p-7">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-3">Repeated patterns</p>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-3">{t('Repeated patterns')}</p>
               <div className="space-y-4 mb-5">
                 {(studentMemory.error_patterns || []).slice(0, 4).map((pattern: any) => (
                   <div key={pattern.id} className="rounded-[1.5rem] border border-white/15 bg-white/10 p-4">
-                    <p className="text-lg font-black mb-2">{pattern.label}</p>
-                    <p className="font-medium text-white/78">{pattern.body}</p>
+                    <p className="text-lg font-black mb-2">{t(pattern.label)}</p>
+                    <p className="font-medium text-white/78">{t(pattern.body)}</p>
                   </div>
                 ))}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {(studentMemory.focus_tags || []).map((tag: any) => (
                   <div key={`teacher-memory-tag-${tag.tag}`} className="rounded-[1.5rem] border-2 border-brand-dark bg-white text-brand-dark p-4">
-                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{tag.status}</p>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-2">{t(tag.status)}</p>
                     <p className="text-xl font-black mb-2">{tag.tag}</p>
-                    <p className="font-bold">{Number(tag.mastery_score || 0).toFixed(0)}% remembered mastery</p>
+                    <p className="font-bold">{t(`${Number(tag.mastery_score || 0).toFixed(0)}% remembered mastery`)}</p>
                   </div>
                 ))}
               </div>
               {(studentMemory.memory_timeline || []).length > 0 && (
                 <div className="mt-5 rounded-[1.5rem] border border-white/15 bg-white/10 p-4">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-3">Growth timeline</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-yellow mb-3">{t('Growth timeline')}</p>
                   <div className="space-y-3">
                     {(studentMemory.memory_timeline || []).map((entry: any) => (
                       <div key={entry.id} className="rounded-[1.2rem] bg-white/10 px-4 py-3">
@@ -1479,9 +1715,9 @@ export default function TeacherStudentAnalytics() {
                   {assistanceSummary.actions.map((row: any) => (
                     <div key={row.action} className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
                       <div className="flex items-center justify-between gap-3 mb-3">
-                        <p className="font-black text-brand-dark">{row.label}</p>
+                        <p className="font-black text-brand-dark">{t(row.label)}</p>
                         <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1 text-xs font-black uppercase">
-                          {row.requests} requests
+                          {t(`${row.requests} requests`)}
                         </span>
                       </div>
                       <div className="grid grid-cols-3 gap-3">
@@ -1493,7 +1729,7 @@ export default function TeacherStudentAnalytics() {
                   ))}
                 </div>
               ) : (
-                <p className="font-medium text-brand-dark/70">No smart-assistance activity has been logged for this student yet.</p>
+                <p className="font-medium text-brand-dark/70">{t('No smart-assistance activity has been logged for this student yet.')}</p>
               )}
             </TeacherSurface>
           </section>
@@ -1571,7 +1807,7 @@ export default function TeacherStudentAnalytics() {
                   <div key={session.session_id} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
                     <div className="flex flex-col lg:flex-row justify-between gap-4 mb-4">
                       <div>
-                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{session.date}</p>
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-purple mb-1">{new Date(String(session.date || '')).toLocaleDateString(language === 'he' ? 'he-IL' : language === 'ar' ? 'ar' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                         <p className="text-2xl font-black">{t(session.pack_title)}</p>
                       </div>
                       <div className="flex flex-wrap gap-3">
@@ -1603,9 +1839,9 @@ export default function TeacherStudentAnalytics() {
             subtitle="Build a hostable follow-up from the same source material, tuned to this learner's weak spots."
             icon={<Sparkles className="w-6 h-6 text-brand-orange" />}
           >
-            <div className="space-y-5">
-              <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-yellow p-5">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/60 mb-2">Strategy</p>
+              <div className="space-y-5">
+                <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-yellow p-5">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-dark/60 mb-2">{t('Strategy')}</p>
                 <p className="text-2xl font-black mb-2">{t(preview?.strategy?.headline || 'Adaptive same-material follow-up')}</p>
                 <p className="font-medium text-brand-dark/75">{t(preview?.strategy?.body)}</p>
               </div>
@@ -1734,22 +1970,22 @@ export default function TeacherStudentAnalytics() {
                       <div className="flex flex-wrap gap-2">
                         {(question.event_path_states || []).map((state: string) => (
                           <span key={`${question.question_id}-${state}`} className="px-3 py-2 rounded-full border-2 border-brand-dark bg-brand-bg text-xs font-black">
-                            {humanizeAnalyticsToken(state)}
+                            {t(humanizeAnalyticsToken(state))}
                           </span>
                         ))}
                         {(question.top_contributors || []).map((item: string) => (
                           <span key={`${question.question_id}-contributor-${item}`} className="px-3 py-2 rounded-full border-2 border-brand-dark bg-emerald-50 text-xs font-black">
-                            {humanizeAnalyticsToken(item)}
+                            {t(humanizeAnalyticsToken(item))}
                           </span>
                         ))}
                         {Number(question.media_open_count || 0) > 0 && (
                           <span className="px-3 py-2 rounded-full border-2 border-brand-dark bg-brand-yellow/25 text-xs font-black">
-                            Media Opened {question.media_open_count}x
+                            {t(`Media Opened ${question.media_open_count}x`)}
                           </span>
                         )}
                         {Number(question.ui_freeze_count || 0) > 0 && (
                           <span className="px-3 py-2 rounded-full border-2 border-brand-dark bg-brand-orange/10 text-xs font-black">
-                            UI Freeze {question.ui_freeze_count}x
+                            {t(`UI Freeze ${question.ui_freeze_count}x`)}
                           </span>
                         )}
                       </div>
@@ -1775,7 +2011,7 @@ export default function TeacherStudentAnalytics() {
                   <div key={`attention-${question.question_id}`} className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-bg p-5">
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-orange">
-                        {question.status === 'missed' ? 'Reteach this concept' : 'Stabilize this concept'}
+                        {t(question.status === 'missed' ? 'Reteach this concept' : 'Stabilize this concept')}
                       </p>
                       {question.status === 'missed' ? (
                         <div className="w-10 h-10 rounded-full bg-brand-orange text-white border-2 border-brand-dark flex items-center justify-center">
@@ -1787,35 +2023,44 @@ export default function TeacherStudentAnalytics() {
                         </div>
                       )}
                     </div>
-                    <p className="text-xl font-black mb-3">Q{question.question_index}. {question.prompt}</p>
+                    <p className="text-xl font-black mb-3">Q{question.question_index}. {t(question.prompt)}</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                      <CompactMetric label="Pace" value={question.pace_label} />
+                      <CompactMetric label="Pace" value={t(question.pace_label)} />
                       <CompactMetric label="Focus Loss" value={question.focus_loss_count} />
                       <CompactMetric label="Revision" value={question.revision_outcome_label} />
                       <CompactMetric label="Commit" value={formatMs(Number(question.commitment_latency_ms || 0))} />
                     </div>
-                    <p className="font-medium text-brand-dark/70">{question.recommendation}</p>
+                    <p className="font-medium text-brand-dark/70">{t(question.recommendation)}</p>
                   </div>
                 ))
               ) : (
                 <div className="rounded-[1.75rem] border-2 border-brand-dark bg-emerald-100 p-6">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700 mb-2">Healthy session</p>
-                  <p className="text-2xl font-black mb-2">No unstable questions were detected in this game.</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700 mb-2">{t('Healthy session')}</p>
+                  <p className="text-2xl font-black mb-2">{t('No unstable questions were detected in this game.')}</p>
                   <p className="font-medium text-brand-dark/70">
-                    The student solved the current pack without clear behavioral fragility. Use overall weak tags to decide whether to deepen or broaden practice.
+                    {t('The student solved the current pack without clear behavioral fragility. Use overall weak tags to decide whether to deepen or broaden practice.')}
                   </p>
                 </div>
               )}
 
               <div className="rounded-[1.75rem] border-2 border-brand-dark bg-brand-purple text-white p-6">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-white/70 mb-2">Class Position</p>
-                <p className="text-2xl font-black mb-2">Rank #{student?.rank || '-'} in this session</p>
-                <p className="font-medium text-white/80 mb-4">
-                  Accuracy {Number(student?.accuracy || 0).toFixed(1)}% vs class average {Number(classSummary?.overall_accuracy || 0).toFixed(1)}%.
-                </p>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-white/70 mb-2">{t('Class Position')}</p>
+                <div className="rounded-[1.35rem] border border-white/20 bg-white/10 px-4 py-4 mb-4">
+                  <p className="text-3xl font-black leading-none">{t(`Rank #${student?.rank || '-'}`)}</p>
+                  <p className="mt-2 text-sm font-bold text-white/75">{t('in this session')}</p>
+                  <p className="mt-4 text-sm font-medium leading-relaxed text-white/85">
+                    {t(`Accuracy ${Number(student?.accuracy || 0).toFixed(1)}% vs class average ${Number(classSummary?.overall_accuracy || 0).toFixed(1)}%.`)}
+                  </p>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <CompactMetric label="Class Stress" value={`${Number(classSummary?.stress_index || 0).toFixed(0)}%`} />
-                  <CompactMetric label="Student Score" value={student?.total_score || 0} />
+                  <div className="rounded-[1.25rem] border border-white/20 bg-white/10 px-4 py-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60 mb-2">{t('Class Stress')}</p>
+                    <p className="text-2xl font-black leading-none">{Number(classSummary?.stress_index || 0).toFixed(0)}%</p>
+                  </div>
+                  <div className="rounded-[1.25rem] border border-white/20 bg-white/10 px-4 py-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60 mb-2">{t('Student Score')}</p>
+                    <p className="text-2xl font-black leading-none">{student?.total_score || 0}</p>
+                  </div>
                 </div>
               </div>
             </div>

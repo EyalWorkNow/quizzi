@@ -18,6 +18,7 @@ import {
   Eye,
   Gauge,
   ListChecks,
+  Printer,
   RefreshCw,
   Rocket,
   Search,
@@ -336,6 +337,7 @@ export default function TeacherAnalytics() {
   }>(null);
   const [copiedOfficeHoursKey, setCopiedOfficeHoursKey] = useState('');
   const [copiedReplayTimeline, setCopiedReplayTimeline] = useState(false);
+  const [classSummaryCopied, setClassSummaryCopied] = useState(false);
   const [studentSearch, setStudentSearch] = useState('');
   const [studentFilter, setStudentFilter] = useState<StudentBoardFilter>('all');
   const [questionSearch, setQuestionSearch] = useState('');
@@ -428,6 +430,12 @@ export default function TeacherAnalytics() {
     const timeout = window.setTimeout(() => setCopiedReplayTimeline(false), 2200);
     return () => window.clearTimeout(timeout);
   }, [copiedReplayTimeline]);
+
+  useEffect(() => {
+    if (!classSummaryCopied) return;
+    const timeout = window.setTimeout(() => setClassSummaryCopied(false), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [classSummaryCopied]);
 
   const participants = data?.participants || [];
   const questionRows = data?.questions || [];
@@ -527,6 +535,57 @@ export default function TeacherAnalytics() {
     return slugify(packTitle);
   }, [data, sessionId]);
   const showExpandedHeader = !isHeaderCondensed || isHeaderPinnedOpen;
+  const classSummaryCopy = language === 'he'
+    ? {
+        copyButton: 'העתק תקציר כיתה',
+        copiedButton: 'התקציר הועתק',
+        printButton: 'הדפס תקציר כיתה',
+        printTitle: 'תקציר כיתתי מקצועי',
+        printSubtitle: 'מסמך עבודה למורה/מרצה: מה קרה בכיתה, מה המשמעות הפדגוגית, ועל מי ומה לפעול עכשיו.',
+        summaryTitle: `תקציר כיתה: ${data?.session?.pack_title || 'סשן Quizzi'}`,
+        sessionLabel: `סשן #${data?.session?.id || sessionId} · ${participants.length} תלמידים · ${questionRows.length} שאלות`,
+        executiveLabel: 'שורה תחתונה',
+        diagnosisLabel: 'אבחנה פדגוגית',
+        evidenceLabel: 'ראיות מרכזיות',
+        strengthsLabel: 'מה כבר עובד',
+        risksLabel: 'מה מעכב כרגע',
+        studentsLabel: 'תלמידים לפתיחה מיידית',
+        questionsLabel: 'שאלות ומושגים שכדאי לפתוח מחדש',
+        cohortsLabel: 'קבוצות עבודה מומלצות',
+        lessonPlanLabel: 'תוכנית פעולה מיידית',
+        coordinatorLabel: 'הערת תיאום',
+        generatedOn: `הופק ב-${new Date().toLocaleDateString('he-IL')}`,
+        noStudents: 'כרגע אין תור תשומת לב מובחן, ולכן אפשר לפתוח מהשאלה המרכזית ולאו דווקא מתלמיד בודד.',
+        noQuestions: 'אין כרגע שאלה אחת שבולטת מעל כולן, ולכן כדאי להתחיל מהמושג החלש ביותר שחוזר בכיתה.',
+        noCohorts: 'עדיין לא נבנו קבוצות מובחנות מספיק כדי להמליץ על חלוקה כיתתית.',
+        lessonStep: (index: number) => `צעד ${index}`,
+        questionLabel: (index: number) => `שאלה ${index}`,
+      }
+    : {
+        copyButton: 'Copy class summary',
+        copiedButton: 'Summary copied',
+        printButton: 'Print class summary',
+        printTitle: 'Professional Class Brief',
+        printSubtitle: 'A teacher-facing brief: what happened in the room, what it means instructionally, and what to do next.',
+        summaryTitle: `Class summary: ${data?.session?.pack_title || 'Quizzi session'}`,
+        sessionLabel: `Session #${data?.session?.id || sessionId} · ${participants.length} students · ${questionRows.length} questions`,
+        executiveLabel: 'Bottom line',
+        diagnosisLabel: 'Instructional diagnosis',
+        evidenceLabel: 'Key evidence',
+        strengthsLabel: 'What is already working',
+        risksLabel: 'What is slowing the class down',
+        studentsLabel: 'Students to open first',
+        questionsLabel: 'Questions and concepts to reopen',
+        cohortsLabel: 'Recommended working groups',
+        lessonPlanLabel: 'Immediate action plan',
+        coordinatorLabel: 'Coordination note',
+        generatedOn: `Generated on ${new Date().toLocaleDateString('en-US')}`,
+        noStudents: 'No distinct attention queue has been generated yet, so start from the main question hotspot rather than one learner.',
+        noQuestions: 'No single question stands above the rest yet, so begin with the weakest shared concept.',
+        noCohorts: 'The board has not separated students into strong enough cohorts yet.',
+        lessonStep: (index: number) => `Step ${index}`,
+        questionLabel: (index: number) => `Question ${index}`,
+      };
   const lmsCsvRows = useMemo(
     () =>
       participants.map((student: any) => ({
@@ -1422,6 +1481,15 @@ export default function TeacherAnalytics() {
     }
   };
 
+  const handleCopyClassSummary = async () => {
+    try {
+      await navigator.clipboard.writeText(classPrintSummary.text);
+      setClassSummaryCopied(true);
+    } catch (copyError: any) {
+      setFollowUpNotice({ tone: 'error', message: copyError?.message || 'Failed to copy class summary.' });
+    }
+  };
+
   const handleBuildRecoveryGames = async (target: { id: string; label: string; participantIds: number[] }) => {
     if (!sessionId || target.participantIds.length === 0) return;
 
@@ -1977,6 +2045,241 @@ export default function TeacherAnalytics() {
     ].join('\n\n');
   }, [data?.session?.pack_title, officeHoursQueue, sessionId]);
 
+  const classPrintSummary = useMemo(() => {
+    const overallAccuracy = Number(data?.summary?.overall_accuracy || 0);
+    const averageStress = Number(data?.summary?.stress_index || 0);
+    const completionRate = Number(data?.summary?.completion_rate || 0);
+    const highRiskStudents = Number(data?.summary?.high_risk_students || 0);
+    const urgentQuestions = questionDiagnostics.filter((question: any) => questionNeedsImmediateAttention(question)).slice(0, 4);
+    const hasMisconceptionCluster = Boolean(leadMisconception && leadQuestion);
+    const isHebrew = language === 'he';
+
+    const classDiagnosis = (() => {
+      if (hasMisconceptionCluster && leadMisconception && leadQuestion) {
+        return isHebrew
+          ? `מרכז הקושי כרגע הוא תפיסה שגויה משותפת סביב ${humanizeTag(leadMisconception.tag)}. זה נראה כמו בלבול כיתתי סביב הבחנה אחת מרכזית, ולא רק קושי של תלמידים בודדים.`
+          : `The main issue right now is a shared misconception around ${humanizeTag(leadMisconception.tag)}. This looks like a class-wide confusion point, not just isolated learner errors.`;
+      }
+      if (overallAccuracy < 65 && pressureRate >= 55) {
+        return isHebrew
+          ? 'הכיתה יודעת חלק מהחומר, אבל הביצוע נשבר תחת לחץ זמן. לפני שמתקדמים, כדאי להאט, לחדד את מסלול החשיבה, ולבדוק נעילה מוקדמת יותר.'
+          : 'The class knows part of the material, but execution is breaking down under time pressure. Slow the pace, sharpen the reasoning path, and ask for earlier commitment before moving on.';
+      }
+      if (focusWatchRate >= 60 || focusEventsPerStudent >= 1.2) {
+        return isHebrew
+          ? 'יש הבנה חלקית, אבל הרצף נשבר בגלל עומס קשב וקצב. הסבב הבא צריך להיות קצר יותר, פחות עמוס, ועם פחות חיכוך לפני מעבר לחומר נוסף.'
+          : 'There is partial understanding, but the learning arc is breaking under attention load and pace. The next round should be shorter, lighter, and lower-friction before more material is added.';
+      }
+      if (overallAccuracy >= 80 && harmfulRevisionRate < 10) {
+        return isHebrew
+          ? 'רוב הכיתה על המסלול, והצורך המרכזי הוא חידוד נקודתי ולא הוראה מחדש מלאה.'
+          : 'Most of the class is on track, so the main need is targeted clarification rather than a full reteach.';
+      }
+      return isHebrew
+        ? 'התמונה כרגע מעורבת: יש הבנה חלקית, אבל היא עדיין לא יציבה מספיק כדי לעבור הלאה בלי עצירה ממוקדת.'
+        : 'The class is in a mixed state: there is partial understanding, but it is not yet stable enough to move on without a focused pause.';
+    })();
+
+    const strengths = [
+      firstChoiceRate >= 45
+        ? isHebrew
+          ? `יש גרעין הבנה ראשוני: ${firstChoiceRate.toFixed(0)}% דיוק בבחירה הראשונה.`
+          : `${firstChoiceRate.toFixed(0)}% first-pass accuracy suggests a real core of understanding.`
+        : '',
+      helpfulRevisionRate > harmfulRevisionRate
+        ? isHebrew
+          ? `לחלק מהכיתה יש יכולת התאוששות: ${helpfulRevisionRate.toFixed(0)}% מצליחים לתקן התחלה שגויה.`
+          : `${helpfulRevisionRate.toFixed(0)}% of revisions recover from a wrong start, so some students can self-correct.`
+        : '',
+      completionRate >= 90
+        ? isHebrew
+          ? `ההשתתפות נשמרה לאורך הסשן: ${completionRate.toFixed(0)}% השלמה.`
+          : `Participation held through the session with a ${completionRate.toFixed(0)}% completion rate.`
+        : '',
+      participants.filter((student: any) => String(student.risk_level || '') === 'low' && Number(student.accuracy || 0) >= 85).length >= 3
+        ? isHebrew
+          ? 'יש בכיתה גרעין יציב של תלמידים שיכול לעזור להחזיק עבודה בזוגות או בדיקה מונחית.'
+          : 'There is a stable core of students who can anchor pair checks or peer explanation.'
+        : '',
+    ].filter(Boolean).slice(0, 3);
+
+    if (!strengths.length) {
+      strengths.push(
+        isHebrew
+          ? 'עדיין אין כאן חוזקה אחת מובהקת במיוחד, ולכן כדאי לשמר קודם קצב רגוע והוראה ממוקדת.'
+          : 'No single class-wide strength is clearly dominant yet, so preserve calm pacing and tight instructional focus first.',
+      );
+    }
+
+    const risks = [
+      hasMisconceptionCluster && leadMisconception && leadQuestion
+        ? isHebrew
+          ? `הבלבול המרכזי יושב סביב ${humanizeTag(leadMisconception.tag)} ובולט במיוחד בשאלה ${leadQuestion.question_index}.`
+          : `The biggest confusion cluster sits around ${humanizeTag(leadMisconception.tag)}, especially in question ${leadQuestion.question_index}.`
+        : '',
+      pressureRate >= 55
+        ? isHebrew
+          ? `${pressureRate.toFixed(0)}% מהתשובות התקבלו תחת לחץ, ולכן קשה לדעת מתי מדובר בהבנה ומתי בתגובה מאוחרת.`
+          : `${pressureRate.toFixed(0)}% of responses landed under pressure, which blurs the line between understanding and late reacting.`
+        : '',
+      harmfulRevisionRate >= 12
+        ? isHebrew
+          ? `${harmfulRevisionRate.toFixed(0)}% עברו מתשובה נכונה לשגויה, ולכן צריך לייצב ביטחון ולא רק ללמד מחדש.`
+          : `${harmfulRevisionRate.toFixed(0)}% revised away from a correct answer, so confidence stability needs support in addition to content review.`
+        : '',
+      highRiskStudents > 0
+        ? isHebrew
+          ? `${highRiskStudents} תלמידים כבר מסומנים בסיכון גבוה ודורשים מעקב קרוב יותר מהכיתה כולה.`
+          : `${highRiskStudents} students are already marked high risk and need tighter follow-up than the room as a whole.`
+        : '',
+      focusWatchRate >= 50
+        ? isHebrew
+          ? `${focusWatchRate.toFixed(0)}% מהכיתה סומנו למעקב קשב, ולכן ייתכן שהקצב עצמו הוא חלק מהבעיה.`
+          : `${focusWatchRate.toFixed(0)}% of the class was flagged for focus watch, so pacing itself may be part of the problem.`
+        : '',
+    ].filter(Boolean).slice(0, 3);
+
+    if (!risks.length) {
+      risks.push(
+        isHebrew
+          ? 'אין כרגע גורם סיכון אחד שמאפיל על כל השאר, ולכן נכון לטפל קודם בשאלה או במושג הכי חלשים.'
+          : 'No single risk factor is overpowering the rest yet, so start with the weakest question or concept instead of a broad reset.',
+      );
+    }
+
+    const evidence = [
+      isHebrew
+        ? `דיוק כיתתי ${overallAccuracy.toFixed(0)}% מתוך ${participants.length} תלמידים ו-${questionRows.length} שאלות.`
+        : `${overallAccuracy.toFixed(0)}% class accuracy across ${participants.length} students and ${questionRows.length} questions.`,
+      isHebrew
+        ? `דיוק בבחירה ראשונה ${firstChoiceRate.toFixed(0)}%, תיקון מועיל ${helpfulRevisionRate.toFixed(0)}%, ותיקון מזיק ${harmfulRevisionRate.toFixed(0)}%.`
+        : `${firstChoiceRate.toFixed(0)}% first-pass accuracy, ${helpfulRevisionRate.toFixed(0)}% helpful revisions, and ${harmfulRevisionRate.toFixed(0)}% harmful revisions.`,
+      isHebrew
+        ? `${pressureRate.toFixed(0)}% תשובות תחת לחץ ו-${averageStress.toFixed(0)}% לחץ ממוצע בסשן.`
+        : `${pressureRate.toFixed(0)}% of responses landed under pressure, with ${averageStress.toFixed(0)}% average session stress.`,
+      isHebrew
+        ? `${completionRate.toFixed(0)}% השלמה, ${focusEventsPerStudent.toFixed(1)} אירועי קשב לתלמיד בממוצע, ו-${highRiskStudents} תלמידים בסיכון גבוה.`
+        : `${completionRate.toFixed(0)}% completion, ${focusEventsPerStudent.toFixed(1)} focus events per student on average, and ${highRiskStudents} high-risk students.`,
+    ];
+
+    const students = topAttentionStudents.length > 0
+      ? topAttentionStudents.map((student: any) => (
+        isHebrew
+          ? `${student.nickname} — ${t(student.recommendation || 'פתח תחילה את לוח התלמיד האישי והכן מהלך קצר על אותו חומר.')}`
+          : `${student.nickname} — ${t(student.recommendation || 'Open the student dashboard first and prepare a short same-material follow-up.')}`
+      ))
+      : [classSummaryCopy.noStudents];
+
+    const questions = urgentQuestions.length > 0
+      ? urgentQuestions.map((question: any) => {
+        const fallback = question?.top_distractor
+          ? isHebrew
+            ? `${Number(question.top_distractor.rate || 0).toFixed(0)}% נמשכו למסיח ${question.top_distractor.label}.`
+            : `${Number(question.top_distractor.rate || 0).toFixed(0)}% were pulled to distractor ${question.top_distractor.label}.`
+          : isHebrew
+            ? 'השאלה הזו עדיין לא יציבה דיה כדי להמשיך ממנה הלאה בלי עצירה.'
+            : 'This item is still unstable enough to merit a pause before moving on.';
+        return `${classSummaryCopy.questionLabel(Number(question.question_index || 0))} — ${Number(question.accuracy || 0).toFixed(0)}% ${isHebrew ? 'דיוק' : 'accuracy'}. ${t(question.recommendation || fallback)}`;
+      })
+      : [classSummaryCopy.noQuestions];
+
+    const cohorts = interventionCohorts.length > 0
+      ? interventionCohorts.slice(0, 4).map((cohort) => `${t(cohort.label)} (${cohort.count}) — ${t(cohort.body)}`)
+      : [classSummaryCopy.noCohorts];
+
+    const lessonPlan = guidedWorkflowCards.map((card, index) => (
+      `${classSummaryCopy.lessonStep(index + 1)}: ${t(card.title)} — ${t(card.body)}`
+    ));
+
+    const coordinatorNote = (() => {
+      if (highRiskStudents > 0 || topAttentionStudents.length > 0) {
+        return isHebrew
+          ? `כדאי לשתף רכז/מורה תומך בכך ש-${Math.max(highRiskStudents, topAttentionStudents.length)} תלמידים מראים קושי עקבי או שבריריות תחת לחץ, ולשמור את ההתערבות קצרה וממוקדת.`
+          : `It is worth updating a coordinator or support teacher that ${Math.max(highRiskStudents, topAttentionStudents.length)} students show consistent difficulty or pressure fragility, and that the intervention should stay short and targeted.`;
+      }
+      if (hasMisconceptionCluster) {
+        return isHebrew
+          ? 'אם משתפים גורם נוסף, חשוב להדגיש שמדובר כרגע בטעות כיתתית משותפת סביב מושג אחד, ולכן הטיפול הראשון הוא הוראתי ולא משמעתי או פרטני.'
+          : 'If you brief another adult, emphasize that this is currently a shared class misconception around one concept, so the first response should be instructional rather than punitive or highly individualized.';
+      }
+      return isHebrew
+        ? 'אין כרגע צורך בהסלמה רחבה. מספיק לבדוק את הסבב הבא כדי לוודא שהכיתה מתייצבת.'
+        : 'There is no need for broader escalation right now. A quick check after the next round should be enough to confirm that the class is stabilizing.';
+    })();
+
+    const executive = `${t(executiveSummary.actionTitle)}. ${t(executiveSummary.actionBody)}`;
+    const text = [
+      classSummaryCopy.summaryTitle,
+      classSummaryCopy.sessionLabel,
+      '',
+      `${classSummaryCopy.executiveLabel}: ${executive}`,
+      '',
+      `${classSummaryCopy.diagnosisLabel}: ${classDiagnosis}`,
+      '',
+      `${classSummaryCopy.evidenceLabel}:`,
+      ...evidence.map((line) => `- ${line}`),
+      '',
+      `${classSummaryCopy.strengthsLabel}:`,
+      ...strengths.map((line) => `- ${line}`),
+      '',
+      `${classSummaryCopy.risksLabel}:`,
+      ...risks.map((line) => `- ${line}`),
+      '',
+      `${classSummaryCopy.studentsLabel}:`,
+      ...students.map((line) => `- ${line}`),
+      '',
+      `${classSummaryCopy.questionsLabel}:`,
+      ...questions.map((line) => `- ${line}`),
+      '',
+      `${classSummaryCopy.cohortsLabel}:`,
+      ...cohorts.map((line) => `- ${line}`),
+      '',
+      `${classSummaryCopy.lessonPlanLabel}:`,
+      ...lessonPlan.map((line) => `- ${line}`),
+      '',
+      `${classSummaryCopy.coordinatorLabel}: ${coordinatorNote}`,
+    ].join('\n');
+
+    return {
+      title: classSummaryCopy.summaryTitle,
+      sessionLabel: classSummaryCopy.sessionLabel,
+      executive,
+      diagnosis: classDiagnosis,
+      evidence,
+      strengths,
+      risks,
+      students,
+      questions,
+      cohorts,
+      lessonPlan,
+      coordinatorNote,
+      generatedOn: classSummaryCopy.generatedOn,
+      text,
+    };
+  }, [
+    classSummaryCopy,
+    data?.summary,
+    executiveSummary.actionBody,
+    executiveSummary.actionTitle,
+    firstChoiceRate,
+    focusEventsPerStudent,
+    focusWatchRate,
+    guidedWorkflowCards,
+    harmfulRevisionRate,
+    helpfulRevisionRate,
+    interventionCohorts,
+    language,
+    leadMisconception,
+    leadQuestion,
+    participants,
+    pressureRate,
+    questionDiagnostics,
+    questionRows.length,
+    sessionId,
+    t,
+    topAttentionStudents,
+  ]);
+
   const recoveryBuilderTargets = useMemo(() => {
     const targets = [
       {
@@ -2212,10 +2515,160 @@ export default function TeacherAnalytics() {
   }
 
   return (
-    <div
-      dir={direction}
-      className="min-h-screen bg-brand-bg pb-20 font-sans text-brand-dark selection:bg-brand-orange selection:text-white"
-    >
+    <>
+      <style>{`
+        .print-class-summary-sheet {
+          display: none;
+        }
+        @media print {
+          @page {
+            size: A4;
+            margin: 12mm;
+          }
+          body {
+            background: #ffffff !important;
+          }
+          .screen-only-teacher-analytics {
+            display: none !important;
+          }
+          .print-class-summary-sheet {
+            display: block !important;
+            color: #111111;
+            font-family: Arial, sans-serif;
+          }
+          .print-class-summary-sheet * {
+            box-sizing: border-box;
+          }
+          .print-class-card {
+            border: 2px solid #111111;
+            border-radius: 18px;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            break-inside: avoid;
+          }
+          .print-class-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+          }
+          .print-class-eyebrow {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 6px;
+            color: #444444;
+          }
+          .print-class-summary-sheet h1,
+          .print-class-summary-sheet h2,
+          .print-class-summary-sheet h3,
+          .print-class-summary-sheet p,
+          .print-class-summary-sheet li {
+            margin: 0;
+          }
+          .print-class-summary-sheet ul {
+            margin: 0;
+            padding-inline-start: 18px;
+          }
+        }
+      `}</style>
+
+      <section className="print-class-summary-sheet" dir={direction}>
+        <div style={{ marginBottom: '14px' }}>
+          <p className="print-class-eyebrow">{classSummaryCopy.printTitle}</p>
+          <h1 style={{ fontSize: '26px', fontWeight: 800, marginBottom: '6px' }}>{classPrintSummary.title}</h1>
+          <p style={{ fontSize: '14px', color: '#444444', marginBottom: '4px' }}>{classPrintSummary.sessionLabel}</p>
+          <p style={{ fontSize: '13px', color: '#555555' }}>{classSummaryCopy.printSubtitle}</p>
+        </div>
+
+        <div className="print-class-card">
+          <p className="print-class-eyebrow">{classSummaryCopy.executiveLabel}</p>
+          <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '8px' }}>{t(data?.summary?.headline || executiveSummary.classStateTitle)}</h2>
+          <p style={{ fontSize: '14px', lineHeight: 1.55, marginBottom: '8px' }}>{classPrintSummary.executive}</p>
+          <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{classPrintSummary.diagnosis}</p>
+        </div>
+
+        <div className="print-class-grid">
+          <div className="print-class-card">
+            <p className="print-class-eyebrow">{classSummaryCopy.evidenceLabel}</p>
+            <ul style={{ display: 'grid', gap: '6px', fontSize: '13px', lineHeight: 1.5 }}>
+              {classPrintSummary.evidence.map((line: string) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="print-class-card">
+            <p className="print-class-eyebrow">{classSummaryCopy.lessonPlanLabel}</p>
+            <ul style={{ display: 'grid', gap: '6px', fontSize: '13px', lineHeight: 1.5 }}>
+              {classPrintSummary.lessonPlan.map((line: string) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        <div className="print-class-grid">
+          <div className="print-class-card">
+            <p className="print-class-eyebrow">{classSummaryCopy.strengthsLabel}</p>
+            <ul style={{ display: 'grid', gap: '6px', fontSize: '13px', lineHeight: 1.5 }}>
+              {classPrintSummary.strengths.map((line: string) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="print-class-card">
+            <p className="print-class-eyebrow">{classSummaryCopy.risksLabel}</p>
+            <ul style={{ display: 'grid', gap: '6px', fontSize: '13px', lineHeight: 1.5 }}>
+              {classPrintSummary.risks.map((line: string) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        <div className="print-class-grid">
+          <div className="print-class-card">
+            <p className="print-class-eyebrow">{classSummaryCopy.studentsLabel}</p>
+            <ul style={{ display: 'grid', gap: '8px', fontSize: '13px', lineHeight: 1.5 }}>
+              {classPrintSummary.students.map((line: string) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="print-class-card">
+            <p className="print-class-eyebrow">{classSummaryCopy.questionsLabel}</p>
+            <ul style={{ display: 'grid', gap: '8px', fontSize: '13px', lineHeight: 1.5 }}>
+              {classPrintSummary.questions.map((line: string) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        <div className="print-class-card">
+          <p className="print-class-eyebrow">{classSummaryCopy.cohortsLabel}</p>
+          <ul style={{ display: 'grid', gap: '8px', fontSize: '13px', lineHeight: 1.5 }}>
+            {classPrintSummary.cohorts.map((line: string) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="print-class-card">
+          <p className="print-class-eyebrow">{classSummaryCopy.coordinatorLabel}</p>
+          <p style={{ fontSize: '14px', lineHeight: 1.55 }}>{classPrintSummary.coordinatorNote}</p>
+        </div>
+
+        <p style={{ fontSize: '12px', color: '#666666' }}>{classPrintSummary.generatedOn}</p>
+      </section>
+
+      <div
+        dir={direction}
+        className="screen-only-teacher-analytics min-h-screen bg-brand-bg pb-20 font-sans text-brand-dark selection:bg-brand-orange selection:text-white"
+      >
       <div className={`sticky top-0 z-30 border-b-4 border-brand-dark shadow-[0_4px_0px_0px_#1A1A1A] transition-all duration-300 ${isHeaderCondensed ? 'bg-white/85 backdrop-blur-md' : 'bg-white'}`}>
         <div className={`max-w-[1520px] mx-auto px-4 sm:px-6 transition-all duration-300 ${showExpandedHeader ? 'py-4 space-y-4' : 'py-2 space-y-1'}`}>
           <div className={`flex flex-col justify-between gap-4 ${showExpandedHeader ? '2xl:flex-row 2xl:items-start' : 'xl:flex-row xl:items-center'} ${isRtl ? '2xl:flex-row-reverse xl:flex-row-reverse' : ''}`}>
@@ -2286,6 +2739,20 @@ export default function TeacherAnalytics() {
               >
                 <RefreshCw className={`${showExpandedHeader ? 'w-4 h-4' : 'w-3 h-3'}`} />
                 {t('Refresh')}
+              </button>
+              <button
+                onClick={() => void handleCopyClassSummary()}
+                className={`${showExpandedHeader ? 'px-5 py-3' : 'px-3 py-2 text-xs'} bg-white border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A] transition-all`}
+              >
+                {classSummaryCopied ? <Check className={`${showExpandedHeader ? 'w-4 h-4' : 'w-3 h-3'}`} /> : <Copy className={`${showExpandedHeader ? 'w-4 h-4' : 'w-3 h-3'}`} />}
+                {classSummaryCopied ? classSummaryCopy.copiedButton : classSummaryCopy.copyButton}
+              </button>
+              <button
+                onClick={() => window.print()}
+                className={`${showExpandedHeader ? 'px-5 py-3' : 'px-3 py-2 text-xs'} bg-brand-yellow border-2 border-brand-dark rounded-full font-black flex items-center gap-2 shadow-[2px_2px_0px_0px_#1A1A1A] transition-all`}
+              >
+                <Printer className={`${showExpandedHeader ? 'w-4 h-4' : 'w-3 h-3'}`} />
+                {classSummaryCopy.printButton}
               </button>
               {showExpandedHeader && showAdvancedPanels && (
                 <button
@@ -4577,6 +5044,7 @@ export default function TeacherAnalytics() {
         )}
       </main>
     </div>
+    </>
   );
 }
 

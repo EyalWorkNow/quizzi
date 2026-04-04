@@ -34,7 +34,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { trackTeacherSessionLaunch } from '../lib/appAnalytics.ts';
 import { apiFetch, apiFetchJson } from '../lib/api.ts';
-import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
+import { getGameMode, getLaunchGameModes, type GameModeId } from '../lib/gameModes.ts';
 import TeacherSidebar from '../components/TeacherSidebar.tsx';
 import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
 import UiverseSearchField from '../components/UiverseSearchField.tsx';
@@ -149,14 +149,14 @@ function recommendModesForPack(pack: any) {
   const tagCount = Array.isArray(pack?.top_tags) ? pack.top_tags.length : 0;
 
   if (questionCount <= 5) {
-    return ['speed_sprint', 'confidence_climb', 'classic_quiz'] as GameModeId[];
+    return ['classic_quiz', 'speed_sprint', 'confidence_climb'] as GameModeId[];
   }
 
   if (tagCount >= 4 || questionCount >= 12) {
-    return ['mastery_matrix', 'peer_pods', 'classic_quiz'] as GameModeId[];
+    return ['peer_pods', 'confidence_climb', 'classic_quiz'] as GameModeId[];
   }
 
-  return ['peer_pods', 'confidence_climb', 'classic_quiz'] as GameModeId[];
+  return ['classic_quiz', 'peer_pods', 'confidence_climb'] as GameModeId[];
 }
 
 export default function TeacherDashboard() {
@@ -187,6 +187,7 @@ export default function TeacherDashboard() {
   const location = useLocation();
   const { t, direction, language } = useAppLanguage();
   const isRtl = direction === 'rtl';
+  const launchGameModes = getLaunchGameModes();
   const loadPacks = async () => {
     try {
       setLoading(true);
@@ -331,7 +332,7 @@ export default function TeacherDashboard() {
   };
 
   const openHostModal = (pack: any) => {
-    const defaultMode = getGameMode(recommendModesForPack(pack)[0]);
+    const defaultMode = getGameMode('classic_quiz');
     setHostingPack(pack);
     setSelectedGameMode(defaultMode.id);
     setSelectedTeamCount(defaultMode.defaultTeamCount || 4);
@@ -1227,7 +1228,7 @@ export default function TeacherDashboard() {
                       {t('dash.host.chooseFormat')}
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {GAME_MODES.map((mode) => {
+                      {launchGameModes.map((mode) => {
                         const isActive = selectedGameMode === mode.id;
                         return (
                           <motion.button

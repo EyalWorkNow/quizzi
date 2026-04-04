@@ -221,6 +221,96 @@ function getTimelineTone(row: any) {
   return 'watch';
 }
 
+function formatReportDate(value: unknown, language: 'en' | 'he' | 'ar') {
+  const parsed = new Date(String(value || ''));
+  if (Number.isNaN(parsed.getTime())) {
+    if (language === 'he') return 'לאחרונה';
+    if (language === 'ar') return 'مؤخرًا';
+    return 'Recently';
+  }
+
+  return new Intl.DateTimeFormat(language, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(parsed);
+}
+
+function translateReportHeadline(headline: string, language: 'en' | 'he' | 'ar') {
+  if (language === 'en') return headline;
+
+  const normalized = String(headline || '').trim();
+  const translations: Record<string, { he: string; ar: string }> = {
+    'Open this report to inspect the response patterns in detail.': {
+      he: 'פתחו את הדוח כדי לבדוק לעומק את דפוסי התגובה בסשן הזה.',
+      ar: 'افتح هذا التقرير لفحص أنماط الاستجابة في هذه الجلسة بالتفصيل.',
+    },
+    'The room opened, but no student answers were captured yet.': {
+      he: 'החדר נפתח, אבל עדיין לא נשמרו תשובות של תלמידים.',
+      ar: 'تم فتح الغرفة، لكن لم يتم التقاط إجابات الطلاب بعد.',
+    },
+    'Students moved through this session with strong accuracy and low pressure.': {
+      he: 'התלמידים עברו את הסשן הזה עם דיוק גבוה ולחץ נמוך.',
+      ar: 'مرّ الطلاب بهذه الجلسة بدقة عالية وضغط منخفض.',
+    },
+    'Most students stayed on track, with a few hesitation signals worth reviewing.': {
+      he: 'רוב התלמידים נשארו במסלול, עם כמה סימני היסוס שכדאי לבדוק.',
+      ar: 'بقي معظم الطلاب على المسار، مع بعض إشارات التردد التي تستحق المراجعة.',
+    },
+    'This session needs a guided recap before the next checkpoint.': {
+      he: 'הסשן הזה צריך חזרה מונחית לפני נקודת הבדיקה הבאה.',
+      ar: 'هذه الجلسة تحتاج إلى مراجعة موجهة قبل نقطة التحقق التالية.',
+    },
+  };
+
+  return translations[normalized]?.[language] || normalized;
+}
+
+function translateReportInsight(insight: { title: string; body: string }, language: 'en' | 'he' | 'ar') {
+  if (language === 'en') return insight;
+
+  const title = String(insight?.title || '').trim();
+  const body = String(insight?.body || '').trim();
+
+  const translatedTitle = {
+    'Most challenging session': { he: 'הסשן המאתגר ביותר', ar: 'أكثر جلسة تحديًا' },
+    'Highest pressure session': { he: 'הסשן עם הלחץ הגבוה ביותר', ar: 'الجلسة ذات الضغط الأعلى' },
+    'No major risk detected': { he: 'לא זוהה סיכון משמעותי', ar: 'لم يتم رصد خطر كبير' },
+  }[title]?.[language] || title;
+
+  let translatedBody = body;
+
+  const hardestMatch = body.match(/^(.*) settled at ([\d.]+)% accuracy\. That session is the best candidate for a guided rematch\.$/);
+  if (hardestMatch) {
+    const [, quizName, accuracy] = hardestMatch;
+    translatedBody =
+      language === 'he'
+        ? `${quizName} התייצב על ${accuracy}% דיוק. זה הסשן הכי מתאים למשחק חזרה מונחה.`
+        : `${quizName} استقر عند ${accuracy}% دقة. هذه هي الجلسة الأنسب لإعادة مواجهة موجهة.`;
+  }
+
+  const pressureMatch = body.match(/^(.*) showed the strongest pressure signals \(([\d.]+)%\)\. Review pacing, distractors, and timer pressure there first\.$/);
+  if (pressureMatch) {
+    const [, quizName, pressure] = pressureMatch;
+    translatedBody =
+      language === 'he'
+        ? `${quizName} הראה את אותות הלחץ החזקים ביותר (${pressure}%). כדאי לבדוק שם קודם את הקצב, המסיחים ולחץ הטיימר.`
+        : `${quizName} أظهر أقوى إشارات الضغط (${pressure}%). راجع هناك أولًا الوتيرة والمشتتات وضغط المؤقت.`;
+  }
+
+  if (body === 'Recent sessions look stable. Keep the same pacing and follow up with a short practice task between live games.') {
+    translatedBody =
+      language === 'he'
+        ? 'הסשנים האחרונים נראים יציבים. שמרו על אותו קצב והמשיכו עם משימת תרגול קצרה בין המשחקים החיים.'
+        : 'تبدو الجلسات الأخيرة مستقرة. حافظ على الوتيرة نفسها وأضف مهمة تدريب قصيرة بين الألعاب المباشرة.';
+  }
+
+  return {
+    title: translatedTitle,
+    body: translatedBody,
+  };
+}
+
 export default function TeacherReports() {
   const navigate = useNavigate();
   const { language, direction } = useTeacherLanguage();
@@ -245,6 +335,7 @@ export default function TeacherReports() {
 
   const copy = REPORTS_COPY[language as keyof typeof REPORTS_COPY] || REPORTS_COPY.en;
   const isRtl = direction === 'rtl';
+  const reportLanguage = (language === 'he' || language === 'ar' ? language : 'en') as 'en' | 'he' | 'ar';
 
   const loadReport = useCallback(async () => {
     try {
@@ -407,6 +498,8 @@ export default function TeacherReports() {
         const tone = getTimelineTone(row);
         return {
           ...row,
+          dateLabel: formatReportDate(row.date, reportLanguage),
+          headlineLabel: translateReportHeadline(String(row.headline || ''), reportLanguage),
           tone,
           toneLabel:
             tone === 'strong'
@@ -416,7 +509,12 @@ export default function TeacherReports() {
                 : copy.timelineWatch,
         };
       }),
-    [copy.timelineRisk, copy.timelineStrong, copy.timelineWatch, report],
+    [copy.timelineRisk, copy.timelineStrong, copy.timelineWatch, report, reportLanguage],
+  );
+
+  const localizedInsights = useMemo(
+    () => (Array.isArray(report?.insights) ? report.insights : []).map((insight: any) => translateReportInsight(insight, reportLanguage)),
+    [report?.insights, reportLanguage],
   );
 
   const selectedExportSession = useMemo(
@@ -624,9 +722,9 @@ export default function TeacherReports() {
                 </div>
               )}
 
-              {report.insights?.length > 0 && (
+              {localizedInsights.length > 0 && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                  {report.insights.map((insight: any, index: number) => (
+                  {localizedInsights.map((insight: any, index: number) => (
                     <div key={index} className="bg-white border-2 border-brand-dark rounded-[2rem] shadow-[4px_4px_0px_0px_#1A1A1A] p-6">
                       <div className={`flex items-start gap-4 ${isRtl ? 'flex-row-reverse text-right' : ''}`}>
                         <div className="w-12 h-12 rounded-2xl bg-brand-purple text-white border-2 border-brand-dark flex items-center justify-center shrink-0">
@@ -678,9 +776,9 @@ export default function TeacherReports() {
                             <div className="min-w-0 flex-1">
                               <div className={`flex items-start justify-between gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
                                 <div className="min-w-0">
-                                  <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-purple mb-1">{row.date}</p>
+                                  <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-purple mb-1">{row.dateLabel}</p>
                                   <p className="text-xl font-black break-words">{row.quiz_name}</p>
-                                  <p className="text-sm font-bold text-brand-dark/60 mt-1">{row.headline}</p>
+                                  <p className="text-sm font-bold text-brand-dark/60 mt-1">{row.headlineLabel}</p>
                                 </div>
                                 <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] shrink-0">
                                   {row.toneLabel}
@@ -723,7 +821,7 @@ export default function TeacherReports() {
                       >
                         {timelineRows.map((row: any) => (
                           <option key={`export-session-${row.session_id}`} value={row.session_id}>
-                            {row.quiz_name} • {row.date}
+                            {row.quiz_name} • {row.dateLabel}
                           </option>
                         ))}
                       </select>
@@ -866,9 +964,9 @@ export default function TeacherReports() {
                           <tr key={row.session_id} className="border-b-2 border-brand-dark/10 hover:bg-slate-50 transition-colors">
                             <td className="p-4">
                               <p className="font-bold">{row.quiz_name}</p>
-                              <p className="text-xs font-bold text-brand-dark/50 mt-1">{row.headline}</p>
+                              <p className="text-xs font-bold text-brand-dark/50 mt-1">{row.headlineLabel}</p>
                             </td>
-                            <td className="p-4 text-brand-dark/70 font-medium">{row.date}</td>
+                            <td className="p-4 text-brand-dark/70 font-medium">{row.dateLabel}</td>
                             <td className="p-4 font-bold">{row.players}</td>
                             <td className="p-4">
                               <span

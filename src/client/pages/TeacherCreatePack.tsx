@@ -10,7 +10,7 @@ import {
   QUESTION_GENERATION_PRESETS,
   resolveQuestionGenerationPreset,
 } from '../lib/questionGeneration.ts';
-import { GAME_MODES, getGameMode, type GameModeId } from '../lib/gameModes.ts';
+import { getGameMode, getLaunchGameModes, type GameModeId } from '../lib/gameModes.ts';
 import SessionSoundtrackFields from '../components/SessionSoundtrackFields.tsx';
 import AppLoadingScreen from '../components/AppLoadingScreen.tsx';
 import GenerateMagicButton from '../components/GenerateMagicButton.tsx';
@@ -20,12 +20,12 @@ import { useAppLanguage } from '../lib/appLanguage.tsx';
 
 function recommendModesForDraft(questionCount: number, topicCount: number) {
   if (questionCount <= 5) {
-    return ['speed_sprint', 'confidence_climb', 'classic_quiz'] as GameModeId[];
+    return ['classic_quiz', 'speed_sprint', 'confidence_climb'] as GameModeId[];
   }
   if (topicCount >= 4 || questionCount >= 12) {
-    return ['mastery_matrix', 'peer_pods', 'classic_quiz'] as GameModeId[];
+    return ['peer_pods', 'confidence_climb', 'classic_quiz'] as GameModeId[];
   }
-  return ['peer_pods', 'confidence_climb', 'classic_quiz'] as GameModeId[];
+  return ['classic_quiz', 'peer_pods', 'confidence_climb'] as GameModeId[];
 }
 
 const BLOOM_LEVELS = ['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create'] as const;
@@ -165,6 +165,7 @@ export default function TeacherCreatePack() {
   const [selectedGameplayTrackId, setSelectedGameplayTrackId] = useState<SessionSoundtrackChoice>(
     DEFAULT_SESSION_SOUNDTRACKS.gameplay_track_id,
   );
+  const launchGameModes = getLaunchGameModes();
   const [creationStep, setCreationStep] = useState<'CONTENT' | 'QUESTIONS'>('CONTENT');
   const createPackCopy = ({
     en: {
@@ -1333,7 +1334,7 @@ export default function TeacherCreatePack() {
                      <div>
                        <label className="text-xs font-black uppercase tracking-widest text-brand-dark/40 mb-3 block">Selected Format</label>
                        <div className="grid grid-cols-1 gap-3">
-                         {GAME_MODES.slice(0, 4).map(mode => {
+                         {launchGameModes.map(mode => {
                            const isRecommended = recommendedLaunchModes.includes(mode.id);
                            const isActive = selectedLaunchMode === mode.id;
                            return (

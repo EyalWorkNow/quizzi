@@ -180,14 +180,76 @@ function cloneAssistancePolicy(value?: Partial<StudentAssistancePolicy> | null) 
 function AssistancePolicyEditor({
   title,
   subtitle,
+  language,
   policy,
   onChange,
 }: {
   title: string;
   subtitle: string;
+  language: 'en' | 'he' | 'ar';
   policy: StudentAssistancePolicy;
   onChange: (next: StudentAssistancePolicy) => void;
 }) {
+  const assistanceCopy = {
+    he: {
+      sectionTitle: 'סיוע חכם לתלמידים',
+      sectionSubtitle: 'עזרה בטוחה למבחן בתוך תרגול מותאם.',
+      on: 'פועל',
+      off: 'כבוי',
+      toggles: {
+        allow_question_reframe: 'ניסוח מחדש של השאלה',
+        allow_keywords: 'מילות מפתח',
+        allow_checklist: 'רשימת בדיקה',
+        allow_hint: 'רמז',
+        allow_confidence_check: 'בדיקת ביטחון',
+        allow_time_nudge: 'תזכורת זמן',
+        allow_post_answer_explanation: 'סיכום אחרי תשובה',
+      },
+      hintLimit: 'מקסימום רמזים / שאלה',
+      hintLimitHelp: 'השתמש/י ב-`0` כדי לאפשר רמזים ללא הגבלה.',
+      actionLimit: 'מקסימום פעולות / שאלה',
+      actionLimitHelp: 'השתמש/י ב-`0` כדי לאפשר פעולות סיוע ללא הגבלה.',
+    },
+    ar: {
+      sectionTitle: 'المساعدة الذكية للطلاب',
+      sectionSubtitle: 'مساعدة آمنة للاختبار داخل التدرّب التكيفي.',
+      on: 'مفعّل',
+      off: 'متوقف',
+      toggles: {
+        allow_question_reframe: 'إعادة صياغة السؤال',
+        allow_keywords: 'كلمات مفتاحية',
+        allow_checklist: 'قائمة تحقق',
+        allow_hint: 'تلميح',
+        allow_confidence_check: 'فحص الثقة',
+        allow_time_nudge: 'تنبيه وقت',
+        allow_post_answer_explanation: 'ملخص بعد الإجابة',
+      },
+      hintLimit: 'الحد الأقصى للتلميحات / سؤال',
+      hintLimitHelp: 'استخدم `0` للسماح بتلميحات غير محدودة.',
+      actionLimit: 'الحد الأقصى للإجراءات / سؤال',
+      actionLimitHelp: 'استخدم `0` للسماح بإجراءات دعم غير محدودة.',
+    },
+    en: {
+      sectionTitle: 'Student Smart Assistance',
+      sectionSubtitle: 'Exam-safe help inside adaptive practice.',
+      on: 'On',
+      off: 'Off',
+      toggles: {
+        allow_question_reframe: 'Question reframe',
+        allow_keywords: 'Keywords',
+        allow_checklist: 'Checklist',
+        allow_hint: 'Hint',
+        allow_confidence_check: 'Confidence check',
+        allow_time_nudge: 'Time nudge',
+        allow_post_answer_explanation: 'Post-answer wrap',
+      },
+      hintLimit: 'Hint max / question',
+      hintLimitHelp: 'Use `0` for unlimited hints.',
+      actionLimit: 'Total actions / question',
+      actionLimitHelp: 'Use `0` for unlimited support actions.',
+    },
+  }[language];
+
   return (
     <div className="rounded-[1.5rem] border-2 border-brand-dark bg-brand-bg p-4">
       <div className="mb-4">
@@ -196,8 +258,8 @@ function AssistancePolicyEditor({
       </div>
       <div className="mb-4 flex items-center justify-between rounded-[1rem] border-2 border-brand-dark bg-white px-4 py-3">
         <div>
-          <p className="font-black text-brand-dark">Student Smart Assistance</p>
-          <p className="text-sm font-bold text-brand-dark/60">Exam-safe help inside adaptive practice.</p>
+          <p className="font-black text-brand-dark">{assistanceCopy.sectionTitle}</p>
+          <p className="text-sm font-bold text-brand-dark/60">{assistanceCopy.sectionSubtitle}</p>
         </div>
         <button
           type="button"
@@ -206,7 +268,7 @@ function AssistancePolicyEditor({
             policy.enabled ? 'bg-brand-purple text-white' : 'bg-white text-brand-dark'
           }`}
         >
-          {policy.enabled ? 'On' : 'Off'}
+          {policy.enabled ? assistanceCopy.on : assistanceCopy.off}
         </button>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
@@ -215,7 +277,7 @@ function AssistancePolicyEditor({
             key={toggle.key}
             className="flex items-center justify-between rounded-[1rem] border-2 border-brand-dark bg-white px-4 py-3"
           >
-            <span className="font-black text-brand-dark">{toggle.label}</span>
+            <span className="font-black text-brand-dark">{assistanceCopy.toggles[toggle.key]}</span>
             <input
               type="checkbox"
               checked={Boolean(policy[toggle.key])}
@@ -227,7 +289,7 @@ function AssistancePolicyEditor({
       </div>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <div>
-          <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">Hint max / question</label>
+          <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{assistanceCopy.hintLimit}</label>
           <input
             type="number"
             min="0"
@@ -241,10 +303,10 @@ function AssistancePolicyEditor({
             }
             className="w-full rounded-xl border-2 border-brand-dark bg-white p-3 font-bold"
           />
-          <p className="mt-2 text-xs font-bold text-brand-dark/55">Use `0` for unlimited hints.</p>
+          <p className="mt-2 text-xs font-bold text-brand-dark/55">{assistanceCopy.hintLimitHelp}</p>
         </div>
         <div>
-          <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">Total actions / question</label>
+          <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{assistanceCopy.actionLimit}</label>
           <input
             type="number"
             min="0"
@@ -258,7 +320,7 @@ function AssistancePolicyEditor({
             }
             className="w-full rounded-xl border-2 border-brand-dark bg-white p-3 font-bold"
           />
-          <p className="mt-2 text-xs font-bold text-brand-dark/55">Use `0` for unlimited support actions.</p>
+          <p className="mt-2 text-xs font-bold text-brand-dark/55">{assistanceCopy.actionLimitHelp}</p>
         </div>
       </div>
     </div>
@@ -363,6 +425,10 @@ export default function TeacherClassDetail() {
       sessions: 'סשנים כיתתיים',
       noSessions: 'עדיין אין סשנים בכיתה הזאת.',
       retention: 'מצב התמדה',
+      retentionActive7d: 'פעילים ב-7 הימים האחרונים',
+      retentionSlipping: 'בסיכון להיעלמות',
+      retentionInactive: 'לא פעילים',
+      retentionNotStarted: 'עוד לא התחילו',
       linkedPack: 'חבילת הכיתה',
       openPack: 'פתח עריכת חבילה',
       inviteSent: 'המייל נשלח מחדש.',
@@ -388,6 +454,7 @@ export default function TeacherClassDetail() {
       liveClosed: 'אין כרגע חדר חי פתוח',
       livePin: 'PIN',
       pendingAccess: 'ממתינים לגישה',
+      noNotes: 'עדיין אין הערות לכיתה הזאת.',
       shareHint: 'אפשר לשלוח את הקישור הזה לכל תלמידי הכיתה. אחרי כניסה עם המייל שלהם, הכיתה תופיע אצלם לאישור או ככיתה פעילה.',
       library: 'ספריית שיעורים',
       addQuiz: 'הוסף שאלון לכיתה',
@@ -474,6 +541,10 @@ export default function TeacherClassDetail() {
       sessions: 'جلسات الصف',
       noSessions: 'لا توجد جلسات لهذا الصف بعد.',
       retention: 'حالة الاستمرارية',
+      retentionActive7d: 'نشطون خلال 7 أيام',
+      retentionSlipping: 'مهددون بالانقطاع',
+      retentionInactive: 'غير نشطين',
+      retentionNotStarted: 'لم يبدأوا بعد',
       linkedPack: 'حزمة الصف',
       openPack: 'افتح تحرير الحزمة',
       inviteSent: 'تمت إعادة إرسال البريد.',
@@ -499,6 +570,7 @@ export default function TeacherClassDetail() {
       liveClosed: 'لا توجد غرفة حية الآن',
       livePin: 'PIN',
       pendingAccess: 'بانتظار الوصول',
+      noNotes: 'لا توجد ملاحظات لهذا الصف بعد.',
       shareHint: 'يمكنك إرسال هذا الرابط إلى طلاب الصف. بعد الدخول ببريدهم، سيظهر الصف للموافقة أو كصف نشط.',
       library: 'مكتبة الدروس',
       addQuiz: 'إضافة اختبار للصف',
@@ -585,6 +657,10 @@ export default function TeacherClassDetail() {
       sessions: 'Class sessions',
       noSessions: 'There are no class sessions yet.',
       retention: 'Retention pulse',
+      retentionActive7d: 'active 7d',
+      retentionSlipping: 'slipping',
+      retentionInactive: 'inactive',
+      retentionNotStarted: 'not started',
       linkedPack: 'Class pack',
       openPack: 'Open pack editor',
       inviteSent: 'Invite email sent again.',
@@ -610,6 +686,7 @@ export default function TeacherClassDetail() {
       liveClosed: 'No live room is open right now',
       livePin: 'PIN',
       pendingAccess: 'Pending access',
+      noNotes: 'No class notes yet.',
       shareHint: 'You can send this link to any student in the class. After they sign in with their email, the class will appear for approval or as an active class.',
       library: 'Lesson Library',
       addQuiz: 'Add quiz to class',
@@ -1481,6 +1558,55 @@ export default function TeacherClassDetail() {
     needs_attention_count: 0,
     watchlist_students: [],
   };
+  const translatedRetentionHeadline =
+    language === 'he'
+      ? classRetention.level === 'high'
+        ? `${classRetention.needs_attention_count} תלמידים צריכים החזרה למסלול`
+        : classRetention.level === 'medium'
+          ? 'המומנטום של הכיתה מתחיל להיחלש'
+          : 'רמת ההשתתפות נראית בריאה'
+      : language === 'ar'
+        ? classRetention.level === 'high'
+          ? `${classRetention.needs_attention_count} طلاب يحتاجون إلى إعادة إدماج`
+          : classRetention.level === 'medium'
+            ? 'زخم الصف بدأ يضعف'
+            : 'مستوى المشاركة يبدو جيدًا'
+        : classRetention.headline;
+  const translatedRetentionBody =
+    language === 'he'
+      ? classRetention.level === 'high'
+        ? 'כדאי לשלוח משימת חזרה קצרה, תרגול ממוקד או פנייה ישירה לפני שהתלמידים האלה נעלמים מהמעגל.'
+        : classRetention.level === 'medium'
+          ? 'יש כמה תלמידים שמתחילים להתרחק. משימת המשך קצרה או בדיקת בית קלה יכולה להחזיר אותם.'
+          : 'רוב חברי הכיתה עדיין פעילים. שמרו על הקצב עם תרגול קצר בין הסשנים החיים.'
+      : language === 'ar'
+        ? classRetention.level === 'high'
+          ? 'استخدم مراجعة قصيرة أو تدريبًا مركزًا أو تواصلًا مباشرًا قبل أن يخرج هؤلاء الطلاب من الحلقة.'
+          : classRetention.level === 'medium'
+            ? 'هناك بعض الطلاب الذين بدأوا يبتعدون. مهمة متابعة قصيرة أو واجب خفيف قد يعيدهم.'
+            : 'معظم أعضاء الصف ما زالوا نشطين. حافظوا على الإيقاع بتدريب قصير بين الجلسات الحية.'
+        : classRetention.body;
+  const translatedRetentionWatchlist = classRetention.watchlist_students.map((student) => {
+    if (language === 'en') return student;
+
+    const translatedReason =
+      language === 'he'
+        ? student.status === 'never_started'
+          ? 'התלמיד/ה הזה עדיין לא השתתף/ה בסשן חי של Quizzi.'
+          : student.status === 'inactive_14d'
+            ? 'לא נרשמה פעילות חיה או תרגול בתקופה האחרונה, וכדאי להחזיר את התלמיד/ה למסלול.'
+            : 'נראה שהמומנטום של התלמיד/ה דועך וכדאי לבצע מעקב קצר.'
+        : student.status === 'never_started'
+          ? 'هذا الطالب لم ينضم بعد إلى جلسة Quizzi مباشرة.'
+          : student.status === 'inactive_14d'
+            ? 'لا يوجد نشاط مباشر أو تدريبي مؤخرًا، ويستحسن إعادة هذا الطالب إلى المسار.'
+            : 'يبدو أن الزخم عند هذا الطالب يتراجع ويحتاج إلى متابعة قصيرة.';
+
+    return {
+      ...student,
+      reason: translatedReason,
+    };
+  });
   const recentSessions = Array.isArray(classBoard.recent_sessions) ? classBoard.recent_sessions : [];
   const classProgressSeries = Array.isArray(progressBoard?.class_series) ? progressBoard.class_series : [];
   const progressStudents = Array.isArray(progressBoard?.students) ? progressBoard.students : [];
@@ -1696,41 +1822,49 @@ export default function TeacherClassDetail() {
             </div>
           ) : null}
 
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-5 shadow-[4px_4px_0px_0px_#1A1A1A] xl:col-span-2">
-              <div className="mb-3 flex items-center gap-3">
+          <section className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(180px,0.42fr)_minmax(180px,0.42fr)]">
+            <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-5 shadow-[4px_4px_0px_0px_#1A1A1A] xl:min-h-[250px]">
+              <div className="mb-4 flex items-start gap-3">
                 <Sparkles className="h-6 w-6 text-brand-orange" />
                 <div>
                   <h2 className="text-2xl font-black">{copy.classSpace}</h2>
-                  <p className="text-sm font-bold text-brand-dark/55">{copy.classSpaceBody}</p>
+                  <p className="mt-1 text-sm font-bold leading-6 text-brand-dark/55">{copy.classSpaceBody}</p>
                 </div>
               </div>
-              <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{copy.studentEntry}</p>
-                <p className="mt-2 break-all font-bold text-brand-dark/70">{buildGenericClassStudentLink()}</p>
-                <div className="mt-4 flex flex-wrap items-center gap-3">
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{copy.studentEntry}</p>
+                  <div className="mt-3 rounded-[1rem] border-2 border-brand-dark/15 bg-white px-4 py-4 shadow-[2px_2px_0px_0px_#1A1A1A]">
+                    <p className="break-all font-mono text-sm font-black leading-7 text-brand-dark/70">
+                      {buildGenericClassStudentLink()}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-col justify-between gap-3">
                   <button
                     type="button"
                     onClick={() => void handleCopyClassLink()}
-                    className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 font-black"
+                    className="inline-flex min-h-[58px] items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-5 py-3 font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
                   >
                     <Copy className="h-4 w-4" />
                     {copy.copyClassLink}
                   </button>
-                  <span className="text-sm font-bold text-brand-dark/60">
+                  <div className="rounded-[1.2rem] border border-brand-dark/15 bg-white px-4 py-3 text-sm font-bold leading-6 text-brand-dark/60">
                     {copiedClassLink ? copy.copiedClassLink : copy.shareHint}
-                  </span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <MetricTile label={copy.approvalRate} value={`${classBoard.student_count ? Math.round((syncSummary.approved / classBoard.student_count) * 100) : 0}%`} />
-            <MetricTile label={copy.pendingAccess} value={String(syncSummary.pending)} />
-            <MetricTile
-              label={copy.liveState}
-              value={hasOpenLiveRoom ? copy.liveOpen : copy.liveClosed}
-              meta={hasOpenLiveRoom ? `${copy.livePin}: ${classBoard.active_session?.pin || ''}` : null}
-            />
+            <div className="grid gap-4 sm:grid-cols-2 xl:col-span-2 xl:grid-cols-1">
+              <MetricTile label={copy.approvalRate} value={`${classBoard.student_count ? Math.round((syncSummary.approved / classBoard.student_count) * 100) : 0}%`} />
+              <MetricTile label={copy.pendingAccess} value={String(syncSummary.pending)} />
+              <MetricTile
+                label={copy.liveState}
+                value={hasOpenLiveRoom ? copy.liveOpen : copy.liveClosed}
+                meta={hasOpenLiveRoom ? `${copy.livePin}: ${classBoard.active_session?.pin || ''}` : null}
+              />
+            </div>
           </section>
 
           <section className={`${classBoard.color} rounded-[2.5rem] border-2 border-brand-dark p-8 shadow-[6px_6px_0px_0px_#1A1A1A]`}>
@@ -2262,6 +2396,7 @@ export default function TeacherClassDetail() {
                           ? 'هذا هو الإعداد الافتراضي لكل تدريب متكيف ومهمة في الصف.'
                           : 'This is the default policy for adaptive practice and assignment work in the class.'
                     }
+                    language={language}
                     policy={classAssistancePolicy}
                     onChange={setClassAssistancePolicy}
                   />
@@ -2366,11 +2501,12 @@ export default function TeacherClassDetail() {
                       title={language === 'he' ? 'סיוע חכם למשימה' : language === 'ar' ? 'المساعدة الذكية للمهمة' : 'Assignment smart assistance'}
                       subtitle={
                         language === 'he'
-                          ? 'Override למשימה הפעילה. מה שמוגדר כאן יגבר על ברירת המחדל של הכיתה.'
+                          ? 'הגדרה ייעודית למשימה הפעילה. מה שמוגדר כאן יגבר על ברירת המחדל של הכיתה.'
                           : language === 'ar'
                             ? 'إعداد خاص للمهمة النشطة. ما يتم ضبطه هنا يتغلب على إعداد الصف الافتراضي.'
                             : 'Override for the active assignment. These settings win over the class default.'
                       }
+                      language={language}
                       policy={assignmentAssistancePolicy}
                       onChange={setAssignmentAssistancePolicy}
                     />
@@ -3022,17 +3158,17 @@ export default function TeacherClassDetail() {
                   <h2 className="text-2xl font-black">{copy.retention}</h2>
                 </div>
                 <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-5">
-                  <p className="text-xl font-black">{classRetention.headline}</p>
-                  <p className="mt-2 font-bold text-brand-dark/65">{classRetention.body}</p>
+                  <p className="text-xl font-black">{translatedRetentionHeadline}</p>
+                  <p className="mt-2 font-bold text-brand-dark/65">{translatedRetentionBody}</p>
                   <div className="mt-4 flex flex-wrap gap-2 text-xs font-black uppercase">
-                    <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">{classRetention.active_last_7d} active 7d</span>
-                    <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">{classRetention.slipping} slipping</span>
-                    <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">{classRetention.inactive_14d} inactive</span>
-                    <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">{classRetention.never_started} not started</span>
+                    <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">{classRetention.active_last_7d} {copy.retentionActive7d}</span>
+                    <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">{classRetention.slipping} {copy.retentionSlipping}</span>
+                    <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">{classRetention.inactive_14d} {copy.retentionInactive}</span>
+                    <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-1">{classRetention.never_started} {copy.retentionNotStarted}</span>
                   </div>
-                  {classRetention.watchlist_students.length > 0 ? (
+                  {translatedRetentionWatchlist.length > 0 ? (
                     <div className="mt-4 space-y-2">
-                      {classRetention.watchlist_students.map((student) => (
+                      {translatedRetentionWatchlist.map((student) => (
                         <div key={`${classBoard.id}-${student.name}`} className="rounded-xl border border-brand-dark/10 bg-white px-3 py-3">
                           <p className="font-black">{student.name}</p>
                           <p className="mt-1 text-sm font-bold text-brand-dark/65">{student.reason}</p>
@@ -3048,7 +3184,7 @@ export default function TeacherClassDetail() {
                   <Clock3 className="h-6 w-6 text-brand-orange" />
                   <h2 className="text-2xl font-black">{copy.notes}</h2>
                 </div>
-                <p className="whitespace-pre-wrap font-bold text-brand-dark/70">{classBoard.notes || 'No class notes yet.'}</p>
+                <p className="whitespace-pre-wrap font-bold text-brand-dark/70">{classBoard.notes || copy.noNotes}</p>
               </div>
             </div>
           </section>
@@ -3107,10 +3243,12 @@ function MetricTile({
   meta?: string | null;
 }) {
   return (
-    <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-5 shadow-[4px_4px_0px_0px_#1A1A1A]">
+    <div className="flex min-h-[122px] flex-col justify-between rounded-[2rem] border-2 border-brand-dark bg-white p-5 shadow-[4px_4px_0px_0px_#1A1A1A]">
       <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{label}</p>
-      <p className="mt-3 text-2xl font-black leading-tight text-brand-dark">{value}</p>
-      {meta ? <p className="mt-2 text-sm font-bold text-brand-dark/60">{meta}</p> : null}
+      <div className="mt-3">
+        <p className="text-2xl font-black leading-tight text-brand-dark">{value}</p>
+        {meta ? <p className="mt-2 text-sm font-bold leading-6 text-brand-dark/60">{meta}</p> : null}
+      </div>
     </div>
   );
 }

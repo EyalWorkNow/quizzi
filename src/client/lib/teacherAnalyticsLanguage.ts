@@ -60,6 +60,7 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Coach commitment after correct starts': 'אמן נעילה אחרי התחלה נכונה',
   'This learner sometimes begins on the right answer and revises away from it. Add short explain-your-choice pauses before lock-in.':
     'הלומד הזה לפעמים מתחיל בתשובה הנכונה ואז משנה ממנה. הוסף הפסקות קצרות של "הסבר את הבחירה שלך" לפני הנעילה.',
+  'Support recovery after misses': 'תמוך בהתאוששות אחרי טעויות',
   'Gets hesitant after misses': 'נהיה מהוסס אחרי טעויות',
   'How quickly the student converges on an answer without oscillation.':
     'כמה מהר התלמיד מתכנס לתשובה בלי להתנדנד.',
@@ -73,6 +74,8 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
     'עד כמה פרופיל הקצב והלחץ של התלמיד נשאר יציב לאורך השאלות.',
   'How well behavior-backed confidence matches actual correctness.':
     'עד כמה ביטחון שמגובה בהתנהגות תואם את הנכונות בפועל.',
+  'How consistently the learner stayed on-task and interaction-ready during the session.':
+    'עד כמה התלמיד נשאר ממוקד ומוכן לאינטראקציה לאורך הסשן.',
   'How little the student was pulled into blur, idle, and focus-loss drag.':
     'עד כמה מעט התלמיד נמשך לטשטוש, חוסר פעילות וגרירת איבוד פוקוס.',
   'How controlled the option-scanning pattern stayed before the final lock-in.':
@@ -106,11 +109,13 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Remembered accuracy': 'דיוק נזכר',
   'Stress baseline': 'קו בסיס של לחץ',
   'Memory next step': 'השלב הבא בזיכרון',
+  'Smart Assistance': 'סיוע חכם',
   'Coaching layer': 'שכבת אימון',
   'Trust layer': 'שכבת אמון',
   'Autopilot intervention': 'התערבות של טייס אוטומטי',
   'Launch memory intervention': 'הפעל התערבות בזיכרון',
   'Repeated patterns': 'דפוסים חוזרים',
+  'Growth timeline': 'ציר צמיחה',
   'Teacher note': 'הערת מורה',
   'Merge your human read into the memory layer.': 'שלב את הקריאה האנושית שלך בתוך שכבת הזיכרון.',
   'Saving...': 'שומר...',
@@ -120,6 +125,13 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'Behavior Architecture': 'ארכיטקטורת התנהגות',
   'How this game\'s behavior compares to the student\'s longer-term baseline.':
     'כך ההתנהגות במשחק הזה משתווה לקו הבסיס ארוך הטווח של התלמיד.',
+  Decisiveness: 'החלטיות',
+  'Focus Resilience': 'עמידות קשב',
+  'Pressure Handling': 'התמודדות עם לחץ',
+  Engagement: 'מעורבות',
+  'Recovery After Error': 'התאוששות אחרי טעות',
+  'Attention Stability': 'יציבות קשב',
+  'Exploration Control': 'שליטה בחקר האפשרויות',
   'Session Flow': 'זרימת הסשן',
   'Momentum, fatigue, and pressure across the opening, middle, and closing of the game.':
     'מומנטום, עייפות ולחץ לאורך פתיחת המשחק, אמצעו וסיומו.',
@@ -222,6 +234,90 @@ const EXACT_HEBREW_TRANSLATIONS: Record<string, string> = {
   'LMS Gradebook CSV': 'CSV גיליון ציונים',
   'Teams CSV': 'CSV קבוצות',
   'Response Rows CSV': 'CSV שורות תשובה',
+  'Teacher action': 'מהלך הוראה',
+  'Signal quality': 'איכות האות',
+  'Confidence band': 'רצועת ביטחון',
+  'Evidence count': 'כמות ראיות',
+  'Grading-safe metrics': 'מדדים בטוחים להערכה',
+  'Behavior signals': 'אותות התנהגות',
+  'Suppressed reason': 'סיבת ההסתרה',
+  'Analytics V2 Overlay': 'שכבת Analytics V2',
+  'Validated modeling, trust suppression, and the recommended intervention path from the new engine.':
+    'מודל מאומת, הסתרת אמון, ומסלול ההתערבות המומלץ מהמנוע החדש.',
+  'Engagement State': 'מצב מעורבות',
+  'Intervention Call': 'קריאת התערבות',
+  'Suppressed Metrics': 'מדדים מוסתרים',
+  'Observed Labels': 'תוויות נצפות',
+  'No modeled intervention yet': 'עדיין אין התערבות ממודל',
+  'The engine needs a little more evidence before promoting a modeled recommendation.':
+    'המנוע צריך עוד מעט ראיות לפני שהוא מקדם המלצה מבוססת מודל.',
+  'Trust gating': 'שער אמון',
+  'No sensitive metrics are currently suppressed for this student.': 'כרגע אין מדדים רגישים שמוסתרים עבור התלמיד הזה.',
+  'Concept Trace': 'מעקב מושגים',
+  'Concept mastery snapshot': 'תמונת שליטה במושגים',
+  'Prior Mastery': 'שליטה קודמת',
+  'Rolling Stress': 'לחץ מתגלגל',
+  'Rolling Engagement': 'מעורבות מתגלגלת',
+  'No concept history yet': 'עדיין אין היסטוריית מושגים',
+  'Recent validation labels': 'תוויות אימות אחרונות',
+  Value: 'ערך',
+  'No teacher, self-report, or automatic validation labels are attached to this run yet.':
+    'עדיין לא צורפו לריצה הזו תוויות אימות של מורה, דיווח עצמי או אימות אוטומטי.',
+  'No repeated distractor pattern rose above the minimum confidence threshold.':
+    'לא זוהה דפוס מסיחים חוזר שעבר את סף הביטחון המינימלי.',
+  'How often the student used exam-safe support inside adaptive practice.':
+    'באיזו תדירות התלמיד השתמש בתמיכה בטוחה למבחן בתוך תרגול אדפטיבי.',
+  'How the new concept-level memory and validation layers explain this session.':
+    'איך שכבות הזיכרון ואימות המושגים החדשות מסבירות את הסשן הזה.',
+  'As this learner revisits the same concepts, this panel will show retention and rolling mastery context.':
+    'כשהלומד הזה יחזור לאותם מושגים, הפאנל הזה יציג שימור והקשר מתגלגל של שליטה.',
+  Requests: 'בקשות',
+  Served: 'סופק',
+  Fallbacks: 'מעברי גיבוי',
+  'Focus resets': 'איפוסי מיקוד',
+  'No smart-assistance activity has been logged for this student yet.':
+    'עדיין לא נרשמה פעילות סיוע חכם עבור התלמיד הזה.',
+  'Immediate targeted follow-up': 'מעקב מיידי וממוקד',
+  'This learner shows a combination of low mastery and unstable decision patterns. A same-material adaptive game is recommended before the next assessment.':
+    'הלומד הזה מציג שילוב של שליטה נמוכה ודפוסי החלטה לא יציבים. מומלץ משחק אדפטיבי מאותו חומר לפני ההערכה הבאה.',
+  'Reduce last-second overload': 'הפחת עומס ברגע האחרון',
+  'Panic swaps were recorded. Reuse the same concept set with clearer distractors or slightly calmer pacing.':
+    'נרשמו החלפות פאניקה. כדאי להשתמש שוב באותו סט מושגים עם מסיחים ברורים יותר או קצב רגוע מעט יותר.',
+  'Watch attention stability': 'עקוב אחרי יציבות הקשב',
+  'The student left the active play context during the session. Keep the follow-up shorter and more tightly scaffolded.':
+    'התלמיד יצא מהקשר המשחק הפעיל במהלך הסשן. כדאי לשמור את ההמשך קצר יותר ועם יותר פיגומים.',
+  'Aim the next round at weak tags': 'מקד את הסבב הבא בתגיות חלשות',
+  'No misses yet': 'עדיין אין טעויות',
+  confidence: 'ביטחון',
+  'in this session': 'בסשן הזה',
+  'This learner needs a steadier pace before another fast round': 'הלומד הזה צריך קצב יציב יותר לפני סבב מהיר נוסף',
+  'Practice set tuned to weak areas': 'סט תרגול מותאם לאזורים חלשים',
+  'Launching...': 'מפעיל...',
+  'Home / Advisor Note': 'הערה לבית / ליועץ',
+  'This learner would benefit from a short, low-pressure re-entry step before the next bigger assessment.':
+    'הלומד הזה ירוויח מצעד חזרה קצר ורגוע לפני ההערכה הגדולה הבאה.',
+  'Confidence is still unstable': 'הביטחון עדיין לא יציב',
+  'Early Lock': 'נעילה מוקדמת',
+  fragile: 'שברירי',
+  Engaged: 'מעורב',
+  Reteach: 'ללמד מחדש',
+  'Keep Momentum': 'לשמור על מומנטום',
+  'Slow Down': 'להאט',
+  Low: 'נמוך',
+  Medium: 'בינוני',
+  High: 'גבוה',
+  'Future Wrong Next': 'סיכוי לטעות בהמשך',
+  'Shaky Correct': 'נכון אבל שברירי',
+  'Needs Reteach': 'דורש הוראה מחדש',
+  'Fragile Concepts': 'מושגים שבריריים',
+  'Likely Distractor Issue': 'כנראה בעיית מסיח',
+  'Revision Outcomes': 'תוצאות תיקון',
+  'Path Type': 'סוג מסלול',
+  'Performance Breakdown Under Pressure': 'פירוק ביצועים תחת לחץ',
+  'Deadline Pressure': 'לחץ דדליין',
+  'Recovery Index': 'מדד התאוששות',
+  Consistency: 'עקביות',
+  'Confidence Alignment': 'יישור ביטחון',
   'Class State': 'מצב הכיתה',
   'Top Issue': 'הבעיה המרכזית',
   'Suggested Action': 'פעולה מומלצת',
@@ -1635,6 +1731,78 @@ const HEBREW_PATTERN_RULES: PatternRule[] = [
   {
     pattern: /^(.+) is the main confusion cluster$/,
     translate: ([, topic]) => `${topic} הוא אשכול הבלבול המרכזי`,
+  },
+  {
+    pattern: /^Attempt (\d+)$/,
+    translate: ([, count]) => `ניסיון ${count}`,
+  },
+  {
+    pattern: /^(\d+) signals across (\d+) sessions\.$/,
+    translate: ([, signals, sessions]) => `${signals} אותות על פני ${sessions} סשנים.`,
+  },
+  {
+    pattern: /^(\d+)% remembered mastery$/,
+    translate: ([, value]) => `${value}% שליטה נזכרת`,
+  },
+  {
+    pattern: /^Media Opened (\d+)x$/,
+    translate: ([, count]) => `מדיה נפתחה ${count}x`,
+  },
+  {
+    pattern: /^UI Freeze (\d+)x$/,
+    translate: ([, count]) => `קפיאת ממשק ${count}x`,
+  },
+  {
+    pattern: /^(\d+) requests$/,
+    translate: ([, count]) => `${count} בקשות`,
+  },
+  {
+    pattern: /^(\d+(?:\.\d+)?)% memory baseline$/,
+    translate: ([, value]) => `${value}% קו בסיס זיכרון`,
+  },
+  {
+    pattern: /^(\d+(?:\.\d+)?)% memory stress$/,
+    translate: ([, value]) => `${value}% לחץ זיכרון`,
+  },
+  {
+    pattern: /^Rank #(.+)$/,
+    translate: ([, rank]) => `מקום #${rank}`,
+  },
+  {
+    pattern: /^Accuracy (\d+(?:\.\d+)?)% vs class average (\d+(?:\.\d+)?)%\.$/,
+    translate: ([, studentAccuracy, classAccuracy]) => `דיוק ${studentAccuracy}% לעומת ממוצע בכיתה ${classAccuracy}%.`,
+  },
+  {
+    pattern: /^Overall baseline: (\d+(?:\.\d+)?)$/,
+    translate: ([, value]) => `ממוצע כללי ${value}`,
+  },
+  {
+    pattern: /^Accuracy is (\d+(?:\.\d+)?)% with (\d+(?:\.\d+)?)% stress, so the next step should reduce pressure and revisit the core idea more clearly\.$/,
+    translate: ([, accuracy, stress]) => `הדיוק עומד על ${accuracy}% עם ${stress}% לחץ, ולכן הצעד הבא צריך להפחית לחץ ולחזור לרעיון המרכזי בצורה ברורה יותר.`,
+  },
+  {
+    pattern: /^Build the next set around (.+) and keep the scope tight\.$/,
+    translate: ([, tags]) => `בנה את הסט הבא סביב ${tags} ושמור על היקף ממוקד.`,
+  },
+  {
+    pattern: /^Confidence baseline is only (\d+(?:\.\d+)?)%, so answer commitment is still fragile\.$/,
+    translate: ([, value]) => `קו הבסיס של הביטחון הוא רק ${value}%, ולכן הנעילה על תשובה עדיין שברירית.`,
+  },
+  {
+    pattern: /^(.+) is still the weakest remembered concept\.$/,
+    translate: ([, concept]) => `${concept} הוא עדיין המושג הנזכר החלש ביותר.`,
+  },
+  {
+    pattern: /^Build the next set around (.+) and keep the scope tight\.$/,
+    translate: ([, tags]) => `בנה את הסט הבא סביב ${tags} ושמור על היקף ממוקד.`,
+  },
+  {
+    pattern: /^(.+) keeps returning as a weak area$/,
+    translate: ([, concept]) => `${concept} ממשיך לחזור כאזור חלש`,
+  },
+  {
+    pattern: /^(.+) is currently remembered at (\d+(?:\.\d+)?)% mastery, so it is the best next target\.$/,
+    translate: ([, concept, value]) => `${concept} נזכר כרגע ברמת שליטה של ${value}%, ולכן זה היעד הבא הטוב ביותר.`,
   },
 ];
 

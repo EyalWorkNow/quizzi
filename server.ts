@@ -141,6 +141,7 @@ async function startServer() {
   const preferredPort = Number(process.env.PORT || 3000);
   const distDir = path.resolve(process.cwd(), 'dist');
   const server = http.createServer(app);
+  let viteDevServer: Awaited<ReturnType<typeof createViteServer>> | null = null;
   
   if (process.env.NODE_ENV === 'production') {
     const indexPath = path.join(distDir, 'index.html');
@@ -312,7 +313,7 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
+    viteDevServer = await createViteServer({
       server: {
         middlewareMode: true,
         hmr: {
@@ -321,7 +322,7 @@ async function startServer() {
       },
       appType: 'spa',
     });
-    app.use(vite.middlewares);
+    app.use(viteDevServer.middlewares);
   } else {
     app.use(express.static(distDir, {
       index: false,
@@ -435,6 +436,9 @@ async function startServer() {
     console.log(`[server] Received ${signal}, draining connections...`);
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
+    });
+    await viteDevServer?.close().catch((error) => {
+      console.warn('[server] Failed to close Vite dev server cleanly:', error);
     });
     await flushPostgresMirror().catch((error) => {
       console.warn('[server] Failed to flush Postgres mirror cleanly:', error);

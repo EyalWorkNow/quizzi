@@ -233,8 +233,19 @@ export const GAME_MODES: readonly GameModeDefinition[] = [
   },
 ] as const;
 
+export const PRIMARY_LAUNCH_GAME_MODE_IDS = [
+  'classic_quiz',
+  'speed_sprint',
+  'confidence_climb',
+  'peer_pods',
+] as const satisfies readonly GameModeId[];
+
 export function getGameMode(gameModeId?: string | null) {
   return GAME_MODES.find((mode) => mode.id === gameModeId) || GAME_MODES[0];
+}
+
+export function getLaunchGameModes() {
+  return PRIMARY_LAUNCH_GAME_MODE_IDS.map((modeId) => getGameMode(modeId));
 }
 
 export function getTeamGameModeIds() {
