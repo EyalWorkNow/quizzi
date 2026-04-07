@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -1586,6 +1586,9 @@ export default function TeacherClassDetail() {
             ? 'هناك بعض الطلاب الذين بدأوا يبتعدون. مهمة متابعة قصيرة أو واجب خفيف قد يعيدهم.'
             : 'معظم أعضاء الصف ما زالوا نشطين. حافظوا على الإيقاع بتدريب قصير بين الجلسات الحية.'
         : classRetention.body;
+  const classAccessLink = buildGenericClassStudentLink();
+  const approvalRate = classBoard.student_count ? Math.round((syncSummary.approved / classBoard.student_count) * 100) : 0;
+  const linkedLessonsCount = Array.isArray(classBoard.packs) ? classBoard.packs.length : 0;
   const translatedRetentionWatchlist = classRetention.watchlist_students.map((student) => {
     if (language === 'en') return student;
 
@@ -1788,8 +1791,8 @@ export default function TeacherClassDetail() {
       <TeacherSidebar />
 
       <main className="teacher-layout-main teacher-page-pad pt-20 lg:pt-8">
-        <div className="mx-auto max-w-7xl space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="mx-auto max-w-[1480px] space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
             <Link
               to="/teacher/classes"
               className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-2 font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
@@ -1817,64 +1820,222 @@ export default function TeacherClassDetail() {
           </div>
 
           {feedback ? (
-            <div className="rounded-[1.4rem] border-2 border-brand-dark bg-white px-5 py-4 font-bold shadow-[3px_3px_0px_0px_#1A1A1A]">
+            <div className="rounded-[1.2rem] border-2 border-brand-dark bg-white px-4 py-3 text-sm font-bold shadow-[2px_2px_0px_0px_#1A1A1A]">
               {feedback}
             </div>
           ) : null}
 
-          <section className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(180px,0.42fr)_minmax(180px,0.42fr)]">
-            <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-5 shadow-[4px_4px_0px_0px_#1A1A1A] xl:min-h-[250px]">
-              <div className="mb-4 flex items-start gap-3">
-                <Sparkles className="h-6 w-6 text-brand-orange" />
-                <div>
-                  <h2 className="text-2xl font-black">{copy.classSpace}</h2>
-                  <p className="mt-1 text-sm font-bold leading-6 text-brand-dark/55">{copy.classSpaceBody}</p>
+          <section className="relative overflow-hidden rounded-[2.4rem] border-2 border-brand-dark bg-white p-5 shadow-[6px_6px_0px_0px_#1A1A1A] sm:p-6">
+            <div className="absolute inset-x-0 top-0 h-36 bg-[linear-gradient(135deg,_rgba(255,209,59,0.22),_rgba(255,90,54,0.14)_45%,_rgba(180,136,255,0.16)_100%)]" />
+            <div className="absolute -right-10 top-8 h-40 w-40 rounded-full bg-brand-purple/15 blur-3xl" />
+            <div className="absolute -left-10 bottom-0 h-40 w-40 rounded-full bg-brand-yellow/20 blur-3xl" />
+            <div className="relative space-y-5">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                <div className="max-w-3xl">
+                  <div className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-xs font-black uppercase tracking-[0.2em] text-brand-orange shadow-[2px_2px_0px_0px_#1A1A1A]">
+                    <Sparkles className="h-4 w-4" />
+                    {copy.classSpace}
+                  </div>
+                  <h2 className="mt-4 text-3xl font-black text-brand-dark sm:text-4xl">{copy.classSpace}</h2>
+                  <p className="mt-2 max-w-3xl text-sm font-bold leading-7 text-brand-dark/60 sm:text-base">
+                    {copy.classSpaceBody}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <span className={`rounded-full border-2 border-brand-dark px-3 py-2 text-xs font-black uppercase tracking-[0.16em] ${hasOpenLiveRoom ? 'bg-brand-dark text-white' : 'bg-white text-brand-dark'}`}>
+                      {hasOpenLiveRoom ? copy.liveOpen : copy.liveClosed}
+                    </span>
+                    <span className={`rounded-full border-2 border-brand-dark px-3 py-2 text-xs font-black uppercase tracking-[0.16em] ${classPack ? 'bg-emerald-100 text-emerald-800' : 'bg-white text-brand-dark'}`}>
+                      {classPack ? copy.linkedPack : copy.noPack}
+                    </span>
+                    <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-3 py-2 text-xs font-black uppercase tracking-[0.16em]">
+                      {language === 'he' ? `אישור ${approvalRate}%` : language === 'ar' ? `موافقة ${approvalRate}%` : `${approvalRate}% approved`}
+                    </span>
+                  </div>
+                </div>
+                <div className="w-full xl:max-w-[360px]">
+                  <div className="rounded-[2rem] border-2 border-brand-dark bg-brand-dark p-5 text-white shadow-[6px_6px_0px_0px_#FF5A36]">
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-yellow">
+                      {language === 'he' ? 'הפעולה המומלצת עכשיו' : language === 'ar' ? 'الإجراء الموصى به الآن' : 'Recommended next move'}
+                    </p>
+                    <p className="mt-3 text-2xl font-black leading-tight">
+                      {hasOpenLiveRoom
+                        ? copy.continueLive
+                        : classPack
+                          ? copy.host
+                          : copy.openPack}
+                    </p>
+                    <p className="mt-3 text-sm font-bold leading-6 text-white/78">
+                      {hasOpenLiveRoom
+                        ? (language === 'he'
+                          ? 'יש כבר חדר פעיל לכיתה הזו. אפשר לחזור ישר להנחיה ולצרף תלמידים דרך קישור הכניסה.'
+                          : language === 'ar'
+                            ? 'توجد غرفة نشطة لهذا الصف بالفعل. يمكنك العودة مباشرة ومتابعة انضمام الطلاب عبر رابط الدخول.'
+                            : 'There is already an active room for this class. Jump back in and keep bringing students through the class link.')
+                        : classPack
+                          ? (language === 'he'
+                            ? 'החבילה מוכנה, אז אפשר לפתוח סשן חי מיד. קישור הכניסה כבר מחכה להפצה לתלמידים.'
+                            : language === 'ar'
+                              ? 'الحزمة جاهزة، لذا يمكنك فتح جلسة حية فورًا. رابط الدخول جاهز للمشاركة مع الطلاب.'
+                              : 'The pack is ready, so you can open a live class right away. The student entry link is ready to share.')
+                          : (language === 'he'
+                            ? 'עדיין חסרה חבילה משויכת. קודם חברו תוכן לכיתה, ואז פתחו שיעור חי.'
+                            : language === 'ar'
+                              ? 'لا تزال الحزمة غير مرتبطة. اربط محتوى بالصف أولًا ثم افتح جلسة حية.'
+                              : 'A pack is still missing. Attach content to this class first, then open the live session.')}
+                    </p>
+                    <div className="mt-5 flex flex-wrap gap-3">
+                      <button
+                        onClick={handleHost}
+                        disabled={busyKey === 'host' || (!hasOpenLiveRoom && !classPack)}
+                        className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 font-black text-brand-dark shadow-[2px_2px_0px_0px_#FFFFFF] disabled:opacity-60"
+                      >
+                        {hasOpenLiveRoom ? copy.continueLive : copy.host}
+                      </button>
+                      {classPack ? (
+                        <Link
+                          to={`/teacher/packs/${classPack.id}/edit`}
+                          className="inline-flex items-center gap-2 rounded-full border-2 border-white/40 bg-transparent px-4 py-2 font-black text-white"
+                        >
+                          {copy.openPack}
+                        </Link>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
-                <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{copy.studentEntry}</p>
-                  <div className="mt-3 rounded-[1rem] border-2 border-brand-dark/15 bg-white px-4 py-4 shadow-[2px_2px_0px_0px_#1A1A1A]">
-                    <p className="break-all font-mono text-sm font-black leading-7 text-brand-dark/70">
-                      {buildGenericClassStudentLink()}
+
+              <div className="grid w-full gap-3 sm:grid-cols-3">
+                  <HubStatCard
+                    label={copy.approvalRate}
+                    value={`${approvalRate}%`}
+                    meta={`${syncSummary.approved}/${Math.max(classBoard.student_count, 0)} ${language === 'he' ? 'תלמידים' : language === 'ar' ? 'طلاب' : 'students'}`}
+                    tone="yellow"
+                  />
+                  <HubStatCard
+                    label={copy.pendingAccess}
+                    value={String(syncSummary.pending)}
+                    meta={language === 'he' ? 'עדיין לא אישרו' : language === 'ar' ? 'لم يوافقوا بعد' : 'Still waiting'}
+                    tone="slate"
+                  />
+                  <HubStatCard
+                    label={copy.liveState}
+                    value={hasOpenLiveRoom ? copy.liveOpen : copy.liveClosed}
+                    meta={hasOpenLiveRoom ? `${copy.livePin}: ${classBoard.active_session?.pin || ''}` : copy.liveClosed}
+                    tone="purple"
+                  />
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
+                <div className="rounded-[2rem] border-2 border-brand-dark bg-[linear-gradient(180deg,_#FFF9EA_0%,_#FFFFFF_100%)] p-5 shadow-[4px_4px_0px_0px_#1A1A1A]">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{copy.studentEntry}</p>
+                      <p className="mt-2 text-2xl font-black text-brand-dark">{copy.copyClassLink}</p>
+                      <p className="mt-2 text-sm font-bold leading-6 text-brand-dark/60">
+                        {language === 'he'
+                          ? 'זה הקישור הראשי של הכיתה. תלמיד פותח אותו, נרשם או מתחבר, ואז הכיתה מופיעה אצלו.'
+                          : language === 'ar'
+                            ? 'هذا هو الرابط الرئيسي للصف. يفتحه الطالب، يسجل أو يدخل، ثم يظهر الصف لديه.'
+                            : 'This is the class entry link. A student opens it, signs in or registers, and the class appears in their space.'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyClassLink()}
+                      className="inline-flex min-h-[54px] items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-5 py-3 font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
+                    >
+                      <Copy className="h-4 w-4" />
+                      {copy.copyClassLink}
+                    </button>
+                  </div>
+                  <div className="mt-4 rounded-[1.5rem] border-2 border-brand-dark bg-brand-dark px-4 py-4 shadow-[3px_3px_0px_0px_#FF5A36]">
+                    <p className="break-all font-mono text-sm font-black leading-7 text-white">
+                      {classAccessLink}
                     </p>
                   </div>
-                </div>
-                <div className="flex flex-col justify-between gap-3">
-                  <button
-                    type="button"
-                    onClick={() => void handleCopyClassLink()}
-                    className="inline-flex min-h-[58px] items-center justify-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-5 py-3 font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
-                  >
-                    <Copy className="h-4 w-4" />
-                    {copy.copyClassLink}
-                  </button>
-                  <div className="rounded-[1.2rem] border border-brand-dark/15 bg-white px-4 py-3 text-sm font-bold leading-6 text-brand-dark/60">
+                  <div className="mt-4 rounded-[1.3rem] border border-brand-dark/15 bg-white px-4 py-4 text-sm font-bold leading-6 text-brand-dark/60">
                     {copiedClassLink ? copy.copiedClassLink : copy.shareHint}
                   </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <EntryStepCard
+                      step="1"
+                      title={language === 'he' ? 'שולחים לתלמידים' : language === 'ar' ? 'ترسله للطلاب' : 'Share it'}
+                      body={language === 'he' ? 'שולחים את הקישור בוואטסאפ, מייל או LMS.' : language === 'ar' ? 'أرسله عبر واتساب أو البريد أو نظام المدرسة.' : 'Send it by WhatsApp, email, or your LMS.'}
+                    />
+                    <EntryStepCard
+                      step="2"
+                      title={language === 'he' ? 'התלמיד נכנס' : language === 'ar' ? 'الطالب يدخل' : 'Student enters'}
+                      body={language === 'he' ? 'נרשם או מתחבר עם המייל שלו.' : language === 'ar' ? 'يسجل أو يدخل ببريده الإلكتروني.' : 'They register or sign in with their email.'}
+                    />
+                    <EntryStepCard
+                      step="3"
+                      title={language === 'he' ? 'הכיתה מופיעה' : language === 'ar' ? 'يظهر الصف' : 'Class appears'}
+                      body={language === 'he' ? 'הכיתה מגיעה לאישור או נפתחת ככיתה פעילה.' : language === 'ar' ? 'يظهر الصف للموافقة أو كصف نشط.' : 'The class appears for approval or as an active class.'}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4">
+                  <HubFeatureCard
+                    icon={<BookOpen className="h-5 w-5 text-brand-orange" />}
+                    label={copy.linkedPack}
+                    title={classPack?.title || copy.noPack}
+                    body={
+                      classPack
+                        ? `${Number(classPack.question_count || 0)} ${language === 'he' ? 'שאלות מוכנות לסשן' : language === 'ar' ? 'أسئلة جاهزة للجلسة' : 'questions ready for class'}`
+                        : (language === 'he'
+                          ? 'כדאי לשייך pack כדי לפתוח סשן חי עם חומר מוגדר.'
+                          : language === 'ar'
+                            ? 'يُفضّل ربط حزمة لفتح جلسة حية بمادة محددة.'
+                            : 'Assign a pack to open a live session with a defined lesson.')
+                    }
+                    tone="light"
+                    action={classPack ? (
+                      <Link
+                        to={`/teacher/packs/${classPack.id}/edit`}
+                        className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-white px-4 py-2 text-sm font-black shadow-[2px_2px_0px_0px_#1A1A1A]"
+                      >
+                        {copy.openPack}
+                      </Link>
+                    ) : null}
+                  />
+                  <HubFeatureCard
+                    icon={<PlayCircle className="h-5 w-5 text-brand-orange" />}
+                    label={copy.liveState}
+                    title={hasOpenLiveRoom ? copy.liveOpen : copy.liveClosed}
+                    body={
+                      hasOpenLiveRoom
+                        ? `${copy.livePin}: ${classBoard.active_session?.pin || ''}`
+                        : (language === 'he'
+                          ? 'כשתפתחו שיעור חי, פרטי הכניסה יופיעו כאן מיד.'
+                          : language === 'ar'
+                            ? 'عند فتح جلسة حية ستظهر تفاصيل الدخول هنا فورًا.'
+                            : 'When you open a live class, the entry details will appear here immediately.')
+                    }
+                    tone={hasOpenLiveRoom ? 'dark' : 'soft'}
+                    action={hasOpenLiveRoom ? (
+                      <button
+                        onClick={handleHost}
+                        disabled={busyKey === 'host'}
+                        className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black text-brand-dark shadow-[2px_2px_0px_0px_#FFFFFF] disabled:opacity-60"
+                      >
+                        {copy.continueLive}
+                      </button>
+                    ) : null}
+                  />
                 </div>
               </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2 xl:col-span-2 xl:grid-cols-1">
-              <MetricTile label={copy.approvalRate} value={`${classBoard.student_count ? Math.round((syncSummary.approved / classBoard.student_count) * 100) : 0}%`} />
-              <MetricTile label={copy.pendingAccess} value={String(syncSummary.pending)} />
-              <MetricTile
-                label={copy.liveState}
-                value={hasOpenLiveRoom ? copy.liveOpen : copy.liveClosed}
-                meta={hasOpenLiveRoom ? `${copy.livePin}: ${classBoard.active_session?.pin || ''}` : null}
-              />
             </div>
           </section>
 
-          <section className={`${classBoard.color} rounded-[2.5rem] border-2 border-brand-dark p-8 shadow-[6px_6px_0px_0px_#1A1A1A]`}>
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <section className={`${classBoard.color} rounded-[2.2rem] border-2 border-brand-dark p-6 shadow-[4px_4px_0px_0px_#1A1A1A]`}>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] opacity-70">
+                <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] opacity-70">
                   {classBoard.subject} • {classBoard.grade}
                 </p>
-                <h1 className="text-4xl font-black md:text-5xl">{classBoard.name}</h1>
-                <p className="mt-3 max-w-3xl text-base font-bold opacity-80">
+                <h1 className="text-3xl font-black md:text-5xl">{classBoard.name}</h1>
+                <p className="mt-2 max-w-3xl text-sm font-bold leading-6 opacity-80 sm:text-base">
                   {classBoard.notes ||
                     (language === 'he'
                       ? 'הדף הזה מרכז את כל ניהול הכיתה: הגדרות, pack, תלמידים, הזמנות, בריאות משלוח וסשנים.'
@@ -1883,9 +2044,9 @@ export default function TeacherClassDetail() {
                         : 'This page centralizes class settings, pack assignment, students, invites, mail health, and sessions.')}
                 </p>
               </div>
-              <div className="min-w-0 rounded-[1.8rem] border-2 border-brand-dark bg-white/80 p-5 lg:min-w-[300px]">
-                <p className="mb-3 text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{copy.settings}</p>
-                <div className="space-y-3 font-black text-brand-dark">
+              <div className="min-w-0 rounded-[1.5rem] border-2 border-brand-dark bg-white/85 p-4 lg:min-w-[300px]">
+                <p className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{copy.settings}</p>
+                <div className="space-y-2.5 text-sm font-black text-brand-dark">
                   <div className="flex items-center justify-between gap-3"><span>{copy.roster}</span><span>{classBoard.student_count}</span></div>
                   <div className="flex items-center justify-between gap-3"><span>{copy.sessions}</span><span>{classStats.session_count}</span></div>
                   <div className="flex items-center justify-between gap-3"><span>{copy.inviteStatus}</span><span>{classBoard.pending_approval_count}</span></div>
@@ -1895,8 +2056,8 @@ export default function TeacherClassDetail() {
             </div>
           </section>
 
-          <section className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
-            <div className="mb-5 flex items-center gap-3">
+          <section className="rounded-[1.8rem] border-2 border-brand-dark bg-white p-5 shadow-[3px_3px_0px_0px_#1A1A1A]">
+            <div className="mb-4 flex items-center gap-3">
               <TrendingUp className="h-6 w-6 text-brand-orange" />
               <div>
                 <h2 className="text-2xl font-black">{copy.progressTitle}</h2>
@@ -1913,9 +2074,9 @@ export default function TeacherClassDetail() {
                 {progressError}
               </div>
             ) : (
-              <div className="space-y-6">
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,auto)]">
-                  <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-4">
+              <div className="space-y-5">
+                <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(280px,auto)]">
+                  <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
                     <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{progressLabels.range}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {[
@@ -1938,7 +2099,7 @@ export default function TeacherClassDetail() {
                     </div>
                   </div>
 
-                  <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-4">
+                  <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
                     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
                       <label className="block">
                         <span className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{progressLabels.sort}</span>
@@ -2349,84 +2510,149 @@ export default function TeacherClassDetail() {
 
           <section className="grid gap-6 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
             <div className="min-w-0 space-y-6">
-              <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <div className="mb-5 flex items-center gap-3">
-                  <Save className="h-6 w-6 text-brand-purple" />
-                  <div>
-                    <h2 className="text-2xl font-black">{copy.settings}</h2>
-                    <p className="text-sm font-bold text-brand-dark/55">{copy.settingsBody}</p>
+              <div className="overflow-hidden rounded-[2rem] border-2 border-brand-dark bg-white shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <div className="border-b-2 border-brand-dark/10 bg-[linear-gradient(135deg,_#F4EEFF_0%,_#FFF9E8_100%)] p-6">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="max-w-3xl">
+                      <div className="mb-3 flex items-center gap-3">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-[1rem] border-2 border-brand-dark bg-white text-brand-purple shadow-[2px_2px_0px_0px_#1A1A1A]">
+                          <Save className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h2 className="text-2xl font-black">{copy.settings}</h2>
+                          <p className="text-sm font-bold text-brand-dark/55">{copy.settingsBody}</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-xs font-black uppercase tracking-[0.16em]">
+                          {copy.className}: {form.name || '--'}
+                        </span>
+                        <span className="rounded-full border-2 border-brand-dark bg-white px-3 py-2 text-xs font-black uppercase tracking-[0.16em]">
+                          {copy.subject}: {form.subject || '--'}
+                        </span>
+                        <span className="rounded-full border-2 border-brand-dark bg-brand-yellow px-3 py-2 text-xs font-black uppercase tracking-[0.16em]">
+                          {copy.grade}: {form.grade || '--'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[340px]">
+                      <CompactInfoCard label={copy.roster} value={String(classBoard.student_count || 0)} />
+                      <CompactInfoCard label={copy.linkedPack} value={classPack ? '1' : '0'} />
+                      <CompactInfoCard label={copy.library} value={String(linkedLessonsCount)} />
+                    </div>
                   </div>
                 </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Field label={copy.className} value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
-                  <Field label={copy.subject} value={form.subject} onChange={(value) => setForm((current) => ({ ...current, subject: value }))} />
-                  <Field label={copy.grade} value={form.grade} onChange={(value) => setForm((current) => ({ ...current, grade: value }))} />
-                  <Field label={copy.grade} value={form.grade} onChange={(value) => setForm((current) => ({ ...current, grade: value }))} />
-                </div>
-                <div className="mt-4">
-                  <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{copy.color}</label>
-                  <div className="flex flex-wrap gap-2">
-                    {TEACHER_CLASS_COLOR_OPTIONS.map((color) => (
-                      <button
-                        key={color}
-                        type="button"
-                        onClick={() => setForm((current) => ({ ...current, color }))}
-                        className={`h-10 w-10 rounded-xl border-2 border-brand-dark ${color} ${
-                          form.color === color ? 'ring-4 ring-brand-orange/30' : ''
-                        }`}
+
+                <div className="space-y-6 p-6">
+                  <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+                    <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
+                      <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">
+                        {language === 'he' ? 'פרטי בסיס' : language === 'ar' ? 'تفاصيل أساسية' : 'Core details'}
+                      </p>
+                      <div className="mt-4 grid gap-4 md:grid-cols-2">
+                        <Field label={copy.className} value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
+                        <Field label={copy.subject} value={form.subject} onChange={(value) => setForm((current) => ({ ...current, subject: value }))} />
+                        <Field label={copy.grade} value={form.grade} onChange={(value) => setForm((current) => ({ ...current, grade: value }))} />
+                        <div className="rounded-xl border-2 border-brand-dark bg-white p-4">
+                          <label className="mb-3 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{copy.color}</label>
+                          <div className="flex flex-wrap gap-2">
+                            {TEACHER_CLASS_COLOR_OPTIONS.map((color) => (
+                              <button
+                                key={color}
+                                type="button"
+                                onClick={() => setForm((current) => ({ ...current, color }))}
+                                className={`h-10 w-10 rounded-xl border-2 border-brand-dark ${color} ${form.color === color ? 'ring-4 ring-brand-orange/30' : ''}`}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[1.6rem] border-2 border-brand-dark bg-[linear-gradient(180deg,_#FFF8E9_0%,_#FFFFFF_100%)] p-5">
+                      <label className="mb-3 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{copy.notes}</label>
+                      <textarea
+                        value={form.notes}
+                        onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+                        className="min-h-40 w-full rounded-xl border-2 border-brand-dark bg-white p-3 font-bold"
+                        placeholder={language === 'he' ? 'למשל: דגשים פדגוגיים, אופי הכיתה, או הנחיות למורים נוספים.' : language === 'ar' ? 'مثال: ملاحظات بيداغوجية، طابع الصف، أو توجيهات لمعلمين آخرين.' : 'For example: class tone, teaching notes, or guidance for other teachers.'}
                       />
-                    ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.6rem] border-2 border-brand-dark bg-white p-5">
+                    <AssistancePolicyEditor
+                      title={language === 'he' ? 'סיוע חכם ברמת הכיתה' : language === 'ar' ? 'المساعدة الذكية على مستوى الصف' : 'Class smart assistance'}
+                      subtitle={
+                        language === 'he'
+                          ? 'זו ברירת המחדל לכל תרגול מותאם ומשימה של הכיתה.'
+                          : language === 'ar'
+                            ? 'هذا هو الإعداد الافتراضي لكل تدريب متكيف ومهمة في الصف.'
+                            : 'This is the default policy for adaptive practice and assignment work in the class.'
+                      }
+                      language={language}
+                      policy={classAssistancePolicy}
+                      onChange={setClassAssistancePolicy}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-3 rounded-[1.4rem] border-2 border-brand-dark bg-brand-dark p-5 text-white sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-yellow">
+                        {language === 'he' ? 'שמירה' : language === 'ar' ? 'الحفظ' : 'Save'}
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-white/75">
+                        {language === 'he'
+                          ? 'שמור/י שינויים רק אחרי שעברת על פרטי הכיתה, ההערות, והסיוע החכם.'
+                          : language === 'ar'
+                            ? 'احفظ التغييرات بعد مراجعة تفاصيل الصف والملاحظات والمساعدة الذكية.'
+                            : 'Save after reviewing the class details, notes, and smart assistance defaults.'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => void handleSaveClass()}
+                      disabled={busyKey === 'save-class'}
+                      className="inline-flex items-center gap-2 rounded-xl border-2 border-brand-dark bg-brand-orange px-5 py-3 font-black text-white shadow-[2px_2px_0px_0px_#FFFFFF] disabled:opacity-60"
+                    >
+                      <Save className="h-4 w-4" />
+                      {busyKey === 'save-class' ? copy.saving : copy.save}
+                    </button>
                   </div>
                 </div>
-                <div className="mt-4">
-                  <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{copy.notes}</label>
-                  <textarea
-                    value={form.notes}
-                    onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-                    className="min-h-28 w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
-                  />
-                </div>
-                <div className="mt-4">
-                  <AssistancePolicyEditor
-                    title={language === 'he' ? 'סיוע חכם ברמת הכיתה' : language === 'ar' ? 'المساعدة الذكية على مستوى الصف' : 'Class smart assistance'}
-                    subtitle={
-                      language === 'he'
-                        ? 'זו ברירת המחדל לכל תרגול מותאם ומשימה של הכיתה.'
-                        : language === 'ar'
-                          ? 'هذا هو الإعداد الافتراضي لكل تدريب متكيف ومهمة في الصف.'
-                          : 'This is the default policy for adaptive practice and assignment work in the class.'
-                    }
-                    language={language}
-                    policy={classAssistancePolicy}
-                    onChange={setClassAssistancePolicy}
-                  />
-                </div>
-                <button
-                  onClick={() => void handleSaveClass()}
-                  disabled={busyKey === 'save-class'}
-                  className="mt-5 inline-flex items-center gap-2 rounded-xl border-2 border-brand-dark bg-brand-orange px-5 py-3 font-black text-white shadow-[2px_2px_0px_0px_#1A1A1A] disabled:opacity-60"
-                >
-                  <Save className="h-4 w-4" />
-                  {busyKey === 'save-class' ? copy.saving : copy.save}
-                </button>
               </div>
 
-              <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <div className="mb-5 flex items-center gap-3">
-                  <CheckCircle2 className="h-6 w-6 text-brand-purple" />
-                  <div>
-                    <h2 className="text-2xl font-black">
-                      {language === 'he' ? 'מצב משימה' : language === 'ar' ? 'وضع المهمة' : 'Assignment mode'}
-                    </h2>
-                    <p className="text-sm font-bold text-brand-dark/55">
-                      {language === 'he'
-                        ? 'שלח לכיתה משימה פעילה עם דדליין ברור וראה מי התחיל, מי סיים, ומי צריך דחיפה.'
-                        : language === 'ar'
-                          ? 'أرسل للصف مهمة نشطة مع موعد نهائي واضح وراقب من بدأ ومن أنهى ومن يحتاج دفعة.'
-                          : 'Send the class a focused assignment with a deadline and track who started, finished, or needs a nudge.'}
-                    </p>
+              <div className="overflow-hidden rounded-[2rem] border-2 border-brand-dark bg-white shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <div className="border-b-2 border-brand-dark/10 bg-[linear-gradient(135deg,_#FFF9E8_0%,_#F3ECFF_100%)] p-6">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="max-w-3xl">
+                      <div className="mb-3 flex items-center gap-3">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-[1rem] border-2 border-brand-dark bg-white text-brand-purple shadow-[2px_2px_0px_0px_#1A1A1A]">
+                          <CheckCircle2 className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h2 className="text-2xl font-black">
+                            {language === 'he' ? 'מצב משימה' : language === 'ar' ? 'وضع المهمة' : 'Assignment mode'}
+                          </h2>
+                          <p className="text-sm font-bold text-brand-dark/55">
+                            {language === 'he'
+                              ? 'שלח לכיתה משימה פעילה עם דדליין ברור וראה מי התחיל, מי סיים, ומי צריך דחיפה.'
+                              : language === 'ar'
+                                ? 'أرسل للصف مهمة نشطة مع موعد نهائي واضح وراقب من بدأ ومن أنهى ومن يحتاج دفعة.'
+                                : 'Send the class a focused assignment with a deadline and track who started, finished, or needs a nudge.'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[360px]">
+                      <CompactInfoCard label={language === 'he' ? 'pack פעיל' : language === 'ar' ? 'الحزمة النشطة' : 'Active pack'} value={classBoard.pack?.title ? 'ON' : 'OFF'} />
+                      <CompactInfoCard label={language === 'he' ? 'משימה פעילה' : language === 'ar' ? 'مهمة نشطة' : 'Live assignment'} value={activeAssignment ? '1' : '0'} />
+                      <CompactInfoCard label={language === 'he' ? 'יעד שאלות' : language === 'ar' ? 'هدف الأسئلة' : 'Question goal'} value={String(assignmentQuestionGoal || activeAssignment?.question_goal || 0)} />
+                    </div>
                   </div>
                 </div>
+
+                <div className="p-6">
 
                 {!classBoard.pack?.id ? (
                   <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-5 font-bold text-brand-dark/70">
@@ -2438,62 +2664,83 @@ export default function TeacherClassDetail() {
                   </div>
                 ) : (
                   <div className="space-y-5">
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <Field
-                        label={language === 'he' ? 'כותרת משימה' : language === 'ar' ? 'عنوان المهمة' : 'Assignment title'}
-                        value={assignmentTitle}
-                        onChange={setAssignmentTitle}
-                      />
-                      <div>
-                        <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">
-                          {language === 'he' ? 'דדליין' : language === 'ar' ? 'الموعد النهائي' : 'Due date'}
-                        </label>
-                        <input
-                          type="datetime-local"
-                          value={assignmentDueAt}
-                          onChange={(event) => setAssignmentDueAt(event.target.value)}
-                          className="w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
-                      <div>
-                        <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">
-                          {language === 'he' ? 'הוראות לתלמיד' : language === 'ar' ? 'تعليمات للطالب' : 'Student instructions'}
-                        </label>
-                        <textarea
-                          value={assignmentInstructions}
-                          onChange={(event) => setAssignmentInstructions(event.target.value)}
-                          className="min-h-28 w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
-                          placeholder={
-                            language === 'he'
-                              ? 'לדוגמה: תענו על 8 שאלות לפני מחר ותתרכזו באותו חומר שתרגלנו בכיתה.'
-                              : language === 'ar'
-                                ? 'مثال: أجيبوا عن 8 أسئلة قبل الغد وركزوا على نفس المادة التي تدربنا عليها في الصف.'
-                                : 'Example: answer 8 questions before tomorrow and stay focused on the material we covered in class.'
-                          }
-                        />
-                      </div>
-                      <div>
-                        <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">
-                          {language === 'he' ? 'יעד שאלות' : language === 'ar' ? 'هدف الأسئلة' : 'Question goal'}
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          max="50"
-                          value={assignmentQuestionGoal}
-                          onChange={(event) => setAssignmentQuestionGoal(event.target.value)}
-                          className="w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
-                        />
-                        <p className="mt-2 text-sm font-bold text-brand-dark/55">
-                          {language === 'he'
-                            ? `המשימה תתבסס על ${classBoard.pack.title}`
-                            : language === 'ar'
-                              ? `المهمة ستعتمد على ${classBoard.pack.title}`
-                              : `Assignment will use ${classBoard.pack.title}`}
+                    <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+                      <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-5">
+                        <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">
+                          {language === 'he' ? 'בניית המשימה' : language === 'ar' ? 'بناء المهمة' : 'Build the assignment'}
                         </p>
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <Field
+                            label={language === 'he' ? 'כותרת משימה' : language === 'ar' ? 'عنوان المهمة' : 'Assignment title'}
+                            value={assignmentTitle}
+                            onChange={setAssignmentTitle}
+                          />
+                          <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">
+                              {language === 'he' ? 'דדליין' : language === 'ar' ? 'الموعد النهائي' : 'Due date'}
+                            </label>
+                            <input
+                              type="datetime-local"
+                              value={assignmentDueAt}
+                              onChange={(event) => setAssignmentDueAt(event.target.value)}
+                              className="w-full rounded-xl border-2 border-brand-dark bg-white p-3 font-bold"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
+                          <div>
+                            <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">
+                              {language === 'he' ? 'הוראות לתלמיד' : language === 'ar' ? 'تعليمات للطالب' : 'Student instructions'}
+                            </label>
+                            <textarea
+                              value={assignmentInstructions}
+                              onChange={(event) => setAssignmentInstructions(event.target.value)}
+                              className="min-h-28 w-full rounded-xl border-2 border-brand-dark bg-white p-3 font-bold"
+                              placeholder={
+                                language === 'he'
+                                  ? 'לדוגמה: תענו על 8 שאלות לפני מחר ותתרכזו באותו חומר שתרגלנו בכיתה.'
+                                  : language === 'ar'
+                                    ? 'مثال: أجيبوا عن 8 أسئلة قبل الغد وركزوا على نفس المادة التي تدربنا عليها في الصف.'
+                                    : 'Example: answer 8 questions before tomorrow and stay focused on the material we covered in class.'
+                              }
+                            />
+                          </div>
+                          <div className="rounded-xl border-2 border-brand-dark bg-white p-4">
+                            <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">
+                              {language === 'he' ? 'יעד שאלות' : language === 'ar' ? 'هدف الأسئلة' : 'Question goal'}
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="50"
+                              value={assignmentQuestionGoal}
+                              onChange={(event) => setAssignmentQuestionGoal(event.target.value)}
+                              className="w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
+                            />
+                            <p className="mt-3 text-sm font-bold leading-6 text-brand-dark/55">
+                              {language === 'he'
+                                ? `המשימה תתבסס על ${classBoard.pack.title}`
+                                : language === 'ar'
+                                  ? `المهمة ستعتمد على ${classBoard.pack.title}`
+                                  : `Assignment will use ${classBoard.pack.title}`}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-dark p-5 text-white shadow-[4px_4px_0px_0px_#FF5A36]">
+                        <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-yellow">
+                          {language === 'he' ? 'תמונת משימה' : language === 'ar' ? 'صورة المهمة' : 'Assignment snapshot'}
+                        </p>
+                        <p className="mt-3 text-2xl font-black leading-tight">
+                          {assignmentTitle || (activeAssignment?.title || (language === 'he' ? 'עדיין אין כותרת למשימה' : language === 'ar' ? 'لا يوجد عنوان للمهمة بعد' : 'No assignment title yet'))}
+                        </p>
+                        <div className="mt-4 space-y-3 text-sm font-bold text-white/78">
+                          <p>{language === 'he' ? 'pack פעיל' : language === 'ar' ? 'الحزمة النشطة' : 'Active pack'}: {classBoard.pack.title}</p>
+                          <p>{language === 'he' ? 'דדליין' : language === 'ar' ? 'الموعد النهائي' : 'Due'}: {assignmentDueAt ? formatDueDateTime(new Date(assignmentDueAt).toISOString(), language) : '--'}</p>
+                          <p>{language === 'he' ? 'יעד' : language === 'ar' ? 'الهدف' : 'Goal'}: {assignmentQuestionGoal || '--'}</p>
+                        </div>
                       </div>
                     </div>
 
@@ -2511,7 +2758,7 @@ export default function TeacherClassDetail() {
                       onChange={setAssignmentAssistancePolicy}
                     />
 
-                    <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border-2 border-brand-dark bg-white p-4">
                       <button
                         type="button"
                         onClick={() => void handleSaveAssignment()}
@@ -2685,18 +2932,31 @@ export default function TeacherClassDetail() {
                     ) : null}
                   </div>
                 )}
+                </div>
               </div>
 
-              <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <div className="mb-5 flex items-center gap-3">
-                  <Users className="h-6 w-6 text-brand-orange" />
-                  <div>
-                    <h2 className="text-2xl font-black">{copy.roster}</h2>
-                    <p className="text-sm font-bold text-brand-dark/55">{copy.rosterBody}</p>
+              <div className="overflow-hidden rounded-[2rem] border-2 border-brand-dark bg-white shadow-[4px_4px_0px_0px_#1A1A1A]">
+                <div className="border-b-2 border-brand-dark/10 bg-[linear-gradient(135deg,_#FFF8E9_0%,_#EEF4FB_100%)] p-6">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="max-w-3xl">
+                      <div className="mb-3 flex items-center gap-3">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-[1rem] border-2 border-brand-dark bg-white text-brand-orange shadow-[2px_2px_0px_0px_#1A1A1A]">
+                          <Users className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h2 className="text-2xl font-black">{copy.roster}</h2>
+                          <p className="text-sm font-bold text-brand-dark/55">{copy.rosterBody}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[360px]">
+                      <CompactInfoCard label={copy.roster} value={String(classBoard.student_count || 0)} />
+                      <CompactInfoCard label={copy.approvedStudents} value={String(syncSummary.approved)} />
+                      <CompactInfoCard label={copy.pendingStudents} value={String(syncSummary.pending)} />
+                    </div>
                   </div>
-                </div>
 
-                <div className="mb-4 flex flex-wrap gap-2">
+                  <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => void handleResendAllPendingInvites()}
@@ -2731,34 +2991,38 @@ export default function TeacherClassDetail() {
                       {language === 'he' ? `הסר ${selectedRosterStudentIds.length}` : language === 'ar' ? `إزالة ${selectedRosterStudentIds.length}` : `Remove ${selectedRosterStudentIds.length}`}
                     </button>
                   ) : null}
+                  </div>
                 </div>
 
-                <div className="mb-5 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-                  <input
-                    value={studentName}
-                    onChange={(event) => setStudentName(event.target.value)}
-                    placeholder={copy.studentName}
-                    className="rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
-                  />
-                  <input
-                    value={studentEmail}
-                    onChange={(event) => setStudentEmail(event.target.value)}
-                    placeholder={copy.studentEmail}
-                    className="rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
-                  />
-                  <button
-                    onClick={() => void handleAddStudent()}
-                    disabled={busyKey === 'add-student'}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-brand-dark bg-brand-yellow px-4 font-black disabled:opacity-60"
-                  >
-                    <UserPlus className="h-4 w-4" />
-                    {copy.addStudent}
-                  </button>
-                </div>
+                <div className="space-y-5 p-6">
+                  <div className="rounded-[1.6rem] border-2 border-brand-dark bg-brand-bg p-4">
+                    <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                      <input
+                        value={studentName}
+                        onChange={(event) => setStudentName(event.target.value)}
+                        placeholder={copy.studentName}
+                        className="rounded-xl border-2 border-brand-dark bg-white p-3 font-bold"
+                      />
+                      <input
+                        value={studentEmail}
+                        onChange={(event) => setStudentEmail(event.target.value)}
+                        placeholder={copy.studentEmail}
+                        className="rounded-xl border-2 border-brand-dark bg-white p-3 font-bold"
+                      />
+                      <button
+                        onClick={() => void handleAddStudent()}
+                        disabled={busyKey === 'add-student'}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-brand-dark bg-brand-yellow px-4 font-black disabled:opacity-60"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                        {copy.addStudent}
+                      </button>
+                    </div>
+                  </div>
 
-                <div className="space-y-3">
+                  <div className="space-y-3">
                   {classBoard.students.map((student) => (
-                    <div key={student.id} className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
+                    <div key={student.id} className="rounded-[1.6rem] border-2 border-brand-dark bg-[linear-gradient(180deg,_#FFF9EA_0%,_#FFFFFF_100%)] p-4 shadow-[2px_2px_0px_0px_#1A1A1A]">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="flex items-start gap-3">
                           <input
@@ -2768,8 +3032,8 @@ export default function TeacherClassDetail() {
                             className="mt-1 h-5 w-5 rounded border-2 border-brand-dark"
                           />
                           <div>
-                          <p className="text-xl font-black">{student.name}</p>
-                          {student.email ? <p className="font-bold text-brand-dark/65">{student.email}</p> : null}
+                            <p className="text-xl font-black">{student.name}</p>
+                            {student.email ? <p className="font-bold text-brand-dark/65">{student.email}</p> : null}
                           </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -2815,18 +3079,21 @@ export default function TeacherClassDetail() {
                       </div>
                     </div>
                   ))}
+                  </div>
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <div className="mb-5 flex items-center gap-3">
-                  <PlayCircle className="h-6 w-6 text-brand-orange" />
-                  <h2 className="text-2xl font-black">{copy.sessions}</h2>
+              <div className="overflow-hidden rounded-[1.8rem] border-2 border-brand-dark bg-white shadow-[3px_3px_0px_0px_#1A1A1A]">
+                <div className="border-b-2 border-brand-dark/10 bg-[linear-gradient(135deg,_#FFF8E9_0%,_#FFFFFF_100%)] px-5 py-4">
+                  <div className="flex items-center gap-3">
+                    <PlayCircle className="h-5 w-5 text-brand-orange" />
+                    <h2 className="text-xl font-black">{copy.sessions}</h2>
+                  </div>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-3 p-5">
                   {recentSessions.length > 0 ? (
                     recentSessions.map((session) => (
-                      <div key={session.id} className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
+                      <div key={session.id} className="rounded-[1.3rem] border-2 border-brand-dark bg-brand-bg p-4">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
                             <p className="text-xl font-black">Session #{session.id}</p>
@@ -2863,12 +3130,15 @@ export default function TeacherClassDetail() {
             </div>
 
             <div className="min-w-0 space-y-6">
-              <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <div className="mb-5 flex items-center gap-3">
-                  <AlertTriangle className="h-6 w-6 text-brand-orange" />
-                  <h2 className="text-2xl font-black">{copy.mailHealth}</h2>
+              <div className="overflow-hidden rounded-[1.8rem] border-2 border-brand-dark bg-white shadow-[3px_3px_0px_0px_#1A1A1A]">
+                <div className="border-b-2 border-brand-dark/10 bg-[linear-gradient(135deg,_#FFF8E9_0%,_#FFFFFF_100%)] px-5 py-4">
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle className="h-5 w-5 text-brand-orange" />
+                    <h2 className="text-xl font-black">{copy.mailHealth}</h2>
+                  </div>
                 </div>
-                <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-5">
+                <div className="p-5">
+                <div className="rounded-[1.3rem] border-2 border-brand-dark bg-brand-bg p-4">
                   <p className="text-xl font-black">
                     {mailHealth.configured ? copy.mailReady : copy.mailMissing}
                   </p>
@@ -2881,21 +3151,24 @@ export default function TeacherClassDetail() {
                     <p className="mt-3 text-sm font-bold text-brand-dark/60">{mailHealth.hint}</p>
                   ) : null}
                 </div>
+                </div>
               </div>
 
-              <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <div className="mb-5 flex items-center gap-3">
-                  <Mail className="h-6 w-6 text-brand-orange" />
-                  <div>
-                    <h2 className="text-2xl font-black">{copy.followUpTitle}</h2>
-                    <p className="text-sm font-bold text-brand-dark/55">{copy.followUpBody}</p>
+              <div className="overflow-hidden rounded-[1.8rem] border-2 border-brand-dark bg-white shadow-[3px_3px_0px_0px_#1A1A1A]">
+                <div className="border-b-2 border-brand-dark/10 bg-[linear-gradient(135deg,_#FFF8E9_0%,_#FFFFFF_100%)] px-5 py-4">
+                  <div className="flex items-center gap-3">
+                    <Mail className="h-5 w-5 text-brand-orange" />
+                    <div>
+                      <h2 className="text-xl font-black">{copy.followUpTitle}</h2>
+                      <p className="text-sm font-bold text-brand-dark/55">{copy.followUpBody}</p>
+                    </div>
                   </div>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-3 p-5">
                   {followUpQueue.length > 0 ? (
                     followUpQueue.map((student: any) => (
-                      <div key={`followup-${student.id}`} className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
+                      <div key={`followup-${student.id}`} className="rounded-[1.3rem] border-2 border-brand-dark bg-brand-bg p-4">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
                             <p className="text-lg font-black">{student.name}</p>
@@ -2939,16 +3212,19 @@ export default function TeacherClassDetail() {
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <div className="mb-5 flex items-center gap-3">
-                  <CheckCircle2 className="h-6 w-6 text-brand-purple" />
-                  <div>
-                    <h2 className="text-2xl font-black">{copy.syncTitle}</h2>
-                    <p className="text-sm font-bold text-brand-dark/55">{copy.syncBody}</p>
+              <div className="overflow-hidden rounded-[1.8rem] border-2 border-brand-dark bg-white shadow-[3px_3px_0px_0px_#1A1A1A]">
+                <div className="border-b-2 border-brand-dark/10 bg-[linear-gradient(135deg,_#F4EEFF_0%,_#FFFFFF_100%)] px-5 py-4">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="h-5 w-5 text-brand-purple" />
+                    <div>
+                      <h2 className="text-xl font-black">{copy.syncTitle}</h2>
+                      <p className="text-sm font-bold text-brand-dark/55">{copy.syncBody}</p>
+                    </div>
                   </div>
                 </div>
 
-                <div className="mb-5 grid grid-cols-2 gap-3">
+                <div className="p-5">
+                <div className="mb-4 grid grid-cols-2 gap-3">
                   {[
                     { label: copy.linkedAccounts, value: syncSummary.linked },
                     { label: copy.approvedStudents, value: syncSummary.approved },
@@ -2965,7 +3241,7 @@ export default function TeacherClassDetail() {
                 <div className="space-y-3">
                   {studentSyncRows.length > 0 ? (
                     studentSyncRows.map((student) => (
-                      <div key={`sync-${student.id}`} className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-4">
+                      <div key={`sync-${student.id}`} className="rounded-[1.3rem] border-2 border-brand-dark bg-brand-bg p-4">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
                             <p className="text-lg font-black">{student.name}</p>
@@ -3013,6 +3289,7 @@ export default function TeacherClassDetail() {
                   ) : (
                     <p className="font-bold text-brand-dark/60">{copy.noSyncRows}</p>
                   )}
+                </div>
                 </div>
               </div>
 
@@ -3152,12 +3429,15 @@ export default function TeacherClassDetail() {
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <div className="mb-5 flex items-center gap-3">
-                  <Sparkles className="h-6 w-6 text-brand-orange" />
-                  <h2 className="text-2xl font-black">{copy.retention}</h2>
+              <div className="overflow-hidden rounded-[1.8rem] border-2 border-brand-dark bg-white shadow-[3px_3px_0px_0px_#1A1A1A]">
+                <div className="border-b-2 border-brand-dark/10 bg-[linear-gradient(135deg,_#FFF8E9_0%,_#FFFFFF_100%)] px-5 py-4">
+                  <div className="flex items-center gap-3">
+                    <Sparkles className="h-5 w-5 text-brand-orange" />
+                    <h2 className="text-xl font-black">{copy.retention}</h2>
+                  </div>
                 </div>
-                <div className="rounded-[1.4rem] border-2 border-brand-dark bg-brand-bg p-5">
+                <div className="p-5">
+                <div className="rounded-[1.3rem] border-2 border-brand-dark bg-brand-bg p-4">
                   <p className="text-xl font-black">{translatedRetentionHeadline}</p>
                   <p className="mt-2 font-bold text-brand-dark/65">{translatedRetentionBody}</p>
                   <div className="mt-4 flex flex-wrap gap-2 text-xs font-black uppercase">
@@ -3177,14 +3457,19 @@ export default function TeacherClassDetail() {
                     </div>
                   ) : null}
                 </div>
+                </div>
               </div>
 
-              <div className="rounded-[2rem] border-2 border-brand-dark bg-white p-6 shadow-[4px_4px_0px_0px_#1A1A1A]">
-                <div className="mb-5 flex items-center gap-3">
-                  <Clock3 className="h-6 w-6 text-brand-orange" />
-                  <h2 className="text-2xl font-black">{copy.notes}</h2>
+              <div className="overflow-hidden rounded-[1.8rem] border-2 border-brand-dark bg-white shadow-[3px_3px_0px_0px_#1A1A1A]">
+                <div className="border-b-2 border-brand-dark/10 bg-[linear-gradient(135deg,_#FFF8E9_0%,_#FFFFFF_100%)] px-5 py-4">
+                  <div className="flex items-center gap-3">
+                    <Clock3 className="h-5 w-5 text-brand-orange" />
+                    <h2 className="text-xl font-black">{copy.notes}</h2>
+                  </div>
                 </div>
-                <p className="whitespace-pre-wrap font-bold text-brand-dark/70">{classBoard.notes || copy.noNotes}</p>
+                <div className="p-5">
+                  <p className="whitespace-pre-wrap text-sm font-bold leading-6 text-brand-dark/70">{classBoard.notes || copy.noNotes}</p>
+                </div>
               </div>
             </div>
           </section>
@@ -3205,11 +3490,11 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-brand-dark/50">{label}</label>
+      <label className="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/50">{label}</label>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-xl border-2 border-brand-dark bg-brand-bg p-3 font-bold"
+        className="w-full rounded-xl border-2 border-brand-dark bg-brand-bg px-3 py-2.5 text-sm font-bold"
       />
     </div>
   );
@@ -3225,10 +3510,10 @@ function SyncEvent({
   meta: string;
 }) {
   return (
-    <div className="rounded-[1rem] border border-brand-dark/10 bg-white px-3 py-3">
-      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-dark/40">{label}</p>
-      <p className="mt-1 text-sm font-black text-brand-dark">{state}</p>
-      <p className="mt-1 text-sm font-bold text-brand-dark/55">{meta}</p>
+    <div className="rounded-[0.95rem] border border-brand-dark/10 bg-white px-3 py-2.5">
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-brand-dark/40">{label}</p>
+      <p className="mt-1 text-sm font-black leading-tight text-brand-dark">{state}</p>
+      <p className="mt-1 text-xs font-bold leading-5 text-brand-dark/55">{meta}</p>
     </div>
   );
 }
@@ -3243,12 +3528,117 @@ function MetricTile({
   meta?: string | null;
 }) {
   return (
-    <div className="flex min-h-[122px] flex-col justify-between rounded-[2rem] border-2 border-brand-dark bg-white p-5 shadow-[4px_4px_0px_0px_#1A1A1A]">
-      <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{label}</p>
-      <div className="mt-3">
+    <div className="flex min-h-[104px] flex-col justify-between rounded-[1.5rem] border-2 border-brand-dark bg-white p-4 shadow-[2px_2px_0px_0px_#1A1A1A]">
+      <p className="text-[11px] font-black uppercase tracking-[0.16em] text-brand-dark/45">{label}</p>
+      <div className="mt-2">
         <p className="text-2xl font-black leading-tight text-brand-dark">{value}</p>
-        {meta ? <p className="mt-2 text-sm font-bold leading-6 text-brand-dark/60">{meta}</p> : null}
+        {meta ? <p className="mt-1.5 text-xs font-bold leading-5 text-brand-dark/60">{meta}</p> : null}
       </div>
+    </div>
+  );
+}
+
+function CompactInfoCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-[1.2rem] border-2 border-brand-dark bg-white p-3.5 shadow-[2px_2px_0px_0px_#1A1A1A]">
+      <p className="text-[11px] font-black uppercase tracking-[0.16em] text-brand-dark/45">{label}</p>
+      <p className="mt-2 text-3xl font-black leading-tight text-brand-dark">{value}</p>
+    </div>
+  );
+}
+
+function HubStatCard({
+  label,
+  value,
+  meta,
+  tone,
+}: {
+  label: string;
+  value: string;
+  meta: string;
+  tone: 'yellow' | 'purple' | 'slate';
+}) {
+  const toneClass =
+    tone === 'purple'
+      ? 'bg-[linear-gradient(135deg,_rgba(180,136,255,0.24),_rgba(255,255,255,0.98))]'
+      : tone === 'slate'
+        ? 'bg-[linear-gradient(135deg,_rgba(26,26,26,0.08),_rgba(255,255,255,0.98))]'
+        : 'bg-[linear-gradient(135deg,_rgba(255,209,59,0.28),_rgba(255,255,255,0.98))]';
+
+  return (
+    <div className={`rounded-[1.4rem] border-2 border-brand-dark p-4 shadow-[2px_2px_0px_0px_#1A1A1A] ${toneClass}`}>
+      <p className="text-[11px] font-black uppercase tracking-[0.18em] text-brand-dark/50">{label}</p>
+      <p className="mt-2 text-3xl font-black leading-tight text-brand-dark">{value}</p>
+      <p className="mt-1.5 text-xs font-bold leading-5 text-brand-dark/60">{meta}</p>
+    </div>
+  );
+}
+
+function HubFeatureCard({
+  icon,
+  label,
+  title,
+  body,
+  tone,
+  action,
+}: {
+  icon: ReactNode;
+  label: string;
+  title: string;
+  body: string;
+  tone: 'light' | 'soft' | 'dark';
+  action?: ReactNode;
+}) {
+  const toneClass =
+    tone === 'dark'
+      ? 'bg-brand-dark text-white'
+      : tone === 'soft'
+        ? 'bg-[linear-gradient(135deg,_rgba(26,26,26,0.06),_rgba(255,255,255,1))] text-brand-dark'
+        : 'bg-[linear-gradient(135deg,_rgba(255,248,233,1),_rgba(255,255,255,1))] text-brand-dark';
+
+  return (
+    <div className={`rounded-[1.55rem] border-2 border-brand-dark p-4 shadow-[2px_2px_0px_0px_#1A1A1A] ${toneClass}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className={`flex h-11 w-11 items-center justify-center rounded-full border-2 border-brand-dark ${tone === 'dark' ? 'bg-white text-brand-dark' : 'bg-white'}`}>
+            {icon}
+          </div>
+          <div>
+            <p className={`text-xs font-black uppercase tracking-[0.18em] ${tone === 'dark' ? 'text-white/60' : 'text-brand-dark/45'}`}>{label}</p>
+            <p className="mt-1 text-lg font-black leading-tight">{title}</p>
+          </div>
+        </div>
+      </div>
+      <p className={`mt-3 text-sm font-bold leading-6 ${tone === 'dark' ? 'text-white/78' : 'text-brand-dark/65'}`}>{body}</p>
+      {action ? <div className="mt-3">{action}</div> : null}
+    </div>
+  );
+}
+
+function EntryStepCard({
+  step,
+  title,
+  body,
+}: {
+  step: string;
+  title: string;
+  body: string;
+}) {
+  return (
+    <div className="rounded-[1.2rem] border-2 border-brand-dark bg-white p-3.5 shadow-[2px_2px_0px_0px_#1A1A1A]">
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-brand-dark bg-brand-yellow text-sm font-black text-brand-dark">
+          {step}
+        </div>
+        <p className="text-sm font-black uppercase tracking-[0.16em] text-brand-dark/55">{title}</p>
+      </div>
+      <p className="mt-2.5 text-xs font-bold leading-5 text-brand-dark/65 sm:text-sm sm:leading-6">{body}</p>
     </div>
   );
 }
@@ -3272,10 +3662,10 @@ function ProgressInsightCard({
         : 'bg-[#FFF5CC]';
 
   return (
-    <div className={`rounded-[1.6rem] border-2 border-brand-dark p-4 shadow-[3px_3px_0px_0px_#1A1A1A] ${toneClass}`}>
-      <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-dark/45">{title}</p>
-      <p className="mt-3 text-2xl font-black text-brand-dark">{value}</p>
-      <p className="mt-2 text-sm font-bold text-brand-dark/60">{meta}</p>
+    <div className={`rounded-[1.4rem] border-2 border-brand-dark p-4 shadow-[2px_2px_0px_0px_#1A1A1A] ${toneClass}`}>
+      <p className="text-[11px] font-black uppercase tracking-[0.16em] text-brand-dark/45">{title}</p>
+      <p className="mt-2 text-2xl font-black text-brand-dark">{value}</p>
+      <p className="mt-1.5 text-xs font-bold leading-5 text-brand-dark/60">{meta}</p>
     </div>
   );
 }

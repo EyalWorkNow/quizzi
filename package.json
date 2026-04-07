@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx server.ts",
-    "dev": "node --watch --watch-path=server.ts --watch-path=src --watch-path=vite.config.ts --watch-path=package.json --import tsx server.ts",
+    "dev": "tsx watch server.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
