@@ -124,9 +124,41 @@ export type TeacherClassWorkspace = TeacherClassBase & {
   students: TeacherClassStudentRecord[];
   recent_sessions: TeacherClassSessionSummary[];
   mail_health: MailHealth;
+  self_practice_board?: TeacherClassSelfPracticeBoard;
 };
 
 export type TeacherClassBoard = TeacherClassWorkspace;
+
+export type TeacherClassSelfPracticeStudent = {
+  student_id: number;
+  name: string;
+  email: string;
+  account_linked: boolean;
+  last_practice_at: string | null;
+  latest_mode: 'adaptive' | 'lesson' | null;
+  latest_mission_label: string | null;
+  practice_days_7d: number;
+  attempts_7d: number;
+  total_attempts: number;
+  adaptive_attempts: number;
+  adaptive_attempts_7d: number;
+  adaptive_accuracy_pct: number | null;
+  lesson_attempts: number;
+  lesson_attempts_7d: number;
+  lesson_accuracy_pct: number | null;
+};
+
+export type TeacherClassSelfPracticeBoard = {
+  summary: {
+    active_students_7d: number;
+    attempts_7d: number;
+    adaptive_attempts_7d: number;
+    lesson_attempts_7d: number;
+    accuracy_pct_7d: number | null;
+    latest_activity_at: string | null;
+  };
+  students: TeacherClassSelfPracticeStudent[];
+};
 
 export type StudentClassWorkspace = {
   id: number;

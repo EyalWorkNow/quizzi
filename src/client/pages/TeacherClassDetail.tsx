@@ -1610,6 +1610,103 @@ export default function TeacherClassDetail() {
       reason: translatedReason,
     };
   });
+  const selfPracticeBoard = classBoard.self_practice_board || {
+    summary: {
+      active_students_7d: 0,
+      attempts_7d: 0,
+      adaptive_attempts_7d: 0,
+      lesson_attempts_7d: 0,
+      accuracy_pct_7d: null,
+      latest_activity_at: null,
+    },
+    students: [],
+  };
+  const selfPracticeSummary = selfPracticeBoard.summary || {
+    active_students_7d: 0,
+    attempts_7d: 0,
+    adaptive_attempts_7d: 0,
+    lesson_attempts_7d: 0,
+    accuracy_pct_7d: null,
+    latest_activity_at: null,
+  };
+  const selfPracticeStudents = Array.isArray(selfPracticeBoard.students) ? selfPracticeBoard.students : [];
+  const selfPracticeNeedsAttention = selfPracticeStudents.filter(
+    (student) => Boolean(student.account_linked) && Number(student.attempts_7d || 0) === 0,
+  ).length;
+  const homePracticeCopy = {
+    he: {
+      title: 'אימון עצמי בבית',
+      body: 'כאן רואים מי ממשיך לתרגל בבית על השיעור האדפטיבי ועל החזרה לשיעור, מי חזר לאחרונה, ומי צריך דחיפה.',
+      activeStudents: 'פעילים ב-7 הימים האחרונים',
+      adaptive7d: 'ניסיונות אדפטיביים',
+      lesson7d: 'ניסיונות חזרה',
+      accuracy7d: 'דיוק ביתי',
+      lastRecorded: 'פעילות אחרונה שנרשמה',
+      needsAttention: 'צריכים דחיפה',
+      empty: 'ברגע שתלמידים יתחילו לתרגל מהכיתה, המעקב הביתי יופיע כאן.',
+      activeNow: 'בתנועה',
+      coolingOff: 'שקט כרגע',
+      notStarted: 'עוד לא התחיל',
+      waitingLink: 'מחכה לחשבון',
+      daysActive: 'ימי תרגול',
+      latestMode: 'מה עשה לאחרונה',
+      latestMission: 'שיעור / משימה אחרונים',
+      adaptiveLabel: 'אדפטיבי',
+      lessonLabel: 'חזרה על השיעור',
+      attempts7dLabel: 'ב-7 ימים',
+      totalAttempts: 'סה"כ',
+      noMission: 'עדיין אין הקשר שמור',
+      noMode: 'עדיין אין מצב',
+    },
+    ar: {
+      title: 'التدرّب الذاتي في البيت',
+      body: 'هنا ترى من يواصل التدرّب في البيت على المسار التكيفي وعلى مراجعة الدرس، ومن عاد مؤخرًا، ومن يحتاج دفعة.',
+      activeStudents: 'نشطون خلال 7 أيام',
+      adaptive7d: 'محاولات تكيفية',
+      lesson7d: 'محاولات مراجعة',
+      accuracy7d: 'دقة منزلية',
+      lastRecorded: 'آخر نشاط مسجل',
+      needsAttention: 'يحتاجون دفعة',
+      empty: 'بمجرد أن يبدأ الطلاب التدرّب من داخل الصف، سيظهر التتبع المنزلي هنا.',
+      activeNow: 'في حركة',
+      coolingOff: 'هادئ الآن',
+      notStarted: 'لم يبدأ بعد',
+      waitingLink: 'بانتظار ربط الحساب',
+      daysActive: 'أيام تدريب',
+      latestMode: 'آخر ما فعله',
+      latestMission: 'آخر درس / مهمة',
+      adaptiveLabel: 'تكيفي',
+      lessonLabel: 'مراجعة الدرس',
+      attempts7dLabel: 'خلال 7 أيام',
+      totalAttempts: 'الإجمالي',
+      noMission: 'لا يوجد سياق محفوظ بعد',
+      noMode: 'لا يوجد وضع بعد',
+    },
+    en: {
+      title: 'At-Home Practice',
+      body: 'See who is continuing at home on adaptive practice and lesson review, who came back recently, and who needs a nudge.',
+      activeStudents: 'Active in the last 7 days',
+      adaptive7d: 'Adaptive attempts',
+      lesson7d: 'Review attempts',
+      accuracy7d: 'Home accuracy',
+      lastRecorded: 'Latest recorded activity',
+      needsAttention: 'Need a nudge',
+      empty: 'Once students start practicing from this class, their home practice trail will appear here.',
+      activeNow: 'In motion',
+      coolingOff: 'Quiet now',
+      notStarted: 'Not started yet',
+      waitingLink: 'Waiting for account',
+      daysActive: 'Practice days',
+      latestMode: 'Latest mode',
+      latestMission: 'Latest lesson / mission',
+      adaptiveLabel: 'Adaptive',
+      lessonLabel: 'Lesson review',
+      attempts7dLabel: 'Last 7 days',
+      totalAttempts: 'Total',
+      noMission: 'No saved context yet',
+      noMode: 'No mode yet',
+    },
+  }[language];
   const recentSessions = Array.isArray(classBoard.recent_sessions) ? classBoard.recent_sessions : [];
   const classProgressSeries = Array.isArray(progressBoard?.class_series) ? progressBoard.class_series : [];
   const progressStudents = Array.isArray(progressBoard?.students) ? progressBoard.students : [];
@@ -3151,6 +3248,125 @@ export default function TeacherClassDetail() {
                     <p className="mt-3 text-sm font-bold text-brand-dark/60">{mailHealth.hint}</p>
                   ) : null}
                 </div>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-[1.8rem] border-2 border-brand-dark bg-white shadow-[3px_3px_0px_0px_#1A1A1A]">
+                <div className="border-b-2 border-brand-dark/10 bg-[linear-gradient(135deg,_#F4EEFF_0%,_#FFF8E9_100%)] px-5 py-4">
+                  <div className="flex items-center gap-3">
+                    <TrendingUp className="h-5 w-5 text-brand-orange" />
+                    <div>
+                      <h2 className="text-xl font-black">{homePracticeCopy.title}</h2>
+                      <p className="text-sm font-bold text-brand-dark/55">{homePracticeCopy.body}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4 p-5">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <MetricTile
+                      label={homePracticeCopy.activeStudents}
+                      value={String(selfPracticeSummary.active_students_7d || 0)}
+                      meta={`${homePracticeCopy.needsAttention}: ${selfPracticeNeedsAttention}`}
+                    />
+                    <MetricTile
+                      label={homePracticeCopy.adaptive7d}
+                      value={String(selfPracticeSummary.adaptive_attempts_7d || 0)}
+                      meta={`${homePracticeCopy.lesson7d}: ${selfPracticeSummary.lesson_attempts_7d || 0}`}
+                    />
+                    <MetricTile
+                      label={homePracticeCopy.lesson7d}
+                      value={String(selfPracticeSummary.lesson_attempts_7d || 0)}
+                      meta={`${homePracticeCopy.needsAttention}: ${selfPracticeNeedsAttention}`}
+                    />
+                    <MetricTile
+                      label={homePracticeCopy.accuracy7d}
+                      value={
+                        selfPracticeSummary.accuracy_pct_7d !== null && selfPracticeSummary.accuracy_pct_7d !== undefined
+                          ? `${selfPracticeSummary.accuracy_pct_7d}%`
+                          : '--'
+                      }
+                      meta={
+                        selfPracticeSummary.latest_activity_at
+                          ? `${homePracticeCopy.lastRecorded}: ${formatRelativeTime(selfPracticeSummary.latest_activity_at)}`
+                          : homePracticeCopy.empty
+                      }
+                    />
+                  </div>
+
+                  {selfPracticeStudents.length > 0 ? (
+                    <div className="space-y-3">
+                      {selfPracticeStudents.map((student) => {
+                        const statusLabel = !student.account_linked
+                          ? homePracticeCopy.waitingLink
+                          : Number(student.attempts_7d || 0) > 0
+                            ? homePracticeCopy.activeNow
+                            : Number(student.total_attempts || 0) > 0
+                              ? homePracticeCopy.coolingOff
+                              : homePracticeCopy.notStarted;
+                        const statusTone = !student.account_linked
+                          ? 'bg-white'
+                          : Number(student.attempts_7d || 0) > 0
+                            ? 'bg-[#E8FFF4]'
+                            : Number(student.total_attempts || 0) > 0
+                              ? 'bg-[#FFF5CC]'
+                              : 'bg-[#FFE5E5]';
+                        const latestModeLabel = student.latest_mode === 'lesson'
+                          ? homePracticeCopy.lessonLabel
+                          : student.latest_mode === 'adaptive'
+                            ? homePracticeCopy.adaptiveLabel
+                            : homePracticeCopy.noMode;
+
+                        return (
+                          <div key={`self-practice-${student.student_id}`} className="rounded-[1.3rem] border-2 border-brand-dark bg-brand-bg p-4">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-lg font-black text-brand-dark">{student.name}</p>
+                                <p className="truncate text-sm font-bold text-brand-dark/60">
+                                  {student.email || copy.noInvite}
+                                </p>
+                              </div>
+                              <span className={`rounded-full border-2 border-brand-dark px-3 py-1 text-xs font-black uppercase ${statusTone}`}>
+                                {statusLabel}
+                              </span>
+                            </div>
+
+                            <div className="mt-3 grid gap-2 text-xs font-black text-brand-dark/55 sm:grid-cols-2">
+                              <span>{copy.lastActive}: {student.last_practice_at ? formatRelativeTime(student.last_practice_at) : homePracticeCopy.notStarted}</span>
+                              <span>{homePracticeCopy.daysActive}: {student.practice_days_7d || 0}</span>
+                              <span>{homePracticeCopy.latestMode}: {latestModeLabel}</span>
+                              <span className="truncate" title={student.latest_mission_label || homePracticeCopy.noMission}>
+                                {homePracticeCopy.latestMission}: {student.latest_mission_label || homePracticeCopy.noMission}
+                              </span>
+                            </div>
+
+                            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                              <div className="rounded-[1rem] border border-brand-dark/10 bg-white px-3 py-3">
+                                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-brand-dark/40">{homePracticeCopy.adaptiveLabel}</p>
+                                <p className="mt-1 text-base font-black text-brand-dark">
+                                  {student.adaptive_attempts_7d || 0} {homePracticeCopy.attempts7dLabel}
+                                </p>
+                                <p className="mt-1 text-xs font-bold leading-5 text-brand-dark/55">
+                                  {homePracticeCopy.totalAttempts}: {student.adaptive_attempts || 0} • {student.adaptive_accuracy_pct !== null && student.adaptive_accuracy_pct !== undefined ? `${student.adaptive_accuracy_pct}%` : '--'}
+                                </p>
+                              </div>
+                              <div className="rounded-[1rem] border border-brand-dark/10 bg-white px-3 py-3">
+                                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-brand-dark/40">{homePracticeCopy.lessonLabel}</p>
+                                <p className="mt-1 text-base font-black text-brand-dark">
+                                  {student.lesson_attempts_7d || 0} {homePracticeCopy.attempts7dLabel}
+                                </p>
+                                <p className="mt-1 text-xs font-bold leading-5 text-brand-dark/55">
+                                  {homePracticeCopy.totalAttempts}: {student.lesson_attempts || 0} • {student.lesson_accuracy_pct !== null && student.lesson_accuracy_pct !== undefined ? `${student.lesson_accuracy_pct}%` : '--'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="font-bold text-brand-dark/60">{homePracticeCopy.empty}</p>
+                  )}
                 </div>
               </div>
 

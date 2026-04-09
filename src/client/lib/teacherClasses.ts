@@ -119,6 +119,7 @@ export type TeacherClassWorkspace = TeacherClassCard & {
   students: TeacherClassStudent[];
   recent_sessions: TeacherClassSessionSummary[];
   assignment_board?: TeacherClassAssignmentBoard;
+  self_practice_board?: TeacherClassSelfPracticeBoard;
   mail_health: {
     configured: boolean;
     mode: 'smtp' | 'gmail' | 'none';
@@ -165,6 +166,37 @@ export type TeacherClassAssignment = {
 export type TeacherClassAssignmentBoard = {
   active_assignment: TeacherClassAssignment | null;
   assignments: TeacherClassAssignment[];
+};
+
+export type TeacherClassSelfPracticeStudent = {
+  student_id: number;
+  name: string;
+  email: string;
+  account_linked: boolean;
+  last_practice_at: string | null;
+  latest_mode: 'adaptive' | 'lesson' | null;
+  latest_mission_label: string | null;
+  practice_days_7d: number;
+  attempts_7d: number;
+  total_attempts: number;
+  adaptive_attempts: number;
+  adaptive_attempts_7d: number;
+  adaptive_accuracy_pct: number | null;
+  lesson_attempts: number;
+  lesson_attempts_7d: number;
+  lesson_accuracy_pct: number | null;
+};
+
+export type TeacherClassSelfPracticeBoard = {
+  summary: {
+    active_students_7d: number;
+    attempts_7d: number;
+    adaptive_attempts_7d: number;
+    lesson_attempts_7d: number;
+    accuracy_pct_7d: number | null;
+    latest_activity_at: string | null;
+  };
+  students: TeacherClassSelfPracticeStudent[];
 };
 
 export type TeacherClassProgressPoint = {
@@ -261,6 +293,17 @@ export async function getTeacherClass(classId: number) {
       students: [],
       recent_sessions: [],
       student_assistance_policy: matchedClass.student_assistance_policy || DEFAULT_STUDENT_ASSISTANCE_POLICY,
+      self_practice_board: {
+        summary: {
+          active_students_7d: 0,
+          attempts_7d: 0,
+          adaptive_attempts_7d: 0,
+          lesson_attempts_7d: 0,
+          accuracy_pct_7d: null,
+          latest_activity_at: null,
+        },
+        students: [],
+      },
       mail_health: {
         configured: false,
         mode: 'none',

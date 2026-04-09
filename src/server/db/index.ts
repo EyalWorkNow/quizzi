@@ -524,6 +524,11 @@ export async function initDb() {
       question_id INTEGER,
       is_correct BOOLEAN,
       response_ms INTEGER,
+      class_id INTEGER,
+      assignment_id INTEGER,
+      pack_id INTEGER,
+      practice_mode TEXT,
+      mission_label TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -684,6 +689,11 @@ export async function initDb() {
   (await ensureColumn('participants', 'team_name', 'TEXT'));
   (await ensureColumn('participants', 'seat_index', 'INTEGER DEFAULT 0'));
   (await ensureColumn('practice_attempts', 'identity_key', 'TEXT'));
+  (await ensureColumn('practice_attempts', 'class_id', 'INTEGER'));
+  (await ensureColumn('practice_attempts', 'assignment_id', 'INTEGER'));
+  (await ensureColumn('practice_attempts', 'pack_id', 'INTEGER'));
+  (await ensureColumn('practice_attempts', 'practice_mode', 'TEXT'));
+  (await ensureColumn('practice_attempts', 'mission_label', 'TEXT'));
   (await ensureColumn('student_memory_snapshots', 'nickname', 'TEXT'));
   (await ensureColumn('student_memory_snapshots', 'snapshot_json', "TEXT DEFAULT '{}'"));
   (await ensureColumn('student_memory_snapshots', 'source_summary_json', "TEXT DEFAULT '{}'"));
@@ -794,6 +804,8 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_participants_student_user_id ON participants(student_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_mastery_identity_key ON mastery(identity_key);
     CREATE INDEX IF NOT EXISTS idx_practice_attempts_identity_created ON practice_attempts(identity_key, created_at);
+    CREATE INDEX IF NOT EXISTS idx_practice_attempts_class_created ON practice_attempts(class_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_practice_attempts_class_mode_created ON practice_attempts(class_id, practice_mode, created_at);
     CREATE INDEX IF NOT EXISTS idx_student_memory_identity_key ON student_memory_snapshots(identity_key);
     CREATE INDEX IF NOT EXISTS idx_behavior_events_participant_session ON student_behavior_events(participant_id, session_id, question_id, event_seq);
     CREATE INDEX IF NOT EXISTS idx_behavior_events_type_session ON student_behavior_events(event_type, session_id);

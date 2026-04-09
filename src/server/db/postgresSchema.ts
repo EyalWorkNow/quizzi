@@ -559,6 +559,11 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       question_id INTEGER,
       is_correct BOOLEAN,
       response_ms INTEGER,
+      class_id INTEGER,
+      assignment_id INTEGER,
+      pack_id INTEGER,
+      practice_mode TEXT,
+      mission_label TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `,
@@ -576,6 +581,11 @@ const POSTGRES_SCHEMA_STATEMENTS = [
     )
   `,
   `ALTER TABLE practice_attempts ADD COLUMN IF NOT EXISTS identity_key TEXT`,
+  `ALTER TABLE practice_attempts ADD COLUMN IF NOT EXISTS class_id INTEGER`,
+  `ALTER TABLE practice_attempts ADD COLUMN IF NOT EXISTS assignment_id INTEGER`,
+  `ALTER TABLE practice_attempts ADD COLUMN IF NOT EXISTS pack_id INTEGER`,
+  `ALTER TABLE practice_attempts ADD COLUMN IF NOT EXISTS practice_mode TEXT`,
+  `ALTER TABLE practice_attempts ADD COLUMN IF NOT EXISTS mission_label TEXT`,
   `ALTER TABLE student_memory_snapshots ADD COLUMN IF NOT EXISTS nickname TEXT`,
   `ALTER TABLE student_memory_snapshots ADD COLUMN IF NOT EXISTS snapshot_json TEXT DEFAULT '{}'`,
   `ALTER TABLE student_memory_snapshots ADD COLUMN IF NOT EXISTS source_summary_json TEXT DEFAULT '{}'`,
@@ -607,6 +617,8 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_mastery_identity_tag_unique ON mastery(identity_key, tag)',
   'CREATE INDEX IF NOT EXISTS idx_practice_attempts_nickname_question ON practice_attempts(nickname, question_id)',
   'CREATE INDEX IF NOT EXISTS idx_practice_attempts_identity_created ON practice_attempts(identity_key, created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_practice_attempts_class_created ON practice_attempts(class_id, created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_practice_attempts_class_mode_created ON practice_attempts(class_id, practice_mode, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_student_memory_identity_key ON student_memory_snapshots(identity_key)',
   'CREATE INDEX IF NOT EXISTS idx_concept_attempt_history_identity_concept ON concept_attempt_history(identity_key, concept_id, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_analytics_labels_lookup ON analytics_labels(identity_key, label_type, labeled_at)',

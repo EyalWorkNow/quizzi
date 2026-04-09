@@ -1727,6 +1727,245 @@ async function buildAssignmentProgressMap(classBoard: any, packId: number) {
   };
 }
 
+function createEmptyTeacherSelfPracticeBoard() {
+  return {
+    summary: {
+      active_students_7d: 0,
+      attempts_7d: 0,
+      adaptive_attempts_7d: 0,
+      lesson_attempts_7d: 0,
+      accuracy_pct_7d: null,
+      latest_activity_at: null,
+    },
+    students: [],
+  };
+}
+
+async function buildTeacherSelfPracticeBoard(classBoard: any) {
+  const classId = Number(classBoard?.id || 0);
+  const students = Array.isArray(classBoard?.students) ? classBoard.students : [];
+  if (!classId || !students.length) {
+    return createEmptyTeacherSelfPracticeBoard();
+  }
+
+  const studentIdentityRows = await Promise.all(
+    students.map(async (student: any) => ({
+      studentId: Number(student?.id || 0),
+      identityKeys: Number(student?.student_user_id || 0)
+        ? await listResolvedIdentityKeys({ studentUserId: Number(student.student_user_id) })
+        : [],
+    })),
+  );
+
+  const identityKeyToStudentId = new Map<string, number>();
+  studentIdentityRows.forEach((entry) => {
+    entry.identityKeys.forEach((identityKey) => {
+      const safeKey = resolveStudentIdentityKey(identityKey, '');
+      if (safeKey && entry.studentId) {
+        identityKeyToStudentId.set(safeKey, entry.studentId);
+      }
+    });
+  });
+
+  const identityKeys = Array.from(identityKeyToStudentId.keys());
+  if (!identityKeys.length) {
+    return {
+      ...createEmptyTeacherSelfPracticeBoard(),
+      students: students.map((student: any) => ({
+        student_id: Number(student?.id || 0),
+        name: String(student?.name || 'Student'),
+        email: String(student?.email || ''),
+        account_linked: Boolean(student?.account_linked),
+        last_practice_at: null,
+        latest_mode: null,
+        latest_mission_label: null,
+        practice_days_7d: 0,
+        attempts_7d: 0,
+        total_attempts: 0,
+        adaptive_attempts: 0,
+        adaptive_attempts_7d: 0,
+        adaptive_accuracy_pct: null,
+        lesson_attempts: 0,
+        lesson_attempts_7d: 0,
+        lesson_accuracy_pct: null,
+      })),
+    };
+  }
+
+  const attemptRows = (await db
+    .prepare(`
+      SELECT
+        identity_key,
+        is_correct,
+        created_at,
+        practice_mode,
+        mission_label
+      FROM practice_attempts
+      WHERE class_id = ?
+        AND identity_key IN (${buildSqlPlaceholders(identityKeys.length)})
+      ORDER BY created_at DESC, id DESC
+    `)
+    .all(classId, ...identityKeys)) as any[];
+
+  const windowStartMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const statsByStudentId = new Map<
+    number,
+    {
+      totalAttempts: number;
+      attempts7d: number;
+      correct7d: number;
+      adaptiveAttempts: number;
+      adaptiveAttempts7d: number;
+      adaptiveCorrect: number;
+      lessonAttempts: number;
+      lessonAttempts7d: number;
+      lessonCorrect: number;
+      practiceDayKeys7d: Set<string>;
+      lastPracticeAt: string | null;
+      lastPracticeMs: number;
+      latestMode: 'adaptive' | 'lesson' | null;
+      latestMissionLabel: string | null;
+    }
+  >();
+
+  attemptRows.forEach((row: any) => {
+    const studentId = identityKeyToStudentId.get(resolveStudentIdentityKey(row?.identity_key, ''));
+    if (!studentId) return;
+
+    const existing = statsByStudentId.get(studentId) || {
+      totalAttempts: 0,
+      attempts7d: 0,
+      correct7d: 0,
+      adaptiveAttempts: 0,
+      adaptiveAttempts7d: 0,
+      adaptiveCorrect: 0,
+      lessonAttempts: 0,
+      lessonAttempts7d: 0,
+      lessonCorrect: 0,
+      practiceDayKeys7d: new Set<string>(),
+      lastPracticeAt: null,
+      lastPracticeMs: 0,
+      latestMode: null,
+      latestMissionLabel: null,
+    };
+
+    const createdAt = String(row?.created_at || '');
+    const createdAtMs = new Date(createdAt).getTime();
+    const isRecent = Number.isFinite(createdAtMs) && createdAtMs >= windowStartMs;
+    const modeRaw = String(row?.practice_mode || '').trim().toLowerCase();
+    const mode = modeRaw === 'lesson' ? 'lesson' : modeRaw === 'adaptive' ? 'adaptive' : null;
+    const isCorrect = Number(row?.is_correct) ? 1 : 0;
+
+    existing.totalAttempts += 1;
+
+    if (isRecent) {
+      existing.attempts7d += 1;
+      existing.correct7d += isCorrect;
+      if (Number.isFinite(createdAtMs)) {
+        existing.practiceDayKeys7d.add(new Date(createdAtMs).toISOString().slice(0, 10));
+      }
+    }
+
+    if (mode === 'adaptive') {
+      existing.adaptiveAttempts += 1;
+      existing.adaptiveCorrect += isCorrect;
+      if (isRecent) existing.adaptiveAttempts7d += 1;
+    } else if (mode === 'lesson') {
+      existing.lessonAttempts += 1;
+      existing.lessonCorrect += isCorrect;
+      if (isRecent) existing.lessonAttempts7d += 1;
+    }
+
+    if (!existing.lastPracticeAt || (Number.isFinite(createdAtMs) && createdAtMs >= existing.lastPracticeMs)) {
+      existing.lastPracticeAt = row?.created_at || null;
+      existing.lastPracticeMs = Number.isFinite(createdAtMs) ? createdAtMs : existing.lastPracticeMs;
+      existing.latestMode = mode;
+      existing.latestMissionLabel = sanitizeLine(row?.mission_label, 80) || null;
+    }
+
+    statsByStudentId.set(studentId, existing);
+  });
+
+  let attempts7dTotal = 0;
+  let correct7dTotal = 0;
+  let adaptiveAttempts7dTotal = 0;
+  let lessonAttempts7dTotal = 0;
+  let latestActivityAt: string | null = null;
+  let latestActivityMs = 0;
+
+  const studentRows = students.map((student: any) => {
+    const stats = statsByStudentId.get(Number(student?.id || 0)) || null;
+    if (stats) {
+      attempts7dTotal += stats.attempts7d;
+      correct7dTotal += stats.correct7d;
+      adaptiveAttempts7dTotal += stats.adaptiveAttempts7d;
+      lessonAttempts7dTotal += stats.lessonAttempts7d;
+      if (stats.lastPracticeAt && stats.lastPracticeMs >= latestActivityMs) {
+        latestActivityAt = stats.lastPracticeAt;
+        latestActivityMs = stats.lastPracticeMs;
+      }
+    }
+
+    return {
+      student_id: Number(student?.id || 0),
+      name: String(student?.name || 'Student'),
+      email: String(student?.email || ''),
+      account_linked: Boolean(student?.account_linked),
+      last_practice_at: stats?.lastPracticeAt || null,
+      latest_mode: stats?.latestMode || null,
+      latest_mission_label: stats?.latestMissionLabel || null,
+      practice_days_7d: stats?.practiceDayKeys7d.size || 0,
+      attempts_7d: stats?.attempts7d || 0,
+      total_attempts: stats?.totalAttempts || 0,
+      adaptive_attempts: stats?.adaptiveAttempts || 0,
+      adaptive_attempts_7d: stats?.adaptiveAttempts7d || 0,
+      adaptive_accuracy_pct:
+        stats && stats.adaptiveAttempts > 0 ? Math.round((stats.adaptiveCorrect / Math.max(1, stats.adaptiveAttempts)) * 100) : null,
+      lesson_attempts: stats?.lessonAttempts || 0,
+      lesson_attempts_7d: stats?.lessonAttempts7d || 0,
+      lesson_accuracy_pct:
+        stats && stats.lessonAttempts > 0 ? Math.round((stats.lessonCorrect / Math.max(1, stats.lessonAttempts)) * 100) : null,
+    };
+  });
+
+  studentRows.sort((left, right) => {
+    const recentDelta = Number(right.attempts_7d || 0) - Number(left.attempts_7d || 0);
+    if (recentDelta !== 0) return recentDelta;
+    const leftMs = left.last_practice_at ? new Date(left.last_practice_at).getTime() : 0;
+    const rightMs = right.last_practice_at ? new Date(right.last_practice_at).getTime() : 0;
+    if (rightMs !== leftMs) return rightMs - leftMs;
+    const totalDelta = Number(right.total_attempts || 0) - Number(left.total_attempts || 0);
+    if (totalDelta !== 0) return totalDelta;
+    return String(left.name || '').localeCompare(String(right.name || ''));
+  });
+
+  return {
+    summary: {
+      active_students_7d: studentRows.filter((row) => Number(row.attempts_7d || 0) > 0).length,
+      attempts_7d: attempts7dTotal,
+      adaptive_attempts_7d: adaptiveAttempts7dTotal,
+      lesson_attempts_7d: lessonAttempts7dTotal,
+      accuracy_pct_7d: attempts7dTotal > 0 ? Math.round((correct7dTotal / Math.max(1, attempts7dTotal)) * 100) : null,
+      latest_activity_at: latestActivityAt,
+    },
+    students: studentRows,
+  };
+}
+
+async function decorateTeacherClassBoard(classBoard: any) {
+  if (!classBoard) return null;
+  const [assignmentBoard, selfPracticeBoard] = await Promise.all([
+    buildTeacherAssignmentBoard(classBoard),
+    buildTeacherSelfPracticeBoard(classBoard),
+  ]);
+
+  return {
+    ...classBoard,
+    assignment_board: assignmentBoard,
+    self_practice_board: selfPracticeBoard,
+  };
+}
+
 async function buildTeacherAssignmentBoard(classBoard: any) {
   const classId = Number(classBoard?.id || 0);
   if (!classId) {
@@ -5972,10 +6211,7 @@ router.get('/teacher/classes/:id', requireTeacherSession, async (req, res) => {
       return res.status(404).json({ error: 'Class not found' });
     }
 
-    res.json({
-      ...classBoard,
-      assignment_board: await buildTeacherAssignmentBoard(classBoard),
-    });
+    res.json(await decorateTeacherClassBoard(classBoard));
   } catch (error: any) {
     console.error('[ERROR] Teacher class detail failed:', error);
     respondWithServerError(res, 'Failed to load class');
@@ -6035,10 +6271,7 @@ router.post('/teacher/classes/:id/assignments', requireTeacherSession, async (re
       );
 
     const refreshedClass = await getHydratedTeacherClass(classId, teacherUserId);
-    res.status(201).json({
-      ...(refreshedClass || classBoard),
-      assignment_board: await buildTeacherAssignmentBoard(refreshedClass || classBoard),
-    });
+    res.status(201).json(await decorateTeacherClassBoard(refreshedClass || classBoard));
   } catch (error: any) {
     console.error('[ERROR] Teacher class assignment create failed:', error);
     respondWithServerError(res, 'Failed to create class assignment');
@@ -6088,10 +6321,7 @@ router.put('/teacher/classes/:classId/assignments/:assignmentId', requireTeacher
       );
 
     const refreshedClass = await getHydratedTeacherClass(classId, teacherUserId);
-    res.json({
-      ...(refreshedClass || classBoard),
-      assignment_board: await buildTeacherAssignmentBoard(refreshedClass || classBoard),
-    });
+    res.json(await decorateTeacherClassBoard(refreshedClass || classBoard));
   } catch (error: any) {
     console.error('[ERROR] Teacher class assignment update failed:', error);
     respondWithServerError(res, 'Failed to update class assignment');
@@ -6118,10 +6348,7 @@ router.delete('/teacher/classes/:classId/assignments/:assignmentId', requireTeac
       .run(assignmentId, classId);
 
     const refreshedClass = await getHydratedTeacherClass(classId, teacherUserId);
-    res.json({
-      ...(refreshedClass || classBoard),
-      assignment_board: await buildTeacherAssignmentBoard(refreshedClass || classBoard),
-    });
+    res.json(await decorateTeacherClassBoard(refreshedClass || classBoard));
   } catch (error: any) {
     console.error('[ERROR] Teacher class assignment delete failed:', error);
     respondWithServerError(res, 'Failed to archive class assignment');
@@ -6639,7 +6866,7 @@ router.post('/teacher/classes', requireTeacherSession, async (req, res) => {
       baseUrl: resolvePublicAppUrlFromRequest(req),
     });
 
-    res.status(201).json((await getHydratedTeacherClass(classId, teacherUserId)) || createdClass);
+    res.status(201).json(await decorateTeacherClassBoard((await getHydratedTeacherClass(classId, teacherUserId)) || createdClass));
   } catch (error: any) {
     console.error('[ERROR] Create teacher class failed:', error);
     respondWithServerError(res, 'Failed to create class');
@@ -6696,7 +6923,7 @@ router.put('/teacher/classes/:id', requireTeacherSession, async (req, res) => {
           teacherUserId,
         ));
 
-    res.json((await getHydratedTeacherClass(classId, teacherUserId)));
+    res.json(await decorateTeacherClassBoard((await getHydratedTeacherClass(classId, teacherUserId))));
   } catch (error: any) {
     console.error('[ERROR] Update teacher class failed:', error);
     respondWithServerError(res, 'Failed to update class');
@@ -6824,7 +7051,7 @@ router.post('/teacher/classes/:id/students', requireTeacherSession, async (req, 
       baseUrl: resolvePublicAppUrlFromRequest(req),
     });
 
-    res.status(201).json((await getHydratedTeacherClass(classId, teacherUserId)) || classBoard);
+    res.status(201).json(await decorateTeacherClassBoard((await getHydratedTeacherClass(classId, teacherUserId)) || classBoard));
   } catch (error: any) {
     console.error('[ERROR] Add class student failed:', error);
     respondWithServerError(res, 'Failed to add student');
@@ -6870,7 +7097,7 @@ router.post('/teacher/classes/:classId/students/:studentId/resend-invite', requi
     });
 
     res.json({
-      board: (await getHydratedTeacherClass(classId, teacherUserId)) || classBoard,
+      board: await decorateTeacherClassBoard((await getHydratedTeacherClass(classId, teacherUserId)) || classBoard),
       delivery,
     });
   } catch (error: any) {
@@ -6913,7 +7140,7 @@ router.delete('/teacher/classes/:classId/students/:studentId', requireTeacherSes
         .prepare('UPDATE teacher_classes SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND teacher_id = ?')
         .run(classId, teacherUserId));
 
-    res.json((await getHydratedTeacherClass(classId, teacherUserId)));
+    res.json(await decorateTeacherClassBoard((await getHydratedTeacherClass(classId, teacherUserId))));
   } catch (error: any) {
     console.error('[ERROR] Remove class student failed:', error);
     respondWithServerError(res, 'Failed to remove student');
@@ -6951,7 +7178,7 @@ router.post('/teacher/classes/:id/packs', requireTeacherSession, async (req, res
       WHERE id = ?
     `).run(packId, classId);
 
-    res.json((await getHydratedTeacherClass(classId, teacherUserId)));
+    res.json(await decorateTeacherClassBoard((await getHydratedTeacherClass(classId, teacherUserId))));
   } catch (error: any) {
     console.error('[ERROR] Link pack to class failed:', error);
     respondWithServerError(res, 'Failed to add quiz to class');
@@ -7001,7 +7228,7 @@ router.delete('/teacher/classes/:id/packs/:packId', requireTeacherSession, async
       db.prepare('UPDATE teacher_classes SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(classId);
     }
 
-    res.json((await getHydratedTeacherClass(classId, teacherUserId)));
+    res.json(await decorateTeacherClassBoard((await getHydratedTeacherClass(classId, teacherUserId))));
   } catch (error: any) {
     console.error('[ERROR] Unlink pack from class failed:', error);
     respondWithServerError(res, 'Failed to remove quiz from class');
@@ -10437,6 +10664,13 @@ router.post('/student/me/practice/answer', requireStudentSession, async (req, re
   const question_id = parsePositiveInt(req.body?.question_id);
   const chosenIndexValue = Number(req.body?.chosen_index);
   const response_ms = clampNumber(req.body?.response_ms, 0, 300_000, 0);
+  const requestedClassId = parsePositiveInt(req.body?.class_id);
+  const requestedAssignmentId = parsePositiveInt(req.body?.assignment_id);
+  const requestedPackId = parsePositiveInt(req.body?.pack_id);
+  const requestedPracticeModeRaw = sanitizeLine(req.body?.practice_mode ?? req.body?.practiceMode, 24).toLowerCase();
+  const requestedPracticeMode =
+    requestedPracticeModeRaw === 'lesson' ? 'lesson' : requestedPracticeModeRaw === 'adaptive' ? 'adaptive' : null;
+  const requestedMissionLabel = sanitizeLine(req.body?.mission_label ?? req.body?.missionLabel, 80);
   if (!question_id) return res.status(400).json({ error: 'question_id is required' });
   if (!Number.isFinite(chosenIndexValue) || chosenIndexValue < 0) {
     return res.status(400).json({ error: 'chosen_index is required' });
@@ -10456,6 +10690,19 @@ router.post('/student/me/practice/answer', requireStudentSession, async (req, re
       clearStudentSession(req, res);
       return res.status(401).json({ error: 'Student account no longer exists. Please sign in again.' });
     }
+    const practiceContext =
+      requestedClassId || requestedAssignmentId || requestedPackId
+        ? await resolveStudentPracticeClassContext({
+            studentUserId,
+            studentEmail: studentUser.email,
+            classId: requestedClassId || null,
+            assignmentId: requestedAssignmentId || null,
+            packId: requestedPackId || null,
+          })
+        : null;
+    if ((requestedClassId || requestedAssignmentId || requestedPackId) && !practiceContext) {
+      return res.status(403).json({ error: 'Practice context is no longer available for this student.' });
+    }
 
     const studentContext = await buildStudentAnalyticsContext({
       studentUserId,
@@ -10474,7 +10721,8 @@ router.post('/student/me/practice/answer', requireStudentSession, async (req, re
           learning_objective,
           bloom_level,
           concept_id,
-          image_url
+          image_url,
+          quiz_pack_id
         FROM questions
         WHERE id = ?
       `)
@@ -10499,15 +10747,39 @@ router.post('/student/me/practice/answer', requireStudentSession, async (req, re
       current_mastery: currentMastery,
     });
 
+    const resolvedPackId = Number(practiceContext?.pack_id || question?.quiz_pack_id || requestedPackId || 0) || null;
+    const resolvedMissionLabel =
+      requestedMissionLabel ||
+      practiceContext?.assignment_title ||
+      practiceContext?.pack_title ||
+      (practiceContext?.class_name ? `${String(practiceContext.class_name).trim()} Practice` : '') ||
+      null;
+
     await db.prepare(`
-      INSERT INTO practice_attempts (identity_key, nickname, question_id, is_correct, response_ms)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO practice_attempts (
+        identity_key,
+        nickname,
+        question_id,
+        is_correct,
+        response_ms,
+        class_id,
+        assignment_id,
+        pack_id,
+        practice_mode,
+        mission_label
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       studentContext.primary_identity_key,
       studentContext.canonical_nickname,
       question_id,
       isCorrect ? 1 : 0,
       response_ms,
+      practiceContext?.class_id || null,
+      practiceContext?.assignment_id || null,
+      resolvedPackId,
+      requestedPracticeMode,
+      resolvedMissionLabel,
     );
 
     if (outcome.mastery_updates.length > 0) {

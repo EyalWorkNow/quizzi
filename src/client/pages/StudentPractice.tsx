@@ -1662,6 +1662,11 @@ export default function StudentPractice() {
           question_id: questionId,
           chosen_index: index,
           response_ms: responseMs,
+          class_id: practiceContext?.class_id || null,
+          assignment_id: practiceContext?.assignment_id || null,
+          pack_id: practiceContext?.pack_id || null,
+          practice_mode: practiceContext?.practice_mode || null,
+          mission_label: missionTitle,
         }),
       });
       setFeedback({ ...data, chosen_index: index });
@@ -1928,19 +1933,12 @@ export default function StudentPractice() {
                       whileTap={{ scale: 0.98 }}
                       onClick={() => void handleAnswer(index)}
                       style={buildPracticeAnswerToneStyle(index)}
-                      className="student-answer-button student-play-answer-tile group relative flex min-h-[88px] items-center px-3 py-2.5 text-center sm:min-h-[100px] sm:px-5 sm:py-3"
+                      className="student-answer-button student-play-answer-tile group relative flex min-h-[88px] items-start px-3 py-3 text-center sm:min-h-[100px] sm:px-5 sm:py-4"
                     >
-                      <div className="mr-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 border-brand-dark/10 bg-white/40 text-sm font-black text-brand-dark/30 transition-colors sm:mr-4 sm:h-9 sm:w-9 sm:rounded-xl sm:text-base">
+                      <div className="mr-3 mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 border-brand-dark/10 bg-white/40 text-sm font-black text-brand-dark/30 transition-colors sm:mr-4 sm:h-9 sm:w-9 sm:rounded-xl sm:text-base">
                         {formatAnswerSlotLabel(index)}
                       </div>
-                      <span
-                        className="block flex-1 overflow-hidden break-words text-center text-base font-black leading-tight sm:text-[1.45rem]"
-                        style={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                        }}
-                      >
+                      <span className="block flex-1 break-words text-center text-base font-black leading-tight sm:text-[1.45rem]">
                         {answer}
                       </span>
                     </motion.button>

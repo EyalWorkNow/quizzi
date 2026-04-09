@@ -445,9 +445,9 @@ export default function Home() {
         : 'Thanks, your feedback was saved.';
   const homeSurfaceCopy = {
     he: {
-      navExplore: 'גילוי',
-      navTeachers: 'למורים',
       navContact: 'צור קשר',
+      navTeacherLogin: 'כניסת מורה',
+      navStudentLogin: 'כניסת תלמיד',
       heroTitle: 'פרטי הצטרפות',
       heroBody: 'הזן את קוד החדר ואת השם ששאר השחקנים יראו.',
       pinLabel: 'קוד משחק',
@@ -469,9 +469,9 @@ export default function Home() {
       feedbackBody: 'אם משהו עדיין לא מספיק ברור, כתבו לנו מה יקל על ההצטרפות.',
     },
     ar: {
-      navExplore: 'اكتشف',
-      navTeachers: 'للمعلّمين',
       navContact: 'اتصل بنا',
+      navTeacherLogin: 'دخول المعلّم',
+      navStudentLogin: 'دخول الطالب',
       heroTitle: 'تفاصيل الانضمام',
       heroBody: 'أدخل رمز الغرفة والاسم الذي سيظهر لباقي اللاعبين.',
       pinLabel: 'رمز اللعبة',
@@ -493,9 +493,9 @@ export default function Home() {
       feedbackBody: 'إذا كان هناك شيء ما يزال غير واضح، أخبرنا ما الذي سيجعل الانضمام أسهل.',
     },
     en: {
-      navExplore: 'Explore',
-      navTeachers: 'For Teachers',
       navContact: 'Contact',
+      navTeacherLogin: 'Teacher Login',
+      navStudentLogin: 'Student Login',
       heroTitle: 'Join Details',
       heroBody: 'Enter the room code and the name other players will see.',
       pinLabel: 'Game Code',
@@ -517,9 +517,9 @@ export default function Home() {
       feedbackBody: 'If something is still unclear, tell us what would make joining easier.',
     },
   }[language] || {
-    navExplore: 'Explore',
-    navTeachers: 'For Teachers',
     navContact: 'Contact',
+    navTeacherLogin: 'Teacher Login',
+    navStudentLogin: 'Student Login',
     heroTitle: 'Join Details',
     heroBody: 'Enter the room code and the name other players will see.',
     pinLabel: 'Game Code',
@@ -558,36 +558,30 @@ export default function Home() {
     >
       <nav className="page-shell relative z-20 py-4">
         <div className="mx-auto grid max-w-[1220px] gap-3 lg:grid-cols-[auto_1fr_auto] lg:items-center">
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center justify-start">
+            <BrandLogo onClick={() => navigate('/')} imageClassName="h-10 w-auto sm:h-12" />
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
             <button
-              onClick={() => navigate('/auth')}
-              className="rounded-full border-[3px] border-brand-orange bg-brand-orange px-5 py-2.5 text-sm font-black text-white shadow-[0_4px_0_0_#1A1A1A]"
-            >
-              {teacherSignedIn ? t('nav.dashboard') : homeSurfaceCopy.teacherCta}
-            </button>
-            <button
-              onClick={() => window.scrollTo({ top: 260, behavior: 'smooth' })}
+              onClick={() => navigate('/contact')}
               className="rounded-full border-[3px] border-brand-dark bg-white px-5 py-2.5 text-sm font-black shadow-[0_4px_0_0_#1A1A1A]"
             >
-              {homeSurfaceCopy.quickJoinCta}
+              {homeSurfaceCopy.navContact}
+            </button>
+            <button
+              onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')}
+              className="rounded-full border-[3px] border-brand-orange bg-brand-orange px-5 py-2.5 text-sm font-black text-white shadow-[0_4px_0_0_#1A1A1A]"
+            >
+              {homeSurfaceCopy.navTeacherLogin}
             </button>
             <button
               onClick={() => navigate('/student/auth')}
               className="rounded-full border-[3px] border-brand-dark bg-white px-5 py-2.5 text-sm font-black shadow-[0_4px_0_0_#1A1A1A]"
             >
-              {homeSurfaceCopy.studentSpaceCta}
+              {homeSurfaceCopy.navStudentLogin}
             </button>
           </div>
-
-          <div className="hidden items-center justify-center gap-12 text-base font-black lg:flex">
-            <button onClick={() => navigate('/contact')} className="transition-colors hover:text-brand-orange">{homeSurfaceCopy.navContact}</button>
-            <button onClick={() => navigate(teacherSignedIn ? '/teacher/dashboard' : '/auth')} className="transition-colors hover:text-brand-orange">{homeSurfaceCopy.navTeachers}</button>
-            <button onClick={() => navigate('/explore')} className="transition-colors hover:text-brand-orange">{homeSurfaceCopy.navExplore}</button>
-          </div>
-
-          <div className="flex items-center justify-end">
-            <BrandLogo onClick={() => navigate('/')} imageClassName="h-10 w-auto sm:h-12" />
-          </div>
+          <div className="hidden lg:block" />
         </div>
       </nav>
 

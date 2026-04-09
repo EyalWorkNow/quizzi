@@ -552,7 +552,7 @@ export default function StudentClassView() {
             : language === 'ar'
               ? 'إذا دخلت سابقًا فسنحاول استعادتك. وإلا ستحتاج إلى انتظار فتح الردهة.'
               : 'If you already joined before, we will try to restore you. Otherwise, wait for the lobby to reopen.');
-  const classSummary = `${classRow.class_subject || ''}${classRow.class_subject && classRow.class_grade ? ' • ' : ''}${classRow.class_grade || ''}`.trim();
+  const classSummary = `${classRow?.class_subject || ''}${classRow?.class_subject && classRow?.class_grade ? ' • ' : ''}${classRow?.class_grade || ''}`.trim();
   const completionPct = Math.max(6, Math.min(100, Number(assignment?.progress?.completion_pct || 0)));
 
   const unlockSteps = [
@@ -752,56 +752,6 @@ export default function StudentClassView() {
           </div>
         </section>
 
-        <SectionShell icon={<Sparkles className="h-6 w-6 text-brand-orange" />} eyebrow={copy.classWorkspace} title={copy.classWorkspace} body={copy.classWorkspaceBody}>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <WorkspaceCard
-              label={copy.joinLive}
-              value={hasLiveRoom ? copy.liveOpen : copy.liveClosed}
-              meta={hasLiveRoom ? liveHelperText : isClaimed ? copy.liveClosed : copy.workspaceLocked}
-              tone={hasLiveRoom ? 'ready' : isClaimed ? 'neutral' : 'locked'}
-              badge={hasLiveRoom ? copy.workspaceReady : isClaimed ? copy.readyLabel : copy.workspaceLocked}
-              action={hasLiveRoom ? (
-                <button
-                  type="button"
-                  onClick={() => void handleEnterLive(String(activeSession?.pin || ''))}
-                  disabled={enteringLive || !canEnterLiveRoom}
-                  className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black text-brand-dark shadow-[0_4px_0_0_#1A1A1A] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {enteringLive ? copy.approving : liveButtonLabel}
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              ) : null}
-            />
-            <WorkspaceCard
-              label={copy.enterPractice}
-              value={isClaimed ? practiceHeadline : copy.pendingLabel}
-              meta={isClaimed ? practiceBody : copy.workspaceLocked}
-              tone={isClaimed ? 'ready' : 'locked'}
-              badge={isClaimed ? copy.workspaceReady : copy.workspaceLocked}
-              action={isClaimed ? (
-                <Link to={practicePath} className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-dark px-4 py-2 text-sm font-black text-white shadow-[0_4px_0_0_#B488FF]">
-                  {copy.enterPractice}
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              ) : null}
-            />
-            <WorkspaceCard
-              label={copy.latestRuns}
-              value={classHistory.length > 0 ? `${classHistory.length} ${copy.sessions}` : copy.historyMissing}
-              meta={classHistory.length > 0 ? formatRelativeTime(classHistory[0]?.ended_at || classHistory[0]?.started_at) : copy.noClassSessions}
-              tone={classHistory.length > 0 ? 'neutral' : 'locked'}
-              badge={classHistory.length > 0 ? copy.workspaceReady : copy.workspaceLocked}
-            />
-            <WorkspaceCard
-              label={copy.assignedPack}
-              value={classRow.pack?.title || copy.packMissing}
-              meta={classRow.pack ? `${Number(classRow.pack?.question_count || 0)} ${copy.packQuestions}` : copy.workspaceLocked}
-              tone={classRow.pack ? 'neutral' : 'locked'}
-              badge={classRow.pack ? copy.workspaceReady : copy.workspaceLocked}
-            />
-          </div>
-        </SectionShell>
-
         {assignment ? (
           <section className="overflow-hidden rounded-[2.2rem] border-4 border-brand-dark bg-white shadow-[10px_10px_0px_0px_#1A1A1A]">
             <div className="grid gap-0 xl:grid-cols-[1.15fr_0.85fr]">
@@ -930,6 +880,56 @@ export default function StudentClassView() {
                 {copy.allLessonsFallback}
               </div>
             )}
+          </div>
+        </SectionShell>
+
+        <SectionShell icon={<Sparkles className="h-6 w-6 text-brand-orange" />} eyebrow={copy.classWorkspace} title={copy.classWorkspace} body={copy.classWorkspaceBody}>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <WorkspaceCard
+              label={copy.joinLive}
+              value={hasLiveRoom ? copy.liveOpen : copy.liveClosed}
+              meta={hasLiveRoom ? liveHelperText : isClaimed ? copy.liveClosed : copy.workspaceLocked}
+              tone={hasLiveRoom ? 'ready' : isClaimed ? 'neutral' : 'locked'}
+              badge={hasLiveRoom ? copy.workspaceReady : isClaimed ? copy.readyLabel : copy.workspaceLocked}
+              action={hasLiveRoom ? (
+                <button
+                  type="button"
+                  onClick={() => void handleEnterLive(String(activeSession?.pin || ''))}
+                  disabled={enteringLive || !canEnterLiveRoom}
+                  className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-yellow px-4 py-2 text-sm font-black text-brand-dark shadow-[0_4px_0_0_#1A1A1A] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {enteringLive ? copy.approving : liveButtonLabel}
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              ) : null}
+            />
+            <WorkspaceCard
+              label={copy.enterPractice}
+              value={isClaimed ? practiceHeadline : copy.pendingLabel}
+              meta={isClaimed ? practiceBody : copy.workspaceLocked}
+              tone={isClaimed ? 'ready' : 'locked'}
+              badge={isClaimed ? copy.workspaceReady : copy.workspaceLocked}
+              action={isClaimed ? (
+                <Link to={practicePath} className="inline-flex items-center gap-2 rounded-full border-2 border-brand-dark bg-brand-dark px-4 py-2 text-sm font-black text-white shadow-[0_4px_0_0_#B488FF]">
+                  {copy.enterPractice}
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              ) : null}
+            />
+            <WorkspaceCard
+              label={copy.latestRuns}
+              value={classHistory.length > 0 ? `${classHistory.length} ${copy.sessions}` : copy.historyMissing}
+              meta={classHistory.length > 0 ? formatRelativeTime(classHistory[0]?.ended_at || classHistory[0]?.started_at) : copy.noClassSessions}
+              tone={classHistory.length > 0 ? 'neutral' : 'locked'}
+              badge={classHistory.length > 0 ? copy.workspaceReady : copy.workspaceLocked}
+            />
+            <WorkspaceCard
+              label={copy.assignedPack}
+              value={classRow.pack?.title || copy.packMissing}
+              meta={classRow.pack ? `${Number(classRow.pack?.question_count || 0)} ${copy.packQuestions}` : copy.workspaceLocked}
+              tone={classRow.pack ? 'neutral' : 'locked'}
+              badge={classRow.pack ? copy.workspaceReady : copy.workspaceLocked}
+            />
           </div>
         </SectionShell>
 
