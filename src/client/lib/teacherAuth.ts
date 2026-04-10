@@ -312,11 +312,12 @@ export async function signInTeacherWithProvider({
     const idToken = await popupResult.user.getIdToken();
     return await completeGoogleServerSession(idToken, popupResult.user.displayName);
   } catch (error: any) {
-    const message = String(error?.message || '').toLowerCase();
     if (
+      // Firebase popup auth can emit noisy COOP/window.closed console warnings without
+      // the sign-in actually failing. Redirect fallback is reserved for real popup
+      // environment failures so we do not convert a recoverable popup flow into a
+      // broken redirect flow on desktop browsers.
       error?.code === 'auth/popup-blocked' ||
-      message.includes('cross-origin-opener-policy') ||
-      message.includes('window.closed') ||
       error?.code === 'auth/operation-not-supported-in-this-environment'
     ) {
       await signInWithRedirect(auth, googleProvider);

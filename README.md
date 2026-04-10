@@ -1072,6 +1072,7 @@ Check all of the following:
 - Firebase Admin credentials are valid on the server
 - your deployed domain is listed in Firebase Authentication authorized domains
 - the browser is not blocking popups if you use popup-based sign-in
+- Chrome may still log `Cross-Origin-Opener-Policy` popup warnings even when popup sign-in succeeds; treat the actual auth result as the signal, not the console noise alone
 
 ### `API route not found`
 
