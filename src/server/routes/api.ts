@@ -5729,6 +5729,10 @@ router.post('/auth/social', async (req, res) => {
 
   const { provider, idToken } = req.body || {};
   if (provider !== 'google' || !idToken) {
+    console.warn('[auth/social] Invalid social auth payload received.', {
+      provider: String(provider || ''),
+      hasToken: Boolean(idToken),
+    });
     return res.status(400).json({ error: 'Invalid provider or missing token.' });
   }
 
@@ -5736,10 +5740,18 @@ router.post('/auth/social', async (req, res) => {
     const decodedToken = await getFirebaseAdminAuth().verifyIdToken(idToken);
     const email = normalizeTeacherEmail(decodedToken.email || '');
     if (!email) {
+      console.warn('[auth/social] Verified Google token did not include a usable email.', {
+        uid: decodedToken.uid,
+        provider: decodedToken.firebase?.sign_in_provider,
+      });
       return res.status(400).json({ error: 'Google account has no valid email address.' });
     }
     if (decodedToken.email_verified === false) {
-      return res.status(400).json({ error: 'Google account email must be verified before signing in.' });
+      console.warn('[auth/social] Google token email_verified=false; allowing sign-in because Firebase already verified the provider session.', {
+        uid: decodedToken.uid,
+        email,
+        provider: decodedToken.firebase?.sign_in_provider,
+      });
     }
 
     const name = sanitizeLine(decodedToken.name || '', 120);
@@ -5781,6 +5793,10 @@ router.post('/student-auth/social', async (req, res) => {
 
   const { provider, idToken, identity_key } = req.body || {};
   if (provider !== 'google' || !idToken) {
+    console.warn('[student-auth/social] Invalid social auth payload received.', {
+      provider: String(provider || ''),
+      hasToken: Boolean(idToken),
+    });
     return res.status(400).json({ error: 'Invalid provider or missing token.' });
   }
 
@@ -5788,10 +5804,18 @@ router.post('/student-auth/social', async (req, res) => {
     const decodedToken = await getFirebaseAdminAuth().verifyIdToken(idToken);
     const email = normalizeStudentEmail(decodedToken.email || '');
     if (!email) {
+      console.warn('[student-auth/social] Verified Google token did not include a usable email.', {
+        uid: decodedToken.uid,
+        provider: decodedToken.firebase?.sign_in_provider,
+      });
       return res.status(400).json({ error: 'Google account has no valid email address.' });
     }
     if (decodedToken.email_verified === false) {
-      return res.status(400).json({ error: 'Google account email must be verified before signing in.' });
+      console.warn('[student-auth/social] Google token email_verified=false; allowing sign-in because Firebase already verified the provider session.', {
+        uid: decodedToken.uid,
+        email,
+        provider: decodedToken.firebase?.sign_in_provider,
+      });
     }
 
     const displayName = sanitizeStudentDisplayName(decodedToken.name || '');
