@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quizzy}
+      POSTGRES_USER: ${POSTGRES_USER:-quizzy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quizzy}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+
+  backend:
+    build:
+      context: ../backend
+    working_dir: /app
+    env_file:
+      - ../backend/.env
+      - ./.env
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ../backend:/app
+    depends_on:
+      - db
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  frontend:
+    build:
+      context: ../frontend
+    working_dir: /app
+    env_file:
+      - ../frontend/.env
+      - ./.env
+    environment:
+      NEXT_PUBLIC_API_BASE: http://localhost:8000/api/v1
+      NEXT_PUBLIC_WS_BASE: ws://localhost:8000
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    command: sh -c "corepack enable && pnpm install && pnpm dev"
+
+volumes:
+  postgres_data:

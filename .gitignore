@@ -1,12 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.coverage
+
+# Node
 node_modules/
+.next*
+out/
+.next-dev/
+.next-build/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Build
 build/
 dist/
-coverage/
-.DS_Store
-*.log
-__pycache__/
-*.pyc
-quizzi.db*
-.env*
-!.env.example
-.playwright-cli/
+
+# SQLite
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
