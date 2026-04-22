@@ -125,13 +125,8 @@ async function startServer() {
   }
 
   console.log('[startup] Verifying safety config...');
-  try {
-    assertSafePersistenceConfig();
-    console.log('[startup] Persistence verified.');
-  } catch (err: any) {
-    console.warn('[startup] Persistence configuration warning:', err?.message || err);
-    // We log the error but continue to allow the server to start so the user can see logs/health status
-  }
+  assertSafePersistenceConfig();
+  console.log('[startup] Persistence verified.');
 
   logMailHealth('startup');
 
@@ -271,10 +266,18 @@ async function startServer() {
     const latestSupabaseRestHealth = await checkSupabaseRestHealth();
     const postgresMirror = getPostgresMirrorStatus();
     const sqliteStorage = getSqliteStorageStatus();
+    const requiresMirror = shouldRequireSupabaseMirrorInProduction();
+    const persistenceHealthy =
+      process.env.NODE_ENV !== 'production' ||
+      isUnsafePersistenceExplicitlyAllowed() ||
+      ((!requiresMirror || postgresMirror.configured) && (postgresMirror.configured || sqliteStorage.persistent));
+
+    res.status(persistenceHealthy ? 200 : 503);
     res.json({
-      status: 'ok',
+      status: persistenceHealthy ? 'ok' : 'degraded',
       app: 'quizzi',
       primary_db: postgresMirror.active ? 'sqlite_with_supabase_mirror' : 'sqlite',
+      persistence_healthy: persistenceHealthy,
       sqlite_seeded: true,
       sqlite_storage: sqliteStorage,
       postgres_mirror: postgresMirror,

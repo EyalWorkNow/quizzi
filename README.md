@@ -1118,6 +1118,20 @@ Use one of:
 - `SQLITE_DB_PATH`
 - `DATABASE_URL` + `DIRECT_URL` + mirror setup
 
+### Vercel + separate backend
+
+If the frontend is deployed to Vercel but the API runs elsewhere, do not rely on same-origin `/api` requests.
+
+Set:
+
+- `VITE_API_BASE_URL=https://your-real-backend.example.com`
+
+Important:
+
+- leave `VITE_API_BASE_URL` empty when frontend and backend are served from the same origin
+- do not point Vercel rewrites to a non-existent `/api/index.js`
+- this codebase uses SQLite as the primary runtime store, so Vercel is suitable for the frontend only unless the backend architecture is changed
+
 ## Practical reading guide
 
 If you are new to the codebase, read in this order:
