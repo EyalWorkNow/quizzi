@@ -1,32 +1,25 @@
 /**
  * Central API Client for Quizzi
  *
- * Defaults to same-origin on localhost and Render-hosted deployments, but
- * automatically falls back to the canonical Render API when the frontend is
- * served from a separate host such as Vercel or a preview domain.
+ * Defaults to same-origin in every environment unless an explicit production
+ * API base URL is configured. This prevents preview/front-end deployments from
+ * silently talking to a stale backend with a different database.
  */
 
 import { getParticipantToken } from './studentSession.ts';
 
-const RENDER_API_FALLBACK = 'https://quizzi-mqru.onrender.com';
-
 function resolveApiBase() {
-  const explicitBase = String(import.meta.env.VITE_API_PROXY_TARGET || '').trim().replace(/\/+$/, '');
+  const explicitBase = String(
+    import.meta.env.VITE_API_BASE_URL ||
+      // Keep the proxy target as a development-only fallback for existing local setups.
+      (import.meta.env.DEV ? import.meta.env.VITE_API_PROXY_TARGET : '') ||
+      '',
+  )
+    .trim()
+    .replace(/\/+$/, '');
   if (explicitBase) return explicitBase;
 
-  if (typeof window === 'undefined') {
-    return '';
-  }
-
-  const host = String(window.location.hostname || '').trim().toLowerCase();
-  const isLocalHost = host === 'localhost' || host === '127.0.0.1';
-  const isRenderHost = host.endsWith('.onrender.com');
-
-  if (isLocalHost || isRenderHost) {
-    return '';
-  }
-
-  return RENDER_API_FALLBACK;
+  return '';
 }
 
 const API_BASE = resolveApiBase();

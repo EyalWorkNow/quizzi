@@ -113,10 +113,25 @@ function syncTeacherProfile(email: string, name?: string, school?: string) {
 
 async function readJsonOrThrow(response: Response) {
   const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-  if (!contentType.includes('application/json')) {
-    throw new Error('Authentication endpoint returned HTML instead of JSON. Check the deployed API base or hosting rewrites.');
+  const rawBody = await response.text();
+  const trimmedBody = rawBody.trim();
+  const looksLikeJson = trimmedBody.startsWith('{') || trimmedBody.startsWith('[');
+  const payload =
+    contentType.includes('application/json') || looksLikeJson
+      ? await (async () => {
+          try {
+            return trimmedBody ? JSON.parse(trimmedBody) : null;
+          } catch {
+            return null;
+          }
+        })()
+      : null;
+
+  if (!contentType.includes('application/json') && !looksLikeJson) {
+    throw new Error(
+      `Authentication endpoint returned ${contentType || 'a non-JSON response'} (HTTP ${response.status}). Check the deployed API base or hosting rewrites.`,
+    );
   }
-  const payload = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(payload?.error || response.statusText || 'Teacher authentication request failed');
   }
@@ -128,10 +143,15 @@ import { apiFetch } from './api.ts';
 async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit) {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
+  const headers = new Headers(init?.headers || undefined);
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json');
+  }
 
   try {
     return await apiFetch(input, {
       ...init,
+      headers,
       signal: controller.signal,
     });
   } catch (error: any) {
@@ -312,11 +332,12 @@ export async function signInTeacherWithProvider({
     const idToken = await popupResult.user.getIdToken();
     return await completeGoogleServerSession(idToken, popupResult.user.displayName);
   } catch (error: any) {
-    const message = String(error?.message || '').toLowerCase();
     if (
+      // Firebase popup auth can emit noisy COOP/window.closed console warnings without
+      // the sign-in actually failing. Redirect fallback is reserved for real popup
+      // environment failures so we do not convert a recoverable popup flow into a
+      // broken redirect flow on desktop browsers.
       error?.code === 'auth/popup-blocked' ||
-      message.includes('cross-origin-opener-policy') ||
-      message.includes('window.closed') ||
       error?.code === 'auth/operation-not-supported-in-this-environment'
     ) {
       await signInWithRedirect(auth, googleProvider);

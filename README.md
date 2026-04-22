@@ -1072,6 +1072,7 @@ Check all of the following:
 - Firebase Admin credentials are valid on the server
 - your deployed domain is listed in Firebase Authentication authorized domains
 - the browser is not blocking popups if you use popup-based sign-in
+- Chrome may still log `Cross-Origin-Opener-Policy` popup warnings even when popup sign-in succeeds; treat the actual auth result as the signal, not the console noise alone
 
 ### `API route not found`
 
@@ -1116,6 +1117,20 @@ Use one of:
 - `RENDER_DISK_PATH`
 - `SQLITE_DB_PATH`
 - `DATABASE_URL` + `DIRECT_URL` + mirror setup
+
+### Vercel + separate backend
+
+If the frontend is deployed to Vercel but the API runs elsewhere, do not rely on same-origin `/api` requests.
+
+Set:
+
+- `VITE_API_BASE_URL=https://your-real-backend.example.com`
+
+Important:
+
+- leave `VITE_API_BASE_URL` empty when frontend and backend are served from the same origin
+- do not point Vercel rewrites to a non-existent `/api/index.js`
+- this codebase uses SQLite as the primary runtime store, so Vercel is suitable for the frontend only unless the backend architecture is changed
 
 ## Practical reading guide
 

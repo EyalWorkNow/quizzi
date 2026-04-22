@@ -60,7 +60,13 @@ export default defineConfig(({ mode }) => {
         },
       },
       headers: {
-        'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+        'Cross-Origin-Opener-Policy': 'unsafe-none',
+        'Cross-Origin-Embedder-Policy': 'unsafe-none',
+      },
+    },
+    preview: {
+      headers: {
+        'Cross-Origin-Opener-Policy': 'unsafe-none',
         'Cross-Origin-Embedder-Policy': 'unsafe-none',
       },
     },
