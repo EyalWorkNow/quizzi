@@ -8,15 +8,19 @@
 
 import { getParticipantToken } from './studentSession.ts';
 
+function normalizeBaseUrl(value: unknown) {
+  return String(value || '').trim().replace(/\/+$/, '');
+}
+
 function resolveApiBase() {
-  const explicitBase = String(
+  const explicitBase = normalizeBaseUrl(
     import.meta.env.VITE_API_BASE_URL ||
+      import.meta.env.NEXT_PUBLIC_API_BASE_URL ||
+      import.meta.env.PUBLIC_API_BASE_URL ||
       // Keep the proxy target as a development-only fallback for existing local setups.
       (import.meta.env.DEV ? import.meta.env.VITE_API_PROXY_TARGET : '') ||
       '',
-  )
-    .trim()
-    .replace(/\/+$/, '');
+  );
   if (explicitBase) return explicitBase;
 
   return '';

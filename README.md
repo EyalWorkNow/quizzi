@@ -1126,6 +1126,11 @@ Set:
 
 - `VITE_API_BASE_URL=https://your-real-backend.example.com`
 
+Also supported for hosting platforms that expose other public env prefixes:
+
+- `NEXT_PUBLIC_API_BASE_URL=https://your-real-backend.example.com`
+- `PUBLIC_API_BASE_URL=https://your-real-backend.example.com`
+
 Important:
 
 - leave `VITE_API_BASE_URL` empty when frontend and backend are served from the same origin

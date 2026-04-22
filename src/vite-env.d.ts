@@ -3,6 +3,8 @@
 interface ImportMetaEnv {
   readonly DEV?: boolean;
   readonly VITE_API_BASE_URL?: string;
+  readonly NEXT_PUBLIC_API_BASE_URL?: string;
+  readonly PUBLIC_API_BASE_URL?: string;
   readonly VITE_API_PROXY_TARGET?: string;
   readonly VITE_FIREBASE_API_KEY?: string;
   readonly VITE_FIREBASE_AUTH_DOMAIN?: string;

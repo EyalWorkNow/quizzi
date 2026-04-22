@@ -113,6 +113,7 @@ function syncTeacherProfile(email: string, name?: string, school?: string) {
 
 async function readJsonOrThrow(response: Response) {
   const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  const requestUrl = String(response.url || '').trim();
   const rawBody = await response.text();
   const trimmedBody = rawBody.trim();
   const looksLikeJson = trimmedBody.startsWith('{') || trimmedBody.startsWith('[');
@@ -129,7 +130,7 @@ async function readJsonOrThrow(response: Response) {
 
   if (!contentType.includes('application/json') && !looksLikeJson) {
     throw new Error(
-      `Authentication endpoint returned ${contentType || 'a non-JSON response'} (HTTP ${response.status}). Check the deployed API base or hosting rewrites.`,
+      `Authentication endpoint ${requestUrl || 'request'} returned ${contentType || 'a non-JSON response'} (HTTP ${response.status}). Check the deployed API base or hosting rewrites.`,
     );
   }
   if (!response.ok) {
