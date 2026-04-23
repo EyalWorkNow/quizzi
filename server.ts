@@ -117,12 +117,7 @@ function assertSafePersistenceConfig() {
 async function startServer() {
   console.log('[startup] Config summary:', JSON.stringify(getStartupConfigSummary(), null, 2));
   console.log('[startup] Verifying auth config...');
-  console.log('[startup] Verifying auth config...');
-  try {
-    assertSecureAuthConfig();
-  } catch (err) {
-    console.warn('[startup] Auth check warning:', err);
-  }
+  assertSecureAuthConfig();
 
   console.log('[startup] Verifying safety config...');
   assertSafePersistenceConfig();

@@ -21,7 +21,7 @@ export function getAuthSecretStatus() {
 export function assertSecureAuthConfig() {
   const authSecretStatus = getAuthSecretStatus();
   if (isProduction && authSecretStatus.using_fallback) {
-    console.error(
+    throw new Error(
       '[CRITICAL SECURITY] QUIZZI_AUTH_SECRET is not configured or uses the default value in production. ' +
       'Teacher session cookies and scoped auth tokens are being signed with an unsafe fallback secret. ' +
       'Set a strong, stable QUIZZI_AUTH_SECRET in your deployment environment (example: `openssl rand -base64 32`). ' +
