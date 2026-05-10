@@ -28,7 +28,15 @@ export function JoinForm({
   return (
     <form className="space-y-3" onSubmit={submit}>
       <Field label="Game PIN" icon={<ScanBarcode size={14} />}>
-        <Input placeholder="Game PIN" value={pin} onChange={(event) => setPin(event.target.value)} required />
+        <Input
+          placeholder="Game PIN"
+          value={pin}
+          onChange={(event) => setPin(event.target.value)}
+          required
+          inputMode="numeric"
+          maxLength={10}
+          className="h-16 text-3xl font-black tracking-[0.25em] text-center placeholder:text-slate/30 border-gold/30 focus-visible:ring-gold/40"
+        />
       </Field>
 
       <Field label="Nickname" icon={<Profile2User size={14} />}>

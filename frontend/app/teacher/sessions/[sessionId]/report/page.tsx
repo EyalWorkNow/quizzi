@@ -11,7 +11,8 @@ import {
   StatusUp,
   ArrowLeft2,
   Flash,
-  DirectboxReceive
+  DirectboxReceive,
+  TickCircle
 } from "iconsax-react";
 import {
   BarChart,
@@ -81,7 +82,7 @@ export default function ReportPage() {
         </Link>
         <div className="px-4 py-2 glass border-gold/20 rounded-xl flex items-center gap-2">
           <Flash size={18} variant="Bold" className="text-gold" />
-          <span className="text-xs font-bold text-ink uppercase tracking-widest leading-none">Intelligence Ready</span>
+          <span className="text-xs font-bold text-ink uppercase tracking-widest leading-none">Results Ready</span>
         </div>
       </div>
 
@@ -95,11 +96,12 @@ export default function ReportPage() {
           </div>
           <div className="relative z-10 space-y-4">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-accent/10 border border-accent/20 rounded-full text-[10px] font-bold text-accent uppercase tracking-widest">
-              Decision Engine Analysis
+              <TickCircle size={14} variant="Bold" />
+              Session Complete
             </div>
-            <h1 className="text-4xl font-bold text-ink tracking-tight">Post-Game Intelligence Report</h1>
+            <h1 className="text-4xl font-bold text-ink tracking-tight">Session Results</h1>
             <p className="text-slate max-w-2xl text-lg">
-              Deterministic skill diagnosis, behavioral heatmaps, and automated intervention sequences generated for this session.
+              Here's how your class performed. Review the insights below and plan your next steps.
             </p>
           </div>
         </GlassCard>
@@ -111,7 +113,7 @@ export default function ReportPage() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-bold text-ink flex items-center gap-2">
               <StatusUp size={22} variant="Bold" className="text-accent" />
-              Skill Mastery Vector
+              Skill Mastery
             </h3>
             <span className="text-[10px] font-bold text-slate uppercase">Mastery %</span>
           </div>
@@ -149,8 +151,8 @@ export default function ReportPage() {
                 <Profile2User size={32} variant="Bold" />
               </div>
               <div>
-                <h3 className="text-xl font-bold text-ink">Execution Metrics</h3>
-                <p className="text-xs text-slate uppercase tracking-widest font-bold">Participation Flow</p>
+                <h3 className="text-xl font-bold text-ink">Session Stats</h3>
+                <p className="text-xs text-slate uppercase tracking-widest font-bold">Participation</p>
               </div>
             </div>
             <div className="mt-6 grid grid-cols-2 items-center">
@@ -205,7 +207,7 @@ export default function ReportPage() {
         <div className="space-y-6">
           <h2 className="text-2xl font-bold text-ink px-2 flex items-center gap-3 leading-none">
             <DirectboxReceive size={28} variant="Bold" className="text-info" />
-            Actionable Intelligence
+            What to Do Next
           </h2>
           <ActionPlanSummary summary={report.summary ?? {}} />
           <SupportGroups groups={report.groups ?? []} />
@@ -215,7 +217,7 @@ export default function ReportPage() {
         <div className="space-y-6">
           <h2 className="text-2xl font-bold text-ink px-2 flex items-center gap-3 leading-none">
             <LampCharge size={28} variant="Bold" className="text-gold" />
-            Intervention Scripts
+            Teaching Scripts
           </h2>
           <GlassCard className="p-6 space-y-4">
             {recommendations.map((step: any, idx: number) => (
@@ -239,7 +241,7 @@ export default function ReportPage() {
 
           <h2 className="text-2xl font-bold text-ink px-2 flex items-center gap-3 leading-none pt-4">
             <MessageQuestion size={28} variant="Bold" className="text-info" />
-            Evidence Matrix
+            Question Review
           </h2>
           <GlassCard className="p-6 space-y-4">
             {skillEvidence.map((row: any) => (

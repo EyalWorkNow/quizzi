@@ -111,13 +111,13 @@ export default function ContentPage() {
             <div>
               <CardTitle className="flex items-center gap-2 text-xl text-ink">
                 <DocumentText size={22} className="text-accent" variant="Bold" />
-                Step 1: Upload Knowledge
+                Step 1: Upload Learning Material
               </CardTitle>
-              <CardDescription className="text-slate">Feed the Engine with lesson notes or text to synthesize questions.</CardDescription>
+              <CardDescription className="text-slate">Paste your lesson material. The AI will generate quiz questions automatically.</CardDescription>
             </div>
             <Link href={`/teacher/classes/${classId}/quiz-builder`}>
               <Button variant="ghost" className="text-accent hover:text-ink hover:bg-accent/10">
-                Continue to Forge
+                Go to Quiz Builder
                 <ArrowRight2 size={16} className="ml-2" />
               </Button>
             </Link>
@@ -131,7 +131,7 @@ export default function ContentPage() {
             <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center text-bg">
               <MessageQuestion size={24} variant="Bold" />
             </div>
-            <h3 className="text-xl font-bold text-ink">Material Feed</h3>
+            <h3 className="text-xl font-bold text-ink">Add Material</h3>
           </div>
 
           <form className="space-y-4" onSubmit={createSource}>
@@ -153,7 +153,7 @@ export default function ContentPage() {
                 onChange={(e) => setRawContent(e.target.value)}
                 placeholder="Paste the lesson text, notes, or article content here..."
               />
-              <p className="text-[10px] text-slate/50 text-right">{rawContent.trim().length} characters ingested</p>
+              <p className="text-[10px] text-slate/50 text-right">{rawContent.trim().length} characters</p>
             </div>
 
             <Button
@@ -162,7 +162,7 @@ export default function ContentPage() {
               type="submit"
             >
               <TickCircle size={22} variant="Bold" className="mr-2" />
-              {savingSource ? "Ingesting..." : "Save and Process Knowledge"}
+              {savingSource ? "Saving..." : "Save Material"}
             </Button>
           </form>
         </GlassCard>
@@ -172,21 +172,21 @@ export default function ContentPage() {
             <div className="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center text-accent">
               <Flash size={24} variant="Bold" />
             </div>
-            <h3 className="text-xl font-bold text-ink">Engine Synthesis</h3>
+            <h3 className="text-xl font-bold text-ink">Generate Questions</h3>
           </div>
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-slate uppercase tracking-widest">Synthesis Engine</label>
+              <label className="text-[10px] font-bold text-slate uppercase tracking-widest">AI Provider</label>
               <select
                 id="provider"
                 className="w-full h-12 rounded-xl border border-ink/15 bg-bg/50 px-4 text-sm text-ink focus:outline-none focus:border-accent/40"
                 value={provider}
                 onChange={(e) => setProvider(e.target.value as "gemini" | "auto" | "deterministic")}
               >
-                <option value="gemini">Gemini Neural (Recommended)</option>
-                <option value="auto">Adaptive Pipeline</option>
-                <option value="deterministic">Local Pattern Filter</option>
+                <option value="gemini">Gemini (Recommended)</option>
+                <option value="auto">Auto</option>
+                <option value="deterministic">Fast (Local)</option>
               </select>
             </div>
 
@@ -197,7 +197,7 @@ export default function ContentPage() {
               variant="outline"
             >
               <Flash size={18} variant="Bold" className="mr-2" />
-              {generating ? "Synthesizing..." : "Start Question Synthesis"}
+              {generating ? "Generating..." : "Generate Questions"}
             </Button>
 
             <div className="grid grid-cols-2 gap-3 pt-4 border-t border-ink/15">
@@ -208,7 +208,7 @@ export default function ContentPage() {
               <div className="glass p-3 rounded-xl border-ink/15 text-center">
                 <p className="text-[10px] text-slate font-bold uppercase mb-1">Source</p>
                 <p className={`text-xl font-bold ${sourceId ? 'text-accent' : 'text-slate/30'}`}>
-                  {sourceId ? 'Ready' : 'Wait'}
+                  {sourceId ? 'Ready' : 'None'}
                 </p>
               </div>
             </div>
@@ -229,8 +229,8 @@ export default function ContentPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Teacher Review Queue</CardTitle>
-          <CardDescription>Approve high-quality questions before publishing a quiz.</CardDescription>
+          <CardTitle className="text-lg">Review Generated Questions</CardTitle>
+          <CardDescription>Read each question and its answer options, then approve the ones to include in your quiz.</CardDescription>
         </CardHeader>
         <CardContent>
           <CandidateReviewTable

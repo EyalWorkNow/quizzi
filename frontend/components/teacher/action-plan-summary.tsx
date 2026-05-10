@@ -13,7 +13,7 @@ export function ActionPlanSummary({ summary }: { summary: Record<string, unknown
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-highlight text-accent">
             <Ranking size={17} variant="Bold" />
           </span>
-          Layer 1: Class Skill Summary
+          Class Performance Summary
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">

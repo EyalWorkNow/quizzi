@@ -13,7 +13,7 @@ export function RemediationPack({ pack }: { pack: Record<string, unknown> }) {
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-highlight text-accent">
             <Book1 size={17} variant="Bold" />
           </span>
-          Layer 3: Remediation Pack
+          Follow-up Practice
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">

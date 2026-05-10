@@ -31,11 +31,11 @@ function StudentJoinContent() {
       >
         <GlassCard variant="default" className="p-8 border-gold/20 shadow-[0_20px_50px_rgba(245,158,11,0.1)]">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 rounded-2xl bg-gold mx-auto flex items-center justify-center text-bg mb-4 shadow-lg">
+            <div className="w-20 h-20 rounded-3xl bg-gold mx-auto flex items-center justify-center text-bg mb-6 shadow-gold animate-pulse-glow">
               <Game size={32} variant="Bold" />
             </div>
-            <h1 className="text-3xl font-bold text-ink tracking-tight">Enter Arena</h1>
-            <p className="text-slate mt-2">Type your session PIN to start playing.</p>
+            <h1 className="text-4xl font-bold text-ink tracking-tight">Join the Game</h1>
+            <p className="text-slate mt-2">Enter your PIN and pick a nickname to jump in.</p>
           </div>
 
           <JoinForm

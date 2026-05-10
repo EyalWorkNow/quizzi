@@ -11,7 +11,7 @@ export function SupportGroups({ groups }: { groups: Array<Record<string, unknown
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-highlight text-accent">
             <People size={17} variant="Bold" />
           </span>
-          Layer 2: Support Groups
+          Students Who Need Help
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">

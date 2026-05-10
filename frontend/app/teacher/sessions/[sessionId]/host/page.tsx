@@ -239,7 +239,7 @@ export default function HostPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Clock size={17} className="text-accent" variant="Bold" />
-              Current Question Signal
+              Current Question
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-slate">
@@ -306,8 +306,8 @@ export default function HostPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Live Event Stream</CardTitle>
-          <CardDescription>Recent realtime events for operational visibility.</CardDescription>
+          <CardTitle className="text-lg">Live Feed</CardTitle>
+          <CardDescription>Real-time events from this session.</CardDescription>
         </CardHeader>
         <CardContent className="max-h-96 space-y-2 overflow-auto text-xs">
           {events.slice(-25).map((event) => (
