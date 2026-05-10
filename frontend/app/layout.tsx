@@ -6,18 +6,18 @@ import { Providers } from "@/components/providers";
 
 import "./globals.css";
 
-const bodyFont = Nunito_Sans({ subsets: ["latin"], variable: "--font-body" });
-const headingFont = Sora({ subsets: ["latin"], variable: "--font-heading" });
+const bodyFont = Nunito_Sans({ subsets: ["latin"], variable: "--font-body", weight: ["400", "600", "700", "800"] });
+const headingFont = Sora({ subsets: ["latin"], variable: "--font-heading", weight: ["600", "700", "800"] });
 
 export const metadata: Metadata = {
-  title: "Quizzy",
-  description: "Action-first classroom assessment"
+  title: "Quizzi",
+  description: "Live classroom quizzes — create, run, and review in real time"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body className="font-sans antialiased text-ink bg-bg" suppressHydrationWarning>
+      <body className={`${bodyFont.variable} ${headingFont.variable} font-sans antialiased text-ink bg-bg`} suppressHydrationWarning>
         <Providers>
           <div className="bg-mesh" />
           <div className="bg-grid absolute inset-0 z-0 pointer-events-none" />

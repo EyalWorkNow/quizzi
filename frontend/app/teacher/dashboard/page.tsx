@@ -88,9 +88,9 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-3xl font-bold text-ink tracking-tight flex items-center gap-2">
             <Teacher size={32} variant="Bold" className="text-accent" />
-            Teacher Command Center
+            Teacher Dashboard
           </h1>
-          <p className="text-slate mt-1 italic">Welcome back. Your deterministic analytics engine is ready.</p>
+          <p className="text-slate mt-1">Good to see you. Let&apos;s build something great.</p>
         </div>
         <Button
           variant="ghost"
@@ -102,7 +102,7 @@ export default function DashboardPage() {
           }}
         >
           <Logout size={18} variant="Bold" className="mr-2" />
-          Terminate Session
+          Sign Out
         </Button>
       </motion.div>
 
@@ -163,27 +163,27 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-ink flex items-center gap-2">
               <Flash size={22} variant="Bold" className="text-accent" />
-              Intelligence Pipeline
+              Quick Start
             </h2>
             <div className="px-3 py-1 bg-accent/10 border border-accent/20 rounded-full text-[10px] font-bold text-accent uppercase tracking-widest">
-              Live Flow
+              Live
             </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
             <Link href={`/teacher/classes/${primaryClassId}/content`} className="group">
               <GlassCard variant="default" className="p-5 h-full border-ink/15 group-hover:border-accent/30 group-hover:bg-accent/5 transition-all text-center">
-                <div className="w-12 h-12 rounded-full bg-accent/20 mx-auto flex items-center justify-center text-accent font-black text-xl mb-4 group-hover:scale-110 transition-all">1</div>
-                <h4 className="font-bold text-ink mb-2 uppercase tracking-wide">Upload Knowledge</h4>
-                <p className="text-[11px] text-slate leading-relaxed">Feed materials into the Engine to generate questions.</p>
+                <div className="w-14 h-14 rounded-full bg-accent mx-auto flex items-center justify-center text-bg font-black text-xl mb-4 group-hover:scale-110 transition-all shadow-accent">1</div>
+                <h4 className="font-bold text-ink mb-2 uppercase tracking-wide">Upload Materials</h4>
+                <p className="text-[11px] text-slate leading-relaxed">Add your lesson content and auto-generate questions.</p>
               </GlassCard>
             </Link>
 
             <Link href={`/teacher/classes/${primaryClassId}/quiz-builder`} className="group">
               <GlassCard variant="default" className="p-5 h-full border-ink/15 group-hover:border-accent/30 group-hover:bg-accent/5 transition-all text-center">
-                <div className="w-12 h-12 rounded-full bg-accent/20 mx-auto flex items-center justify-center text-accent font-black text-xl mb-4 group-hover:scale-110 transition-all">2</div>
-                <h4 className="font-bold text-ink mb-2 uppercase tracking-wide">Forge Game</h4>
-                <p className="text-[11px] text-slate leading-relaxed">Audit questions and build your published quiz.</p>
+                <div className="w-14 h-14 rounded-full bg-accent mx-auto flex items-center justify-center text-bg font-black text-xl mb-4 group-hover:scale-110 transition-all shadow-accent">2</div>
+                <h4 className="font-bold text-ink mb-2 uppercase tracking-wide">Build a Quiz</h4>
+                <p className="text-[11px] text-slate leading-relaxed">Review and arrange questions into a ready-to-run quiz.</p>
               </GlassCard>
             </Link>
 
@@ -191,16 +191,15 @@ export default function DashboardPage() {
               className="group cursor-pointer"
               onClick={() => {
                 if (selectedClass) {
-                  // Logic to start quick session could go here, or just trigger a visual highlight
-                  const element = document.getElementById('rapid-deployment');
+                  const element = document.getElementById('quick-actions');
                   element?.scrollIntoView({ behavior: 'smooth' });
                 }
               }}
             >
               <GlassCard variant="default" className="p-5 h-full border-ink/15 group-hover:border-accent/30 group-hover:bg-accent/5 transition-all text-center">
-                <div className="w-12 h-12 rounded-full bg-accent/20 mx-auto flex items-center justify-center text-accent font-black text-xl mb-4 group-hover:scale-110 transition-all">3</div>
-                <h4 className="font-bold text-ink mb-2 uppercase tracking-wide">Launch Session</h4>
-                <p className="text-[11px] text-slate leading-relaxed">Go live and capture real-time classroom telemetry.</p>
+                <div className="w-14 h-14 rounded-full bg-accent mx-auto flex items-center justify-center text-bg font-black text-xl mb-4 group-hover:scale-110 transition-all shadow-accent">3</div>
+                <h4 className="font-bold text-ink mb-2 uppercase tracking-wide">Start Session</h4>
+                <p className="text-[11px] text-slate leading-relaxed">Go live and watch students answer in real time.</p>
               </GlassCard>
             </div>
           </div>
@@ -208,7 +207,7 @@ export default function DashboardPage() {
           {/* Target Dimension Select (Linearized) */}
           <div className="pt-4 border-t border-ink/15">
             <div className="flex flex-col md:flex-row items-center gap-4">
-              <label className="text-[10px] font-bold text-slate uppercase tracking-widest whitespace-nowrap">Current Workspace:</label>
+              <label className="text-[10px] font-bold text-slate uppercase tracking-widest whitespace-nowrap">Active Class:</label>
               <select
                 className="flex-1 bg-bg/50 border border-ink/20 rounded-xl px-4 py-2 text-sm text-ink focus:outline-none focus:border-accent/50 transition-all cursor-pointer"
                 value={primaryClassId}
@@ -237,19 +236,19 @@ export default function DashboardPage() {
           </h2>
           <div className="grid grid-cols-2 gap-3">
             <div className="glass p-4 rounded-xl text-center border-ink/15">
-              <p className="text-[10px] text-slate font-bold uppercase mb-1">Active S</p>
+              <p className="text-[10px] text-slate font-bold uppercase mb-1">Active Sessions</p>
               <p className="text-2xl font-bold text-ink">{activeSessions.length}</p>
             </div>
             <div className="glass p-4 rounded-xl text-center border-ink/15">
-              <p className="text-[10px] text-slate font-bold uppercase mb-1">Pending Q</p>
+              <p className="text-[10px] text-slate font-bold uppercase mb-1">Pending Questions</p>
               <p className="text-2xl font-bold text-ink">{overview?.totals.candidate_questions ?? 0}</p>
             </div>
           </div>
           <div className="space-y-2">
-            <p className="text-[10px] text-slate font-bold uppercase tracking-widest mb-3">Recent Transmissions</p>
+            <p className="text-[10px] text-slate font-bold uppercase tracking-widest mb-3">Live Sessions</p>
             <AnimatePresence>
               {activeSessions.length === 0 ? (
-                <p className="text-xs text-slate italic py-4 text-center glass rounded-xl border-dashed border-ink/20">No active sessions detected.</p>
+                <p className="text-xs text-slate italic py-4 text-center glass rounded-xl border-dashed border-ink/20">No live sessions right now.</p>
               ) : (
                 activeSessions.map((s, i) => (
                   <motion.div
@@ -274,22 +273,22 @@ export default function DashboardPage() {
 
       {/* Stats row */}
       <div className="grid gap-4 md:grid-cols-4">
-        <StatItem icon={<Category size={20} variant="Bold" />} label="Total Units" value={String(overview?.totals.classes ?? 0)} color="text-info" />
-        <StatItem icon={<People size={20} variant="Bold" />} label="Node Population" value={String(overview?.totals.students ?? 0)} color="text-accent" />
-        <StatItem icon={<Play size={20} variant="Bold" />} label="Executions" value={String(overview?.totals.active_sessions ?? 0)} color="text-gold" />
-        <StatItem icon={<Book size={20} variant="Bold" />} label="Synthesis" value={String(overview?.totals.candidate_questions ?? 0)} color="text-accent" />
+        <StatItem icon={<Category size={20} variant="Bold" />} label="Classes" value={String(overview?.totals.classes ?? 0)} color="text-info" iconBg="bg-info/15" />
+        <StatItem icon={<People size={20} variant="Bold" />} label="Students" value={String(overview?.totals.students ?? 0)} color="text-accent" iconBg="bg-accent/15" />
+        <StatItem icon={<Play size={20} variant="Bold" />} label="Sessions Run" value={String(overview?.totals.active_sessions ?? 0)} color="text-gold" iconBg="bg-gold/15" />
+        <StatItem icon={<Book size={20} variant="Bold" />} label="Questions" value={String(overview?.totals.candidate_questions ?? 0)} color="text-success" iconBg="bg-success/15" />
       </div>
 
       {/* Lower Section: Detailed classes and Quick Actions */}
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <div className="space-y-4">
-          <h3 className="text-lg font-bold text-ink px-2">Knowledge Base Units (Classes)</h3>
+          <h3 className="text-lg font-bold text-ink px-2">Your Classes</h3>
           <div className="grid gap-4">
             {classes.map((cls) => (
               <GlassCard key={cls.id} className="p-6 border-ink/15 hover:border-ink/20 group">
                 <div className="flex flex-col md:flex-row justify-between gap-4">
                   <div className="flex gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-bg/35 flex items-center justify-center text-accent group-hover:scale-110 transition-all">
+                    <div className="w-12 h-12 rounded-2xl bg-accent/15 flex items-center justify-center text-accent group-hover:scale-110 transition-all">
                       <Category size={24} variant="Bold" />
                     </div>
                     <div>
@@ -306,7 +305,7 @@ export default function DashboardPage() {
 
                 {cls.weak_skills.length > 0 && (
                   <div className="mt-6 pt-6 border-t border-ink/15">
-                    <p className="text-[10px] font-bold text-slate uppercase tracking-widest mb-3">Critical Mastery Vectors (Weak Skills)</p>
+                    <p className="text-[10px] font-bold text-slate uppercase tracking-widest mb-3">Skills Needing Work</p>
                     <div className="flex flex-wrap gap-2">
                       {cls.weak_skills.map(skill => (
                         <div key={skill.skill_id} className="px-3 py-2 glass rounded-lg border-ink/15 flex items-center gap-3">
@@ -326,16 +325,16 @@ export default function DashboardPage() {
         </div>
 
         <div className="space-y-6">
-          <h3 className="text-lg font-bold text-ink px-2">Rapid Deployment</h3>
+          <h3 className="text-lg font-bold text-ink px-2" id="quick-actions">Quick Actions</h3>
           <GlassCard variant="premium" className="p-6 space-y-6">
             <form onSubmit={createClass} className="space-y-3">
               <div className="flex items-center gap-2 text-ink/90">
                 <Add size={18} variant="Bold" className="text-accent" />
-                <span className="text-sm font-bold">New Unit Initialization</span>
+                <span className="text-sm font-bold">Create New Class</span>
               </div>
-              <Input className="glass border-ink/20" value={name} onChange={(e) => setName(e.target.value)} placeholder="Identifier (Name)" />
-              <Input className="glass border-ink/20" value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="Index (Grade)" />
-              <Button className="w-full bg-accent text-bg font-bold hover:bg-accent/90" type="submit">Deploy Class</Button>
+              <Input className="glass border-ink/20" value={name} onChange={(e) => setName(e.target.value)} placeholder="Class name" />
+              <Input className="glass border-ink/20" value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="Grade level" />
+              <Button className="w-full bg-accent text-bg font-bold hover:bg-accent/90" type="submit">Create Class</Button>
             </form>
 
             <div className="h-px bg-bg/35" />
@@ -343,11 +342,11 @@ export default function DashboardPage() {
             <form onSubmit={startSession} className="space-y-3">
               <div className="flex items-center gap-2 text-ink/90">
                 <Play size={18} variant="Bold" className="text-gold" />
-                <span className="text-sm font-bold">Manual Session Ignition</span>
+                <span className="text-sm font-bold">Launch Session</span>
               </div>
-              <Input className="glass border-ink/20" value={classId} onChange={(e) => setClassId(e.target.value)} placeholder="Unit ID" />
-              <Input className="glass border-ink/20" value={quizId} onChange={(e) => setQuizId(e.target.value)} placeholder="Forge ID" />
-              <Button variant="outline" className="w-full glass border-ink/20 text-ink hover:bg-bg/45 font-bold" type="submit">Ignite Game</Button>
+              <Input className="glass border-ink/20" value={classId} onChange={(e) => setClassId(e.target.value)} placeholder="Class ID" />
+              <Input className="glass border-ink/20" value={quizId} onChange={(e) => setQuizId(e.target.value)} placeholder="Quiz ID" />
+              <Button variant="outline" className="w-full glass border-ink/20 text-ink hover:bg-bg/45 font-bold" type="submit">Start Game</Button>
             </form>
           </GlassCard>
         </div>
@@ -356,10 +355,10 @@ export default function DashboardPage() {
   );
 }
 
-function StatItem({ icon, label, value, color }: { icon: ReactNode, label: string, value: string, color: string }) {
+function StatItem({ icon, label, value, color, iconBg }: { icon: ReactNode, label: string, value: string, color: string, iconBg?: string }) {
   return (
-    <GlassCard className="p-5 border-ink/15 hover:border-ink/25 transition-all">
-      <div className={`p-2 w-fit rounded-xl bg-bg/35 mb-3 ${color}`}>
+    <GlassCard className="p-5 border-ink/15 hover:border-ink/25 hover:shadow-card transition-all">
+      <div className={`p-2.5 w-fit rounded-xl mb-3 ${color} ${iconBg ?? "bg-bg/35"}`}>
         {icon}
       </div>
       <p className="text-[10px] font-bold text-slate uppercase tracking-widest">{label}</p>

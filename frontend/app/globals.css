@@ -89,6 +89,45 @@ body {
   100% { transform: translateY(0px); }
 }
 
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
+  50% { box-shadow: 0 0 0 8px transparent; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes game-bounce {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
 .animate-float {
   animation: float 6s ease-in-out infinite;
 }
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-game-bounce {
+  animation: game-bounce 0.6s ease-in-out;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, var(--accent) 0%, #64b5ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Better scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(163,188,223,0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(163,188,223,0.4); }
+
+/* Focus system */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }

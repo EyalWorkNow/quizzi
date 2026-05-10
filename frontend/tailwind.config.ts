@@ -30,6 +30,20 @@ const config: Config = {
       },
       backgroundImage: {
         'glass-gradient': 'linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05))',
+      },
+      fontFamily: {
+        sans: ['var(--font-body)', 'sans-serif'],
+        heading: ['var(--font-heading)', 'sans-serif'],
+      },
+      animation: {
+        'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
+        'game-bounce': 'game-bounce 0.6s ease-in-out',
+        'float': 'float 6s ease-in-out infinite',
+      },
+      boxShadow: {
+        'accent': '0 0 30px -5px rgba(46,211,183,0.4)',
+        'gold': '0 0 30px -5px rgba(244,181,70,0.4)',
+        'card': '0 16px 45px -20px rgba(2,6,23,0.7)',
       }
     }
   },

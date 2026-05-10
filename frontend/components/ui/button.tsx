@@ -12,7 +12,9 @@ const buttonVariants = cva(
           "bg-gradient-to-r from-accent to-accent2 text-bg shadow-[0_16px_30px_-18px_rgba(46,211,183,0.9)] hover:brightness-95",
         secondary: "border border-ink/15 bg-panel text-ink hover:border-accent/35 hover:bg-panel/85",
         ghost: "bg-transparent text-slate hover:bg-highlight hover:text-ink",
-        outline: "border border-ink/15 bg-card/70 text-ink hover:border-accent/45 hover:bg-highlight"
+        outline: "border border-ink/15 bg-card/70 text-ink hover:border-accent/45 hover:bg-highlight",
+        glow: "bg-gradient-to-r from-accent to-accent2 text-bg font-bold shadow-accent hover:shadow-[0_0_40px_-5px_rgba(46,211,183,0.6)] hover:brightness-105 transition-all",
+        game: "bg-gradient-to-br from-gold/90 to-gold text-bg font-black shadow-gold hover:shadow-[0_0_40px_-5px_rgba(244,181,70,0.6)] hover:scale-105 transition-all",
       },
       size: {
         default: "h-10 px-4 py-2",

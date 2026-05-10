@@ -2,8 +2,14 @@
 
 import { Flash } from "iconsax-react";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+const OPTION_STYLES = [
+  { bg: "from-indigo-500 to-indigo-600", badge: "bg-indigo-400", shadow: "shadow-indigo-500/30" },
+  { bg: "from-amber-500 to-amber-600", badge: "bg-amber-400", shadow: "shadow-amber-500/30" },
+  { bg: "from-rose-500 to-rose-600", badge: "bg-rose-400", shadow: "shadow-rose-500/30" },
+  { bg: "from-teal-500 to-teal-600", badge: "bg-teal-400", shadow: "shadow-teal-500/30" },
+];
+
+const LETTERS = ["A", "B", "C", "D"];
 
 export function AnswerPanel({
   question,
@@ -13,24 +19,50 @@ export function AnswerPanel({
   onAnswer: (optionId: string) => Promise<void>;
 }) {
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="bg-gradient-to-r from-highlight to-card">
-        <p className="mb-2 inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate">
-          <Flash size={12} className="text-accent" />
+    <div className="overflow-hidden rounded-2xl glass-premium border border-ink/15">
+      {/* Question header */}
+      <div className="bg-gradient-to-r from-highlight to-transparent px-6 py-5 border-b border-ink/15">
+        <p className="mb-2 inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-accent">
+          <Flash size={12} className="text-accent" variant="Bold" />
           Live Question
         </p>
-        <CardTitle className="text-xl leading-snug">{question.stem}</CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-3">
-        {question.options.map((option) => (
-          <Button key={option.id} className="h-auto justify-start rounded-xl py-3 text-left" variant="outline" onClick={() => onAnswer(option.id)}>
-            <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-highlight text-xs font-semibold text-accent">
-              {option.key}
-            </span>
-            <span className="flex-1">{option.text}</span>
-          </Button>
-        ))}
-      </CardContent>
-    </Card>
+        <p className="text-xl font-bold text-ink leading-snug">{question.stem}</p>
+      </div>
+
+      {/* Answer tiles */}
+      <div className="grid gap-3 p-5">
+        {question.options.map((option, index) => {
+          const style = OPTION_STYLES[index % OPTION_STYLES.length];
+          const letter = LETTERS[index] ?? option.key;
+          return (
+            <button
+              key={option.id}
+              onClick={() => onAnswer(option.id)}
+              className={`
+                group w-full flex items-center gap-4
+                min-h-[72px] px-5 rounded-2xl
+                bg-gradient-to-r ${style.bg}
+                shadow-lg ${style.shadow}
+                font-bold text-white text-left
+                hover:scale-[1.02] hover:brightness-110
+                active:scale-[0.98]
+                transition-all duration-150
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50
+              `}
+            >
+              <span className={`
+                inline-flex h-10 w-10 shrink-0 items-center justify-center
+                rounded-xl ${style.badge}
+                text-white font-black text-lg
+                shadow-sm
+              `}>
+                {letter}
+              </span>
+              <span className="flex-1 text-base leading-snug">{option.text}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

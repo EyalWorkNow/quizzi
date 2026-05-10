@@ -28,8 +28,8 @@ export function TopNav() {
             </span>
           </div>
           <div className="hidden sm:block">
-            <p className="text-lg font-bold leading-none tracking-tight text-ink">Quizzy</p>
-            <p className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-slate">Decision Engine</p>
+            <p className="text-lg font-bold leading-none tracking-tight text-ink">Quizzi</p>
+            <p className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-slate">Live Classroom Quizzes</p>
           </div>
         </Link>
 
@@ -66,7 +66,7 @@ export function TopNav() {
           </Link>
           <Link href="/teacher/dashboard">
             <Button size="sm" className="text-xs font-bold">
-              Primary Access
+              Teacher Login
             </Button>
           </Link>
         </div>
